@@ -353,6 +353,22 @@ polyline.mark {
 .arrow-mark.mark {
   fill: none;
 }
+/* The arrow text being dragged will be the conditions of, in the snapping colour, faded in. */
+.arrow-mark.slot {
+  stroke: var(--brand-bright);
+  stroke-opacity: 0.35;
+  animation: slot-in var(--motion-fast) var(--ease-out);
+}
+@keyframes slot-in {
+  from {
+    stroke-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arrow-mark.slot {
+    animation: none;
+  }
+}
 /* Page outlines: the page and its purpose's guides (columns, a text block, A1 in A0). Faint, so they never compete
    with the drawing. */
 .pages path {

@@ -77,10 +77,14 @@ const chem = await import(join(repo, "src/chem.ts"));
 await chem.ready;
 const { serialize } = await import(join(repo, "src/file.ts"));
 const jitter = (i) => Math.sin(i * 12.9898) * 0.3;
+// tied:<SMILES>: the structure with a curved arrow from every fourth atom to the atom three on, each end tied to its
+// atom (arrowlink.ts; a release before 1.1.3 reads them as free arrows).
 const drawing = (s) => {
-  const mol = s.startsWith("chain:")
+  const tied = s.startsWith("tied:"), parsed = s.startsWith("chain:")
     ? { atoms: Array.from({ length: +s.slice(6) }, (_, i) => ({ label: "C", location: [i * 0.87, (i % 2) * 0.5, 0] })), bonds: Array.from({ length: +s.slice(6) - 1 }, (_, i) => ({ type: 1, atoms: [i, i + 1] })) }
-    : chem.parseStructure(s);
+    : chem.parseStructure(tied ? s.slice(5) : s);
+  const at = (i) => [parsed.atoms[i].location[0] + jitter(i), parsed.atoms[i].location[1] + jitter(i + 999)];
+  const mol = !tied ? parsed : { ...parsed, arrows: parsed.atoms.flatMap((_, i) => (i % 4 || i + 3 >= parsed.atoms.length ? [] : [{ id: i + 1, kind: "curved", from: at(i), to: at(i + 3), bend: 0.4, fromOn: { atom: i }, toOn: { atom: i + 3 } }])) };
   return serialize({ ...mol, atoms: mol.atoms.map((a, i) => ({ ...a, location: [a.location[0] + jitter(i), a.location[1] + jitter(i + 999), 0] })) });
 };
 

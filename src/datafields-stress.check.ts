@@ -357,6 +357,10 @@ test("S27 a field's text is never chemistry nor a compound number", async () => 
   d.host.set(bold);
   const s = (await call("read", {})).result!.structuredContent.structures[0];
   assert.deepEqual([s.number, s.caption, s.formula], [undefined, undefined, "C2H6O"]);
+  // Dragged or tied beside a reaction arrow, it never becomes the arrow's conditions (a reagent).
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const arrowSlot = \(c: Caption, box: Box\) => \{\n\s+if \(c\.cycle \|\| c\.measure \|\| c\.angle \|\| !c\.text\.trim\(\) \|\| doc\.data\?\.some\(\(f\) => f\.caption === c\.id\)\) return undefined;/);
+  assert.match(editor, /const landsOn = [^]*?return arrowSlot\(c, /, "a drop beside an arrow asks arrowSlot");
 });
 
 test("S28 a structure replaced in place keeps its fields", async () => {

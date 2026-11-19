@@ -12,7 +12,7 @@ import {
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, SelectionBackground, Paperclip, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
-  Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
+  Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, Magnet, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
   Storefront, FirstAidKit,
 } from "@phosphor-icons/react";
@@ -91,10 +91,13 @@ export type Context = ({ annotate?: true }) & (
       // cycleSide: one picked caption that labels a cycle's side arrow (CycleSide). cycleName: one picked caption that is
       // a step's name, moved from where Octet puts it. values: live values among them (Add to drawing), one showing its
       // names or none. places: the first one's decimals (Decimals), standard or 0 to 8.
-      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden"; places?: string }
+      // conditions: picked text that is all an arrow's conditions: the first one's gap (pt), and whether any was moved by
+      // hand. tieArrow: one free text beside an arrow, that Tie to arrow makes its conditions.
+      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden"; places?: string; conditions?: { gap: number; moved: boolean }; tieArrow?: boolean }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
-  | { kind: "arrow"; chart?: ChartLook; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
+  // gap: the space between the arrows and their conditions (pt), when they have some.
+  | { kind: "arrow"; chart?: ChartLook; gap?: number; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   // symbol and symbolPt: a free symbol's kind and size (pt).
@@ -501,8 +504,11 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.field) items.push(it(<Paperclip size={18} />, "Edit attached data…", "attach_data"), it(<SelectionBackground size={18} />, "Select linked objects", "select_linked"));
       if (context.cycleSide) items.push(...sideItems(context.cycleSide));
       if (context.cycleName?.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
+      if (context.conditions?.moved) items.push(it(<Magnet size={18} />, "Reset position", "conditions.reset"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
+      else if (context.conditions) items.push(it(<LinkBreak size={18} />, "Un-tie from arrow", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
+      else if (context.tieArrow) items.push(it(<LinkSimple size={18} />, "Tie to arrow", "caption.attach"));
       items.push(...warnings(), small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, inWindow, ...order, keep, del);
       break;
     case "reaction":
@@ -1033,6 +1039,12 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         </div>
       )}
 
+      {context.kind === "caption" && context.mode === "picked" && context.conditions && (
+        // Conditions text: the space between it and its arrow, as an arrow's and a cycle's Gap.
+        <div className="sliders" role="group" aria-label="Conditions">
+          <Slider name="Gap" value={Math.min(24, context.conditions.gap)} min={0} max={24} step={0.5} show={(v) => `${v.toFixed(1)} pt`} onChange={(v) => run(`conditions.gap.${Math.round(v * 10)}`)} />
+        </div>
+      )}
       {(context.kind === "atom" || context.kind === "structure" || context.kind === "shape") && context.text && (
         // A label styles as text does, as in ChemDraw: the Text menu's styles, font and size on the selected labels,
         // and on a table's cells or a TLC plate's Rf values.
@@ -1206,6 +1218,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         <div className="sliders" role="group" aria-label="Lines">
           <Slider name="Line width" value={context.kind === "shape" ? context.weight : context.width!} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`lines.weight.${Math.round(v * 100)}`)} />
           {context.kind === "cycle" && <Slider name="Gap" value={context.gap} min={0} max={24} step={0.5} show={(v) => `${v.toFixed(1)} pt`} onChange={(v) => run(`cycle.gap.${Math.round(v * 10)}`)} />}
+          {context.kind === "arrow" && context.gap !== undefined && <Slider name="Gap" value={Math.min(24, context.gap)} min={0} max={24} step={0.5} show={(v) => `${v.toFixed(1)} pt`} onChange={(v) => run(`conditions.gap.${Math.round(v * 10)}`)} />}
         </div>
       )}
       {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && context.opacity !== undefined && (

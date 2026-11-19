@@ -106,7 +106,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -149,8 +149,10 @@ import { Tooltips } from "./Tooltip";
 import { failure, fileName, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
+import { followArrows, MARK_KEY, tieable, tieAt, withTies } from "./arrowlink";
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, keepPlace, movedAt, staticTable, rowOf as gridRowOf, setRole, shiftView, shownCell, stepGrids, TABLE, tableOf } from "./gridview";
 import { logError } from "./crashlog";
+import { readGap, sideReach, slotFor, takesConditions, type Slot as ArrowSlot } from "./conditions";
 import { handle as handleMcp, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
 import { McpMagic, PictureDemo, type Magic } from "./McpMagic";
@@ -279,12 +281,13 @@ type Drag =
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
   // d: the offset shown; to: where the move goes (d is part of the way there while the Shift lock glides); held: the
-  // axis the Shift lock holds (snap.ts heldAxis).
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; to?: P; held?: 0 | 1; alone?: true }
+  // axis the Shift lock holds (snap.ts heldAxis). slots: the arrows moving text will be the conditions of, lit.
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; to?: P; held?: 0 | 1; alone?: true; slots?: number[] }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
-  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" } }
+  // on, onTo: what a curved arrow's start and end are on, which they are tied to (arrowlink.ts).
+  | { kind: "arrow"; from: P; start: [number, number]; target: Hover; to?: P; trail?: P[]; side?: number; make?: Make; alt?: boolean; corners?: P[]; longer?: { id: number; end: "from" | "to" }; on?: ArrowEnd; onTo?: ArrowEnd }
   // Drawing a shape from corner to corner.
   | { kind: "shape"; from: P; start: [number, number]; target: Hover; to?: P }
   // The Cycle tool: a circle drawn out from its centre, or a click on a circle. pull: a side arrow pulled out of a step's
@@ -1138,7 +1141,8 @@ export default function Editor() {
     // hand that are no longer fewer than usual go (settleHydrogens).
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
     const env = plotEnv();
-    mol = keepPlace(doc, settleHydrogens(opened ? mol : followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
+    // A curved arrow's end tied to an atom, bond or lone pair goes where the edit moved it (arrowlink.ts).
+    mol = keepPlace(doc, settleHydrogens(opened ? mol : followLevels(doc, followCharts(doc, followLeaders(doc, followArrows(doc, mol)), env), env)));
     // Measurements follow their atoms (measurement.ts), once the multi-centre points are where their atoms are. A
     // drawing opened keeps its labels where the file has them.
     const fitted = settleMeasures(opened ? undefined : doc, placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol)), undefined, opened);
@@ -2488,7 +2492,7 @@ export default function Editor() {
   function laidOut(m: Mol, arrowIds: number[]): Mol {
     const d = render(m, frame, measure, L), box = (b?: Box): Box | undefined => b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L];
     const width = (t: string, c: Caption) => textWidth(t, (c.size ?? style.captionSize) * pt, c.bold, c.italic, fontStack(c.font ?? style.captionFont));
-    const caps = placeCaptions(m, d, width, m.arrows ?? [], pt, style.captionSize), done = new Set<number>(), captionOf = (cid: number) => box(caps.find((c) => c.id === cid)?.box);
+    const caps = placeCaptions(m, d, width, m.arrows ?? [], pt, style.captionSize, undefined, undefined, undefined, style.arrowGap), done = new Set<number>(), captionOf = (cid: number) => box(caps.find((c) => c.id === cid)?.box);
     for (const id of arrowIds) {
       if (done.has(id)) continue;
       const r = findReaction(m, id, m.arrows ?? [], (atoms) => box(union(atoms.filter((i) => d.ink[i]).map((i) => d.ink[i]))), captionOf);
@@ -3654,10 +3658,10 @@ export default function Editor() {
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return dropped(ringDrop(drag), chairFree(drag), true);
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return settleMeasures(doc, placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" || drag.kind === "turn" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip)));
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return settleMeasures(doc, placeCentres(dropped(followArrows(doc, drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" || drag.kind === "turn" ? followLevels(doc, drag.working, plotEnv()) : drag.working), drag.kind === "move" && drag.skip)));
     if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
-    if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
+    if (drag?.kind === "arrow" && drag.to) return addArrow(doc, withTies(newArrow(drag.from, drag.to, drag.side, drag.make), drag.make ? undefined : drag.on, drag.make ? undefined : drag.onTo))[0];
     if (drag?.kind === "shape" && drag.to) { const sh = shapeFrom(drag.from, drag.to); return sh ? addShape(doc, sh)[0] : doc; }
     if (drag?.kind === "cycle" && drag.to) return addCycle(doc, newCycle(drag.from, drag.to))[0];
     if (drag?.kind === "cycle" && drag.pull?.made) return drag.pull.made.m;
@@ -4056,7 +4060,7 @@ export default function Editor() {
     const same = (a: readonly Arrow[], b: readonly Arrow[]) => a.length === b.length && a.every((x, i) => x === b[i] || JSON.stringify(x) === JSON.stringify(b[i]));
     if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
     if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
-    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles, cycleLayout: cycles as CycleLayout };
+    return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent, style.arrowGap), arrows: laid.current.arrows, cycleArrows: laid.current.cycles, cycleLayout: cycles as CycleLayout };
   }, [shown, drawing, writing, style, pt]); // eslint-disable-line react-hooks/exhaustive-deps
   // A caption as a lone atom labelled with its text, in the caption's size, font, style and colour. The label's first
   // glyph goes where the caption's was, as an atom label sits on its atom.
@@ -4535,7 +4539,7 @@ export default function Editor() {
   // half-inch margin each side, and a new plus sign's box.
   const reactionLayout = (captionBox: (id: number) => Box | undefined): Layout => {
     const size = (style.captionSize * pt) / L, w = textWidth("+", style.captionSize * pt, false, false, fontStack(style.captionFont)) / L;
-    return { gap: reactionGap, width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond };
+    return { gap: reactionGap, width: ((pageSize(style)[0] * 72) / 25.4 - 72) / style.bond, captionBox, plusBox: [-w / 2, -DESCENT * size, w / 2, ASCENT * size], captionPt: style.captionSize, bondPt: style.bond, arrowGap: style.arrowGap };
   };
   // Whether two drawings have everything in the same place (to within a millionth of a bond length).
   const sameLayout = (p: Mol, q: Mol) => {
@@ -4630,14 +4634,25 @@ export default function Editor() {
     const inside = t.bond === undefined ? (tool === "select" ? highlightAt(p) ?? plateAt(p)?.id ?? plasmidAt(p)?.id : undefined) ?? (tool === "select" || tool === "orbital" ? orbitalAt(p) : undefined) : undefined;
     return inside !== undefined ? { arrow: inside } : t;
   };
-  // Curved arrows start and end on atoms and bond middles, where electrons are.
-  const electronAt = (p: P, t: Hover): P => {
+  // Curved arrows dragged (ids) without the atoms an end is tied to: each such end is tied to the atom, bond or lone pair
+  // it is let go on, or lets go (arrowlink.ts). An end whose target moved with it stays tied. atoms: the atoms moved.
+  const dropArrows = (m: Mol, ids: Set<number>, atoms: Set<number>): Mol => {
+    if (!ids.size || !m.arrows?.some((a) => ids.has(a.id) && tieable(a))) return m;
+    const still = (i: number | undefined) => (i !== undefined && !atoms.has(i) ? i : undefined), moved = (on: ArrowEnd) => ("bond" in on ? on.bond : [on.atom]).every((i) => atoms.has(i));
+    const marks = drawing.electrons.filter((e) => !atoms.has(e.atom)).map((e) => ({ atom: e.atom, at: [e.at[0] / L, -e.at[1] / L] as P, key: e.key }));
+    const onto = (q: P) => tieAt(m, q, marks, (x, p) => still(atomAt(x, p)), (x, p) => { const k = bondAt(x, p); return k !== undefined && x.bonds[k].atoms.every((i) => !atoms.has(i)) ? k : undefined; });
+    const end = (on: ArrowEnd | undefined, q: P) => (on && moved(on) ? on : onto(q));
+    return { ...m, arrows: m.arrows.map((a) => (ids.has(a.id) && tieable(a) ? withTies(a, end(a.fromOn, a.from), end(a.toOn, a.to)) : a)) };
+  };
+  // Curved arrows start and end on atoms and bond middles, where electrons are. on: what the end is tied to there
+  // (arrowlink.ts), so it follows it.
+  const electronAt = (p: P, t: Hover): { at: P; on?: ArrowEnd } => {
     // A lone pair or radical dot near the pointer comes first: the arrow starts at the electrons themselves.
     const near = drawing.electrons.filter((e) => e.key !== "charge" && e.key !== "partial").map((e) => ({ e, d: Math.hypot(e.at[0] / L - p[0], -e.at[1] / L - p[1]) })).filter((x) => x.d < 0.3).sort((a, b) => a.d - b.d)[0];
-    if (near) return [near.e.at[0] / L, -near.e.at[1] / L];
-    if (t.atom !== undefined) return pos(doc, t.atom);
-    if (t.bond !== undefined) { const [a, b] = doc.bonds[t.bond].atoms.map((i) => pos(doc, i)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
-    return p;
+    if (near) return { at: [near.e.at[0] / L, -near.e.at[1] / L], on: near.e.key && MARK_KEY.test(near.e.key) && near.e.atom < doc.atoms.length ? { atom: near.e.atom, pair: near.e.key } : undefined };
+    if (t.atom !== undefined) return { at: pos(doc, t.atom), on: { atom: t.atom } };
+    if (t.bond !== undefined) { const [i, j] = doc.bonds[t.bond].atoms, [a, b] = [pos(doc, i), pos(doc, j)]; return { at: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], on: i !== j ? { bond: [i, j] } : undefined }; }
+    return { at: p };
   };
   // The arrow whose conditions a caption at this point would be: just above or below the middle of a straight arrow.
   const arrowBeside = (p: P): Caption["on"] => {
@@ -4875,8 +4890,9 @@ export default function Editor() {
     set({ ...doc, ...with_, captions: doc.captions?.map((c) => (picked.has(c.id) ? restyled(c) : c)) }, true);
   }
   // Moves the selected atoms and the moving captions. A caption under a structure that is not moving comes
-  // away from it and stays where it is dragged.
-  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>(), atoms = selection): Mol {
+  // away from it and stays where it is dragged. land: where text moved alone ends up beside an arrow (landing), at a
+  // drop or a nudge (landsOn); without it, conditions text moved alone comes away as free text.
+  function moveAll(base: Mol, d: P, captions: Map<number, P>, arrowIds = new Set<number>(), cycleIds = new Set<number>(), atoms = selection, land?: "drop" | "nudge"): Mol {
     let m = atoms.size ? moveAtoms(base, atoms, d) : base;
     if (cycleIds.size) m = { ...m, cycles: m.cycles?.map((c) => (cycleIds.has(c.id) ? { ...c, centre: [c.centre[0] + d[0], c.centre[1] + d[1]] } : c)) };
     const shift = <T extends { id: number; from: [number, number]; to: [number, number] }>(a: T): T => (arrowIds.has(a.id) ? { ...a, from: [a.from[0] + d[0], a.from[1] + d[1]], to: [a.to[0] + d[0], a.to[1] + d[1]] } : a);
@@ -4915,8 +4931,13 @@ export default function Editor() {
         const own = c.cycle?.side === "centre" ? doc.cycles?.find((y) => y.id === c.cycle!.cycle) : undefined, f = own?.scale ?? 1, o = c.cycle?.off ?? [0, 0];
         const off: [number, number] = [Math.round((o[0] + d[0] / f) * 1000) / 1000, Math.round((o[1] + d[1] / f) * 1000) / 1000];
         if (own && Math.hypot(...off) * f <= 0.8 * own.radius && Math.hypot(...off) <= 50) return { ...c, cycle: { ...c.cycle!, off } };
-        const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c;
-        return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
+        const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c, at: P = [from[0] + d[0], from[1] + d[1]], lined = pressText.current.get(c.id)?.align;
+        // Beside an arrow, text is its conditions (landsOn). Kept by its own arrow, it stays where it is put (placed);
+        // taken to another arrow, Octet lays it out there. Conditions text that comes away keeps its line-up as drawn.
+        const slot = land && !arrowIds.size && !cycleIds.size ? landsOn(c, d, land === "drop" && !atoms.size) : undefined, arrow = slot && m.arrows?.find((a) => a.id === slot.arrow);
+        if (arrow && slot!.arrow === c.on?.arrow) return { ...free, x: at[0], y: at[1], align: lined, on: { ...c.on, side: slot!.side }, placed: { at: [at[0] - (arrow.from[0] + arrow.to[0]) / 2, at[1] - (arrow.from[1] + arrow.to[1]) / 2], arrow: [arrow.to[0] - arrow.from[0], arrow.to[1] - arrow.from[1]] } };
+        if (arrow) return { ...free, x: at[0], y: at[1], on: slot! };
+        return { ...free, x: at[0], y: at[1], ...(c.on && lined ? { align: lined } : {}) };
       }),
     };
   }
@@ -5307,10 +5328,30 @@ export default function Editor() {
     arrangeShifts(list.map((t) => t.box), how).forEach((d, n) => { if (d[0] || d[1]) m = shiftThing(m, list[n], d); });
     glideTo(m);
   }
+  // Each moving caption's box (px) and line-up as drawn at the press (movers), for landsOn.
+  const pressText = useRef(new Map<number, { box: Box; align: Caption["align"] }>());
+  // The arrow and side text moved alone by d is beside, as drawn now (conditions.ts slotFor): conditions text stays on
+  // an arrow there, and other text takes one only when free is set (dropped with nothing else moving, ⌘ not held).
+  // Turned text, a cycle's and empty text take none.
+  const landsOn = (c: Caption, d: P, free: boolean): ArrowSlot | undefined => {
+    const f = pressText.current.get(c.id);
+    if (!f || (!c.on && !free)) return undefined;
+    return arrowSlot(c, [f.box[0] + d[0] * L, f.box[1] - d[1] * L, f.box[2] + d[0] * L, f.box[3] - d[1] * L]);
+  };
+  // The arrow and side text with this box (px) is beside, for Tie to arrow. A data field's text is text only
+  // (datafields.ts), never a reaction's conditions.
+  const arrowSlot = (c: Caption, box: Box) => {
+    if (c.cycle || c.measure || c.angle || !c.text.trim() || doc.data?.some((f) => f.caption === c.id)) return undefined;
+    const onOf = new Map((doc.captions ?? []).map((x) => [x.id, x.on]));
+    return slotFor(arrows.filter(takesConditions), box, L, (a, side) => sideReach(a, side, placed.filter((q) => q.id !== c.id && onOf.get(q.id)?.arrow === a.id && onOf.get(q.id)?.side === side).map((q) => q.box), L, style.arrowGap ?? GAP_ARROW_PT, pt));
+  };
+  // The conditions text the Gap and Reset position act on: picked text on an arrow, and the text on picked arrows.
+  const conditionTexts = (ids: Set<number>) => (doc.captions ?? []).filter((c) => c.on && !c.cycle && (ids.has(c.id) || ids.has(c.on.arrow)));
   // What moves with some atoms and picked objects: the picked arrows, shapes and cycles, and each picked caption that
   // does not simply follow its structure, arrow or cycle (it comes away and moves alone, from where it is drawn).
   // original: each copy's original, for copies not yet drawn.
   const movers = (base: Mol, atoms: Set<number>, picks: Set<number>, original = new Map<number, number>()) => {
+    const frames = new Map<number, { box: Box; align: Caption["align"] }>();
     const captions = new Map<number, P>(), arrowIds = new Set([...(base.arrows ?? []), ...(base.shapes ?? [])].filter((a) => picks.has(a.id)).map((a) => a.id));
     const cycleIds = new Set((base.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
     for (const caption of base.captions ?? []) {
@@ -5320,8 +5361,12 @@ export default function Editor() {
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
       // (A reagent's text is at its arrow's start, a product's at its end.)
       const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
-      if (c && picks.has(caption.id) && !follows) captions.set(caption.id, start ? start.from : end ? end.to : anchorOf(c));
+      if (c && picks.has(caption.id) && !follows) {
+        captions.set(caption.id, start ? start.from : end ? end.to : anchorOf(c));
+        frames.set(caption.id, { box: c.box, align: ({ start: "left", middle: "centre", end: "right" } as const)[c.anchor] });
+      }
     }
+    pressText.current = frames;
     return { captions, arrowIds, cycleIds };
   };
   // Snapping (snap.ts): the box of everything moving, drawn (atoms with their labels, text as placed, arrows and shapes
@@ -5933,7 +5978,7 @@ export default function Editor() {
   }
   // What a press does with each drawing tool in hand: starts its drag (a click when the pointer never moves).
   function pressTool(p: P, t: Hover, screen: [number, number], alt = false, more: { meta?: boolean; shift?: boolean } = {}) {
-    if (tool === "arrow") return setDrag({ kind: "arrow", from: curved({ kind: arrowKind }) ? electronAt(p, t) : p, start: screen, target: t });
+    if (tool === "arrow") { const end = curved({ kind: arrowKind }) ? electronAt(p, t) : { at: p }; return setDrag({ kind: "arrow", from: end.at, on: end.on, start: screen, target: t }); }
     if (tool === "shape" && "line" in shapePick) {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
@@ -6057,12 +6102,12 @@ export default function Editor() {
         // A curved arrow ends on an atom or bond; a straight one snaps to 15° steps (⌥/Alt frees it).
         if (curved({ kind: drag.make?.kind ?? arrowKind })) {
           // The arc bulges the way the drag went: the sign of the area between the pointer's path and the line.
-          const to = drag.make ? p : electronAt(p, hitAt(p)), trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
+          const end = drag.make ? { at: p } : electronAt(p, hitAt(p)), to = end.at, trail = [...(drag.trail ?? [drag.from]), p], ring = [...trail, to];
           let area = 0;
           for (let i = 0; i < ring.length; i++) { const [a, b] = [ring[i], ring[(i + 1) % ring.length]]; area += a[0] * b[1] - b[0] * a[1]; }
           const chord = Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]);
           const side = Math.abs(area / 2) > 0.05 * chord * chord ? (area < 0 ? 1 : -1) : (drag.side ?? 1);
-          return setDrag({ ...drag, to, trail, side });
+          return setDrag({ ...drag, to, trail, side, onTo: end.on });
         }
         // A line with corners steps from its last corner.
         const o = drag.corners?.[drag.corners.length - 1] ?? drag.from, far = Math.hypot(p[0] - o[0], p[1] - o[1]), raw = Math.atan2(p[1] - o[1], p[0] - o[0]);
@@ -6271,12 +6316,15 @@ export default function Editor() {
           return setDrag({ ...drag, working: updateArrow(doc, a.id, { bend: Math.max(-1.5, Math.min(1.5, off / len)) }) });
         }
         const other = drag.which === "from" ? a.to : a.from;
-        let q: P = curved(a) ? electronAt(p, hitAt(p)) : p;
+        // A curved arrow's end let go on an atom, bond or lone pair is tied to it; anywhere else, it is free.
+        const end = curved(a) ? electronAt(p, hitAt(p)) : { at: p };
+        let q: P = end.at;
         if (!curved(a) && !e.altKey && settings.fixedAngles) {
           const far = Math.hypot(q[0] - other[0], q[1] - other[1]), ang = Math.round(Math.atan2(q[1] - other[1], q[0] - other[0]) / SNAP) * SNAP;
           q = [other[0] + far * Math.cos(ang), other[1] + far * Math.sin(ang)];
         }
-        return setDrag({ ...drag, working: updateArrow(doc, a.id, { [drag.which as "from" | "to"]: q }) });
+        const which = drag.which as "from" | "to";
+        return setDrag({ ...drag, working: updateArrow(doc, a.id, { [which]: q, ...(tieable(a) ? { [which === "from" ? "fromOn" : "toOn"]: end.on } : {}) }) });
       }
       case "chain": {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
@@ -6367,8 +6415,11 @@ export default function Editor() {
         const to = oneAxis(snapped.d, held);
         if (held !== drag.held && drag.moved) glideFrom(drag.d ?? [0, 0]);
         const d = glided(to);
-        // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d, to, held });
+        // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle),
+        // and text off any arrow. Text that will be an arrow's conditions where it is lets go lights that arrow.
+        const skip = skipsCycle(e, pressCtrlCopy.current), alone = !drag.arrows.size && !drag.cycles.size && !skip;
+        const slots = alone ? [...drag.captions.keys()].flatMap((id) => { const c = doc.captions?.find((x) => x.id === id), s = c && landsOn(c, d, !moving.size); return s ? [s.arrow] : []; }) : [];
+        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip, slots: slots.length ? slots : undefined, d, to, held });
       }
     }
   }
@@ -6557,7 +6608,7 @@ export default function Editor() {
       const step = (arg.endsWith("10") ? 10 : 1) / 14.4, dir = arg.replace("10", "");
       const d: P = dir === "left" ? [-step, 0] : dir === "right" ? [step, 0] : dir === "up" ? [0, step] : [0, -step];
       const m = movers(doc, selection, picked);
-      return set(moveAll(doc, d, m.captions, m.arrowIds, m.cycleIds), true);
+      return set(moveAll(doc, d, m.captions, m.arrowIds, m.cycleIds, selection, "nudge"), true);
     }
     if (kind === "rotate" && (selection.size || picked.size)) return rotateBy((arg.startsWith("ccw") ? 1 : -1) * Number(arg.replace(/\D/g, "")));
     // Shift+Option+arrows (ChemDraw's): a 12° turn in 3D about the middle of the selection, left and right about the
@@ -7430,7 +7481,7 @@ export default function Editor() {
     const pickedArrows = (doc.arrows ?? []).filter((a) => picked.has(a.id));
     if (!selection.size && pickedArrows.length && pickedArrows.length === picked.size)
       return {
-        kind: "arrow", count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
+        kind: "arrow", ...(conditionTexts(new Set(pickedArrows.map((a) => a.id)))[0]?.on ? { gap: conditionTexts(new Set(pickedArrows.map((a) => a.id)))[0].on!.gap ?? style.arrowGap ?? GAP_ARROW_PT } : {}), count: pickedArrows.length, arrow: pickedArrows[0].kind, curved: pickedArrows.some(curved), style: pickedArrows[0].style ?? "plain", orbital: pickedArrows[0].orbital,
         heads: pickedArrows.every(takesHeads), shaped: pickedArrows.every(shapesHeads), ...headsOf(pickedArrows[0]), head: pickedArrows[0].head ?? "solid",
         closed: pickedArrows[0].curve ? !!pickedArrows[0].curve.closed : undefined, fill: pickedArrows[0].fill ?? "none",
         width: widthOf(lineOf(pickedArrows)),
@@ -7449,6 +7500,8 @@ export default function Editor() {
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: !field && cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: !field && cs.some((x) => labelable(x) || standInCaption(x)), ...(field && cs.length === 1 ? { field: true } : {}),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
+          ...(cs.every((x) => x.on && !x.cycle) ? { conditions: { gap: c.on!.gap ?? style.arrowGap ?? GAP_ARROW_PT, moved: cs.some((x) => placedAt(x, doc.arrows)) } } : {}),
+          ...(cs.length === 1 && !c.on && !c.under && p && arrowSlot(c, p.box) ? { tieArrow: true } : {}),
           ...valuesPicked(),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(!field && style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
@@ -8358,7 +8411,7 @@ export default function Editor() {
     return dropClear(box, taken, 0.1 * L, 0.5 * L);
   }
   // The text of a drawing as it will be laid out (with the atoms as drawn now).
-  const placedIn = (m: Mol) => placeCaptions(m, drawing, captionWidth, m.arrows ?? [], pt, style.captionSize, new Map(), runWidth, runExtent);
+  const placedIn = (m: Mol) => placeCaptions(m, drawing, captionWidth, m.arrows ?? [], pt, style.captionSize, new Map(), runWidth, runExtent, style.arrowGap);
   // How far down a figure just added (its parts, items) goes to land clear, in bond lengths.
   function figureDrop(next: Mol, items: number[]): number {
     const want = new Set(items), b = union([...placedIn(next).filter((c) => want.has(c.id)).map((c) => c.box), ...(next.arrows ?? []).filter((a) => want.has(a.id)).map((a) => arrowTrace(a, L).box)]);
@@ -9313,6 +9366,17 @@ export default function Editor() {
       setSelection(new Set());
       return openWriting({ value: "", under, style: { ...textStyle } });
     }
+    // Conditions: the space between them and their arrow (pt, in tenths; the document's is kept as none), one undo step
+    // for a whole slider drag, and Reset position, which glides. Both lay the text out by its arrow again.
+    if (command.startsWith("conditions.")) {
+      const ids = new Set(conditionTexts(picked).map((c) => c.id)), tenths = command === "conditions.reset" ? "reset" : command.slice(15);
+      if (!ids.size) return;
+      const gap = tenths === "reset" ? undefined : readGap(Number(tenths) / 10);
+      if (tenths !== "reset" && gap === undefined) return;
+      const own = (c: Caption) => (tenths === "reset" ? c.on!.gap : gap === (style.arrowGap ?? GAP_ARROW_PT) ? undefined : gap);
+      const mol = { ...doc, captions: doc.captions?.map((c) => { if (!ids.has(c.id)) return c; const { placed: _p, ...laid } = c, { gap: _g, ...on } = c.on!, g = own(c); return { ...laid, on: g === undefined ? on : { ...on, gap: g } }; }) };
+      return tenths === "reset" ? glideTo(mol) : set(mol, true, `conditions-gap-${[...ids].join()}`);
+    }
     if (command.startsWith("caption.")) {
       const [, what, ...rest] = command.split("."), arg = rest.join(".");
       const toggle = (key: "bold" | "italic" | "underline") => (s: RunStyle, all: RunStyle): RunStyle => ({ ...s, [key]: all[key] ? undefined : true });
@@ -9387,19 +9451,22 @@ export default function Editor() {
         return next === doc ? undefined : void set(next, true);
       }
       if (what === "detach" || what === "attach") {
-        // Detach leaves the caption where it is, as free text. Attach centres it under the structure above it.
-        const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, anchorOf(c)]));
-        return set({
+        // Detach leaves the caption where it is, as free text (conditions lined up as drawn). Attach centres it under the
+        // structure above it, or makes it the conditions of the arrow it is beside.
+        const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, c]));
+        const mol = {
           ...doc,
-          captions: doc.captions?.map((c) => {
-            const at = moves.get(c.id);
-            if (!at) return c;
-            if (what === "detach") { const { under: _, measure: _m, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
+          captions: doc.captions?.map((c): Caption => {
+            const q = moves.get(c.id), at = q && anchorOf(q);
+            if (!q || !at) return c;
+            if (what === "detach") { const { under: _, measure: _m, on: _o, placed: _p, ...free } = c; return { ...free, x: at[0], y: at[1], ...(c.on ? { align: ({ start: "left", middle: "centre", end: "right" } as const)[q.anchor] } : {}) }; }
             // A measurement already follows its own atoms.
             const under = !c.measure && structureAbove(at, 4);
-            return under ? { ...c, under, align: undefined } : c;
+            const slot = !under && arrowSlot(c, q.box);
+            return under ? { ...c, under, align: undefined } : slot ? { ...c, on: slot } : c;
           }),
-        }, true);
+        };
+        return what === "attach" && mol.captions?.some((c) => c.on && moves.has(c.id) && !doc.captions?.find((x) => x.id === c.id)?.on) ? glideTo(mol) : set(mol, true);
       }
     }
     if (command.startsWith("rotate.")) return run(command);
@@ -9721,7 +9788,7 @@ export default function Editor() {
         const to: P = drag.to ?? (drag.make?.kind === "orbital" ? orbitalTip(drag.make, drag.from, drag.target) : !drag.make && arrowPick.ellipse ? [drag.from[0] + (arrowPick.ellipse === "cw" ? 0.6 : -0.6), drag.from[1] + 1.2]
           : curved({ kind: drag.make?.kind ?? arrowKind }) ? [drag.from[0] + 1.5, drag.from[1]] : [drag.from[0] + 3, drag.from[1]]);
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
-        const [mol, id] = addArrow(doc, newArrow(drag.from, to, drag.side, drag.make));
+        const [mol, id] = addArrow(doc, withTies(newArrow(drag.from, to, drag.side, drag.make), drag.make ? undefined : drag.on, drag.make || !drag.to ? undefined : drag.onTo));
         set(mol);
         return setPicked(new Set([id]));
       }
@@ -9810,7 +9877,8 @@ export default function Editor() {
       case "turn":
         if (!drag.degrees) return;
         lastRepeat.current = { rotate: drag.degrees }; // Edit > Repeat turns the next selection as far
-        return turnTo(drag.working, drag.centre);
+        // A curved arrow turned without what an end is tied to: that end ties to what it is let go on (dropArrows).
+        return turnTo(dropArrows(drag.working, picked, selection), drag.centre);
       case "pivot":
         return drag.moved ? undefined : click(drag.target, drag.at);
       case "resize":
@@ -9821,7 +9889,7 @@ export default function Editor() {
           if (g) setPicked(new Set(g.items));
           return;
         }
-        return drag.size[0] !== 1 || drag.size[1] !== 1 ? commitScale(drag.size, drag.anchor, drag.lines, drag.working) : undefined;
+        return drag.size[0] !== 1 || drag.size[1] !== 1 ? commitScale(drag.size, drag.anchor, drag.lines, dropArrows(drag.working, picked, selection)) : undefined;
       case "chain":
         if (drag.to) { chainLength.current = chainCount(drag); return set(chainThrough(doc, drag.from, chainPath(drag)).mol); }
         return chainClick(drag.from, !!drag.alt);
@@ -9855,9 +9923,14 @@ export default function Editor() {
         saw("move");
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then. Let go
         // during a glide (d short of to), it lands where the glide was going.
-        const working = drag.to && drag.d !== drag.to ? moveAll(drag.base ?? doc, drag.to, drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection) : drag.working;
-        const { mol, joined } = joinOverlaps(working, drag.atoms ?? selection);
-        return set(mol, !joined, undefined, !drag.skip);
+        // Text let go beside an arrow is its conditions (moveAll's land), and glides to where Octet lays it out.
+        const land = drag.captions.size && !drag.skip ? "drop" : undefined;
+        const working = drag.to && drag.d !== drag.to ? moveAll(drag.base ?? doc, drag.to, drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection, land)
+          : land ? moveAll(drag.base ?? doc, drag.d ?? [0, 0], drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection, land) : drag.working;
+        // A curved arrow let go without what its ends are tied to ties them to what they are on, or lets go.
+        const { mol, joined } = joinOverlaps(dropArrows(working, drag.arrows, drag.atoms ?? selection), drag.atoms ?? selection);
+        const laid = land && mol.captions?.some((c) => c.on && !c.placed && drag.captions.has(c.id));
+        return laid && !joined ? glideTo(mol) : set(mol, !joined, undefined, !drag.skip);
       }
     }
   }
@@ -10869,6 +10942,7 @@ export default function Editor() {
       {shiftSpots.map((l) => (
         <text key={`shift${l.atom}`} className={`nmr-shift${nmrMarks.has(l.atom) ? " lit" : ""}${settings.nmrDetails && nmrQuality.has(l.atom) ? ` q-${nmrQuality.get(l.atom)}` : ""}`} x={l.x} y={l.y} textAnchor={l.align === "left" ? "start" : l.align === "right" ? "end" : "middle"} style={{ font: `${l.size * pt}px ${fontStack(style.captionFont)}` }}>{l.text}</text>
       ))}
+      {drag?.kind === "move" && drag.slots?.map((id) => arrowMark(id, `slot${id}`, "slot"))}
       <Live store={hovers}>{hovered}</Live>
     </>
   );
