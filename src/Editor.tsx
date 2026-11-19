@@ -11824,7 +11824,7 @@ export default function Editor() {
           adding={addingColour}
           updates={settings.updates === true}
           onUpdates={(updates) => setSettings((s) => ({ ...s, updates }))}
-          wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick }))}
+          wordClick={settings.wordClick} onWordClick={(wordClick) => setSettings((s) => ({ ...s, wordClick, wordChosen: true }))}
           onCheckUpdates={() => checkUpdates(true)}
           mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on, mcpChosen: true })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
           aiApps={aiApps} onAiApp={(id, on) => (on ? connectAi([id]) : disconnectAi(id))}

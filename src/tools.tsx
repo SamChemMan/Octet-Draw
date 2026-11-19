@@ -178,23 +178,24 @@ export function RingGlyph({ kind }: { kind: RingKind }) {
 const BooksGlyph = () => <Icon><polygon points="128,40 196,80 196,160 128,200 60,160 60,80" /><line x1={40} y1={224} x2={216} y2={224} /></Icon>;
 export const ChainGlyph = () => <Icon><polyline points="32,168 80,104 128,168 176,104 224,168" /></Icon>;
 
-// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets
-// how long the barbs are.
+// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets the
+// head, longer and wider in step as ChemDraw's are (Large, Medium and Small heads are 22.5, 15 and 10 line widths).
+// Large's two heads on a resonance arrow stay well apart, so it never reads as a diamond.
+const HEADS = { small: [44, 31], medium: [58, 41], large: [72, 50] }; // length back from the tip, and width each side
 export function ArrowGlyph({ kind: variant }: { kind: string }) {
   const v = arrowVariant(variant), kind = v?.kind;
   if (v?.ellipse) return <EllipseGlyph clockwise={v.ellipse === "cw"} />;
   if (v?.sweep) return <CurvedGlyph kind={v.kind} sweep={v.sweep} />;
-  const b = v?.size === "large" ? 88 : v?.size === "medium" ? 66 : 48, head = (x: number, y: number) => <polyline points={`${x - b},${y - b} ${x},${y} ${x - b},${y + b}`} />;
-  const e = (b * 5) / 6;
+  const [l, w] = HEADS[v?.size ?? "small"], c = (32 + 216 - l) / 2, head = (x: number, y: number, dir = 1) => <polyline points={`${x - dir * l},${y - w} ${x},${y} ${x - dir * l},${y + w}`} />;
   switch (kind) {
     case "equilibrium":
       return v?.ratio
-        ? <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`168,156 88,156 ${88 + e},${156 + e}`} /></Icon>
-        : <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`224,156 40,156 ${40 + e},${156 + e}`} /></Icon>;
-    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points={`${32 + b},${128 - b} 32,128 ${32 + b},${128 + b}`} />{head(224, 128)}</Icon>;
+        ? <Icon><polyline points={`32,100 216,100 ${216 - l},${100 - w}`} /><polyline points={`176,156 72,156 ${72 + l},${156 + w}`} /></Icon>
+        : <Icon><polyline points={`32,100 216,100 ${216 - l},${100 - w}`} /><polyline points={`224,156 40,156 ${40 + l},${156 + w}`} /></Icon>;
+    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} />{head(32, 128, -1)}{head(224, 128)}</Icon>;
     case "retro": return <Icon><line x1={32} y1={100} x2={184} y2={100} /><line x1={32} y1={156} x2={184} y2={156} /><polyline points="160,56 224,128 160,200" /></Icon>;
-    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
-    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={76} y1={168} x2={100} y2={88} /><line x1={112} y1={168} x2={136} y2={88} /></Icon>;
+    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={c - 24} y1={88} x2={c + 24} y2={168} /><line x1={c + 24} y1={88} x2={c - 24} y2={168} /></Icon>;
+    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={c - 30} y1={168} x2={c - 6} y2={88} /><line x1={c + 6} y1={168} x2={c + 30} y2={88} /></Icon>;
     case "dipole": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={68} y1={92} x2={68} y2={164} /></Icon>;
     case "block": { const w = v?.size === "medium" ? 28 : 40; return <Icon><polygon points={`32,${128 - w / 2} 148,${128 - w / 2} 148,${128 - w * 1.6} 224,128 148,${128 + w * 1.6} 148,${128 + w / 2} 32,${128 + w / 2}`} /></Icon>; }
     default: return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}</Icon>;
@@ -586,6 +587,7 @@ export function Palette(p: PaletteProps) {
   // toList: a curved arrow is over the Arrow strip, which takes it into its list.
   const [carry, setCarry] = useState<{ key: string; pin: boolean; x: number; y: number; tilt: number; over: boolean; toList?: boolean; index: number; phase: "drag" | "land" | "drop" }>();
   const [curves, setCurves] = useState(false); // every curved arrow, beside the Arrow strip
+  const [sizeView, setSizeView] = useState<ArrowSize>("small"); // the size the Arrow strip shows while a curved arrow is in hand
   const [library, setLibrary] = useState(false); // the template library, beside the Ring strip
   const [arrived, setArrived] = useState<string>(); // a curved arrow just added to the Arrow strip settles in
   const [landed, setLanded] = useState<{ key: string; n: number }>(); // the shortcut that just landed: it settles, the others ripple
@@ -707,15 +709,16 @@ export function Palette(p: PaletteProps) {
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...ringStrip(p.libraryRings, (k) => libraryItem(k) || p.named(k) || template(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (k === "block" && shownSize === "small" ? "block medium" : withSize(k, shownSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...ringStrip(p.libraryRings, (k) => libraryItem(k) || p.named(k) || template(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
-  // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
   const groupsOf = (tool: Strip, list: string[]): string[][] =>
     tool === "shape" ? [...SHAPE_GRID.map((r) => r.slice(0, 5)), SHAPE_GRID.map((r) => r[5]), SHAPE_GRID.flatMap((r) => r.slice(6)), SHAPE_EXTRA]
-      : tool === "orbital" ? ORBITAL_GRID : tool === "arrow" ? [list, (p.variants.arrow.startsWith("block") ? ["large", "medium"] : ["large", "medium", "small"]).map((x) => `size:${x}`)] : [list];
-  // The size the straight arrow in hand is drawn at (Small when unnamed), which the strip's arrows show.
+      : tool === "orbital" ? ORBITAL_GRID : [list];
+  // The size the straight arrow in hand is drawn at (Small when unnamed). The strip's straight arrows show it, or with
+  // a curved arrow in hand the size last chosen at its top. A block arrow is Large or Medium, so Small shows it Medium.
   const pick = arrowVariant(p.variants.arrow), arrowSize: ArrowSize | undefined = pick && !pick.sweep ? (pick.size ?? (pick.kind === "block" ? "large" : "small")) : undefined;
+  const shownSize = arrowSize ?? sizeView;
   // The columns a menu opens with: the user's own, or two across.
   const columnsOf = (key: string) => (p.stripWidths[key] ? columnsFor(p.stripWidths[key]) : DEFAULT_COLUMNS);
   // Pinned shortcuts whose option still exists.
@@ -895,11 +898,8 @@ export function Palette(p: PaletteProps) {
             <Exit>{strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
               const tool = t.id, curveCarry = !!carry && keepable(carry.key) === tool;
               const item = (kind: string): MenuItem => {
-                if (kind.startsWith("size:")) {
-                  const size = kind.slice(5) as ArrowSize, v = withSize(p.variants.arrow, size);
-                  return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
-                }
-                const name = nameOf(tool, kind)!;
+                // A straight arrow is named without its size: the control at the top names that.
+                const name = tool === "arrow" && !arrowVariant(kind)?.sweep ? arrowName(kind.split(" ")[0])! : nameOf(tool, kind)!;
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind) || !!template(kind)));
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind, hint: optionKey(tool, kind),
@@ -941,12 +941,19 @@ export function Palette(p: PaletteProps) {
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
                   action: { icon: <PushPin size={12} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
+              // The Arrow menu's sizes, across its top: ChemDraw's Large, Medium and Small straight arrows. A change
+              // resizes the straight arrow in hand and leaves the menu open; a block arrow has no Small.
+              const segments = tool === "arrow" ? {
+                label: "Arrow size", value: shownSize,
+                options: (["large", "medium", "small"] as const).map((x): [string, string, boolean] => [x, SIZE_NAMES[x], x === "small" && pick?.kind === "block"]),
+                onChange: (x: string) => { setSizeView(x as ArrowSize); if (arrowSize) { p.onVariant("arrow", withSize(p.variants.arrow, x as ArrowSize)); p.onTool("arrow"); } },
+              } : undefined;
               return (
-                <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
+                <Menu label={`${t.name} options`} tool={tool} groups={groups} segments={segments} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
                   columns={columnsOf(tool)} onColumns={(n) => p.onStripWidth(tool, menuWidth(n))}
-                  onPress={(e, kind) => { if (!kind.startsWith("size:")) startCarry(e, `${tool}:${kind}`); }}
-                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
-                  onRelease={(kind) => { if (held) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
+                  onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)}
+                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }}
+                  onRelease={(kind) => { if (held) choose(tool, kind); }}
                   extra={extra}>
                   <Exit>{tool === "arrow" && curves && (
                     <Menu label="Curved arrows" className={["submenu", curveCarry && "carrying"].filter(Boolean).join(" ")} groups={curveGroups}
