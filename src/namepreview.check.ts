@@ -70,7 +70,7 @@ assert.match(editor, /const later = useMemo\(\(\) => \(naming === undefined \|\|
 assert.match(editor, /setTimeout\(\(\) => void quickLayout\(later\)\.then\(\(mol\) => \{ if \(!gone\) setQuickPreview\(\{ smiles: later, mol \}\); \}\), PREVIEW_PAUSE\)/);
 assert.match(editor, /naming === undefined \|\| later \|\| seqText !== undefined \? undefined : structureFromText\(naming, undefined, typedSmiles \?\? null\)/);
 assert.match(editor, /const shownNamed = seqText !== undefined \? \(seqKey \? seqPreview\?\.mol : undefined\) : later \? quickPreview\?\.mol : named;/);
-assert.match(editor, /setTimeout\(\(\) => void seqLayout\(seqText!, seqLabels, ownMonomers\)\.result\.then/, "a sequence previews from the worker after the pause");
+assert.match(editor, /setTimeout\(\(\) => void seqLayout\(seqText!, seqLabels, ownMonomers, true\)\.result\.then\(\(m\) => \{ if \(!gone\) setSeqPreview/, "a sequence previews from the worker after the pause, as a preview, and drops a stale answer");
 assert.match(editor, /const built = seqLayout\(seqText, seqLabels, ownMonomers\);/, "Return builds the same, kept from the preview");
 assert.match(editor, /if \(later\) \{\n\s+if \(placing === naming\) return true;\n\s+placingJob\.current\?\.cancel\(\);/, "Return on a waiting structure asks the worker, once");
 assert.match(editor, /const job = fullLayout\(list && list\.join\("\."\) === typedSmiles \? list : \[later\], !!typedSmiles \|\| isSequence\(s\)\);/);

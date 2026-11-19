@@ -28,10 +28,11 @@ export function laterSmiles(text: string, smiles: string | undefined): string | 
   return smiles ? (big(smiles) ? smiles : undefined) : looksLikeSmiles(s) && big(s) ? s : undefined;
 }
 
-// One worker, started when first needed. It does one job at a time, and Return's full layout (fullLayout) goes before
+// One worker, started when first needed. It does one job at a time, and Return's jobs (fullLayout, seqLayout) go before
 // any preview. Only the newest preview waits: one that has not started when another comes is dropped (resolves
-// undefined), and the caller drops an answer it no longer wants.
-type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk; done: (answer?: unknown) => void };
+// undefined), and the caller drops an answer it no longer wants. A preview never drops Return's job or goes before it.
+// key: a sequence's, so a request for one already on its way shares that job (seqLayout).
+type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk; key?: string; done: (answer?: unknown) => void };
 
 let worker: Worker | undefined, running: Job | undefined, preview: Job | undefined, full: Job | undefined;
 const start = () => (worker ??= new Worker(new URL("./layout.worker.ts", import.meta.url), { type: "module" }));
@@ -73,11 +74,14 @@ export function fullLayout(pieces: string[], ions: boolean): { result: Promise<M
   };
   return { result, cancel };
 }
-// The field's sequence, built in the worker, for its preview and for Return alike (one path): the structure, or a
-// problem, or undefined when it does not build. The last few are kept, so Return after the preview draws at once.
+// The field's sequence, built in the worker, for its preview (asPreview, which waits as quickLayout's does) and for
+// Return alike (one path): the structure, or a problem, or undefined when it does not build. The last few are kept, so
+// Return after the preview draws at once. A request for a sequence already being built, or waiting to be, gets that
+// job's answer: Return during its preview builds it once, and a preview after Return waits for Return's. Return takes a
+// waiting preview of the same sequence as its own job, so no newer preview drops it. cancel (Return's) drops the job.
 // own: the monomers its codes may name besides Octet's (the document's, then the user's); only those it names go.
 const builtSeqs = new Map<string, Mol | { problem: string } | undefined>();
-export function seqLayout(text: string, labels: boolean, own: Own = []): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
+export function seqLayout(text: string, labels: boolean, own: Own = [], asPreview = false): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
   const used = own.filter((m) => text.includes(`[${m.code}]`));
   const ask: SeqAsk = { build: text.trim(), labels, ...(used.length ? { own: used } : {}) }, key = JSON.stringify(ask);
   const keep = (m: Mol | { problem: string } | undefined) => { if (builtSeqs.size >= 8) builtSeqs.delete(builtSeqs.keys().next().value!); builtSeqs.set(key, m); return m; };
@@ -89,8 +93,16 @@ export function seqLayout(text: string, labels: boolean, own: Own = []): { resul
   }
   let job: Job;
   const result = new Promise<Mol | { problem: string } | undefined>((done) => {
-    full?.done();
-    job = full = { ask, done: (m) => done(m === undefined ? undefined : keep(m as Mol | { problem: string })) };
+    const same = [running, full, preview].find((j) => j?.key === key);
+    if (same) {
+      const was = same.done;
+      same.done = (m) => { was(m); done(m as Mol | { problem: string } | undefined); };
+      job = same;
+      if (same === preview && !asPreview) { preview = undefined; full?.done(); full = same; }
+      return;
+    }
+    job = { ask, key, done: (m) => done(m === undefined ? undefined : keep(m as Mol | { problem: string })) };
+    if (asPreview) { preview?.done(); preview = job; } else { full?.done(); full = job; }
     next();
   });
   const cancel = () => {

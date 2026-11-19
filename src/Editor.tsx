@@ -3850,14 +3850,15 @@ export default function Editor() {
     [naming, suggestion, namesLoaded, loaded, later, typedSmiles, seqText],
   );
   // A sequence is built in the layout worker once typing pauses, as the document shows sequences; the last one shows
-  // meanwhile. Return draws the same structure (seqLayout keeps it).
+  // meanwhile. Return draws the same structure (seqLayout keeps it, or shares the build when it is on its way). The
+  // preview waits as a preview: it never drops Return's job or goes before it.
   const [seqPreview, setSeqPreview] = useState<{ key: string; mol?: Mol }>();
   const seqKey = seqText !== undefined && seqRead && !("problem" in seqRead) && !seqNote ? `${seqLabels}\n${seqText}` : undefined;
   useEffect(() => {
     if (naming === undefined) { setSeqPreview(undefined); seqEdit.current = undefined; }
     if (!seqKey || seqPreview?.key === seqKey) return;
     let gone = false;
-    const t = setTimeout(() => void seqLayout(seqText!, seqLabels, ownMonomers).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
+    const t = setTimeout(() => void seqLayout(seqText!, seqLabels, ownMonomers, true).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
     return () => { gone = true; clearTimeout(t); };
   }, [seqKey, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownNamed = seqText !== undefined ? (seqKey ? seqPreview?.mol : undefined) : later ? quickPreview?.mol : named;

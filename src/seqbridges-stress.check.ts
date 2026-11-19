@@ -1178,6 +1178,79 @@ await check("N39", "Modified nucleotides (2'-OMe, 2'-F, MOE, LNA, 5-methyl-C) an
   assert.equal(inchi(old.readOct(writeOct(l, style), true).mol), inchi(l), "1.1.2 opens the labels, the same compound");
 });
 
+// The field's worker (namepreview.ts) with a stand-in worker, as the field calls it: the preview timer's
+// seqLayout(…, true) and Return's seqLayout(…). One job runs at a time.
+await check("N40", "The Sequence field's worker: a preview timer that fires after Return, while a slow preview still builds, never drops or holds back Return; Return during its own preview builds once; a stale preview is dropped; Escape still cancels", async () => {
+  const { seqLayout, quickLayout, fullLayout } = await import("./namepreview.ts");
+  type Ask = { build?: string; smiles?: string; pieces?: string[] };
+  const sent: { ask: Ask; w: Stand }[] = [];
+  let stopped = 0;
+  class Stand {
+    onmessage?: (e: { data: unknown }) => void;
+    onerror?: () => void;
+    postMessage(ask: Ask) { sent.push({ ask, w: this }); }
+    terminate() { stopped++; }
+  }
+  const answer = (data: unknown) => sent.at(-1)!.w.onmessage!({ data });
+  const built = (text: string) => ({ atoms: [{ label: "C", location: [0, 0, 0], text }], bonds: [] });
+  const preview = (text: string) => seqLayout(text, false, [], true), enter = (text: string) => seqLayout(text, false, []);
+  gl.Worker = Stand;
+  try {
+    // The review's case: the preview of the text before the last keystroke is still building, Return is pressed, and
+    // then the preview timer for the field's text fires.
+    const slow = preview("peptide: GAVL");
+    assert.equal(sent.length, 1, "the slow preview builds");
+    const r = enter("peptide: GAVLI"), late = preview("peptide: GAVLI");
+    answer(built("GAVL"));
+    assert.equal(sent.at(-1)!.ask.build, "peptide: GAVLI", "Return's sequence is built next");
+    answer(built("GAVLI"));
+    assert.deepEqual(await r.result, built("GAVLI"), "Return draws what is in the field");
+    assert.equal(await late.result, await r.result, "the late preview shows the same structure");
+    assert.equal(sent.length, 2, "built once");
+    assert.deepEqual(await slow.result, built("GAVL"));
+    // Return while its own preview builds: the same build, so no slower than the preview.
+    const own = preview("peptide: KLMN"), r2 = enter("peptide: KLMN");
+    answer(built("KLMN"));
+    assert.equal(await r2.result, await own.result);
+    assert.equal(sent.length, 3, "Return during its preview builds nothing more");
+    // Return takes a waiting preview of its sequence as its own job: a newer preview (another sequence, or Name to
+    // Structure's) waits behind it and does not drop it.
+    const busy = quickLayout("CCCCCC"), waiting = preview("peptide: PQRS"), r3 = enter("peptide: PQRS"), newer = preview("peptide: PQRST"), quick = quickLayout("CCCCCCCC");
+    assert.equal(await newer.result, undefined, "the newer preview drops only the preview waiting before it");
+    answer("hexane");
+    assert.equal(await busy, "hexane");
+    assert.equal(sent.at(-1)!.ask.build, "peptide: PQRS", "Return's goes before the preview");
+    answer(built("PQRS"));
+    assert.deepEqual(await r3.result, built("PQRS"));
+    assert.equal(await waiting.result, await r3.result);
+    assert.deepEqual(sent.at(-1)!.ask, { smiles: "CCCCCCCC" }, "then the preview waiting");
+    answer("octane");
+    assert.equal(await quick, "octane");
+    // A stale preview waiting is dropped by a newer one, and the newer one is built.
+    const big = fullLayout(["CCCCCCC"], true), stale = preview("peptide: WY"), fresh = preview("peptide: WYA");
+    assert.equal(await stale.result, undefined, "the stale preview is dropped");
+    answer(["heptane"]);
+    assert.deepEqual(await big.result, ["heptane"]);
+    assert.equal(sent.at(-1)!.ask.build, "peptide: WYA");
+    answer(built("WYA"));
+    assert.deepEqual(await fresh.result, built("WYA"));
+    // Escape: Return waiting, with the preview timer's request on it, is dropped and never built; Return that has
+    // started stops its worker.
+    const n = sent.length, other = quickLayout("CCCCCCCCC"), r4 = enter("peptide: EFG"), on4 = preview("peptide: EFG");
+    r4.cancel();
+    assert.equal(await r4.result, undefined, "Escape drops Return");
+    assert.equal(await on4.result, undefined, "and the preview on it");
+    answer("nonane");
+    assert.equal(await other, "nonane");
+    assert.equal(sent.length, n + 1, "nothing more is built");
+    const r5 = enter("peptide: HIK"), was = stopped;
+    assert.equal(sent.at(-1)!.ask.build, "peptide: HIK");
+    r5.cancel();
+    assert.equal(await r5.result, undefined);
+    assert.equal(stopped, was + 1, "Escape stops the worker building Return's");
+  } finally { delete gl.Worker; }
+});
+
 // ==================================================================================================================
 // ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8)
 // ==================================================================================================================
@@ -1213,7 +1286,7 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) 
 // nothing from this file. It reads the editor's state from React's own records (the undo history) and drives the
 // canvas and the name field with pointer and key events, as scripts/look/sweep.js does.
 const ui = process.env.OCTET_STRESS_URL;
-await check("U", "The app in WebKit: U1 to U6 and U9", async () => {
+await check("U", "The app in WebKit: U1 to U6, U9 and U10", async () => {
   if (!ui) return "set OCTET_STRESS_URL to the dev server (npx vite --port 1467) to drive the app in WebKit";
   if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) return "needs a Mac with Xcode's swift";
   const dir = mkdtempSync(join(tmpdir(), "octet-ui27-")), script = join(dir, "stress.js");
@@ -1249,7 +1322,8 @@ await check("U8", "The look sweep in light and dark: every control matches", asy
 // Runs in the page. U1: the Sequence tool, HELM typed into the field, Return pressed five times quickly: one structure,
 // one undo step. U2: the field's problems ([Zzz]; 115 Glu, too many atoms in full). U3: the Residue labels chip turns
 // the document's chains into labels in one undo step and back. U4: dark paper draws the bracket in the light ink. U5:
-// the smallest and largest zoom: no error, the bracket drawn. U6: Escape while a sequence builds leaves nothing.
+// the smallest and largest zoom: no error, the bracket drawn. U6: Escape while a sequence builds leaves nothing. U10:
+// the worker busy, Return, then the field's preview timer: Return draws.
 async function uiStress(helmText: string) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const until = async <T,>(find: () => T, ms = 10000): Promise<T | null> => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
@@ -1407,6 +1481,29 @@ async function uiStress(helmText: string) {
     await wait(300);
     result("U9", "(issue 27) Boc-A[Aib]GF-OMe draws; with it selected, Structure > Sequence opens the field with its words; Gly typed in draws it again in place, one step; a gapmer reads", !shown && landed > 0 && hist().at - at0 >= 1 && held === "peptide: Boc-A[Aib]GF-OMe" && grew > 0 && steps === 1 && same && !gap,
       `under the field "${shown}", landed ${landed}, field held "${held}", grew ${grew}, steps ${steps}, structures the same ${same}, gapmer "${gap}"`);
+  });
+  await step("U10", "Return while the worker is busy, then the preview timer", async () => {
+    await openField();
+    type("peptide: GAVLIM");
+    await wait(900);
+    // The worker kept busy for some seconds, as by a slow preview: a long layout in the app's own worker (namepreview.ts
+    // at the URL the app loaded it from, so the same copy).
+    const url = performance.getEntriesByType("resource").map((e) => e.name).filter((n) => /\/src\/namepreview\.ts(\?|$)/.test(n)).pop() ?? "/src/namepreview.ts";
+    const np = await import(url), at0 = hist().at, n0 = doc().atoms.length;
+    const busy = np.fullLayout(Array.from({ length: 80 }, (_, k) => `C${"C1CCC(CC1)".repeat(40 + (k % 20))}C`), true).result.then(() => performance.now());
+    type("peptide: GAVLIMF");
+    // Return at once, by a message (WebKit slows a covered window's timers to one a second), so the field's preview
+    // timer fires after it, while the worker is still busy.
+    await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+    const t0 = performance.now();
+    key({ key: "Enter", code: "Enter" }, field());
+    const still = (await busy) - t0;
+    await until(() => doc().atoms.length > n0 && !field(), 8000);
+    const drawn = doc().atoms.length - n0, open = field()?.value;
+    if (open !== undefined) key({ key: "Escape", code: "Escape" }, field());
+    await wait(300);
+    result("U10", "The worker is busy, Return is pressed, then the preview timer fires: Return draws what is in the field, in one undo step", drawn > 0 && open === undefined && hist().at - at0 === 1 && still > 1000,
+      `drawn ${drawn} atoms, field left "${open ?? ""}", steps ${hist().at - at0}, the worker was busy for ${Math.round(still)} ms after Return (the timer fires within a second)`);
   });
   await step("U6", "Escape while it builds", async () => {
     const before = doc();
