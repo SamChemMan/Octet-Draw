@@ -405,11 +405,13 @@ export function labelSmiles(label: string): string | undefined {
 }
 onNicknamesChange(() => { ends.clear(); worded.clear(); });
 // Why a label cannot be a nickname of the user's own, or undefined when it can: it is one word of up to 32
-// characters, and no element or generic label (typed on an atom, those are never read as a group). A label Octet reads
-// already may be one: the user's group comes first, as a name of their own does in Name to Structure.
+// characters, with no < or > and no control character (a label holds none, and the settings keep none: nicknames.ts
+// readNicknames), and no element or generic label (typed on an atom, those are never read as a group). A label Octet
+// reads already may be one: the user's group comes first, as a name of their own does in Name to Structure.
 export function nicknameProblem(label: string): string | undefined {
   if (!label) return "Type a nickname.";
   if (/\s/.test(label) || [...label].length > NICKNAME_MOST) return `A nickname is one word of up to ${NICKNAME_MOST} characters.`;
+  if (/[<>\u0000-\u001f\u007f-\u009f]/.test(label)) return "A nickname cannot hold < or > or a hidden character.";
   if (isElement(label) || standsIn(label)) return `${label} is an element or a generic label.`;
   return undefined;
 }

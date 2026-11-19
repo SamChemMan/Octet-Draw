@@ -24,7 +24,11 @@ const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("
 const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
 const { COMMENT, MAX_COMMENT, MAX_VALUE, oneLine } = await import("./experiment.ts");
 const { readRisk } = await import("./riskassess.ts");
-const { MAX_SHOWN, leftOf, setRows } = await import("./datafields.ts");
+const { MAX_DATA, MAX_SHOWN, leftOf, rowsOf, setRows } = await import("./datafields.ts");
+const { MAX_GRIDS } = await import("./experiment.ts");
+const { MAX_NOTES, noteCount } = await import("./annotate.ts");
+const { nicknameProblem } = await import("./labels.ts");
+const { readNicknames } = await import("./nicknames.ts");
 const { readGrid } = await import("./stoich.ts");
 const { placeCaptions } = await import("./render.ts");
 const { widthOf } = await import("./arial.ts");
@@ -277,7 +281,7 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
   // longer is counted as left out when the file opens.
   const shown = setRows(ETHANOL, [0, 1, 2], [{ name: "Batch", value: prose(MAX_SHOWN), show: true }]), id = shown.data![0].caption!, again = parse(serialize(shown));
   assert.deepEqual([again.data?.[0].caption, leftOf(again)], [id, {}]);
-  assert.deepEqual(leftOf(parse(serialize({ ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(MAX_SHOWN + 1) } : c)) }))), { "data field": 1 });
+  assert.deepEqual(leftOf(parse(serialize({ ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(MAX_SHOWN + 1) } : c)) }))), { character: 1 });
   // Settings keep an experiment page's text of MAX_START characters for new pages.
   const start = serialize(withTexts(prose(MAX_TEXT))).padEnd(MAX_START, " ");
   assert.equal(readPurposes({ experimentStart: start }).experimentStart, start);
@@ -286,14 +290,16 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
 
 it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detail, a chart label, Pen, cycles, counts, Use for new documents", () => {
   const editor = src("./Editor.tsx"), box = src("./RichBox.tsx");
-  // The caption and label boxes cut what is typed or pasted at their limits, with the notice.
-  assert.match(editor, /max=\{MAX_TEXT\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A text", MAX_TEXT\)\)\}/);
+  // The caption and label boxes cut what is typed or pasted at their limits, with the notice (the caption box at the
+  // limit of the text it edits: L17).
+  assert.match(editor, /max=\{most\}\s+onCut=\{\(\) => setNotice\(cutNotice\(what, most\)\)\}/);
   assert.match(editor, /max=\{MAX_LABEL\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A label", MAX_LABEL\)\)\}/);
   assert.match(box, /const text = fit\(e\.clipboardData\.getData\("text\/plain"\)/, "a paste is cut to the room left, its tabs spaces");
   assert.match(box, /if \(p\.max !== undefined && plainOf\(now\)\.length > p\.max\) \{\n\s+p\.onCut\?\.\(\);\n\s+const \{ text, at \} = typedIn\(plainOf\(runs\.current\), plainOf\(now\), p\.max\);/, "typing past the limit cuts what went in");
   // Committed text: a chart label 80, a detail MAX_VALUE, a shown data field MAX_SHOWN, any other text MAX_TEXT; tabs
   // spaces.
-  assert.match(editor, /const \[most, what\] = chartLabel \? \[80, "A chart label"\] : was\?\.field && DETAILS\.some\(\(\[k\]\) => k === was\.field\) \? \[MAX_VALUE, "A detail"\]\n\s+: was && fieldOfCaption\(doc, was\.id\) >= 0 \? \[MAX_SHOWN, "A shown value"\] : \[MAX_TEXT, "A text"\];/, "a data field's shown value keeps MAX_SHOWN, as its file does");
+  assert.match(editor, /return chartLabel \? \[80, "A chart label"\] : was\?\.field && DETAILS\.some\(\(\[k\]\) => k === was\.field\) \? \[MAX_VALUE, "A detail"\]\n\s+: was && fieldOfCaption\(doc, was\.id\) >= 0 \? \[MAX_SHOWN, "A shown value"\] : \[MAX_TEXT, "A text"\];/, "a data field's shown value keeps MAX_SHOWN, as its file does");
+  assert.match(editor, /const \[most, what\] = textMost\(was\);/, "commitWriting cuts by the same rule");
   assert.match(editor, /if \(over\) setNotice\(cutNotice\(what, most\)\);\n\s+const typed = over \? cutRuns\(clean, most\) : clean/);
   assert.match(editor, /if \(\/\[<>\]\/\.test\(text\)\) setNotice\("A label cannot hold < or >\. Octet left them out\."\);/);
   assert.equal(editor.match(/e\.target\.value\.replace\(\/\[<>\]\/g, ""\)\.slice\(0, MAX_LABEL\)/g)?.length, 2, "the Element and Label fields");
@@ -354,6 +360,139 @@ it("L10 1.1.2's files: a caption of 2,500 characters now opens whole from Octet'
   // A 1.1.2 file that opened cut and was saved again (2,000 characters) opens as it was saved.
   const cut2000 = cutText(t2, 2000);
   assert.equal(readOct(as112(withTexts(cut2000)), true).mol.captions![0].text, cut2000);
+});
+
+// --- L11 to L18: counts and lengths the editor or a reader could take past another reader's limit ----------------------
+
+// A ChemDraw drawing: ethanol with a shown data field (ChemDraw's attached data, property type 23) of n characters.
+const chemdrawShown = (n: number) => {
+  const shown = setRows(ETHANOL, [0, 1, 2], [{ name: "Procedure", value: "x", show: true }]), id = shown.data![0].caption!;
+  const m = { ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(n) } : c)) };
+  return { m, xml: toCdxml(m, style).replace(/(<CDXML[^>]*?)\s+Octet="[^"]*"/, "$1") };
+};
+it("L11 a shown data field of more than MAX_SHOWN characters is cut to MAX_SHOWN by every reader, counted, and saves and opens again clean", () => {
+  const { m, xml } = chemdrawShown(5000), full = prose(5000), kept = cutText(full, MAX_SHOWN);
+  assert.ok(!/<CDXML[^>]*Octet=/.test(xml), "ChemDraw's file, no Octet extras");
+  // ChemDraw's CDXML (and its CDX): the field stays shown, its text cut, and Octet says how many characters it left out.
+  for (const [name, r] of [["cdxml", fromCdxml(xml)], ["cdx", fromCdxml(cdxToXml(xmlToCdx(parseXml(xml))))]] as const) {
+    const f = r.mol.data?.[0], c = r.mol.captions?.find((x) => x.id === f?.caption);
+    assert.equal(c?.text, kept, `${name}: shown, cut to MAX_SHOWN`);
+    assert.deepEqual(r.lost, { character: full.length - kept.length }, name);
+    // Saved by Octet, it opens again with nothing left out, so Save does not ask to Replace.
+    for (const again of [readOct(writeOct(r.mol, style), true), readOct(serialize({ ...r.mol, style })), readCdx(writeCdx(r.mol, style))]) {
+      assert.deepEqual(again.lost, {}, `${name}: opens again clean`);
+      assert.equal(again.mol.captions?.find((x) => x.id === again.mol.data?.[0].caption)?.text, kept, `${name}: still shown`);
+    }
+    // Edit attached data…, then Save with nothing changed: the same drawing, the field still shown on the page.
+    const rows = rowsOf(r.mol, [0, 1, 2]);
+    assert.deepEqual(rows.map((x) => x.show), [true]);
+    assert.equal(setRows(r.mol, [0, 1, 2], rows), r.mol, `${name}: Save in Attached data changes nothing`);
+  }
+  // Octet's own file with such a field (from a version that let it be made), and 1.1.2's form (the property on its
+  // text): shown, cut and counted as characters, not as a data field left out.
+  const own = parse(serialize(m));
+  assert.equal(own.captions!.find((c) => c.id === own.data![0].caption)?.text, kept);
+  assert.deepEqual(leftOf(own), { character: full.length - kept.length });
+  const old = { ...ETHANOL, captions: [{ id: 1, x: 0, y: -2, text: full, property: { attrs: { ChemicalPropertyType: "23", Name: "Procedure" }, atoms: [0, 1, 2] } }] } as Mol;
+  const o = parse(serialize(old));
+  assert.deepEqual([o.data?.[0].caption, o.captions![0].text, leftOf(o)], [1, kept, { character: full.length - kept.length }]);
+  // At MAX_SHOWN nothing is cut.
+  const at = fromCdxml(chemdrawShown(MAX_SHOWN).xml);
+  assert.deepEqual(at.lost, {});
+  assert.equal(at.mol.captions!.find((c) => c.id === at.mol.data![0].caption)!.text.length, MAX_SHOWN);
+});
+
+it("L12 reagent tables: overLimit counts them (MAX_GRIDS), and a CDXML with more opens with MAX_GRIDS, counted, and saves and opens again", () => {
+  const arrows = (n: number) => Array.from({ length: n }, (_, k) => ({ id: k + 1, kind: "reaction" as const, from: [0, -3 * k] as [number, number], to: [3, -3 * k] as [number, number] }));
+  const tables = (n: number): Mol => ({ atoms: [], bonds: [], arrows: arrows(n), grids: arrows(n).map((a) => ({ arrow: a.id, typed: {}, roles: {} })) });
+  assert.equal(overLimit(tables(MAX_GRIDS)), undefined);
+  assert.equal(overLimit(tables(MAX_GRIDS + 1)), "A drawing holds up to 100 reagent tables.");
+  const r = fromCdxml(toCdxml(tables(MAX_GRIDS + 1), style));
+  assert.equal(r.mol.grids?.length, MAX_GRIDS);
+  assert.deepEqual(r.lost, { "reagent table": 1 });
+  assert.equal(parse(serialize(r.mol)).grids?.length, MAX_GRIDS, "the recovery copy and the .oct read again");
+  // Every way of adding a table is an edit, which set refuses past the count (L8): Analyse Stoichiometry and splitting
+  // a scheme's table make it through set too.
+  const editor = src("./Editor.tsx");
+  assert.match(editor, /set\(\{ \.\.\.doc, grids: has \? doc\.grids!\.filter/, "Analyse Stoichiometry");
+  assert.match(editor, /return set\(\{ \.\.\.doc, grids: stepGrids\(/, "a table for each step");
+});
+
+it("L13 data fields and notes: overLimit counts them (MAX_DATA, MAX_NOTES), so paste, duplicate and a second SD import say so", () => {
+  const fields = (n: number): Mol => ({ ...ETHANOL, data: Array.from({ length: n }, (_, k) => ({ name: `F${k}`, atoms: [0], value: "1" })) });
+  assert.equal(overLimit(fields(MAX_DATA)), undefined);
+  assert.equal(overLimit(fields(MAX_DATA + 1)), "A drawing holds up to 10,000 data fields.");
+  // Past MAX_DATA the file leaves the rest out: so the editor never makes more.
+  assert.deepEqual(leftOf(parse(serialize(fields(MAX_DATA + 1)))), { "data field": 1 });
+  const notes = (n: number): Mol => ({ ...withTexts(...Array.from({ length: Math.ceil(n / 1000) }, (_, k) => ({ text: `t${k}`, notes: Array.from({ length: Math.min(1000, n - 1000 * k) }, (_, j) => ({ keyword: NOTE, content: `${j}` })) }))) });
+  assert.equal(noteCount(notes(MAX_NOTES)), MAX_NOTES);
+  assert.equal(overLimit(notes(MAX_NOTES)), undefined);
+  assert.equal(overLimit(notes(MAX_NOTES + 1)), "A drawing holds up to 10,000 notes.");
+  // A file with more (saved before the editor kept the count) opens with MAX_NOTES, and says how many it left out.
+  const read = readOct(serialize({ ...notes(MAX_NOTES + 5), style }));
+  assert.equal(noteCount(read.mol), MAX_NOTES);
+  assert.deepEqual(read.lost, { annotation: 5 });
+});
+
+it("L14 a ChemDraw file with more than 10,000 texts, arrows, shapes or groups opens with 10,000 of each, counted, and saves and opens again", () => {
+  const n = 10_001, m: Mol = { atoms: [], bonds: [],
+    captions: Array.from({ length: n }, (_, k) => ({ id: k + 1, text: `${k}`, x: k % 100, y: -Math.floor(k / 100) })),
+    arrows: Array.from({ length: n }, (_, k) => ({ id: n + k + 1, kind: "line" as const, from: [k % 100, -Math.floor(k / 100) - 0.5] as [number, number], to: [k % 100 + 0.5, -Math.floor(k / 100) - 0.5] as [number, number] })),
+    shapes: Array.from({ length: n }, (_, k) => ({ id: 2 * n + k + 1, kind: "box" as const, from: [k % 100, -Math.floor(k / 100)] as [number, number], to: [k % 100 + 0.3, -Math.floor(k / 100) - 0.3] as [number, number] })) };
+  const xml = toCdxml(m, style).replace(/(<CDXML[^>]*?)\s+Octet="[^"]*"/, "$1");
+  let r: ReturnType<typeof fromCdxml> | undefined;
+  const t = ms(() => { r = fromCdxml(xml); });
+  assert.deepEqual([r!.mol.captions?.length, r!.mol.arrows?.length, r!.mol.shapes?.length], [10_000, 10_000, 10_000]);
+  assert.deepEqual(r!.lost, { text: 1, arrow: 1, shape: 1 });
+  assert.equal(lostNotice(r!.lost, "opened"), "Octet left out 1 text, 1 arrow and 1 shape.");
+  assert.doesNotThrow(() => parse(serialize({ ...r!.mol, style })), "what opens saves and opens again");
+  assert.deepEqual(readOct(writeOct(r!.mol, style), true).lost, {});
+  assert.ok(t < 15_000, `read in ${t.toFixed(0)} ms`);
+  // Groups too: 10,001 groups of two atoms each.
+  const pairs: Mol = { atoms: Array.from({ length: 2 * n }, (_, k) => ({ label: "C", location: [k % 200, -Math.floor(k / 200), 0] as [number, number, number] })), bonds: [],
+    groups: Array.from({ length: n }, (_, k) => ({ id: k + 1, atoms: [2 * k, 2 * k + 1], items: [] })) };
+  const g = fromCdxml(toCdxml(pairs, style).replace(/(<CDXML[^>]*?)\s+Octet="[^"]*"/, "$1"));
+  assert.equal(g.mol.groups?.length, 10_000);
+  assert.deepEqual(g.lost, { group: 1 });
+  assert.equal(parse(serialize(g.mol)).groups?.length, 10_000);
+});
+
+it("L15 Define Nickname refuses a nickname with < or > or a hidden character, which no label and no setting keeps", () => {
+  for (const label of ["Boc<2>", "a>b", "Me\u0001", "Et\u0085", "Pr\u007f"]) {
+    assert.equal(nicknameProblem(label), "A nickname cannot hold < or > or a hidden character.", JSON.stringify(label));
+    // Why: a label typed on an atom holds no < or >, and the settings keep no control character.
+    assert.ok(keptLabel(label) !== label || !readNicknames([{ label, smiles: "C" }]).length, JSON.stringify(label));
+  }
+  assert.equal(nicknameProblem("Boc2"), undefined);
+});
+
+it("L16 at the most nicknames Octet keeps (and dictionary names and template sets), Define Nickname (Add to Dictionary, New set) refuses a new one before it changes anything", () => {
+  const editor = src("./Editor.tsx");
+  assert.match(editor, /const there = !!label && !!ownNickname\(label\), full = !there && settings\.nicknames\.length >= MOST_OWN_NICKNAMES;/);
+  assert.match(editor, /\?\? \(full \? `Octet keeps up to \$\{MOST_OWN_NICKNAMES\} nicknames\. Remove one in Settings > Dictionary to add another\.` : undefined\)/);
+  // keepIt returns on a problem before the label is contracted or the settings change.
+  assert.match(editor, /if \(!label \|\| problem \|\| [^\n]*\) return;\n\s+setDialog\(undefined\);\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, nicknames: withNickname/);
+  // Add to Dictionary: a full dictionary, or a SMILES longer than it keeps, is said and nothing is saved; an import
+  // says how many names it left out; the name history keeps a long SMILES's name alone.
+  assert.match(editor, /const full = !there && settings\.dictionary\.length >= MOST_OWN_NAMES;\n\s+const keepIt = \(\) => \{\n\s+if \(!name \|\| full\) return;/);
+  assert.match(editor, /if \(smiles\.length > OWN_SMILES_LENGTH\) return setNotice\("This structure is too large for the dictionary\.", "info"\);/);
+  assert.match(editor, /Octet left out \$\{left\.toLocaleString\("en-GB"\)\}: your dictionary holds up to/);
+  assert.match(editor, /if \(smiles\.length > 2000\) smiles = "";/);
+  // New set… (the dialog, and the library's New set) at MOST_SETS: Octet says so, as for a template file, and adds none.
+  assert.match(editor, /const askSet = \(then: \(set: string\) => void\) => \(settings\.templateSets\.length >= MOST_SETS \? setNotice\(FULL_SETS, "info"\)/);
+  assert.match(editor, /add: \(name: string\) => \(settings\.templateSets\.length >= MOST_SETS \? setNotice\(FULL_SETS, "info"\)/);
+  assert.match(src("./templates.ts"), /FULL_SETS = `You have \$\{MOST_SETS\} template sets, the most Octet keeps\. Remove a set first\.`/);
+});
+
+it("L17 the caption box holds what the text it edits holds: a shown value MAX_SHOWN, a chart label 80, a detail MAX_VALUE, cut as it goes in", () => {
+  const editor = src("./Editor.tsx");
+  assert.match(editor, /const \[most, what\] = textMost\(own\);/);
+  assert.match(editor, /<RichBox\n\s+key=\{writing\.at[^\n]*\n\s+max=\{most\}\n\s+onCut=\{\(\) => setNotice\(cutNotice\(what, most\)\)\}/);
+  // What the box keeps of a paste into a full shown value: the text around it whole, what went in cut.
+  const value = prose(MAX_SHOWN - 10), into = typedIn(value, value.slice(0, 100) + prose(500) + value.slice(100), MAX_SHOWN);
+  assert.equal(into.text.length, MAX_SHOWN);
+  assert.ok(into.text.startsWith(value.slice(0, 100)) && into.text.endsWith(value.slice(100)));
+  assert.equal(cutNotice("A shown value", MAX_SHOWN), "A shown value holds up to 2,000 characters. Octet left out the rest.");
 });
 
 // --- H1 to H6: hostile files at the new limits read fast and in bounded memory -----------------------------------------

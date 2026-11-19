@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
-import { BUILT_IN, ownNickname, ownNicknames, setOwnNicknames, withNickname, withoutNickname } from "./nicknames";
+import { BUILT_IN, MOST_OWN_NICKNAMES, ownNickname, ownNicknames, setOwnNicknames, withNickname, withoutNickname } from "./nicknames";
 import { redrawStereo, nicknameGroup, analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, MAX_START, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
@@ -112,7 +112,7 @@ import {
 import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
-import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
+import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, MOST_OWN_NAMES, nameToSmiles, namesStarting, ownName, ownNamesFile, OWN_SMILES_LENGTH, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE } from "./peptide";
@@ -133,7 +133,7 @@ import { CanvasAccess, type HotItem } from "./CanvasAccess";
 import { stereoNames, stereoTexts } from "./stereonames";
 import { invertAt, invertible, fischerable, INVERT_SELECT, toFischer, toWedges } from "./projection";
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
-import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, setTemplateAnchor, ownId, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, FULL_SETS, hasContent, MOST_SETS, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, setTemplateAnchor, ownId, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
@@ -755,11 +755,12 @@ export default function Editor() {
   const addToSet = (set: string, tool: TemplateTool) => (selection.size || picked.size ? addPart(selectedPart(), set, tool) : setTemplatePick({ set, tool }));
   const stopPick = () => { if (templatePick) showLibrary(templatePick.tool, templatePick.set); setTemplatePick(undefined); };
   // New set…: the set's name first (Dialog), then what was asked for goes in it.
-  const askSet = (then: (set: string) => void) => setDialog({ kind: "templateSet", name: "", then });
+  // With MOST_SETS sets (templates.ts), Octet says so and adds none.
+  const askSet = (then: (set: string) => void) => (settings.templateSets.length >= MOST_SETS ? setNotice(FULL_SETS, "info") : setDialog({ kind: "templateSet", name: "", then }));
   // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
   // removed (its templates go to My templates), and a template moved to another set.
   const templateSets = {
-    add: (name: string) => setSettings((s) => addSet(s, name)),
+    add: (name: string) => (settings.templateSets.length >= MOST_SETS ? setNotice(FULL_SETS, "info") : setSettings((s) => addSet(s, name))),
     rename: (from: string, name: string) => setSettings((s) => renameSet(s, from, name)),
     remove: (name: string) => setSettings((s) => removeSet(s, name)),
     move: (id: string, set: string) => setSettings((s) => moveTemplate(s, id, set)),
@@ -830,7 +831,7 @@ export default function Editor() {
       const read = readTemplateFile(text, fileName);
       if (!read.templates.length && read.left) return setNotice(`Octet cannot read the templates in ${fileName}.`);
       const { set } = addSetOf(settings, read.set, read.templates);
-      if (!set) return setNotice("You have 50 template sets, the most Octet keeps. Remove a set first.");
+      if (!set) return setNotice(FULL_SETS);
       setSettings((s) => addSetOf(s, read.set, read.templates).kept);
       showLibrary("template", set);
       const n = read.templates.length, more = read.left ? ` Octet left out ${read.left} that ${read.left > 1 ? "were" : "was"} too large or damaged.` : "";
@@ -886,6 +887,8 @@ export default function Editor() {
     try { smiles = toSmiles(part); } catch { smiles = ""; }
     try { inchi = toInchi(part) || undefined; } catch { inchi = undefined; }
     if (!smiles) return setNotice("Octet cannot write this structure as SMILES.");
+    // The dictionary keeps a SMILES of up to OWN_SMILES_LENGTH characters (names.ts withOwnName, settings.ts).
+    if (smiles.length > OWN_SMILES_LENGTH) return setNotice("This structure is too large for the dictionary.", "info");
     setDialog({ kind: "dictionary", name: "", smiles, inchi });
   }
   // Define Nickname: the selected group as a nickname's SMILES (chem.ts nicknameGroup), then its label (Dialog).
@@ -911,9 +914,10 @@ export default function Editor() {
         try { const m = parseStructure(n.smiles, false); return m.atoms.length ? [{ ...n, inchi: toInchi(m) || undefined }] : []; } catch { return []; }
       });
       if (!read.length) return setNotice(`There are no names in ${picked[0]}. Octet reads a SMILES file with a name after each SMILES.`);
-      const merged = mergeOwnNames(settings.dictionary, read);
+      const merged = mergeOwnNames(settings.dictionary, read), left = read.length - merged.added - merged.kept;
       setSettings((s) => ({ ...s, dictionary: mergeOwnNames(s.dictionary, read).list }));
-      setNotice(`Added ${merged.added} name${merged.added === 1 ? "" : "s"} to your dictionary.${merged.kept ? ` ${merged.kept} ${merged.kept === 1 ? "was" : "were"} in it already and stayed as ${merged.kept === 1 ? "it was" : "they were"}.` : ""}`, "done");
+      // A full dictionary (MOST_OWN_NAMES) takes no more: Octet says how many it left out.
+      setNotice(`Added ${merged.added} name${merged.added === 1 ? "" : "s"} to your dictionary.${merged.kept ? ` ${merged.kept} ${merged.kept === 1 ? "was" : "were"} in it already and stayed as ${merged.kept === 1 ? "it was" : "they were"}.` : ""}${left > 0 ? ` Octet left out ${left.toLocaleString("en-GB")}: your dictionary holds up to ${MOST_OWN_NAMES.toLocaleString("en-GB")} names.` : ""}`, "done");
     } catch (e) {
       setNotice(failure("Octet cannot import this file.", e));
     }
@@ -1365,6 +1369,8 @@ export default function Editor() {
     if (name.length > 200) return;
     let smiles = "";
     try { smiles = toSmiles(frag); } catch { /* kept by name alone */ }
+    // The settings keep a SMILES of up to 2,000 characters with a name (settings.ts): a longer one is kept by name alone.
+    if (smiles.length > 2000) smiles = "";
     setSettings((s) => ({ ...s, nameHistory: [{ name, smiles }, ...s.nameHistory.filter((n) => n.name.toLowerCase() !== name.toLowerCase())].slice(0, 50) }));
   };
   const historyMols = useRef(new Map<string, Mol | undefined>());
@@ -4766,7 +4772,8 @@ export default function Editor() {
   // selected (Add to drawing > Key, Shifts beside atoms, and the Properties panel's).
   const revealNext = useRef<boolean | Set<number>>(false);
   // A part just inserted (insertMol's result) lands: one undo step, selected, and in view.
-  const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { set(r.mol, true, undefined, drop); revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
+  // An edit set refuses (past a count a file holds: overLimit) selects nothing new.
+  const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { if (set(r.mol, true, undefined, drop) === doc && r.mol !== doc) return; revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
   const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties, .note-panel:not(.leaving)")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
   // What the scroll bars span: the drawing (drawnBox, with every object) and its pages, drawing px at 100%, y down.
   const scrollBox = useMemo((): Span => {
@@ -4857,6 +4864,15 @@ export default function Editor() {
     else openWriting({ value: "", cycle: { cycle: c.id, step: t.step, side: other, branch }, style: { ...textStyle } });
     return true;
   }
+  // What a text holds (docs/plans/long-text.md): a chart's label 80 characters and an experiment's detail 200, as
+  // their records keep them, a data field's shown value MAX_SHOWN (as the Attached data dialog shows it), any other
+  // text MAX_TEXT, with what Octet calls it when it cuts. The text box cuts what goes in past it (RichBox max), and
+  // commitWriting what an escape gives.
+  const textMost = (was?: Caption): [number, string] => {
+    const chartLabel = !!was?.role && isDataRole(was.role.role) && !!doc.groups?.some((g) => g.plot && isChart(g.plot) && g.items.includes(was.id));
+    return chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"]
+      : was && fieldOfCaption(doc, was.id) >= 0 ? [MAX_SHOWN, "A shown value"] : [MAX_TEXT, "A text"];
+  };
   function commitWriting() {
     const w = writing;
     if (!writingOpen.current) return;
@@ -4865,13 +4881,9 @@ export default function Editor() {
     if (!w) return;
     // A name typed as LaTeX's, \delta, is its character, δ (escapes.ts, Stefan Schramm's idea in PR 42).
     const was = w.id !== undefined ? doc.captions?.find((c) => c.id === w.id) : undefined, written = expandRuns(w.runs ?? [{ text: w.value }], keptText(was?.text));
-    // What the text holds (docs/plans/long-text.md): a chart's label 80 characters and an experiment's detail 200, as
-    // their records keep them, a data field's shown value MAX_SHOWN (as the Attached data dialog shows it), any other
-    // text MAX_TEXT. A tab is a space, and no other control character but a line break is kept. More is cut, and Octet
-    // says so.
-    const chartLabel = !!was?.role && isDataRole(was.role.role) && !!doc.groups?.some((g) => g.plot && isChart(g.plot) && g.items.includes(was.id));
-    const [most, what] = chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"]
-      : was && fieldOfCaption(doc, was.id) >= 0 ? [MAX_SHOWN, "A shown value"] : [MAX_TEXT, "A text"];
+    // What the text holds (textMost). A tab is a space, and no other control character but a line break is kept. More
+    // is cut, and Octet says so.
+    const [most, what] = textMost(was);
     const clean = written.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "") })), over = plainOf(clean).length > most;
     if (over) setNotice(cutNotice(what, most));
     const typed = over ? cutRuns(clean, most) : clean, text = plainOf(typed).replace(/\s+$/, "");
@@ -11629,14 +11641,16 @@ export default function Editor() {
         const z = view.zoom, size = c.size * z, slack = 0.5 * size, gap = c.lines.length > 1 ? c.lines[1].y - c.lines[0].y : 1.2 * c.size, lead = (gap - 1.117 * c.size) / 2 + 0.905 * c.size;
         // A caption with a width wraps in the box as it does on the canvas: the box is that wide, from its anchor.
         const own = writing.id !== undefined ? doc.captions?.find((x) => x.id === writing.id) : undefined, wrapAt = (writing.style.width ?? own?.width ?? 0) * L, b = c.frame ?? c.box;
+        // The box holds what this text holds (textMost): what goes in past it is cut there, with the notice.
+        const [most, what] = textMost(own);
         const x0 = !wrapAt ? b[0] : c.anchor === "end" ? c.lines[0].x - wrapAt : c.anchor === "middle" ? c.lines[0].x - wrapAt / 2 : c.lines[0].x;
         const left = view.x + x0 * z - slack, top = view.y + (c.lines[0].y - lead) * z;
         return (
           <>
           <RichBox
             key={writing.at ? writing.at.join(" ") : undefined} // a new box for each caption Tab starts
-            max={MAX_TEXT}
-            onCut={() => setNotice(cutNotice("A text", MAX_TEXT))}
+            max={most}
+            onCut={() => setNotice(cutNotice(what, most))}
             returnNewLine={!settings.captionOptionReturn}
             runs={writing.runs ?? [{ text: writing.value }]}
             version={writing.version ?? 0}
@@ -12273,16 +12287,19 @@ export default function Editor() {
         // the structure. A name in the dictionary already is replaced, as ChemDraw asks; the dialog says so first. A name
         // Octet reads already then gives the user's structure.
         const name = cleanOwnName(dialog.name), there = name ? ownName(name) : undefined, octets = !!name && !there && !!nameToSmiles(name);
+        // The settings keep MOST_OWN_NAMES (names.ts): a new name past it is refused before anything changes.
+        const full = !there && settings.dictionary.length >= MOST_OWN_NAMES;
         const keepIt = () => {
-          if (!name) return;
+          if (!name || full) return;
           const d = dialog;
           setDialog(undefined);
           setSettings((s) => ({ ...s, dictionary: withOwnName(s.dictionary, { name, smiles: d.smiles, ...(d.inchi ? { inchi: d.inchi } : {}) }) }));
           setNotice(`${name} is in your dictionary. Type it in Name to Structure to draw it.`, "done");
         };
         return (
-          <Dialog title="Add to dictionary" action={there ? "Replace" : "Save"} disabled={!name} onClose={() => setDialog(undefined)} onAction={keepIt}>
+          <Dialog title="Add to dictionary" action={there ? "Replace" : "Save"} disabled={!name || full} onClose={() => setDialog(undefined)} onAction={keepIt}>
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            {full && <p className="dialog-note">Your dictionary holds up to {MOST_OWN_NAMES.toLocaleString("en-GB")} names. Remove one in Settings &gt; Dictionary to add another.</p>}
             {there && <p className="dialog-note">Your dictionary has “{there.name}” already. Replace gives it this structure.</p>}
             {octets && <p className="dialog-note">Octet reads this name already. Your structure comes first.</p>}
           </Dialog>
@@ -12291,7 +12308,11 @@ export default function Editor() {
       <Exit>{dialog?.kind === "nickname" && (() => {
         // Define Nickname: the label for the group. One of the user's own is replaced, and a label Octet reads already
         // then gives the user's group, as Add to Dictionary does with names; the dialog says so first.
-        const label = dialog.label.trim(), problem = label ? nicknameProblem(label) : undefined, there = !!label && !!ownNickname(label), octets = !!label && !there && !problem && !!labelSmiles(label);
+        const label = dialog.label.trim();
+        // The settings keep MOST_OWN_NICKNAMES (nicknames.ts): a new one past it is refused before anything changes.
+        const there = !!label && !!ownNickname(label), full = !there && settings.nicknames.length >= MOST_OWN_NICKNAMES;
+        const problem = (label ? nicknameProblem(label) : undefined) ?? (full ? `Octet keeps up to ${MOST_OWN_NICKNAMES} nicknames. Remove one in Settings > Dictionary to add another.` : undefined);
+        const octets = !!label && !there && !problem && !!labelSmiles(label);
         const keepIt = () => {
           const d = dialog;
           // A group Contract Label refuses (over 256 atoms) is no nickname: nicknameGroup says so, and none is saved.

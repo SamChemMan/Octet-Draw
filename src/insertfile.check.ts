@@ -34,7 +34,8 @@ assert.match(body(editor, "  async function insertFile(", "\n  }\n"), /invoke<Op
 const drop = body(editor, "  async function dropFiles(", "\n  }\n");
 assert.match(drop, /at = files\[0\]\.at && toDoc\(\.\.\.files\[0\]\.at\)/);
 assert.match(drop, /insertMol\(now\.current, add, at \? \[at\[0\] - \(b\[0\] \+ b\[2\]\) \/ 2, at\[1\] - \(b\[1\] \+ b\[3\]\) \/ 2\] : landing\(add, undefined, b\)\);\n\s*landPart\(r, at \? "placed" : true\);/);
-assert.match(editor, /const landPart = \(r: [^\n]*, drop: boolean \| "placed" = true\) => \{ set\(r\.mol, true, undefined, drop\); revealNext\.current = true; setSelection\(r\.atoms\); setPicked\(r\.items\); \};/);
+// An insert past a count a file holds is not made (overLimit): nothing new is selected (docs/plans/long-text.md).
+assert.match(editor, /const landPart = \(r: [^\n]*, drop: boolean \| "placed" = true\) => \{ if \(set\(r\.mol, true, undefined, drop\) === doc && r\.mol !== doc\) return; revealNext\.current = true; setSelection\(r\.atoms\); setPicked\(r\.items\); \};/);
 assert.match(drop, /mols\.push\(\{ \.\.\.\(r\.mol\.style \? fitSizes\(r\.mol, r\.mol\.style, style\) : r\.mol\), style: undefined \}\);/);
 assert.equal((editor.match(/await dropFiles\(/g) ?? []).length, 2, "drops and File > Insert… share dropFiles");
 

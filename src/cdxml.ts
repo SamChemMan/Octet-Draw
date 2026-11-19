@@ -22,18 +22,18 @@ import { cutText, labelStyle, MAX_TEXT, normalise, plainOf, runsOf, styleOf, sty
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
-import { fragments, groupParents, markDirections, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
+import { deleteGraphics, fragments, groupParents, markDirections, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import type { StereoText } from "./stereonames.ts";
 import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub, type DataField } from "./render.ts";
-import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, withProperties } from "./datafields.ts";
+import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, shownText, withProperties } from "./datafields.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
 import { readPart, readPlot, type Plot } from "./pageplot.ts";
 import { readRisk, type Risk } from "./riskassess.ts";
-import { CHANGED_BY, changedBy, cleanComment, COMMENT, MAX_COMMENT, oneLine } from "./experiment.ts";
+import { CHANGED_BY, changedBy, cleanComment, COMMENT, MAX_COMMENT, MAX_GRIDS, oneLine } from "./experiment.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -1507,6 +1507,27 @@ function symbolRuns(root: Xml, fonts: Map<number, string>, lose: (what: string) 
   }
 }
 
+// A drawing read with at most as many of each kind of object as Octet's own file holds (file.ts overLimit): texts,
+// arrows, shapes, cycles, ring fills and groups MAX_OBJECTS each, reagent tables MAX_GRIDS. Those past it are left
+// out and counted (lose), with a data field whose text or a table whose arrow went, so what opens saves and opens again.
+function withinCounts(m: Mol, lose: (what: string, n: number) => void): Mol {
+  const past = <T extends { id: number }>(list: T[] | undefined, what: string) => {
+    if (!list || list.length <= MAX_OBJECTS) return [];
+    lose(what, list.length - MAX_OBJECTS);
+    return list.slice(MAX_OBJECTS).map((x) => x.id);
+  };
+  const ids = new Set([...past(m.captions, "text"), ...past(m.arrows, "arrow"), ...past(m.shapes, "shape"), ...past(m.cycles, "cycle")]);
+  let out = ids.size ? deleteGraphics(m, ids) : m;
+  if ((m.data?.length ?? 0) > (out.data?.length ?? 0)) lose("data field", m.data!.length - (out.data?.length ?? 0));
+  if ((out.grids?.length ?? 0) > MAX_GRIDS) out = { ...out, grids: out.grids!.slice(0, MAX_GRIDS) };
+  if ((m.grids?.length ?? 0) > (out.grids?.length ?? 0)) lose("reagent table", m.grids!.length - (out.grids?.length ?? 0));
+  for (const [k, what] of [["fills", "ring fill"], ["groups", "group"]] as const) {
+    const list = out[k];
+    if (list && list.length > MAX_OBJECTS) { lose(what, list.length - MAX_OBJECTS); out = { ...out, [k]: list.slice(0, MAX_OBJECTS) }; }
+  }
+  return out;
+}
+
 // A CDXML document (ChemDraw's own, or one Octet wrote) as an Octet drawing and its document style. It takes the
 // text, or the tree: a CDX file reads as the same tree (cdx.ts).
 // Throws an Error with a message for the user when the file is not CDXML, is damaged or is too large.
@@ -1722,9 +1743,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       });
     }
     if (list.length > MAX_DATA) lose("data field", list.length - MAX_DATA);
-    const ids = new Set(shown.map((f) => f.caption));
-    mol.captions = mol.captions?.map((c) => { if (!ids.has(c.id)) return c; const { property: _, ...rest } = c; return { ...rest, chemical: false as const }; });
-    mol.data = remapData(list.slice(0, MAX_DATA).map(({ datum: _, ...f }) => f), (i) => i);
+    // A shown field's text holds MAX_SHOWN characters (shownText); one past MAX_DATA is plain text.
+    const ids = new Set(shown.map((f) => f.caption)), kept = list.slice(0, MAX_DATA), showing = new Set(kept.map((f) => f.caption));
+    mol.captions = mol.captions?.map((c) => {
+      if (!ids.has(c.id)) return c;
+      const { property: _, ...rest } = c, plain = { ...rest, chemical: false as const };
+      if (!showing.has(c.id)) return plain;
+      const s = shownText(plain);
+      if (s.cut) lose("character", s.cut);
+      return s.caption;
+    });
+    mol.data = remapData(kept.map(({ datum: _, ...f }) => f), (i) => i);
   }
   // An object's notes: the annotation elements in the element it was read from.
   const notesOf = (x: Xml | undefined) => {
@@ -2836,6 +2865,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
 
   // Cycles are Octet's own (no CDXML object holds one): their ids are kept first, their atoms found after.
   const cycleData = octet && Array.isArray(top!.cycles) ? (top!.cycles as Record<string, unknown>[]).slice(0, MAX_OBJECTS) : [];
+  if (octet && Array.isArray(top!.cycles) && top!.cycles.length > MAX_OBJECTS) lose("cycle", top!.cycles.length - MAX_OBJECTS);
   for (const c of cycleData) if (c && Number.isInteger(c.id) && (c.id as number) > 0 && (c.id as number) < 2 ** 31) taken.add(c.id as number);
   for (const pg of pages) for (const k of pg.kids) visit(k);
   readBonds();
@@ -2990,7 +3020,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   readFields(ix);
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
-  const out = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true);
+  const out = withinCounts(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), lose);
   // A group of one thing goes, and its annotations with it.
   const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(out);
   if (gone > 0) lose("annotation", gone);
