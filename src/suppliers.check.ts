@@ -33,6 +33,7 @@ assert.deepEqual(names([], "sigma"), ["Sigma-Aldrich"]);
 assert.deepEqual(names([], "a5376"), ["Sigma-Aldrich"], "by catalogue number");
 assert.deepEqual(names([], "abcr gmbh"), ["abcr GmbH"]);
 assert.deepEqual(names([], "zzz"), []);
+assert.deepEqual(shownSuppliers([...aspirin.suppliers, { name: "Fluorochem", url: "https://f.example.com", codes: [], products: 1, country: "United Kingdom" }], [], "united king").map((s) => s.name), ["Fluorochem"], "by country");
 assert.equal(supplierKey(" Sigma - Aldrich "), supplierKey("sigma-aldrich"), "favourites by name, letter case and spaces aside");
 assert.deepEqual(starred([], "TCI", true), ["tci"]);
 assert.deepEqual(starred(["tci", "abcrgmbh"], "TCI", false), ["abcrgmbh"]);

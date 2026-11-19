@@ -746,7 +746,6 @@ rect.mark {
 .segmented button:focus-visible,
 .supplier-open:focus-visible,
 .supplier-star:focus-visible,
-.prop-switch:focus-visible,
 .swatch:focus-visible,
 .switch:focus-visible,
 .text-button:focus-visible,
@@ -1916,6 +1915,15 @@ kbd {
 }
 .scale-row .tray-title {
   padding: 0 var(--space-2);
+}
+/* A double bond's Second line: its title over the four positions, which fill the panel's width. */
+.scale-row.bond-position {
+  display: grid;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+.bond-position .segmented {
+  margin-left: var(--space-2);
 }
 /* The colour section: its title, the swatches and the highlight buttons, with a hairline under it before the rows. */
 .colour-block {
@@ -5019,6 +5027,9 @@ line.attach-hit[aria-checked="true"] {
   color: var(--ink);
   font-weight: 400;
 }
+.prop-piece {
+  white-space: nowrap;
+}
 /* Precautionary codes wrap between codes, never inside one (P410+P403). */
 .prop-codes {
   display: flex;
@@ -5096,28 +5107,9 @@ line.attach-hit[aria-checked="true"] {
   gap: var(--space-2);
   margin-left: auto;
 }
-/* With names is a setting of its own: more room after it than between Decimals and its choice. */
-.prop-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+/* Names is a setting of its own: more room after it than between Decimals and its choice. */
+.prop-decimals .spectrum-button {
   margin-right: var(--space-2);
-  padding: 0 var(--space-1);
-  height: var(--size-control);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: 13px/18px var(--font-sans);
-}
-.prop-switch[aria-checked="true"] .prop-check {
-  border-color: var(--brand);
-  background: var(--brand);
-}
-@media (hover: hover) and (pointer: fine) {
-  .prop-switch:hover {
-    background: var(--surface-sunken);
-  }
 }
 .prop-add {
   display: inline-flex;
@@ -5218,7 +5210,7 @@ div.suppliers-none p {
   align-items: center;
   border-radius: var(--radius-sm);
   animation: supplier-in var(--motion) var(--ease-out) both;
-  animation-delay: calc(var(--i) * 18ms);
+  animation-delay: calc(var(--i) * 22ms);
 }
 @keyframes supplier-in {
   from {
@@ -5292,7 +5284,8 @@ div.suppliers-none p {
   transition: color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 .supplier-star.on {
-  color: var(--brand);
+  background: var(--brand-mist);
+  color: var(--link);
 }
 .supplier-star:active {
   transform: scale(var(--press-small));

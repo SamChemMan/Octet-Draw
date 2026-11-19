@@ -7629,7 +7629,7 @@ export default function Editor() {
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
       const b = doc.bonds[bi], style = bondKindOf(b);
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), opacity: opacityOf(doc, selection), molecule };
+      return { kind: "bond", style, double: b.type === 2, position: b.type === 2 ? b.position ?? "auto" : undefined, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), opacity: opacityOf(doc, selection), molecule };
     }
     return molecule ?? structureOf();
   };

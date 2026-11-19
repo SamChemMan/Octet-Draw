@@ -29,11 +29,11 @@ export function suppliersOf(x: unknown): Suppliers | null | undefined {
 
 // A supplier's key for favourites: its name, letter case and spaces aside (as Rust counts each supplier once).
 export const supplierKey = (name: string) => name.replace(/\s+/g, "").toLowerCase();
-// The suppliers the window lists: those whose name or a catalogue number holds every word of the search (letter case
-// aside), favourites first, then A to Z as Rust gave them.
+// The suppliers the window lists: those whose name, country or a catalogue number holds every word of the search
+// (letter case aside), favourites first, then A to Z as Rust gave them.
 export function shownSuppliers(list: Supplier[], favourites: string[], search: string): Supplier[] {
   const words = search.toLowerCase().split(/\s+/).filter(Boolean), fav = new Set(favourites);
-  const hit = list.filter((s) => words.every((w) => s.name.toLowerCase().includes(w) || s.codes.some((c) => c.toLowerCase().includes(w))));
+  const hit = list.filter((s) => words.every((w) => s.name.toLowerCase().includes(w) || !!s.country?.toLowerCase().includes(w) || s.codes.some((c) => c.toLowerCase().includes(w))));
   return [...hit.filter((s) => fav.has(supplierKey(s.name))), ...hit.filter((s) => !fav.has(supplierKey(s.name)))];
 }
 // The favourites with this supplier starred or not.

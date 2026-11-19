@@ -5,7 +5,7 @@
 // of their values says (predicted)). A click on a value copies its row; the boxes choose the rows Add to drawing
 // writes under each structure. Decimals sets the places of every calculated number (ChemDraw's Analysis window: 0 to
 // 8; the elemental analysis keeps 2); Copy report copies every value with the method and source it comes from
-// (ChemDraw's Report…). With names off, Add to drawing writes the values without their names (issue 77; ChemDraw's
+// (ChemDraw's Report…). Names off: Add to drawing writes the values without their names (issue 77; ChemDraw's
 // empty Property Labels word does the same). Hazards opens with Find hazards (with Online search on); while it runs it
 // is Stop. Then the pictograms are drawn with the signal word, each statement is on its own line, a PubChem CID opens
 // the compound's Safety and Hazards page in the browser, and the source closes the tab. Suppliers have their own
@@ -77,6 +77,8 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     );
   };
   const text = (row: Row) => row.values.map((v) => (v === undefined ? "–" : v)).join("; ");
+  // An m/z peak or an element's percentage never breaks inside itself: the line breaks only between them.
+  const pieces = (t: string) => t.split(/(?<=[,;]) /).map((p, i) => <span key={i} className="prop-piece">{i > 0 && " "}{p}</span>);
   // A row on the Properties tab: its box, its name and its value, which copies the row. The formula's counts are drawn
   // as subscripts.
   const valueRow = (row: Row) => (
@@ -84,7 +86,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
       {box(row)}
       <span className="prop-name">{row.name}</span>
       <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text(row)}`)}>
-        {row.key === "formula" ? text(row).replace(/\d/g, (d) => SUB[Number(d)]) : text(row)}
+        {row.key === "formula" ? text(row).replace(/\d/g, (d) => SUB[Number(d)]) : row.key === "mz" || row.key === "analysis" ? pieces(text(row)) : text(row)}
       </button>
     </div>
   );
@@ -150,9 +152,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
         <button className="prop-add primary" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
         <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!values.some((g) => g.length)} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
         <span className="prop-decimals">
-          <button className="prop-switch" role="checkbox" aria-checked={names} data-tip={names ? "Add the values with their names" : "Add the values without their names"} onClick={() => onNames(!names)}>
-            <span className="prop-check" aria-hidden>{names && <Check size={12} />}</span>With names
-          </button>
+          <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>
           {tab === "properties" && <>
             <span className="prop-name">Decimals</span>
             <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
