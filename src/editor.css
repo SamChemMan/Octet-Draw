@@ -5151,10 +5151,12 @@ line.attach-hit[aria-checked="true"] {
   }
 }
 /* The Suppliers window (SupplierWindow.tsx): a title with the structure list, the search field, then the suppliers,
-   each a row that opens its page, with a star at its end. While PubChem answers, Octet's mark draws itself in the
-   middle, at half size, as the AI card draws it. */
+   each a row that opens its page, with a star at its end. The search field, the rows' highlights and the buttons
+   below share the dialog's insets; a row's text sits as far in as the search field's. The list ends on a hairline
+   above the buttons. While PubChem answers, Octet's mark draws itself in the middle, as the AI card draws it. */
 .suppliers {
   display: grid;
+  justify-self: stretch;
   gap: var(--space-3);
 }
 .suppliers-head {
@@ -5198,18 +5200,27 @@ div.suppliers-none p {
 }
 .suppliers-list {
   display: grid;
-  max-height: min(420px, 55vh);
-  margin: 0 calc(-1 * var(--space-2));
+  align-content: start;
+  max-height: min(400px, 52vh);
+  margin: 0;
   padding: 0;
   overflow-y: auto;
+  border-bottom: 1px solid var(--hairline);
   list-style: none;
+}
+/* The list's end: the rows fade out above the hairline, and the last row clears it when scrolled to the end. */
+.suppliers-list::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  height: var(--space-4);
+  background: linear-gradient(color-mix(in oklab, var(--surface-raised) 0%, transparent), var(--surface-raised));
+  pointer-events: none;
 }
 .supplier {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding-right: var(--space-1);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   animation: supplier-in var(--motion) var(--ease-out) both;
   animation-delay: calc(var(--i) * 18ms);
 }
@@ -5223,47 +5234,50 @@ div.suppliers-none p {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   font: inherit;
   text-align: left;
 }
-.supplier-mono {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-  color: var(--ink-muted);
-  font: 600 12px/1 var(--font-sans);
-  letter-spacing: 0.02em;
-}
 .supplier-text {
   display: grid;
   min-width: 0;
 }
-.supplier-name,
-.supplier-more {
+.supplier-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .supplier-more {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-muted);
   font-size: 12px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.supplier-more > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.supplier-dot {
+  margin-right: var(--space-1);
 }
 .supplier-out {
+  display: grid;
   flex: none;
+  place-items: center;
   margin-left: auto;
+  width: 20px;
+  height: 20px;
   color: var(--ink-faint);
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out);
@@ -5274,6 +5288,7 @@ div.suppliers-none p {
   place-items: center;
   width: var(--size-control);
   height: var(--size-control);
+  margin-right: var(--space-1);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;

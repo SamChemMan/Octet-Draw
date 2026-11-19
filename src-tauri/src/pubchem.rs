@@ -24,6 +24,13 @@ const BY_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchike
 const BY_CID: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/";
 // PUG View's Source Categories: every depositor of a compound, by category. It takes no filter.
 const SOURCES: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/categories/compound/";
+// PubChem's table of every depositor: its country and how many substances it lists (about 420 KB, 19 November 2026).
+// Octet reads those columns only, and keeps them while it runs.
+const SOURCE_TABLE: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/sourcetable/substance/JSON";
+const MOST_TABLE: usize = 8 * 1024 * 1024;
+const MOST_TABLE_ROWS: usize = 100_000;
+// A country as Octet shows it: the longest seen was 24 characters.
+const MOST_COUNTRY: usize = 60;
 const COMPOUND: &str = "https://pubchem.ncbi.nlm.nih.gov/compound/";
 const SUBSTANCE: &str = "https://pubchem.ncbi.nlm.nih.gov/substance/";
 const MOST_TEXT: usize = 300;
@@ -313,14 +320,19 @@ async fn hazards(key: &str, version: &str, stop: Option<&Stop>) -> Result<Option
 
 // Find suppliers (issue 114): a compound's chemical vendors in PubChem, as Octet shows them. Each supplier once, A to
 // Z, with a link Octet may open (https, checked here), its catalogue numbers for the compound (newest first, at most
-// MOST_CODES) and how many products PubChem lists for it. PubChem has no prices, pack sizes, purity, ratings or logos,
-// so neither has this.
+// MOST_CODES) and how many products PubChem lists for it; and, from PubChem's source table, its country and how many
+// substances it lists in PubChem in all, when the table gives them. PubChem has no prices, pack sizes, purity, ratings
+// or logos, so neither has this.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Supplier {
     pub name: String,
     pub url: String,
     pub codes: Vec<String>,
     pub products: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listed: Option<u64>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -394,6 +406,7 @@ async fn suppliers(key: &str, version: &str, stop: Option<&Stop>) -> Result<Opti
         Some(json) => suppliers_in(&json, cid)?,
         None => Vec::new(),
     };
+    let suppliers = with_about(suppliers, version, stop).await;
     Ok(Some(Suppliers { cid, suppliers }))
 }
 
@@ -448,10 +461,88 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
         let url = f.link.map(|(_, l)| l).or_else(|| f.sid.map(|s| format!("{SUBSTANCE}{s}"))).unwrap_or_else(|| vendors_page(cid));
         f.codes.sort_by(|a, b| b.0.cmp(&a.0));
         let codes = f.codes.into_iter().take(MOST_CODES).map(|(_, c)| c).collect();
-        Supplier { name: f.name, url, codes, products: f.products }
+        Supplier { name: f.name, url, codes, products: f.products, country: None, listed: None }
     }).collect();
     out.sort_by_cached_key(|s| s.name.to_lowercase());
     Ok(out)
+}
+
+// PUG REST's source table, only the parts Octet reads. Each row's cells line up with the column names.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct TableAnswer {
+    table: Table,
+}
+
+#[derive(Deserialize)]
+struct Table {
+    #[serde(rename = "Columns")]
+    columns: Columns,
+    #[serde(rename = "Row", default)]
+    rows: Vec<TableRow>,
+}
+
+#[derive(Deserialize)]
+struct Columns {
+    #[serde(rename = "Column", default)]
+    column: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct TableRow {
+    #[serde(rename = "Cell", default)]
+    cell: Vec<serde_json::Value>,
+}
+
+// Each depositor's country and count, by its name's key (supplier_key), from the source table.
+type About = std::collections::HashMap<String, (Option<String>, Option<u64>)>;
+static ABOUT: Mutex<Option<About>> = Mutex::new(None);
+
+// A supplier's name as a key: letter case and spaces aside (as suppliers_in counts each supplier once).
+fn supplier_key(name: &str) -> String {
+    name.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect()
+}
+
+// The source table read as hostile: the Source Name, Country and Live Substance Count columns, found by their names,
+// in at most MOST_TABLE_ROWS rows. A country is cleaned as a name, at most MOST_COUNTRY characters. None when the
+// answer has another shape.
+pub fn about_in(json: &str) -> Option<About> {
+    let answer: TableAnswer = serde_json::from_str(json).ok()?;
+    let at = |name: &str| answer.table.columns.column.iter().position(|c| c == name);
+    let (name, country, count) = (at("Source Name")?, at("Country"), at("Live Substance Count"));
+    let mut about = About::new();
+    for row in answer.table.rows.iter().take(MOST_TABLE_ROWS) {
+        let Some(n) = row.cell.get(name).and_then(|v| v.as_str()).and_then(supplier_name) else { continue };
+        let land = country.and_then(|k| row.cell.get(k)).and_then(|v| v.as_str()).and_then(supplier_name).filter(|t| t.chars().count() <= MOST_COUNTRY);
+        let listed = count.and_then(|k| row.cell.get(k)).and_then(|v| v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()));
+        about.insert(supplier_key(&n), (land, listed));
+    }
+    Some(about)
+}
+
+// Each supplier's country and count, from the source table: asked once while Octet runs, after the suppliers. When it
+// cannot be had (no network, Stop, a broken answer), the suppliers go without them, and the next Find suppliers asks
+// again.
+async fn with_about(mut suppliers: Vec<Supplier>, version: &str, stop: Option<&Stop>) -> Vec<Supplier> {
+    if suppliers.is_empty() {
+        return suppliers;
+    }
+    if ABOUT.lock().unwrap().is_none() {
+        let Ok(client) = client(version) else { return suppliers };
+        if let Ok(Some(json)) = answer(client.get(SOURCE_TABLE).timeout(SOURCES_TIME), MOST_TABLE, stop).await {
+            if let Some(about) = about_in(&json) {
+                *ABOUT.lock().unwrap() = Some(about);
+            }
+        }
+    }
+    if let Some(about) = ABOUT.lock().unwrap().as_ref() {
+        for s in &mut suppliers {
+            if let Some((land, listed)) = about.get(&supplier_key(&s.name)) {
+                (s.country, s.listed) = (land.clone(), *listed);
+            }
+        }
+    }
+    suppliers
 }
 
 // A supplier's name as Octet shows it: no control or format characters (bidirectional overrides among them), spaces
@@ -678,6 +769,30 @@ mod tests {
         // No SID at all: the compound's vendor section.
         let no_sid = r#"{"SourceCategories":{"Categories":[{"Category":"Chemical Vendors","Sources":[{"SourceName":"Odd"}]}]}}"#;
         assert_eq!(suppliers_in(no_sid, 5).unwrap()[0].url, "https://pubchem.ncbi.nlm.nih.gov/compound/5#section=Chemical-Vendors");
+    }
+
+    #[test]
+    fn the_source_table_gives_country_and_count_by_name() {
+        let json = serde_json::json!({ "Table": { "Columns": { "Column": ["Source Name", "Live Substance Count", "Source Category", "Country"] },
+            "Row": [
+                { "Cell": ["Sigma-Aldrich", "258063", "Chemical Vendors", "United States"] },
+                { "Cell": ["TCI  (Tokyo)", 30360, "Chemical Vendors", ""] },
+                { "Cell": [7, "1", "", "Nowhere"] },
+                { "Cell": ["Bad\u{202E}Name", "x", "", "Land".repeat(20)] },
+                { "Cell": [] },
+            ] } }).to_string();
+        let about = about_in(&json).unwrap();
+        assert_eq!(about.get("sigma-aldrich"), Some(&(Some("United States".into()), Some(258063))));
+        assert_eq!(about.get("tci(tokyo)"), Some(&(None, Some(30360))), "an empty country is none");
+        assert_eq!(about.get("badname"), Some(&(None, None)), "a long country and a count that is no number are left out");
+        assert_eq!(about.len(), 3, "a name that is no text, and a row with no cells, are skipped");
+        assert!(about_in(r#"{"Table":{"Columns":{"Column":["Country"]},"Row":[]}}"#).is_none(), "no Source Name column");
+        assert!(about_in("<html>").is_none());
+        assert!(about_in(&format!(r#"{{"Table":{}{}}}"#, "[".repeat(200), "]".repeat(200))).is_none(), "nesting 200 deep");
+        // More rows than MOST_TABLE_ROWS: the rest are not read.
+        let rows: Vec<serde_json::Value> = (0..MOST_TABLE_ROWS + 5).map(|k| serde_json::json!({ "Cell": [format!("S{k}"), "1", "", ""] })).collect();
+        let big = serde_json::json!({ "Table": { "Columns": { "Column": ["Source Name", "Live Substance Count", "Source Category", "Country"] }, "Row": rows } }).to_string();
+        assert_eq!(about_in(&big).unwrap().len(), MOST_TABLE_ROWS);
     }
 
     #[test]

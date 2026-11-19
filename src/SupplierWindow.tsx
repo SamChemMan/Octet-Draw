@@ -1,7 +1,7 @@
 // The Suppliers window (Find suppliers, issue 114): the suppliers PubChem lists for the selected structures (or the
 // drawing's), in a window in the middle of Octet's. While PubChem answers, Octet's mark draws itself, as it does while
-// an AI app draws (McpMagic). Then a search field over the list: each supplier with its monogram (PubChem has no
-// logos), its name, its catalogue numbers for the compound and how many products PubChem lists, and a star that keeps
+// an AI app draws (McpMagic). Then a search field over the list: each supplier's name, its catalogue numbers for the
+// compound and how many products PubChem lists (PubChem has no logos, prices or ratings), and a star that keeps
 // it as a favourite (favourites go first, for every compound). A supplier opens its product page in the browser. With
 // several structures, a list at the top picks the structure. Open in PubChem opens the compound's vendor section.
 // With no network it says so and offers Try again.
@@ -10,7 +10,7 @@ import { ArrowSquareOut, Star } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
 import { MarkParts } from "./McpMagic";
 import { Select } from "./Select";
-import { monogram, shownSuppliers, supplierKey, type Found } from "./suppliers";
+import { shownSuppliers, supplierKey, type Found, type Supplier } from "./suppliers";
 
 // found undefined: no answer (no network, or Stop), so the window offers Try again.
 export type SupplierTarget = { label: string; found: Found };
@@ -20,6 +20,11 @@ type Props = {
   favourites: string[]; onStar: (name: string, on: boolean) => void;
   onOpen: (url: string) => void; onVendors: (cid: number) => void; onRetry: () => void; onClose: () => void;
 };
+
+// What a row says under a supplier's name: its catalogue numbers, its products for the compound, its country and how
+// many substances it lists in PubChem, each only when PubChem gives it.
+const details = (s: Supplier) => [s.codes.join(", "), s.products > 1 ? `${s.products} products` : "", s.country ?? "",
+  s.listed !== undefined ? `${s.listed.toLocaleString("en-GB")} ${s.listed === 1 ? "substance" : "substances"} in PubChem` : ""].filter(Boolean);
 
 export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen, onVendors, onRetry, onClose }: Props) {
   const [search, setSearch] = useState(""), [turn, setTurn] = useState(0);
@@ -63,13 +68,16 @@ export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen,
                 const on = fav.has(supplierKey(s.name));
                 return (
                   <li key={s.name} className="supplier" style={{ "--i": Math.min(k, 12) } as CSSProperties}>
-                    <button className="supplier-open" onClick={() => onOpen(s.url)} data-tip="Open in the browser">
-                      <span className="supplier-mono" aria-hidden>{monogram(s.name)}</span>
+                    <button className="supplier-open" onClick={() => onOpen(s.url)}>
                       <span className="supplier-text">
                         <span className="supplier-name">{s.name}</span>
-                        {(s.codes.length > 0 || s.products > 1) && <span className="supplier-more">{[s.codes.join(", "), s.products > 1 ? `${s.products} products` : ""].filter(Boolean).join(" · ")}</span>}
+                        {details(s).length > 0 && (
+                          <span className="supplier-more">
+                            {details(s).map((d, i) => <span key={i}>{i > 0 && <span className="supplier-dot" aria-hidden>·</span>}{d}</span>)}
+                          </span>
+                        )}
                       </span>
-                      <ArrowSquareOut size={14} className="supplier-out" aria-hidden />
+                      <span className="supplier-out" data-tip="Open in the browser"><ArrowSquareOut size={14} aria-hidden /></span>
                     </button>
                     <button className={on ? "supplier-star on" : "supplier-star"} aria-pressed={on} aria-label={`Favourite ${s.name}`} data-tip={on ? "Remove from favourites" : "Add to favourites"} onClick={() => onStar(s.name, !on)}>
                       <Star size={16} weight={on ? "fill" : "regular"} />

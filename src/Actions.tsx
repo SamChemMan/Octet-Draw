@@ -338,7 +338,7 @@ export type Item = { icon: React.ReactNode; name: string; command: string; accen
 // all, Fit to window, Centre in window, Select structure), then Delete.
 // Reordered 19 November 2026 (Sam asked for the panel's order to be audited): turns and flips first, as they come
 // straight after drawing; then what is shown on the structure; Copy (the clipboard and library); Analyse (predictions);
-// Search online (the searches and PubChem's hazards and suppliers); Query (Markush tools); 3D tools; Add frame.
+// Search online (the searches, then PubChem's hazards and suppliers); Query (Markush tools); 3D tools; Add frame.
 const SETS = ["chart", "table", "plate", "cycle", "turn", "more", "copy", "analysis", "search", "query", "depth", "frame", "group", "file", "delete"] as const;
 type SetId = (typeof SETS)[number];
 const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "More", copy: "Copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search online", query: "Query", file: "File", delete: "Delete" };
@@ -419,7 +419,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // that are not the default are in the Search menu, with keys.
   const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
     it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true),
-    // PubChem's GHS hazards (the Properties panel's Hazards tab) and suppliers (their own window) for the structures (issue 114).
+    // PubChem's GHS hazards (the Properties panel's Hazards tab) and suppliers (their own window) for the structures,
+    // side by side in Search online (Sam, 19 November 2026; issue 114).
     it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<FirstAidKit size={18} />, "Find hazards", "find_hazards", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];

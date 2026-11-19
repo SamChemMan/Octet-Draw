@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PROPERTY_ROWS } from "./proprows.ts";
-import { askEach, failedNotice, monogram, NO_KEY, offNotice, shownSuppliers, SLOW, starred, STOPPED, supplierKey, suppliersOf, UNREACHED_NOTICE, wanted, type Suppliers } from "./suppliers.ts";
+import { askEach, failedNotice, NO_KEY, offNotice, shownSuppliers, SLOW, starred, STOPPED, supplierKey, suppliersOf, UNREACHED_NOTICE, wanted, type Suppliers } from "./suppliers.ts";
 
 // The answer from Rust, checked again: good entries kept, others dropped, a wrong shape refused.
 const aspirin: Suppliers = { cid: 2244, suppliers: [{ name: "abcr GmbH", url: "https://abcr.example.com/5", codes: ["AB123"], products: 1 },
@@ -37,7 +37,6 @@ assert.equal(supplierKey(" Sigma - Aldrich "), supplierKey("sigma-aldrich"), "fa
 assert.deepEqual(starred([], "TCI", true), ["tci"]);
 assert.deepEqual(starred(["tci", "abcrgmbh"], "TCI", false), ["abcrgmbh"]);
 assert.deepEqual(starred(["tci"], "TCI", true), ["tci"], "starred once");
-assert.deepEqual(["Sigma-Aldrich", "abcr GmbH", "TCI", "Hunan Chemfish Pharmaceutical Co., Ltd.", "001Chemical", "(+)-x"].map(monogram), ["SA", "AG", "TC", "HC", "00", "X"]);
 // No Suppliers row in the Properties panel any more: suppliers have their own window.
 assert.ok(!PROPERTY_ROWS.flat().some((r) => r.key === "suppliers"));
 // 1000 suppliers searched 200 times (each key typed): well within a frame each.
@@ -81,7 +80,7 @@ assert.ok(searchesAt > 0 && editor.indexOf('find_suppliers: () => findFor("suppl
 assert.match(editor, /function findFor\(kind: Lookup\) \{\s+if \(!TAURI\)[^\n]*\n\s+if \(!settings\.onlineSearch\) return setNotice\(offNotice\(kind\), "info", \{ label: "Open Settings"/);
 assert.match(editor, /search_patents: \["Search Google Patents", "", <SearchGlyph letter="G" \/>\],\n\s+find_suppliers: \["Find suppliers", "", <Storefront size=\{18\} \/>\], find_hazards: \["Find hazards", "", <FirstAidKit size=\{18\} \/>\],/);
 assert.match(actions, /const searches = online \? \[[\s\S]*?"find_suppliers", false, true\), it\(<FirstAidKit size=\{18\} \/>, "Find hazards", "find_hazards", false, true\)\] : \[\];/);
-assert.match(actions, /find_suppliers: "search", find_hazards: "analysis"/);
+assert.match(actions, /find_suppliers: "search", find_hazards: "search"/);
 // The Suppliers window: opened by Find suppliers (not the Properties panel), the mark while PubChem answers, links
 // through open_link's supplier: path only, favourites in Settings, and closing it stops the lookup.
 const win = read("SupplierWindow.tsx");
