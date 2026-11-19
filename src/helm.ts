@@ -8,7 +8,7 @@ import type { Mol } from "./render.ts";
 import { erase, fragments, insertMol, pickAtoms } from "./edit.ts";
 import { chainRead, type ChainEnd } from "./chain.ts";
 import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts";
-import { buildAtoms, buildLabels, monomerRefs, r3Port, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
+import { buildAtoms, buildLabels, monomerRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
 import { byLabel, monomer, naturalLetter, smilesLinks, type PolymerKind } from "./monomers.ts";
@@ -164,14 +164,15 @@ function nucleicUnits(units: string[]): SeqChain | { problem: string } {
 // HELM or FASTA as the Sequence tool's text, or why Octet cannot read it (problem). Undefined for any other text. One
 // peptide, RNA or DNA chain of Octet's own monomers with no links opens in Octet's words, so its kind and ends can be
 // chosen; any other HELM opens as it is, and the field reads it as HELM.
-export function readSequence(pasted: string): { text: string; notes?: string[] } | { problem: string } | undefined {
+// bare: FASTA with no ">" line is read too (bareFasta), for a paste that nothing else reads.
+export function readSequence(pasted: string, bare = false): { text: string; notes?: string[] } | { problem: string } | undefined {
   const helm = parseHelm(pasted);
   if (helm && "problem" in helm) return helm;
   if (helm) {
     const words = seqWords(helm.seq);
     return { text: words ?? pasted.trim(), ...(helm.notes.length ? { notes: helm.notes } : {}) };
   }
-  const fasta = fromFasta(pasted);
+  const fasta = fromFasta(pasted) ?? (bare ? bareFasta(pasted) : undefined);
   return fasta ? { text: fasta } : undefined;
 }
 // A sequence in the Sequence tool's words, when it is one chain with no links and only codes the words write.
@@ -217,7 +218,7 @@ export function fieldSeq(text: string): { seq: Seq; notes?: string[] } | { probl
       } else if (/[a-z]/.test(ch)) lower = true;
       else if (CODES[ch]) units.push({ code: ch });
       else bad.add(ch === "]" ? "]" : ch);
-      if (units.length > MOST_UNITS) return { problem: `Up to ${MOST_UNITS.toLocaleString("en-GB")} residues.` };
+      if (units.length - (parts.start ? 1 : 0) > MOST_UNITS) return { problem: `Up to ${MOST_UNITS.toLocaleString("en-GB")} residues.` };
     }
     if (lower) return { problem: "Type the amino acids in capitals, for example ACDEFG." };
     if (bad.size) return { problem: `${bad.size === 1 ? "Not an amino acid" : "Not amino acids"}: ${[...bad].map(quoted).join(", ")}` };
@@ -250,7 +251,7 @@ export const isSeqText = (text: string) => /^\s*(peptide|rna|dna)\s*:/i.test(tex
 // Why a sequence is too large to draw: in full, its atoms (counted from its monomers, about 120 residues), or as
 // residue labels, its residues.
 export function seqProblem(seq: Seq, labels: boolean): string | undefined {
-  if (labels) return seq.chains.reduce((t, c) => t + c.units.length, 0) > MOST_UNITS ? `Up to ${MOST_UNITS.toLocaleString("en-GB")} residues.` : undefined;
+  if (labels) return residueCount(seq) > MOST_LABELS ? `Up to ${MOST_LABELS.toLocaleString("en-GB")} residues.` : undefined;
   return tooManyAtoms(seq) ? TOO_MANY_ATOMS : undefined;
 }
 
@@ -259,8 +260,20 @@ export function seqProblem(seq: Seq, labels: boolean): string | undefined {
 function fromFasta(fasta: string): string | undefined {
   const m = /^\s*>[^\r\n]*\r?\n([^>]*)/.exec(fasta), codes = m?.[1].replace(/[\s\d*]/g, "").toUpperCase();
   if (!codes || !/^[A-Z]+$/.test(codes)) return undefined;
-  const kind: SeqKind = /^[ACGTUN]+$/.test(codes) ? (codes.includes("U") ? "rna" : "dna") : "peptide";
-  return sequenceText({ kind, codes, start: false, end: false }).text;
+  return sequenceText({ kind: fastaKind(codes), codes, start: false, end: false }).text;
+}
+const fastaKind = (codes: string): SeqKind => (/^[ACGTUN]+$/.test(codes) ? (codes.includes("U") ? "rna" : "dna") : "peptide");
+// A sequence with no ">" line: one line or more of residue letters and nothing else, told apart as a FASTA record is.
+// With no header to say it is a sequence, every letter must be one: bases (A, C, G, T or U, in either case), else a
+// peptide in capitals, each one of the 20 amino acids. At least two letters. Undefined for anything else (a word, a
+// damaged SMILES), so such a paste says what it said before.
+function bareFasta(text: string): string | undefined {
+  if (text.length > MOST_TEXT || !/^[A-Za-z\s]+$/.test(text)) return undefined;
+  const typed = text.replace(/\s+/g, ""), codes = typed.toUpperCase();
+  if (codes.length < 2) return undefined;
+  if (/^[ACGTU]+$/.test(codes)) return sequenceText({ kind: fastaKind(codes), codes, start: false, end: false }).text;
+  if (typed !== codes || [...codes].some((ch) => !CODES[ch])) return undefined;
+  return sequenceText({ kind: "peptide", codes, start: false, end: false }).text;
 }
 
 // ——— HELM and FASTA out (J6) ———

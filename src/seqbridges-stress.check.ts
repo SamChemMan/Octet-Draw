@@ -38,6 +38,7 @@ const { DEFAULT_STYLE, readStyle } = await import("./docstyle.ts");
 const { problems, messy } = await import("./check.ts");
 const { chainLayout } = await import("./chain.ts");
 const { peptideSmiles } = await import("./peptide.ts");
+const { labelSmiles } = await import("./labels.ts");
 
 type P = [number, number];
 type Seq = Extract<NonNullable<ReturnType<typeof parseHelm>>, { seq: unknown }>["seq"];
@@ -997,6 +998,106 @@ await check("N33", "A new name typed over a residue label: a Cys joined by its S
     assert.equal(toHelm(d), "PEPTIDE1{A.[dF].G}$$$$V2.0");
     assert.equal(inchi(setLabel(d, f, "Phe")), inchi(l), "and back to Phe");
   } finally { labelHooks.relabel = hook; }
+});
+
+// ==================================================================================================================
+// For 1.1.3: FASTA with no header, the longest chains, Expand Label of a whole chain
+// ==================================================================================================================
+await check("N34", "FASTA with no '>' line, pasted when no name or SMILES reads: DNA, RNA and peptide told apart, lower-case bases, over lines; words and junk not read", () => {
+  const bare = (t: string) => readSequence(t, true);
+  assert.deepEqual(bare("ATGCATGCAT"), { text: "dna: ATGCATGCAT" });
+  assert.equal(readSequence("ATGCATGCAT"), undefined, "only when asked: a paste tries names and SMILES first");
+  assert.deepEqual(bare("atgcatgcat\r\nggcc ttaa\n"), { text: "dna: ATGCATGCATGGCCTTAA" }, "lower case, over lines, spaces");
+  assert.deepEqual(bare("ACGUACGU\nACGU"), { text: "rna: ACGUACGUACGU" });
+  assert.deepEqual(bare("MALWMRLLPL\nLALLALWGPD"), { text: "peptide: MALWMRLLPLLALLALWGPD" });
+  assert.deepEqual(bare("CYIQNCPLG"), { text: "peptide: CYIQNCPLG" });
+  assert.deepEqual(bare(">sp|P01178|OXYT_HUMAN\nCYIQNCPLG"), { text: "peptide: CYIQNCPLG" }, "a header still reads as before");
+  // Not a sequence with no header: a protein in lower case (a misspelt name), a letter that is no amino acid or base,
+  // digits, dashes, a damaged SMILES, one letter, nothing.
+  for (const t of ["cyiqncplg", "asprin", "HELLO", "ACDX", "Octet", "C1CC", "AC-GT", "1 atgc", "A", "", "  \n", "ACG*", "x".repeat(20_001)]) assert.equal(bare(t), undefined, JSON.stringify(t.slice(0, 20)));
+  // 1,000 bases with no header: the field reads them and they build as residue labels.
+  const long = Array.from({ length: 1000 }, (_, k) => "ACGT"[(k * 7) % 4]).join(""), read = bare(long) as { text: string };
+  assert.equal(read.text, `dna: ${long}`);
+  const seq = (fieldSeq(read.text) as { seq: Seq }).seq;
+  assert.equal(seqProblem(seq, true), undefined, "1,000 bases: no problem under the field");
+  assert.ok("mol" in buildLabels(seq), "1,000 bases build as residue labels (a phosphate is no residue)");
+  assert.deepEqual(fieldSeq(`dna: ${long}A`), { problem: "Up to 1,000 residues." }, "1,001 bases");
+  assert.equal(seqProblem((fieldSeq(`peptide: Ac-${"ACDEFGHIKL".repeat(100)}-NH2`) as { seq: Seq }).seq, true), undefined, "1,000 amino acids with both ends");
+  assert.ok(time(() => bare(`${"ACGT".repeat(4999)}`), 3) < 20, "20,000 letters read in under 20 ms");
+  // Both paste paths try it after a name and SMILES, before a picture.
+  assert.equal(editorSource.match(/if \(frag\) return place\(frag\);\n\s*if \(pasteSequence\(text, false, true\)\) return;/g)?.length, 1, "the clipboard path");
+  assert.equal(editorSource.match(/if \(frag\) place\(frag\);\n\s*else if \(named && pasteSequence\(text!, false, true\)\) return;/g)?.length, 1, "the paste event's path");
+});
+
+// The longest chain each kind draws in full is set by the builder's 1,000 atoms, not a count of residues (1.1.2 drew
+// up to 60 amino acids and 30 nucleotides). The most of the smallest monomer fit (Gly, dC, rC), and any chain of the
+// largest one's count fits (Trp, dG, rG). One more says why, under the field and from the builder alike.
+const LONGEST: [string, string, number][] = [["peptide", "G", 249], ["peptide", "W", 71], ["peptide", "A", 199], ["dna", "C", 52], ["dna", "G", 45], ["rna", "C", 50], ["rna", "U", 50], ["rna", "G", 43]];
+await check("N35", "The longest chains in full: 249 Gly, 71 Trp, 52 dC, 45 dG, 50 rC, 43 rG draw, each one more says why; as residue labels they draw; the old 60 and 30 caps are gone", () => {
+  for (const [kind, code, n] of LONGEST) for (const k of [n, n + 1]) {
+    const text = `${kind}: ${code.repeat(k)}`, read = fieldSeq(text) as { seq: Seq }, field = seqProblem(read.seq, false), built = buildAtoms(read.seq);
+    if (k === n) {
+      assert.equal(field, undefined, `${k} × ${code} (${kind}): ${field}`);
+      assert.ok("mol" in built && built.mol.atoms.length <= MOST_BUILT_ATOMS, `${k} × ${code} (${kind}) builds`);
+      const m = (built as { mol: Mol }).mol;
+      if (kind === "peptide") assert.ok(new Set(backboneYs(m).map((y) => Math.round(y * 20))).size <= 3, `${k} × ${code}: one straight backbone`);
+      noNaN(m, `${k} × ${code}`);
+    } else {
+      assert.equal(field, "Up to 1,000 atoms. Choose Residue labels.", `${k} × ${code} (${kind}) under the field`);
+      assert.deepEqual(built, { problem: field }, `${k} × ${code} (${kind}) from the builder`);
+      assert.equal(seqProblem(read.seq, true), undefined, `${k} × ${code} (${kind}) as residue labels`);
+      assert.ok("mol" in buildLabels(read.seq), `${k} × ${code} (${kind}) builds as residue labels`);
+    }
+  }
+  // With ends: Ac- and -NH2 on 71 Trp, phosphates on 45 dG, still fit.
+  for (const text of [`peptide: Ac-${"W".repeat(71)}-NH2`, `dna: p${"G".repeat(45)}p`, `rna: p${"G".repeat(43)}p`]) assert.equal(seqProblem((fieldSeq(text) as { seq: Seq }).seq, false), undefined, text.slice(0, 20));
+  // Text made a structure (a paste, a text converted, an AI app) reads the same lengths: no 60 or 30 cap there.
+  assert.ok(peptideSmiles(`peptide: ${"G".repeat(249)}`), "249 Gly as SMILES");
+  assert.ok(peptideSmiles(`peptide: ${"ACDEFGHIKLMNPQRSTVWY".repeat(50)}`), "1,000 residues as SMILES");
+  assert.equal(peptideSmiles(`peptide: ${"G".repeat(1001)}`), undefined, "over 1,000");
+  assert.ok(editorSource.includes("if (isSequence(s)) {\n      let r: ReturnType<typeof seqBuilt>;\n      try { r = seqBuilt({ build: s, labels: seqLabels }); }"), "structureFromText builds a sequence as the field does");
+});
+
+await check("N36", "Expand Label on a whole residue-label chain: along one straight backbone as Sequences > Atoms draws it, the same InChI, HELM and brackets; at its scale; one label left keeps the places", () => {
+  // As Structure > Expand Label does it (Editor.tsx expand_label), every residue label drawn out by its kept atoms,
+  // the ends with them or not.
+  const drawOut = (l: Mol, ends: boolean, skip = -1) => {
+    let m = l;
+    const residues = new Set<number>(), ids = m.atoms.map((_, i) => i).filter((i) => m.atoms[i].text).sort((p, q) => q - p);
+    for (const i of ids) {
+      const ported = !!m.atoms[i].inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
+      if (i === skip || (!ported && !ends)) continue;
+      const smiles = ported ? undefined : labelSmiles(m.atoms[i].text!);
+      if (!smiles && !m.atoms[i].inner?.atoms.length) continue;
+      m = expandLabel(m, i, smiles ? chem.parseStructure(smiles) : m.atoms[i].inner!);
+      if (ported) residues.add(i);
+    }
+    return { m, out: chem.chainsDrawnOut(m, residues) };
+  };
+  for (const k of ["oxytocin", "insulin", "cyclic", "lactam", "dAmino", "dna", "rna"] as const) for (const ends of [false, true]) {
+    const h = S[k], l = labels(h), full = atoms(h), { m, out } = drawOut(l, ends), what = `${k}${ends ? " with its ends" : ""}`;
+    assert.notEqual(out, m, `${what}: laid out`);
+    assert.equal(inchi(out), inchi(full), `${what}: the same compound`);
+    assert.equal(toHelm(out), h, `${what}: HELM`);
+    assert.equal(brackets(out).length, brackets(full).length, `${what}: its brackets`);
+    apart(out, what);
+    clears(out, what);
+    noNaN(out, what);
+    if (k === "oxytocin" || k === "cyclic" || k === "dAmino") assert.ok(new Set(backboneYs(out).map((y) => Math.round(y * 20))).size <= 3, `${what}: one straight backbone`);
+  }
+  // At its scale: a chain at 50% stays at 50%.
+  const half = labels(S.oxytocin);
+  const small = { ...half, atoms: half.atoms.map((a) => ({ ...a, location: [a.location[0] / 2, a.location[1] / 2, 0] as [number, number, number], scale: 0.5 })) };
+  const { out } = drawOut(small, true), lengths = out.bonds.filter((b) => !bracketOf(b)).map((b) => Math.hypot(at(out, b.atoms[0])[0] - at(out, b.atoms[1])[0], at(out, b.atoms[0])[1] - at(out, b.atoms[1])[1])).sort((p, q) => p - q);
+  assert.ok(Math.abs(lengths[lengths.length >> 1] - 0.5) < 0.02, `bonds at 50%: ${lengths[lengths.length >> 1].toFixed(2)}`);
+  // One residue label left: the chain is mixed, and nothing moves.
+  const ox = labels(S.oxytocin), last = ox.atoms.findIndex((a) => a.text === "Leu"), some = drawOut(ox, false, last);
+  assert.equal(some.out, some.m, "a residue label left: as drawn");
+  // Another structure on the page does not move.
+  const page = insertMol(labels(S.oxytocin), chem.indigoLayout("CC(=O)Oc1ccccc1C(=O)O"), [0, 30]).mol, n = labels(S.oxytocin).atoms.length, after = drawOut(page, false).out;
+  const aspirin = (x: Mol) => x.atoms.slice(n, n + 13).map((a) => a.location);
+  assert.deepEqual(aspirin(after), aspirin(page), "aspirin stays");
+  assert.match(editorSource, /set\(chainsDrawnOut\(m, residues\)\);/, "Structure > Expand Label lays it out");
 });
 
 // ==================================================================================================================

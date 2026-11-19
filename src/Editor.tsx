@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS } from "./labels";
-import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -1322,6 +1322,14 @@ export default function Editor() {
     const s = text.trim(), lines = /[\r\n]/.test(s);
     const why = (err: unknown) => { const r = refusal(err); if (r) refused?.(r); return undefined; };
     if (lines && isOwnFormat(s)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); } }
+    // A sequence in the Sequence tool's words or HELM (issue 27): built as the field builds it, as the drawing shows
+    // sequences, so a paste or a text made a structure is the same drawing as Return gives.
+    if (isSequence(s)) {
+      let r: ReturnType<typeof seqBuilt>;
+      try { r = seqBuilt({ build: s, labels: seqLabels }); } catch { r = undefined; }
+      if (r && "problem" in r) refused?.(r.problem);
+      return r && !("problem" in r) ? r : undefined;
+    }
     const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s, smiles);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
     // A MOL file keeps its first line, which is often blank (the name).
@@ -2486,9 +2494,10 @@ export default function Editor() {
   }
   // Pasted HELM or FASTA (helm.ts): the field with the sequence in it, as Insert Peptide… opens it (or, pasted into the
   // field, in place of its text), so its kind and ends can be chosen before Return draws it. HELM that Octet cannot read
-  // says why. False for any other text.
-  function pasteSequence(text: string, field = false): boolean {
-    const read = readSequence(text);
+  // says why. False for any other text. bare: FASTA with no ">" line too (helm.ts bareFasta), for a paste nothing else
+  // reads.
+  function pasteSequence(text: string, field = false, bare = false): boolean {
+    const read = readSequence(text, bare);
     if (read && "problem" in read) setNotice(read.problem);
     else if (read) { (field ? setNaming : insertSequence)(read.text); if (read.notes) setNotice(read.notes.join(" "), "info"); }
     return !!read;
@@ -2915,15 +2924,17 @@ export default function Editor() {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
+      const residues = new Set<number>();
       for (const i of labelled) {
         // An abbreviation Octet knows, else the group Contract Label kept with the label (or a ChemDraw file's).
         // A residue label (its bonds say which kept atom each joins) is its kept group, even when its text is P.
         const inner = m.atoms[i].inner, ported = !!inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
         const smiles = ported ? undefined : labelSmiles(chemicalText(doc.atoms[i].text, doc.atoms[i].runs)!);
         if (!smiles && !inner?.atoms.length) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
-        try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
+        try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); if (ported) residues.add(i); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
-      set(m);
+      // A chain of residue labels drawn out whole lies along a straight backbone (chem.ts chainsDrawnOut).
+      set(chainsDrawnOut(m, residues));
     },
     // Interpret Chemically, as ChemDraw's (on labels and captions): the selected labels become text, not chemistry, and
     // a label with no bonds becomes a caption where it was; or they are chemistry again. The picked captions turn
@@ -6990,7 +7001,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           ...valuesPicked(),
@@ -9483,6 +9494,7 @@ export default function Editor() {
             await loadNames().then(() => setNamesLoaded(true), () => {});
             const frag = structureFromText(text, refused);
             if (frag) return place(frag);
+            if (pasteSequence(text, false, true)) return;
           }
           const picture = clip.picture ? fromBase64(clip.picture) : file && new Uint8Array(await file.arrayBuffer());
           if (picture) return pastePicture(picture);
@@ -9508,6 +9520,7 @@ export default function Editor() {
         let why = "Paste a name, a SMILES string or a MOL file.";
         const frag = named ? structureFromText(text!, (reason) => { why = reason; }) : undefined;
         if (frag) place(frag);
+        else if (named && pasteSequence(text!, false, true)) return;
         else if (file) await pastePicture(new Uint8Array(await file.arrayBuffer()));
         else setNotice(`Octet cannot read this structure. ${why}`);
       });

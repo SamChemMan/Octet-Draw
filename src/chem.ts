@@ -337,14 +337,29 @@ export function quickMol(smiles: string): Mol | undefined {
 }
 // The centre of points: their mean x and y.
 const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
-// Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was. Anything else as it is.
-function straightened(m: Mol): Mol {
+// Expand Label: a chain of residue labels drawn out whole (residues: the labels it drew out) lies along a straight
+// backbone at the labels' scale, as Sequences > Atoms draws it. One that still has a residue label keeps its places.
+export function chainsDrawnOut(m: Mol, residues: Set<number>): Mol {
+  const whole = fragments(m).filter((f) => f.some((i) => residues.has(i)) && !f.some((i) => m.atoms[i].inner?.atoms.length && m.atoms[i].text));
+  if (!whole.length) return m;
+  let atoms = m.atoms;
+  for (const f of whole) {
+    const own = f.filter((i) => residues.has(i)).map((i) => scaleOf(m.atoms[i])).sort((a, b) => a - b), k = own[own.length >> 1], in_ = new Set(f);
+    if (k !== 1) atoms = atoms.map((a, i) => (in_.has(i) ? { ...a, scale: k } : a));
+  }
+  return straightened(atoms === m.atoms ? m : { ...m, atoms }, new Set(whole.flat()));
+}
+// Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was, at its own scale. Anything else as
+// it is. only: just the structures with one of these atoms.
+function straightened(m: Mol, only?: Set<number>): Mol {
   const atoms = [...m.atoms], routes = new Map<number, number>();
   for (const frag of fragments(m)) {
+    if (only && !frag.some((i) => only.has(i))) continue;
     const laid = chainLayout(m, frag);
     if (!laid) continue;
+    const own = frag.map((i) => scaleOf(m.atoms[i])).sort((a, b) => a - b)[frag.length >> 1];
     const [ox, oy] = centre(frag.map((i) => m.atoms[i].location)), [cx, cy] = centre([...laid.values()]);
-    for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + x - cx, oy + y - cy, 0] };
+    for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + (x - cx) * own, oy + (y - cy) * own, 0] };
     laid.routes?.forEach((r, b) => routes.set(b, r));
   }
   if (atoms.every((a, i) => a === m.atoms[i])) return m;

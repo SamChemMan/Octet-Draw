@@ -9,7 +9,7 @@ import { endoExoSmiles } from "./endoexo.ts";
 // r and s, which OPSIN does not read (pseudo.ts).
 import { citesPseudo } from "./pseudo.ts";
 // Peptides typed as one-letter codes after "peptide:" (peptide.ts).
-import { PEPTIDE, peptideText } from "./peptide.ts";
+import { PEPTIDE, peptideSmiles } from "./peptide.ts";
 // RNA and DNA typed as one-letter codes after "rna:" or "dna:" (nucleic.ts).
 import { NUCLEIC, nucleicText } from "./nucleic.ts";
 // Octet's abbreviations by standard InChI. The stoichiometry table reads them too, so they load at start-up (stoich.ts).
@@ -206,13 +206,12 @@ export function nameToSmiles(name: string): string | undefined {
   // keeps each one PubChem gave a structure for, so it reads offline from then on.
   const cas = casNumber(s), mine = own.get(commonKey(s)) ?? (cas ? own.get(commonKey(cas)) : undefined);
   if (mine) return mine.smiles;
-  // "rna: AACGUU" and "dna: ATGC" are built as SMILES, without OPSIN.
+  // "rna: AACGUU", "dna: ATGC" and "peptide: ACDEFG" are built as SMILES, without OPSIN (a peptide is the structure
+  // OPSIN gives its three-letter sequence, Ala-Cys-Asp-Glu-Phe-Gly: peptide.check.ts).
   const nucleic = nucleicText(s);
   if (nucleic) return "smiles" in nucleic ? nucleic.smiles : undefined;
+  if (PEPTIDE.test(s)) return peptideSmiles(s);
   if (!opsin) return undefined;
-  // "peptide: ACDEFG" is read as the three-letter sequence, Ala-Cys-Asp-Glu-Phe-Gly, so both give the same structure.
-  const peptide = peptideText(s);
-  if (peptide) return "sequence" in peptide ? one(peptide.sequence) : undefined;
   return one(s) ?? salt(s) ?? parts(s) ?? nameList(s, nameToSmiles)?.join(".");
 }
 

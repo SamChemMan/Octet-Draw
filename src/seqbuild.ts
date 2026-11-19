@@ -109,8 +109,10 @@ function unitsOf(seq: Seq): { units: Units; partner: Map<string, End> } | { prob
   return { units, partner };
 }
 
-// The atoms Octet draws in full at most.
+// The atoms Octet draws in full at most, and the residues (amino acids and nucleotides) as residue labels.
 export const MOST_BUILT_ATOMS = 1000, MOST_LABELS = 1000;
+// A sequence's residues: its units but a nucleic acid's phosphates and a peptide's Ac and NH2 ends.
+export const residueCount = (seq: Seq) => seq.chains.reduce((t, c) => t + c.units.filter((u) => (c.kind === "peptide" ? u.code !== "ac" && u.code !== "am" : u.code !== "P")).length, 0);
 
 // ——— As atoms ———
 // The atoms a sequence has drawn in full: each monomer's, less each R atom linked or capped H (an OH cap stays an O).
@@ -217,7 +219,7 @@ export function buildLabels(seq: Seq): { mol: Mol } | { problem: string } {
   const read = unitsOf(seq);
   if ("problem" in read) return read;
   const { units, partner } = read;
-  if (units.reduce((t, row) => t + row.length, 0) > MOST_LABELS) return { problem: `Up to ${MOST_LABELS.toLocaleString("en-GB")} residues.` };
+  if (residueCount(seq) > MOST_LABELS) return { problem: `Up to ${MOST_LABELS.toLocaleString("en-GB")} residues.` };
   // Residues with no label are drawn in full: as many atoms as a sequence drawn as atoms.
   if (units.flat().reduce((t, x) => t + (x.unit.smiles ? x.prep.mol.atoms.length : 0), 0) > MOST_BUILT_ATOMS) return { problem: `Up to ${MOST_BUILT_ATOMS.toLocaleString("en-GB")} atoms in residues with no label.` };
   // For each unit and each of its links, the atom a bond there joins (its label, or in a residue drawn in full, the atom

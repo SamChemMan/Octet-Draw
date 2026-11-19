@@ -1,5 +1,5 @@
 // Run: node src/peptide.check.ts. Peptides typed as one-letter codes (issue 27, src/peptide.ts): "peptide: ACDEFG" in
-// Name to Structure gives the structure of the three-letter sequence, bad letters and more than 60 residues are
+// Name to Structure gives the structure of the three-letter sequence, bad letters and more than 1,000 residues are
 // refused with a short message, and Structure > Insert Peptide… opens the name field ready for codes.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -21,8 +21,9 @@ assert.deepEqual(threeLetter("ABG"), { problem: "Not an amino acid: B" });
 assert.deepEqual(threeLetter("JABOJ"), { problem: "Not amino acids: J, B, O" });
 assert.deepEqual(threeLetter("ag"), { problem: "Type the amino acids in capitals, for example ACDEFG." });
 assert.deepEqual(threeLetter("A-G"), { problem: "Ends can be H-, Ac-, -OH or -NH2." });
-assert.ok("sequence" in threeLetter("G".repeat(MAX_RESIDUES))!, "60 residues");
-assert.deepEqual(threeLetter("G".repeat(MAX_RESIDUES + 1)), { problem: "Up to 60 amino acids." });
+assert.equal(MAX_RESIDUES, 1000, "as many as the Sequence tool reads: the builder says how many draw in full");
+assert.ok("sequence" in threeLetter("G".repeat(MAX_RESIDUES))!, "1,000 residues");
+assert.deepEqual(threeLetter("G".repeat(MAX_RESIDUES + 1)), { problem: "Up to 1,000 amino acids." });
 // Only after "peptide:", so a name or formula of capitals (CHO, ACE) is never a peptide.
 assert.deepEqual(peptideText("peptide: ACDEFG"), { sequence: "Ala-Cys-Asp-Glu-Phe-Gly" });
 assert.deepEqual(peptideText("Peptide:GG"), { sequence: "Gly-Gly" });
@@ -51,33 +52,35 @@ const { attachOpsin, nameToSmiles } = await import("./names.ts");
 const opsin = await loadOpsin();
 attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), JSON.parse(readFileSync(new URL("./nameindex.json", import.meta.url), "utf8")), DRUGS);
 
+browser();
+const { ready, toInchi, parseStructure } = await import("./chem.ts");
+await ready;
+const inchi = (smiles: string) => toInchi(parseStructure(smiles, false));
+// "peptide:" is built without OPSIN, before OPSIN has loaded too: the structure OPSIN gives the three-letter sequence.
 for (const [codes, three] of [
   ["ACDEFGHIKLMNPQRSTVWY", "Ala-Cys-Asp-Glu-Phe-Gly-His-Ile-Lys-Leu-Met-Asn-Pro-Gln-Arg-Ser-Thr-Val-Trp-Tyr"],
   ["GG", "Gly-Gly"], ["Ac-AG-NH2", "Ac-Ala-Gly-NH2"], ["H-FA-OH", "H-Phe-Ala-OH"],
 ]) {
   const typed = nameToSmiles(three);
   assert.ok(typed, `${three} reads`);
-  assert.equal(nameToSmiles(`peptide: ${codes}`), typed, `peptide: ${codes} is ${three}`);
+  assert.equal(inchi(nameToSmiles(`peptide: ${codes}`)!), inchi(typed), `peptide: ${codes} is ${three}`);
 }
-assert.equal(nameToSmiles("peptide: GG"), nameToSmiles("glycylglycine"), "GG is glycylglycine");
+assert.equal(inchi(nameToSmiles("peptide: GG")!), inchi(nameToSmiles("glycylglycine")!), "GG is glycylglycine");
 assert.equal(nameToSmiles("peptide: ABG"), undefined);
-assert.equal(nameToSmiles(`peptide: ${"G".repeat(61)}`), undefined, "61 residues are refused");
+assert.equal(nameToSmiles(`peptide: ${"G".repeat(61)}`), peptideSmiles(`peptide: ${"G".repeat(61)}`), "61 residues read: how many draw in full is up to the builder");
+assert.equal(nameToSmiles(`peptide: ${"G".repeat(1001)}`), undefined, "text over 1,000 characters is no name");
 const sixty = nameToSmiles(`peptide: H-${"AG".repeat(30)}-OH`);
 assert.ok(sixty, "60 residues with both ends draw");
-assert.equal(sixty, nameToSmiles(`H-${Array(30).fill("Ala-Gly").join("-")}-OH`), "and are the three-letter sequence");
+assert.equal(inchi(sixty), inchi(nameToSmiles(`H-${Array(30).fill("Ala-Gly").join("-")}-OH`)!), "and are the three-letter sequence");
 
-// The SMILES built without OPSIN, for the name field's live preview (namepreview.ts): the same structure as Name to
-// Structure gives (same standard InChI) for every residue, inside a chain and at either end, with each end as typed.
+// The SMILES built without OPSIN: the same structure as OPSIN gives the three-letter sequence (same standard InChI)
+// for every residue, inside a chain and at either end, with each end as typed.
 assert.equal(peptideSmiles("aspirin"), undefined);
 assert.equal(peptideSmiles("peptide: ABG"), undefined);
 assert.equal(peptideSmiles("peptide: "), undefined);
-browser();
-const { ready, toInchi, parseStructure } = await import("./chem.ts");
-await ready;
-const inchi = (smiles: string) => toInchi(parseStructure(smiles, false));
 const ALL = "ACDEFGHIKLMNPQRSTVWY";
 for (const text of [...[...ALL].flatMap((k) => [k, `G${k}G`, `${k}A`, `A${k}`]), ALL, "Ac-AG-NH2", "H-FA-OH", "Ac-P", "P-NH2", `${ALL}${ALL}${ALL}`]) {
-  const typed = `peptide: ${text}`, built = peptideSmiles(typed), want = nameToSmiles(typed);
+  const typed = `peptide: ${text}`, built = peptideSmiles(typed), want = nameToSmiles((threeLetter(text) as { sequence: string }).sequence);
   assert.ok(built && want, `${typed} reads`);
   const got = inchi(built);
   assert.ok(got?.startsWith("InChI=1S/"), `${typed} has an InChI`);
