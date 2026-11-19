@@ -387,7 +387,7 @@ export const chemicalCaption = (c: Caption, on: boolean) => on && c.chemical !==
 // A caption that stands in for a group (Nu, E, LG, R, X), not tied to a structure, an arrow or a cycle. It is read as
 // no atoms, so it does not count as chemistry. But Make element and the atom tools make it an atom, as they do a
 // caption that reads as a label, and that atom takes a charge or a bond as any label does (issue 164).
-export const standInCaption = (c: Caption) => !c.on && !c.under && !c.cycle && standsIn(c.text.trim());
+export const standInCaption = (c: Caption) => !c.on && !c.under && !c.cycle && !c.measure && standsIn(c.text.trim());
 // A caption that an atom tool makes an atom when it presses it, and that a bond joins: one that counts as chemistry,
 // or one that stands in for a group, with the same Interpret chemically switches.
 export const atomCaption = (c: Caption, on: boolean) => on && c.chemical !== false && (labelable(c) || standInCaption(c));
