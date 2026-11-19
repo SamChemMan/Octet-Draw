@@ -6,7 +6,7 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addMeasure, bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
+import { addMeasure, measuredBy, bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
 import { change, labelled, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds, symbolOwners } from "./mixtures.ts";
 import { LIBRARY, loadMore } from "./library.ts";
@@ -29,8 +29,7 @@ import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notat
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { plusShapes, type Reaction } from "./reaction.ts";
-import { MOST_3D } from "./clean3d.ts";
-import { kindOf as measureKind, measureValue, UNITS } from "./measurement.ts";
+import { atomEnds, kindOf as measureKind, measureValue, UNITS } from "./measurement.ts";
 import { allNotes, MAX_CONTENT, NOTE, withNote, type Target } from "./annotate.ts";
 import type { Problem } from "./check.ts";
 import { normalise, plainOf, styled, type TextRun } from "./richtext.ts";
@@ -520,7 +519,7 @@ const OPS: Op[] = [
   },
   {
     name: "text", title: "Add text", hints: ADD, outputSchema: CHANGE, done: "added text",
-    description: "Adds text (a title, caption or note), or with id replaces a caption's text. size (pt), font, bold, italic, underline, colour and text_align set it all; runs style parts (bold, italic, colour, sub, super); plain text gets chemistry formatting (H2SO4). arrow (a7) with side puts it on that arrow as its conditions, as Add conditions above or below do: Octet centres it on the arrow, it moves with the arrow, and Clean Up Reaction lays it out. width wraps lines to it (bond lengths); line_height is auto, variable or pt; angle turns it (degrees, anticlockwise). measure (2 to 4 atom ids in order, s3.2) adds a measurement instead: the distance between 2 atoms (Å), the angle at the middle one of 3, or the dihedral across 4 (degrees), from the atoms in 3D; a structure drawn flat is cleaned up in 3D first. Its text follows the atoms; the style arguments style it." + PLACE_NOTE,
+    description: "Adds text (a title, caption or note), or with id replaces a caption's text. size (pt), font, bold, italic, underline, colour and text_align set it all; runs style parts (bold, italic, colour, sub, super); plain text gets chemistry formatting (H2SO4). arrow (a7) with side puts it on that arrow as its conditions, as Add conditions above or below do: Octet centres it on the arrow, it moves with the arrow, and Clean Up Reaction lays it out. width wraps lines to it (bond lengths); line_height is auto, variable or pt; angle turns it (degrees, anticlockwise). measure (2 to 4 atom ids in order, s3.2) adds a measurement instead: the distance between 2 atoms (Å), the angle at the middle one of 3, or the dihedral across 4 (degrees), from the atoms as drawn (in 3D where they have depth; the drawing is not changed). Its text follows the atoms; the style arguments style it." + PLACE_NOTE,
     inputSchema: obj({ text: str(2000), runs: RUNS, id: str(12), ...TEXT_STYLE, text_align: pick(["left", "centre", "right", "justify"]), width: num(0.5, 300), line_height: LINE_HEIGHT, angle: num(-360, 360), arrow: str(12), side: pick(["above", "below"]), measure: list(str(40), 4, 2), ...placing("at") }),
     run: addText, place: true,
   },
@@ -1785,9 +1784,9 @@ async function addMeasurement(host: Host, ids: string[], a: TextIn = {}): Promis
   const style = textStyle(a), mol = Object.keys(style).length ? { ...r.mol, captions: r.mol.captions!.map((c) => (c.id === r.id ? { ...c, ...style } : c)) } : r.mol;
   host.set(mol);
   await host.settle();
-  const c = host.doc().captions?.find((x) => x.id === r.id), cleaned = r.cleaned.map((g) => sid(host.doc(), g)).filter((x) => x);
+  const c = host.doc().captions?.find((x) => x.id === r.id);
   const kind = measureKind(atoms.length)!;
-  return { text: `Added the ${kind} t${r.id}: ${c?.text ?? ""}.${cleaned.length ? ` Octet cleaned up ${andList(cleaned as string[])} in 3D first, so the value is a 3D one.` : ""}${r.tooBig ? ` A structure of more than ${MOST_3D} atoms stays flat: the value is from the flat drawing.` : ""}${UNDO}` };
+  return { text: `Added the ${kind} t${r.id}: ${c?.text ?? ""}.${UNDO}` };
 }
 async function addText(host: Host, a: TextIn): Promise<Result> {
   if (a.measure) return addMeasurement(host, a.measure, a);
@@ -2230,7 +2229,7 @@ function shift(m: Mol, atoms: Set<number>, items: Set<number>, d: P): Mol {
   m = moveAtoms(m, atoms, d);
   return {
     ...m, arrows: m.arrows?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to), ...(x.curve ? { curve: { ...x.curve, points: x.curve.points.map((q) => ({ ...q, at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : x)),
-    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !(c.measure && c.measure.atoms.every((i) => atoms.has(i))) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !(c.measure && measuredBy(c.measure, atoms)) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: by(c.centre) } : c)), shapes: m.shapes?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
   };
 }
@@ -3612,7 +3611,7 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
         route: [...r.steps.map((st) => `${by(st.before).join(" + ")} ${SIGNS[m.arrows!.find((x) => `a${x.id}` === st.arrow)!.kind] ?? "->"}`), by(r.products).join(" + ")].join(" ").trim(),
         conditions: Object.fromEntries(r.steps.map((st) => [st.arrow, by([...st.above, ...st.below]).join("; ")])),
       })),
-      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200), ...(c.measure ? { measure: measureKind(c.measure.atoms.length) } : {}) }))),
+      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200), ...(c.measure ? { measure: measureKind(c.measure.ends.length) } : {}) }))),
       arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id) && !charted.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),
       shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, ...(x.symbol ? { symbol: x.symbol } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}) }))),
       notes: some(notes), selected: some(selected), check: Object.keys(mine).length ? mine : "clean",
@@ -3623,15 +3622,15 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   }
   // A measurement: its kind, its atoms in order, and its value (as its text shows it) and unit.
   const measureOf = (c: Caption) => {
-    const atoms = c.measure!.atoms, kind = measureKind(atoms.length)!, v = measureValue(m, atoms);
-    return { kind, atoms: atoms.map((i) => atomId(i) ?? `atom ${i}`), value: v === undefined ? null : Number(v.toFixed(kind === "distance" ? 2 : 1)), unit: UNITS[kind] };
+    const ends = c.measure!.ends, kind = measureKind(ends.length)!, v = measureValue(m, ends);
+    return { kind, atoms: atomEnds(c.measure!).map((i) => atomId(i) ?? `atom ${i}`), value: v === undefined ? null : Number(v.toFixed(kind === "distance" ? 2 : 1)), unit: UNITS[kind] };
   };
-  const captions = (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), ...(liveSetting(c) ? { values: liveSetting(c) } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.measure ? { of: sid(m, groups.find((g) => g.includes(c.measure!.atoms[0])) ?? []), measure: measureOf(c) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) }));
+  const captions = (m.captions ?? []).filter((c) => keep(`t${c.id}`) || (want && c.under && keep(sid(m, c.under)))).map((c) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), ...(liveSetting(c) ? { values: liveSetting(c) } : {}), box: box(host.textBox(c.id)), ...(c.under ? { of: sid(m, c.under) } : c.measure ? { of: sid(m, groups.find((g) => g.includes(atomEnds(c.measure!)[0])) ?? []), measure: measureOf(c) } : c.on ? { of: `a${c.on.arrow}`, side: c.on.side } : c.cycle ? { of: `c${c.cycle.cycle}`, role: c.cycle.side } : {}) }));
   const page = (() => { const [w, h] = pageSize(s), k = 72 / 25.4 / s.bond; return [-w / 2 * k, -h / 2 * k, w / 2 * k, h / 2 * k].map((v) => Math.round(v * 10) / 10); })();
   const shapes = (m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, box: box([Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])]), ...(x.mark ? { mark: x.mark } : {}), ...(x.symbol ? { symbol: x.symbol, size: Math.round(symbolSize(x) * host.style().bond * 10) / 10 } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}), ...(x.fill ? { fill: x.fill } : {}), ...(x.colour ? { colour: x.colour } : {}), ...(x.dashed ? { dashed: true } : {}), ...(x.angle ? { angle: Math.round(x.angle) } : {}), ...(x.table ? { table: x.table.cells } : {}), ...(x.tlc ? { tlc: { lanes: x.tlc.lanes, spots: x.tlc.spots.map((s) => ({ lane: s.lane, rf: s.rf })) } } : {}) }));
   return {
     ...head, pageBox: page, captions, units: "bond lengths, y up", experiment: details, reagentTables: grids, ...(riskAssessment ? { riskAssessment } : {}), structures, reactions, cycles, ...(charts.length ? { charts } : {}),
-    text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)], ...(c.measure ? { measure: measureKind(c.measure.atoms.length) } : {}) })),
+    text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)], ...(c.measure ? { measure: measureKind(c.measure.ends.length) } : {}) })),
     arrows: (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) })),
     ...(shapes.length ? { shapes } : {}), ...(notes.length ? { notes } : {}), selected, warnings,
   };

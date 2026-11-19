@@ -64,6 +64,7 @@ export const ACTIONS: Action[] = [
   any("tool.plasmid", "Plasmid map tool", "Tools"), any("tool.table", "Table tool", "Tools"), any("tool.fragment", "Mass fragmentation tool", "Tools"),
   any("tool.massspec", "Mass spec analysis tool", "Tools"), any("tool.synthesis", "Synthesis tool", "Tools"), any("tool.retro", "Retrosynthesis tool", "Tools"),
   any("tool.map", "Atom map tool", "Tools"), any("tool.measure", "Measure tool", "Tools"),
+  any("tool.measureLength", "Measure length tool", "Tools"), any("tool.measureAngle", "Measure angle tool", "Tools"), any("tool.measureDihedral", "Measure dihedral tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
   any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),
@@ -126,6 +127,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [], "tool.text": ["t"], "tool.arrow": ["e"], "tool.template": [], "tool.symbol": ["shift+e"], "tool.shape": [],
   "tool.bracket": ["shift+t"], "tool.tlc": ["g"], "tool.orbital": ["shift+g"],
   "tool.sequence": [], "tool.cycle": [], "tool.gel": [], "tool.plasmid": [], "tool.table": [], "tool.fragment": [], "tool.massspec": [], "tool.synthesis": [], "tool.retro": [], "tool.map": [], "tool.measure": [],
+  "tool.measureLength": [], "tool.measureAngle": [], "tool.measureDihedral": [],
   "eraser.smaller": ["["], "eraser.bigger": ["]"],
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
@@ -256,12 +258,14 @@ export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "ca
 
 // The ring each ring command picks (J picks benzene). Ring kinds are RINGS' keys in tools.tsx.
 export const RING_TOOLS: Record<string, string> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
-// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel) or a ring's
-// (tool.benzene), so the Ring slot, its menu and a pinned ring can name the key.
+// The Measure tool's variant each of its commands picks (measurement.ts MeasureKind).
+export const MEASURE_TOOLS: Record<string, string> = { measureLength: "distance", measureAngle: "angle", measureDihedral: "dihedral" };
+// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel), a ring's
+// (tool.benzene) or a Measure variant's (tool.measureAngle), so the slot, its menu and a pinned option can name the key.
 export function optionCommand(tool: string, kind: string): string | undefined {
   if (tool === "more") return `tool.${kind}`;
-  const ring = tool === "ring" ? Object.keys(RING_TOOLS).find((c) => RING_TOOLS[c] === kind) : undefined;
-  return ring && `tool.${ring}`;
+  const own = tool === "ring" ? RING_TOOLS : tool === "measure" ? MEASURE_TOOLS : undefined, c = own && Object.keys(own).find((k) => own[k] === kind);
+  return c && `tool.${c}`;
 }
 
 // Other actions that already use this key in the same place.

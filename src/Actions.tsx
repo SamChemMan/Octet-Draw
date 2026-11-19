@@ -483,7 +483,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       // definition round the selected structures.
       if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
       // A measurement of 2, 3 or 4 selected atoms (Structure > Measure).
-      if (context.atoms === 2) items.push(small(it(<DistanceGlyph size={18} />, "Measure distance", "measure_distance")));
+      if (context.atoms === 2) items.push(small(it(<DistanceGlyph size={18} />, "Measure length", "measure_distance")));
       if (context.atoms === 3) items.push(small(it(<AngleGlyph size={18} />, "Measure angle", "measure_angle")));
       if (context.atoms === 4) items.push(small(it(<DihedralGlyph size={18} />, "Measure dihedral", "measure_dihedral")));
       items.push(small(it(<BracketsSquare size={18} />, "Make an R-group definition", "define_rgroup")));

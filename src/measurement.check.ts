@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { clean3d } from "./clean3d.ts";
 import { EMPTY, addCaption, addMeasure, addRing, deleteAtoms, transformParts } from "./edit.ts";
-import { chainOrder, middleOf, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
+import { chainOrder, middleOf, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure, readMeasure, placeEnd } from "./measurement.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ASCENT, DESCENT, type Caption, type Mol } from "./render.ts";
 
@@ -114,12 +114,21 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   console.log("measurement.check: order ok");
 }
 
-// soundMeasure (S23): anything but 2 to 4 distinct atoms of the drawing, and a sane offset, is not a measurement.
+// soundMeasure (S23): anything but 2 to 4 ends (distinct atoms of the drawing, or points on the page), a dihedral's
+// four all atoms, and a sane offset, is not a measurement. readMeasure reads the old form ({ atoms }) too (S45).
 {
   const n = 5;
-  for (const bad of [null, 3, "x", {}, { atoms: [0] }, { atoms: [0, 1, 2, 3, 4] }, { atoms: [0, 0] }, { atoms: [-1, 2] }, { atoms: [0, 99999] }, { atoms: ["0", "1"] }, { atoms: [0, NaN] }, { atoms: [0, 1.5] },
-    { atoms: [0, 1], at: [1e9, 0] }, { atoms: [0, 1], at: [NaN, 0] }, { atoms: [0, 1], at: [1] }, { atoms: [0, 1], at: "x" }]) assert.equal(soundMeasure(bad, n), false, JSON.stringify(bad));
-  assert.ok(soundMeasure({ atoms: [0, 1] }, n) && soundMeasure({ atoms: [4, 3, 2, 1], at: [0.5, -1] }, n));
+  for (const bad of [null, 3, "x", {}, { ends: [0] }, { ends: [0, 1, 2, 3, 4] }, { ends: [0, 0] }, { ends: [-1, 2] }, { ends: [0, 99999] }, { ends: ["0", "1"] }, { ends: [0, NaN] }, { ends: [0, 1.5] },
+    { ends: [0, 1], at: [1e9, 0] }, { ends: [0, 1], at: [NaN, 0] }, { ends: [0, 1], at: [1] }, { ends: [0, 1], at: "x" }, { ends: [0, [1, 2, 3]] }, { ends: [0, [1]] }, { ends: [0, [NaN, 1]] }, { ends: [0, [1e9, 1]] },
+    { ends: [0, 1, 2, [1, 1]] }, { ends: [[0, 0], 1, 2, 3] }, { atoms: [0, 1] }]) assert.equal(soundMeasure(bad, n), false, JSON.stringify(bad));
+  assert.ok(soundMeasure({ ends: [0, 1] }, n) && soundMeasure({ ends: [4, 3, 2, 1], at: [0.5, -1] }, n));
+  assert.ok(soundMeasure({ ends: [[0, 0], [1, 1]] }, n) && soundMeasure({ ends: [0, [1, 1], [2, -2]] }, n) && soundMeasure({ ends: [[3, 3], [3, 3]] }, 0), "free points, with atoms or alone");
+  // The old form reads as ends that are all atoms; the new form wins when a file has both; a copy comes back.
+  assert.deepEqual(readMeasure({ atoms: [0, 3], at: [0.5, 1] }, n), { ends: [0, 3], at: [0.5, 1] });
+  assert.deepEqual(readMeasure({ atoms: [0, 3], ends: [1, [2, 2]] }, n), { ends: [1, [2, 2]] });
+  const point: [number, number] = [2, 2], read = readMeasure({ ends: [1, point] }, n)!;
+  assert.notEqual(read.ends[1], point, "a copy");
+  for (const bad of [{ atoms: [0, 9] }, { atoms: [0] }, { atoms: [1, 1] }, { ends: "x", atoms: [0, 1] }]) assert.equal(readMeasure(bad, n), undefined, JSON.stringify(bad));
   console.log("measurement.check: soundMeasure ok");
 }
 
@@ -131,16 +140,18 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const withText = addCaption(plain, { text: "hello", x: 0, y: 0 })[0];
   assert.equal(settleMeasures(plain, withText), withText);
   const r = made(addMeasure(plain, [0, 3]));
-  assert.equal(r.cleaned.length, 1, "a flat structure is cleaned up in 3D first");
-  // (Anti butane is flat in 3D too; a ring is not.)
-  const hexane = made(addMeasure(addRing(EMPTY, 6, false, { point: [0, 0] }), [0, 3]));
-  assert.ok(hexane.mol.atoms.some((a) => Math.abs(a.location[2]) > 1e-3), "a ring has depth after");
+  // Measuring never changes the drawing (D2): a flat structure stays flat, and reads its flat values.
+  assert.equal(r.mol.atoms, plain.atoms, "the atoms as they were");
+  assert.equal(r.mol.bonds, plain.bonds);
+  const ring = addRing(EMPTY, 6, false, { point: [0, 0] }), hexane = made(addMeasure(ring, [0, 1, 2]));
+  assert.equal(hexane.mol.atoms, ring.atoms, "a flat ring stays flat");
+  assert.equal(caption(hexane.mol, hexane.id).text, "120.0°", "and reads its flat angle");
   const m = r.mol, c0 = caption(m, r.id);
   assert.match(c0.text, /^\d\.\d\d Å$/);
   assert.equal(c0.chemical, false, "Interpret Chemically off");
   assert.equal(settleMeasures(m, m), m, "settled already: the same object");
   // Unsound atoms (an edit that did not remap them): plain text.
-  const broken = { ...m, captions: m.captions!.map((c) => ({ ...c, measure: { atoms: [0, 99] } })) };
+  const broken = { ...m, captions: m.captions!.map((c) => ({ ...c, measure: { ends: [0, 99] } })) };
   const fixed = settleMeasures(undefined, broken);
   assert.equal(caption(fixed, r.id).measure, undefined);
   assert.equal(caption(fixed, r.id).text, c0.text);
@@ -156,7 +167,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   near(c2.y, c1.y + 2, 1e-6, "moved label y");
   assert.ok(c2.measure!.at, "its offset is kept");
   const turned = settleMeasures(kept, transformParts(kept, new Set(all(kept)), new Set([r.id]), ([x, y]) => [-y, x]));
-  const c3 = caption(turned, r.id), f2 = measureFrame(kept, c2.measure!.atoms), f3 = measureFrame(turned, c3.measure!.atoms);
+  const c3 = caption(turned, r.id), f2 = measureFrame(kept, c2.measure!.ends), f3 = measureFrame(turned, c3.measure!.ends);
   // The label's middle in each frame is the same.
   const lift = ((ASCENT - DESCENT) / 2) * (DEFAULT_STYLE.captionSize / DEFAULT_STYLE.bond);
   const off = (c: Caption, f: typeof f2) => { const d = [c.x - f.o[0], c.y + lift - f.o[1]]; return [d[0] * f.u[0] + d[1] * f.u[1], d[0] * f.v[0] + d[1] * f.v[1]]; };
@@ -188,23 +199,25 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.equal(again.id, r.id);
   assert.equal(again.mol, r.mol);
   assert.equal(again.mol.captions!.filter((c) => c.measure).length, 1);
-  for (const bad of [[0], [0, 1, 2, 3, 0], [0, 0], [0, 9], [-1, 0], [0.5, 1]]) assert.equal(typeof addMeasure(r.mol, bad), "string", JSON.stringify(bad));
-  // A structure with depth already is not cleaned up again.
+  for (const bad of [[0], [0, 1, 2, 3, 0], [0, 0], [0, 9], [-1, 0], [0.5, 1], [0, 1, 2, [5, 5]], [[0, 0], 1, 2, 3], [0, [NaN, 1]]] as Parameters<typeof addMeasure>[1][]) assert.equal(typeof addMeasure(r.mol, bad), "string", JSON.stringify(bad));
+  assert.equal(addMeasure(r.mol, [0, 1, 2, [5, 5]]), "A dihedral takes 4 atoms.", "a dihedral of atoms only");
+  // Measuring a structure never changes it.
   const second = made(addMeasure(r.mol, [0, 2]));
-  assert.deepEqual(second.cleaned, []);
   assert.equal(second.mol.atoms, r.mol.atoms);
-  // S8: atoms of two flat structures: both cleaned up.
+  // S8: atoms of two flat structures: their distance as placed, and nothing moves.
   const two: Mol = { atoms: [...chain(3).atoms, ...chain(3).atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1] + 4, 0] as [number, number, number] }))], bonds: [...chain(3).bonds, ...chain(3).bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + 3, b.atoms[1] + 3] as [number, number] }))] };
   const across = made(addMeasure(two, [0, 5]));
-  assert.equal(across.cleaned.length, 2);
+  assert.equal(across.mol.atoms, two.atoms);
   near(measureValue(across.mol, [0, 5]), 1.52 * Math.hypot(...[0, 1, 2].map((k) => across.mol.atoms[5].location[k] - across.mol.atoms[0].location[k])), 0.05, "their distance as placed");
   console.log("measurement.check: addMeasure ok");
 }
 
 // remapCaption: a measurement copied with all its atoms keeps them; without one, plain text.
 {
-  const c: Caption = { id: 1, text: "1.52 Å", x: 0, y: 0, measure: { atoms: [2, 5] } };
-  assert.deepEqual(remapCaption(c, (i) => i + 10).measure, { atoms: [12, 15] });
+  const c: Caption = { id: 1, text: "1.52 Å", x: 0, y: 0, measure: { ends: [2, 5] } };
+  assert.deepEqual(remapCaption(c, (i) => i + 10).measure, { ends: [12, 15] });
+  assert.deepEqual(remapCaption({ ...c, measure: { ends: [2, [4, 5]] } }, (i) => i + 10).measure, { ends: [12, [4, 5]] }, "a free end stays where it is");
+  assert.deepEqual(remapCaption({ ...c, measure: { ends: [[1, 1], [4, 5]] } }, () => undefined).measure, { ends: [[1, 1], [4, 5]] }, "no atom: nothing to remap");
   assert.equal(remapCaption(c, (i) => (i === 2 ? 0 : undefined)).measure, undefined);
   assert.equal(remapCaption(c, () => 0).measure, undefined, "two atoms made one");
   assert.equal(deleteAtoms({ ...chain(3), captions: [c] }, new Set([0])).captions?.length, 0);
@@ -229,8 +242,8 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
     for (const w of want) {
       // CDXML keeps places to 0.01 pt, so a value read back from it may differ in its last place.
       const value = (t: string) => Number(t.replace("−", "-").replace(/[^\d.-]/g, ""));
-      const g = got.find((c) => JSON.stringify(c.measure!.atoms) === JSON.stringify(w.measure!.atoms));
-      assert.ok(g && Math.abs(value(g.text) - value(w.text)) <= 0.15 && g.text.slice(-1) === w.text.slice(-1), `${what}: ${w.text} on ${w.measure!.atoms}: ${g?.text}`);
+      const g = got.find((c) => JSON.stringify(c.measure!.ends) === JSON.stringify(w.measure!.ends));
+      assert.ok(g && Math.abs(value(g.text) - value(w.text)) <= 0.15 && g.text.slice(-1) === w.text.slice(-1), `${what}: ${w.text} on ${w.measure!.ends}: ${g?.text}`);
       near(g.x, w.x, 0.02, `${what} x`);
       near(g.y, w.y, 0.02, `${what} y`);
       assert.equal(!!g.measure!.at, !!w.measure!.at, `${what}: a label moved by hand stays so`);
@@ -272,7 +285,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
     assert.equal(back.captions![0].text, base.captions![0].text);
   }
   // CDXML with Octet data naming nodes that are not there.
-  const cdxml = toCdxml(base, DEFAULT_STYLE).replace(/&quot;measure&quot;:\{&quot;atoms&quot;:\[[^\]]*\]/, "&quot;measure&quot;:{&quot;atoms&quot;:[999999,888888]");
+  const cdxml = toCdxml(base, DEFAULT_STYLE).replace(/&quot;measure&quot;:\{&quot;ends&quot;:\[[^\]]*\]/, "&quot;measure&quot;:{&quot;atoms&quot;:[999999,888888]");
   assert.ok(cdxml.includes("999999"), "the test file names missing nodes");
   const back = fromCdxml(cdxml).mol;
   assert.equal(back.captions!.filter((c) => c.measure).length, 0, "missing nodes: plain text");
@@ -293,34 +306,34 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   // S9: deleting a measured atom removes the measurement in the same step; deleting another atom renumbers it.
   assert.equal(deleteAtoms(base, new Set([3])).captions!.filter((c) => c.measure).length, 0);
   const less = deleteAtoms(base, new Set([0]));
-  assert.deepEqual(less.captions![0].measure!.atoms, [0, 1, 2, 3], "renumbered");
+  assert.deepEqual(less.captions![0].measure!.ends, [0, 1, 2, 3], "renumbered");
   assert.equal(settleMeasures(base, less).captions![0].text, m0.text, "the same value");
   // S40: Contract Label over a measured atom ends that measurement; one on the label's own atom stays.
   const two = made(addMeasure(base, [0, 2])).mol;
   const contracted = contractLabel(two, 2, new Set([2, 3, 4]), "Pr");
   assert.equal(contracted.captions!.filter((c) => c.measure).length, 1, "the dihedral went with its atoms");
-  assert.deepEqual(contracted.captions!.find((c) => c.measure)!.measure!.atoms, [0, 2], "the distance to the label's atom stays");
+  assert.deepEqual(contracted.captions!.find((c) => c.measure)!.measure!.ends, [0, 2], "the distance to the label's atom stays");
   // A join: a measured atom dropped on another atom goes on as that atom; two of its atoms made one end it.
   const apart = { ...base, atoms: [...base.atoms, { label: "C", location: [9, 9, 0] as [number, number, number] }] };
   const onto = joinOverlaps(moveAtoms(apart, new Set([5]), [base.atoms[4].location[0] - 9, base.atoms[4].location[1] - 9]), new Set([5]));
-  assert.deepEqual(onto.mol.captions![0].measure!.atoms, [1, 2, 3, 4], "a free atom dropped on a measured one: the measurement stays");
+  assert.deepEqual(onto.mol.captions![0].measure!.ends, [1, 2, 3, 4], "a free atom dropped on a measured one: the measurement stays");
   const merged = joinOverlaps(moveAtoms(base, new Set([4]), [base.atoms[1].location[0] - base.atoms[4].location[0], base.atoms[1].location[1] - base.atoms[4].location[1]]), new Set([4]));
   assert.equal(merged.mol.captions!.filter((c) => c.measure).length, 0, "two of its atoms made one");
   // Copy (extractSelection) and paste (insertMol): with its atoms, a measurement of the new atoms (S16); picked without
   // them, plain text (S17).
   const all5 = new Set([0, 1, 2, 3, 4]);
   const part = extractSelection(base, all5, new Set());
-  assert.deepEqual(part.captions![0].measure!.atoms, [1, 2, 3, 4], "copied with its structure");
+  assert.deepEqual(part.captions![0].measure!.ends, [1, 2, 3, 4], "copied with its structure");
   const pasted = insertMol(base, part, [10, 0]).mol, again = settleMeasures(base, pasted);
   assert.equal(again.captions!.filter((c) => c.measure).length, 2);
-  assert.deepEqual(again.captions![1].measure!.atoms, [6, 7, 8, 9], "the new atoms");
+  assert.deepEqual(again.captions![1].measure!.ends, [6, 7, 8, 9], "the new atoms");
   assert.equal(again.captions![1].text, m0.text, "the same value");
   const alone = extractSelection(base, new Set([0, 1, 2]), new Set([id]));
   assert.equal(alone.captions![0].measure, undefined, "a label copied without its atoms is plain text");
   assert.equal(alone.captions![0].text, m0.text);
   // S18: ⌘D (duplicateSelection) gives the copy its own measurement.
   const dup = duplicateSelection(base, all5, new Set());
-  assert.deepEqual(dup.mol.captions!.map((c) => c.measure?.atoms), [[1, 2, 3, 4], [6, 7, 8, 9]]);
+  assert.deepEqual(dup.mol.captions!.map((c) => c.measure?.ends), [[1, 2, 3, 4], [6, 7, 8, 9]]);
   const dupAlone = duplicateSelection(base, new Set(), new Set([id]));
   assert.equal(dupAlone.mol.captions![1].measure, undefined, "the label alone duplicated: plain text");
   // S39: a template with a measurement, placed twice: each copy measures its own atoms.
@@ -328,7 +341,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   placed = addTemplate(placed, base, { point: [10, 0] });
   const ms = settleMeasures(undefined, placed).captions!.filter((c) => c.measure);
   assert.equal(ms.length, 2);
-  assert.notDeepEqual(ms[0].measure!.atoms, ms[1].measure!.atoms);
+  assert.notDeepEqual(ms[0].measure!.ends, ms[1].measure!.ends);
   assert.ok(ms.every((c) => c.text === m0.text), `each copy measures its own atoms: ${ms.map((c) => c.text)}`);
   // Copy as CDXML of a selection (cdxml.ts pick): with its atoms, the measurement goes; without, the text alone.
   const sel = toCdxml(base, DEFAULT_STYLE, { selection: { atoms: all5, items: [id] } });
@@ -372,7 +385,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   // A cycle with a break at its right: plain text dropped there joins it; a measurement label does not.
   let [c, cid] = addCycle(chain(2), { centre: [20, 0], radius: 3, clockwise: true, nodes: [], at: [] });
   c = (await import("./cycle.ts")).addStop(c, cid, 0, []);
-  const near: Mol = { ...c, captions: [{ id: 50, text: "1.52 Å", x: 23, y: 0, measure: { atoms: [0, 1] } }] };
+  const near: Mol = { ...c, captions: [{ id: 50, text: "1.52 Å", x: 23, y: 0, measure: { ends: [0, 1] } }] };
   const opts = { box: (t: Caption) => [t.x - 0.5, t.y - 0.2, t.x + 0.5, t.y + 0.4] as [number, number, number, number], bond: 14.4 };
   const dropped = dropOnCycle(near, fragments(near), c, opts);
   assert.equal(dropped.captions![0].cycle, undefined, "a measurement never joins a cycle");
@@ -443,7 +456,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const both = (back: Mol, what: string) => {
     const c = back.captions!.find((x) => x.measure);
     assert.ok(c, `${what}: the measurement`);
-    assert.deepEqual(c.measure!.atoms, [0, 4], `${what}: its atoms`);
+    assert.deepEqual(c.measure!.ends, [0, 4], `${what}: its atoms`);
     assert.equal(noteOf(back, c.id), said, `${what}: its note`);
   };
   both(parse(serialize(m)), ".oct JSON");
@@ -468,4 +481,170 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.ok(!picture.includes("Gauche"), "a picture's CDXML: no note");
   assert.match(picture, /LineType="Dashed"/, "and the measurement's lines");
   console.log("measurement.check: notes ok");
+}
+
+// Free ends (redesign of 19 November 2026, S41 to S45): values on the page plane, the Å scale with and without atoms,
+// files and the clipboard, copy and paste, moves and transforms, an atom deleted from a mixed measurement, a dihedral of
+// atoms only, the Measure tool's placing rule, and the old form ({ atoms }) opening in every format.
+{
+  const { writeOct, readOct, writeCdx, readCdx } = await import("./oct.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const { parse, serialize } = await import("./file.ts");
+  const { extractSelection, insertMol, duplicateSelection, moveAtoms, updateCaption } = await import("./edit.ts");
+  type Ends = Parameters<typeof addMeasure>[1];
+  // S41: no atom end: one document bond length is 1.52 Å. Two free points two bond lengths apart: 3.04 Å.
+  near(measureValue(EMPTY, [[0, 0], [2, 0]]), 3.04, 1e-9, "two free points");
+  near(measureValue(EMPTY, [[1, 0], [0, 0], [0, 1]]), 90, 1e-9, "a free angle");
+  // With an atom: the structure's own scale. A chain drawn twice as big: 2 drawing units is one bond, 1.52 Å.
+  const big: Mol = { ...chain(3), atoms: chain(3).atoms.map((a) => ({ ...a, location: [a.location[0] * 2, a.location[1] * 2, 0] as [number, number, number] })) };
+  const a0 = big.atoms[0].location;
+  near(measureValue(big, [0, [a0[0], a0[1] + 2]]), 1.52, 1e-3, "atom to a free point, at the structure's scale");
+  // Depth is left out for every end when one is free: the same chain with depth 3 everywhere.
+  const deep: Mol = { ...big, atoms: big.atoms.map((a) => ({ ...a, location: [a.location[0], a.location[1], 3] as [number, number, number] })) };
+  near(measureValue(deep, [0, [a0[0], a0[1] + 2]]), 1.52, 1e-3, "on the page plane");
+  near(measureValue(deep, [0, 2]), measureValue(big, [0, 2])!, 1e-9, "all atoms: in 3D as before");
+  // Measuring changes nothing in the drawing (atoms identical before and after), with free ends too.
+  const r1 = made(addMeasure(big, [0, [a0[0], a0[1] + 2]], "pick"));
+  assert.equal(r1.mol.atoms, big.atoms, "the drawing unchanged by measuring");
+  assert.equal(caption(r1.mol, r1.id).text, "1.52\u00a0Å");
+  // A dihedral takes atoms only; the tool's rule places nothing off an atom for it.
+  assert.equal(addMeasure(big, [0, 1, 2, [9, 9]], "pick"), "A dihedral takes 4 atoms.");
+  assert.deepEqual(placeEnd([0, 1], "dihedral", undefined, [9, 9]), [0, 1], "Dihedral: a click off an atom does nothing");
+  assert.deepEqual(placeEnd([0, 1], "dihedral", 2, [9, 9]), [0, 1, 2]);
+  // The tool's rule: an atom placed already, or a point on the last end, places nothing; a full list takes no more.
+  const ends: Ends = [0];
+  assert.equal(placeEnd(ends, "angle", 0, [0, 0]), ends, "the atom just placed");
+  assert.deepEqual(placeEnd(ends, "angle", undefined, [3, 4]), [0, [3, 4]]);
+  const free: Ends = [[3, 4]];
+  assert.equal(placeEnd(free, "distance", undefined, [3.01, 4], 0.05), free, "a click on the free end just placed");
+  assert.deepEqual(placeEnd(free, "distance", undefined, [3.2, 4], 0.05), [[3, 4], [3.2, 4]]);
+  const full: Ends = [0, 1];
+  assert.equal(placeEnd(full, "distance", 2, [0, 0]), full, "a full list takes no more");
+  // A drawing with free ends: a mixed length, an all-free length, a mixed angle (vertex an atom), one coloured and bold.
+  let m = chain(4);
+  const p0 = m.atoms[0].location;
+  for (const e of [[0, [p0[0], p0[1] - 3]], [[5, 5], [8, 5]], [[0, 3], 1, 2]] as Ends[]) m = made(addMeasure(m, e, "pick")).mol;
+  const ids = m.captions!.map((c) => c.id);
+  m = settleMeasures(m, { ...m, captions: m.captions!.map((c) => (c.id === ids[1] ? { ...c, colour: "#C00000", bold: true, size: 14 } : c)) });
+  const values = m.captions!.map((c) => c.text);
+  assert.deepEqual(values.slice(0, 2), ["4.56\u00a0Å", "4.56\u00a0Å"], `values: ${values}`);
+  // S44: .oct (its JSON and its CDXML), the clipboard (the same JSON), CDXML and CDX: free ends back where they were,
+  // atom ends on their atoms, colour and Text menu styles kept.
+  const same = (back: Mol, what: string) => {
+    const got = back.captions!.filter((c) => c.measure);
+    assert.equal(got.length, 3, `${what}: every measurement`);
+    got.forEach((g, k) => {
+      const w = m.captions![k];
+      assert.equal(g.measure!.ends.length, w.measure!.ends.length, what);
+      g.measure!.ends.forEach((e, j) => {
+        const want = w.measure!.ends[j];
+        if (typeof want === "number") assert.equal(e, want, `${what}: atom end`);
+        else { assert.ok(Array.isArray(e), `${what}: free end`); near(e[0], want[0], 1e-3, `${what} x`); near(e[1], want[1], 1e-3, `${what} y`); }
+      });
+      assert.equal(g.text, w.text, `${what}: value`);
+      assert.equal(g.colour, w.colour, `${what}: colour`);
+      assert.equal(!!g.bold, !!w.bold, `${what}: bold`);
+      assert.equal(g.size, w.size, `${what}: size`);
+    });
+  };
+  same(parse(serialize(m)), ".oct JSON and the clipboard");
+  same(readOct(writeOct(m, DEFAULT_STYLE), true).mol, ".oct");
+  same(readOct(writeOct(m, DEFAULT_STYLE).replace("<CDXML ", "<CDXML Changed=\"1\" "), true).mol, ".oct read from its CDXML");
+  same(fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol, "CDXML");
+  same(readCdx(writeCdx(m, DEFAULT_STYLE)).mol, "CDX");
+  const written = (JSON.parse(serialize(m)).captions as Caption[]).map((c) => c.measure);
+  assert.deepEqual(written[1], { ends: [[5, 5], [8, 5]] }, "the new form is written");
+  assert.ok(written.every((x) => x && !("atoms" in x)), "the old form is not");
+  // A ChemDraw save (Octet's data gone): text and dashed lines, as before.
+  const chemdraw = fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/ Octet="[^"]*"/g, ""));
+  assert.equal(chemdraw.mol.captions!.filter((c) => c.measure).length, 0);
+  assert.ok((chemdraw.mol.arrows ?? []).filter((a) => a.style === "dashed").length >= 2, "its dashed lines");
+  // Copy and paste: the all-free one picked comes as itself; with its atoms the mixed ones come too; pasted at an
+  // offset, the free ends move with the paste and the atom ends are the new atoms.
+  const all4 = new Set([0, 1, 2, 3]);
+  const part = extractSelection(m, all4, new Set(ids));
+  assert.equal(part.captions!.filter((c) => c.measure).length, 3, "copied");
+  const pasted = settleMeasures(m, insertMol(m, part, [10, -1]).mol), copies = pasted.captions!.slice(3);
+  assert.deepEqual(copies.map((c) => c.text), values, "the same values pasted");
+  assert.deepEqual(copies[0].measure!.ends, [4, [p0[0] + 10, p0[1] - 4]], "atom end remapped, free end moved");
+  assert.deepEqual(copies[1].measure!.ends, [[15, 4], [18, 4]]);
+  const freeAlone = extractSelection(m, new Set(), new Set([ids[1]]));
+  assert.deepEqual(freeAlone.captions![0].measure!.ends, [[5, 5], [8, 5]], "an all-free measurement copied alone stays one");
+  const mixedAlone = extractSelection(m, new Set(), new Set([ids[0]]));
+  assert.equal(mixedAlone.captions![0].measure, undefined, "a mixed one copied without its atom is plain text");
+  const dup = duplicateSelection(m, all4, new Set(ids)).mol;
+  assert.equal(dup.captions!.filter((c) => c.measure).length, 6, "duplicated");
+  // S42: moves. The label and its atoms moved by one step (a selection dragged, arrow keys, ⌘A): free ends with them.
+  const by = (mol: Mol, ids2: number[], d: [number, number]) => ({ ...mol, captions: mol.captions!.map((c) => (ids2.includes(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)) });
+  const moved = settleMeasures(m, by(moveAtoms(m, all4, [1, 2]), ids, [1, 2]));
+  assert.deepEqual(moved.captions!.map((c) => c.measure!.ends.map((e) => (typeof e === "number" ? e : [Math.round(e[0] * 1e6) / 1e6, Math.round(e[1] * 1e6) / 1e6]))),
+    m.captions!.map((c) => c.measure!.ends.map((e) => (typeof e === "number" ? e : [e[0] + 1, e[1] + 2]))), "free ends moved with the selection");
+  assert.deepEqual(moved.captions!.map((c) => c.text), values, "values kept");
+  // The all-free one's label dragged alone: the whole measurement moves.
+  const freeMoved = settleMeasures(m, by(m, [ids[1]], [0, 1]));
+  assert.deepEqual(freeMoved.captions![1].measure!.ends, [[5, 6], [8, 6]]);
+  // A mixed one's label dragged alone: only its label moves (its offset is kept); its free end stays.
+  const labelMoved = settleMeasures(m, by(m, [ids[0]], [0.5, 0]));
+  assert.deepEqual(labelMoved.captions![0].measure!.ends, m.captions![0].measure!.ends);
+  assert.ok(labelMoved.captions![0].measure!.at, "the label's offset kept");
+  // An atom dragged alone: the free end stays, the value follows.
+  const atomMoved = settleMeasures(m, moveAtoms(m, new Set([0]), [0, 1]));
+  assert.deepEqual(atomMoved.captions![0].measure!.ends.slice(1), m.captions![0].measure!.ends.slice(1));
+  assert.equal(atomMoved.captions![0].text, "6.08\u00a0Å");
+  // Turn, flip and scale with the measurement picked (transformParts): free ends go with the selection.
+  const turn = ([x, y]: [number, number]): [number, number] => [-y, x];
+  const turned = settleMeasures(m, transformParts(m, all4, new Set(ids), turn));
+  assert.deepEqual(turned.captions![1].measure!.ends, [[-5, 5], [-5, 8]], "turned");
+  assert.deepEqual(turned.captions!.map((c) => c.text), values, "a turn keeps the values");
+  const flipped = settleMeasures(m, transformParts(m, all4, new Set(ids), ([x, y]) => [-x, y], [1, 1], undefined, 1, "across"));
+  assert.deepEqual(flipped.captions![1].measure!.ends, [[-5, 5], [-8, 5]], "flipped");
+  const grown = settleMeasures(m, transformParts(m, all4, new Set(ids), ([x, y]) => [2 * x, 2 * y], [2, 2]));
+  assert.deepEqual(grown.captions![1].measure!.ends, [[10, 10], [16, 10]], "scaled");
+  assert.deepEqual(grown.captions!.map((c) => c.text), [values[0], "9.12\u00a0Å", values[2]], "scaled: a structure's own scale holds; free ends alone read at the document's");
+  // Not picked: the free ends stay.
+  assert.deepEqual(settleMeasures(m, transformParts(m, all4, new Set(), turn)).captions![1].measure!.ends, [[5, 5], [8, 5]]);
+  // S43: an atom deleted from a mixed measurement removes it in the same step; the all-free one stays.
+  const gone = deleteAtoms(m, new Set([0]));
+  assert.ok(!gone.captions!.some((c) => c.id === ids[0]), "the mixed length on atom 0 went");
+  assert.ok(gone.captions!.some((c) => c.id === ids[1] && c.measure), "the all-free one stays");
+  // Colour and the Text menu on an all-free one (updateCaption), Undo's earlier state unchanged.
+  const styled = settleMeasures(m, updateCaption(m, ids[1], { colour: "#2E7D32", italic: true }));
+  assert.equal(caption(styled, ids[1]).colour, "#2E7D32");
+  assert.ok(caption(styled, ids[1]).italic && caption(styled, ids[1]).measure, "styled and still a measurement");
+  assert.equal(caption(m, ids[1]).colour, "#C00000", "the earlier state as it was (Undo)");
+  console.log("measurement.check: free ends ok");
+}
+
+// S45: the old form ({ atoms }, as the 1.2 beta and 1.1.3 dev builds saved it) opens as a measurement in .oct, the
+// clipboard, CDXML and CDX, and is saved in the new form.
+{
+  const { writeOct, readOct, writeCdx, readCdx } = await import("./oct.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const { parse, serialize } = await import("./file.ts");
+  const m = made(addMeasure(chain(5), [0, 2, 4], "pick")).mol, c = m.captions![0];
+  const old = (s: string) => s.replace(/("measure":\s*\{\s*)"ends"/g, '$1"atoms"');
+  const form = (s: string) => (JSON.parse(s).captions as { measure: object }[])[0].measure;
+  const opened = (back: Mol, what: string) => {
+    const g = back.captions!.find((x) => x.measure);
+    assert.ok(g, `${what}: a measurement`);
+    assert.deepEqual(g.measure!.ends, [0, 2, 4], `${what}: its atoms as ends`);
+    assert.equal(g.text, c.text, `${what}: its value`);
+    assert.deepEqual(form(serialize(back)), { ends: [0, 2, 4] }, `${what}: saved in the new form`);
+  };
+  const json = old(serialize(m));
+  assert.deepEqual(form(json), { atoms: [0, 2, 4] }, "the test file has the old form");
+  opened(parse(json), ".oct JSON and the clipboard");
+  // .oct: its JSON part in the old form.
+  // (Its JSON is in base64 after the CDXML, beside the CDXML's hash.)
+  const oct = writeOct(m, DEFAULT_STYLE), own = /<!--Octet 1 \S+ (\S+)-->\n$/.exec(oct)!;
+  const oldOct = oct.replace(own[1], Buffer.from(old(Buffer.from(own[1], "base64").toString("utf8")), "utf8").toString("base64"));
+  assert.notEqual(oldOct, oct, "the test .oct has the old form");
+  opened(readOct(oldOct, true).mol, ".oct");
+  // CDXML and CDX: Octet's data with atoms (node ids).
+  const xml = toCdxml(m, DEFAULT_STYLE).replace(/&quot;measure&quot;:\{&quot;ends&quot;:/, "&quot;measure&quot;:{&quot;atoms&quot;:");
+  assert.match(xml, /&quot;measure&quot;:\{&quot;atoms&quot;:/, "the test CDXML has the old form");
+  opened(fromCdxml(xml).mol, "CDXML");
+  const cdx = writeCdx(fromCdxml(xml).mol, DEFAULT_STYLE);
+  opened(readCdx(cdx).mol, "CDX");
+  console.log("measurement.check: old form ok");
 }

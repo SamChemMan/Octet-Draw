@@ -1,13 +1,14 @@
 // Run: node src/measurements-stress.check.ts. The stress list of docs/plans/issue-85-measurements.md, case by case,
 // for distance, angle and dihedral measurements (issue 85). Cases another check covers already are named here and not
-// run twice: S8, S15 to S21, S23, S24, S33 to S36, S39 and S40 in measurement.check.ts; S7, S27 and S28 (timing) in
-// measurespeed.check.ts; S29 to S31, S32's AI path and S35's same measurement in measuremcp.check.ts. S25 and S26
-// (dark mode, zoom) are how the editor draws, checked in the dev server.
+// run twice: S8, S15 to S21, S23, S24, S33 to S36, S39 to S45 in measurement.check.ts; S7, S27 and S28 (timing) in
+// measurespeed.check.ts; S29 to S31, S32's AI path and S35's same measurement in measuremcp.check.ts. S26 (zoom) and
+// S46 (the Measure tool's clicks) run in WebKit at the end of this file when OCTET_STRESS_URL names a dev server; S25
+// (dark mode) is how the editor draws, checked in the dev server.
 import assert from "node:assert/strict";
 import { browser } from "../scripts/checkkit.ts";
 import { clean3d } from "./clean3d.ts";
 import { EMPTY, addMeasure, addRing, deleteAtoms, deleteChosen, erase, flattenAtoms, flipAtoms, moveAtoms, rotateAtoms, tiltAtoms, transformParts, updateCaption, type Made } from "./edit.ts";
-import { measureFrame, measureText, measureValue, passAtom, settleMeasures, kindOf } from "./measurement.ts";
+import { measureFrame, measureText, measureValue, placeEnd, settleMeasures, kindOf } from "./measurement.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ASCENT, DESCENT, type Caption, type Mol } from "./render.ts";
 
@@ -20,25 +21,26 @@ const of = (m: Mol, id: number) => m.captions!.find((c) => c.id === id)!;
 // Each measurement's text is the value of its atoms as drawn now, and never NaN or Infinity.
 const truthful = (m: Mol, what: string) => {
   for (const c of measures(m)) {
-    assert.equal(c.text, measureText(kindOf(c.measure!.atoms.length)!, measureValue(m, c.measure!.atoms)), `${what}: ${c.text}`);
+    assert.equal(c.text, measureText(kindOf(c.measure!.ends.length)!, measureValue(m, c.measure!.ends)), `${what}: ${c.text}`);
     assert.ok(!/NaN|Infinity/.test(c.text) && Number.isFinite(c.x) && Number.isFinite(c.y), `${what}: ${JSON.stringify(c)}`);
   }
 };
-const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.atoms)!);
+const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ends)!);
 
-// S1 to S4: the Measure tool's drag (passAtom; the editor makes a measurement on let go only with 2 to 4 atoms, and
-// starts no drag on a press that is not on an atom, S5).
+// S1 to S4: the Measure tool's clicks (placeEnd; the editor makes the measurement at the last end only, and Escape,
+// Backspace and the rest are the UI cases below, run in WebKit).
 {
-  let list = [7];
-  assert.equal(passAtom(list, undefined), list, "S1: nothing under the pointer, nothing changes");
-  assert.equal(passAtom(list, 7), list, "S1: still on the first atom: one atom, so nothing on let go");
-  for (const on of [8, 9, 10, 11, 12]) list = passAtom(list, on);
-  assert.deepEqual(list, [7, 8, 9, 10], "S2: six atoms passed, the first four kept");
-  assert.deepEqual(passAtom(list, 9), [7, 8, 9], "S3: back on the one before the last takes the last off");
-  assert.deepEqual(passAtom(passAtom([7, 8, 9], 8), 8), [7, 8], "S3: and again to a distance; staying there changes nothing");
-  const three = [7, 8, 9];
-  assert.equal(passAtom(three, 7), three, "S4: an atom picked already, not the one before the last, is ignored");
-  assert.deepEqual(passAtom([7], 7), [7]);
+  const one = placeEnd([], "distance", 7, [0, 0]);
+  assert.deepEqual(one, [7], "S1: a click on an atom places it");
+  assert.deepEqual(placeEnd([], "distance", undefined, [1, 2]), [[1, 2]], "S1: a click off an atom places a free point");
+  const two = placeEnd([7], "dihedral", undefined, [1, 2]);
+  assert.deepEqual(two, [7], "S2: Dihedral, a click off an atom: nothing placed");
+  assert.deepEqual(placeEnd([7, 8, 9], "dihedral", 10, [0, 0]), [7, 8, 9, 10], "S2: its fourth atom");
+  // S3: Backspace takes the last end off (the editor's slice); the next click places it again.
+  assert.deepEqual(placeEnd([7, 8].slice(0, -1), "angle", 8, [0, 0]), [7, 8], "S3");
+  const three: Parameters<typeof placeEnd>[0] = [7, 8];
+  assert.equal(placeEnd(three, "angle", 8, [0, 0]), three, "S4: the end just placed: nothing");
+  assert.equal(placeEnd(three, "angle", 7, [0, 0]), three, "S4: an atom placed already: nothing");
   console.log("measurements-stress: S1 to S4 ok");
 }
 
@@ -49,15 +51,15 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ato
   console.log("measurements-stress: S5 ok");
 }
 
-// S6: Measure on a flat structure is one change: cleaned up in 3D and measured in one drawing. The drawing before it
-// (what ⌘Z gives back) is flat with no measurement, untouched.
+// S6: Measure on a flat structure is one change, and measures it as drawn: no clean-up (Sam, 19 November 2026). The
+// atoms are the same objects after, and the drawing before it (what ⌘Z gives back) is untouched.
 {
   const flat = addRing(EMPTY, 6, false, { point: [0, 0] }), was = JSON.stringify(flat);
   const r = made(addMeasure(flat, [0, 1, 2, 3]));
-  assert.equal(r.cleaned.length, 1);
-  assert.ok(r.mol.atoms.some((a) => Math.abs(a.location[2]) > 1e-3) && measures(r.mol).length === 1, "cleaned up and measured together");
+  assert.equal(r.mol.atoms, flat.atoms, "the atoms as they were: nothing cleaned up");
+  assert.equal(measures(r.mol).length, 1);
   assert.equal(JSON.stringify(flat), was, "the drawing before is unchanged");
-  assert.ok(Math.abs(Math.abs(values(r.mol)[0]) - 55) < 12, `a chair's dihedral: ${values(r.mol)[0]}`);
+  assert.ok(Math.abs(values(r.mol)[0]) < 0.1, `a flat ring's dihedral as drawn: ${values(r.mol)[0]}`);
   truthful(r.mol, "S6");
   console.log("measurements-stress: S6 ok");
 }
@@ -110,7 +112,7 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ato
   m = settleMeasures(m, { ...m, captions: m.captions!.map((c) => (c.id === moved ? { ...c, x: c.x + 0.6, y: c.y + 0.3 } : c)) });
   // (A label's place by its atoms: its middle in its measurement's frame.)
   const mid = ((ASCENT - DESCENT) / 2) * (DEFAULT_STYLE.captionSize / DEFAULT_STYLE.bond);
-  const v0 = values(m), lift = (c: Caption, x: Mol) => { const f = measureFrame(x, c.measure!.atoms), d = [c.x - f.o[0], c.y + mid - f.o[1]]; return [d[0] * f.u[0] + d[1] * f.u[1], d[0] * f.v[0] + d[1] * f.v[1]]; };
+  const v0 = values(m), lift = (c: Caption, x: Mol) => { const f = measureFrame(x, c.measure!.ends), d = [c.x - f.o[0], c.y + mid - f.o[1]]; return [d[0] * f.u[0] + d[1] * f.u[1], d[0] * f.v[0] + d[1] * f.v[1]]; };
   const at0 = lift(of(m, moved), m);
   const centre: [number, number, number] = [m.atoms[2].location[0], m.atoms[2].location[1], 0];
   const turned: [string, Mol][] = [
@@ -270,4 +272,381 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ato
   console.log("measurements-stress: groups, tie and heading ok");
 }
 
+// S46: the Measure tool in WebKit (the engine the Mac app runs in), driven with pointer and key events as a person gives
+// them, when OCTET_STRESS_URL names a dev server (npx vite --port 1522): two clicks, empty points, three clicks with the
+// live arc, a drag let go, a hold (Select), Escape, Backspace, a tool change, Dihedral off an atom, Undo, Redo and ⌘A,
+// 10% and the highest zoom, each live value equal to the value made, and pointer moves on 2000 atoms against the Atom
+// map tool's. Then the toolbar's indicator on every tool in hand, in one column and two, with the section's lines.
+{
+  const ui = process.env.OCTET_STRESS_URL?.replace(/\/$/, "");
+  const { spawnSync } = await import("node:child_process");
+  if (!ui) console.log("measurements-stress: the Measure tool in WebKit skipped: set OCTET_STRESS_URL to a running dev server");
+  else if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) console.log("measurements-stress: the Measure tool in WebKit skipped: it needs a Mac with Xcode's swift");
+  else {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const { serialize } = await import("./file.ts");
+    const peptide = (): Mol => {
+      const atoms: Mol["atoms"] = [], bonds: Mol["bonds"] = [], add = (label: string, x: number, y: number) => atoms.push({ label, location: [x, y, 0] }) - 1;
+      for (let row = 0; row < 8; row++) {
+        let prev = -1;
+        for (let r = 0; r < 50; r++) {
+          const x = r * 2.6, y = -row * 4, n = add("N", x, y), ca = add("C", x + 0.87, y + 0.5), cb = add("C", x + 0.87, y + 1.5), c = add("C", x + 1.73, y), o = add("O", x + 1.73, y - 1);
+          if (prev >= 0) bonds.push({ type: 1, atoms: [prev, n] });
+          bonds.push({ type: 1, atoms: [n, ca] }, { type: 1, atoms: [ca, cb] }, { type: 1, atoms: [ca, c] }, { type: 2, atoms: [c, o] });
+          prev = c;
+        }
+      }
+      return { atoms, bonds };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "octet-measure-")), runner = fileURLToPath(new URL("../scripts/look/webkit.swift", import.meta.url));
+    const run = (body: string) => {
+      const file = join(dir, "run.js");
+      writeFileSync(file, `const CHAIN = ${JSON.stringify(serialize(chain(6)))};\nconst BIG = ${JSON.stringify(serialize(peptide()))};\n${body}`);
+      const r = spawnSync("swift", [runner, ui, file], { encoding: "utf8", timeout: 300_000 });
+      try { return JSON.parse(r.stdout.trim().split("\n").pop()!); } catch { throw new Error(`the WebKit run did not finish: ${r.stdout.slice(-300)}${r.stderr.slice(-300)}`); }
+    };
+    try {
+      const flow = run(`return await (${measureUi.toString()})();`) as { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[] };
+      for (const c of flow.cases) console.log(`measurements-stress: ${c.id} ${c.ok ? "ok" : "FAILED"}: ${c.title}${c.note ? ` (${c.note})` : ""}`);
+      assert.deepEqual(flow.cases.filter((c) => !c.ok).map((c) => c.id), [], "every case in WebKit");
+      assert.equal(flow.cases.length, 14, "every case ran");
+      assert.deepEqual(flow.errors, [], "no errors on the page");
+      const bar = run(`return await (${indicatorUi.toString()})();`) as { res: { how: string; tools: number; wide: boolean; bad: string[] }[]; errors: string[] };
+      for (const r of bar.res) console.log(`measurements-stress: the indicator on each of ${r.tools} tools, ${r.how}: ${r.bad.length ? r.bad.join("; ") : "ok"}`);
+      assert.deepEqual(bar.res.flatMap((r) => r.bad), [], "the indicator sits on the tool in hand");
+      assert.deepEqual(bar.res.map((r) => r.wide), [false, true]);
+      assert.deepEqual(bar.errors, []);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+}
+
 console.log("measurements-stress.check: every case ok");
+
+// The flow in the page (run by S46 above; it uses nothing from this file but CHAIN and BIG, Octet clipboard copies of a
+// hexane and of 2000 atoms). It reads the editor's state from React's own records (the undo history, the picked set,
+// the view) and drives the canvas with pointer and key events, as energylevels-stress.check.ts does.
+async function measureUi() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (find, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
+  const out = { cases: [], errors: [] };
+  const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+  const key = (init) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+  const editorFiber = () => { const root = document.getElementById("root"), k = Object.keys(root).find((x) => x.startsWith("__reactContainer")), stack = [root[k].stateNode.current]; while (stack.length) { const f = stack.pop(); if (!f) continue; if (f.type?.name === "Editor") return f; if (f.sibling) stack.push(f.sibling); if (f.child) stack.push(f.child); } };
+  const hookList = () => { const r = []; let h = editorFiber()?.memoizedState; while (h) { r.push(h); h = h.next; } return r; };
+  const hooks = () => hookList().map((h) => h.memoizedState);
+  const hist = () => hookList().find((h) => h.memoizedState && Array.isArray(h.memoizedState.stack) && typeof h.memoizedState.at === "number").memoizedState;
+  const doc = () => hist().stack[hist().at];
+  const picked = () => hooks().filter((v) => v instanceof Set).sort((a, b) => b.size - a.size)[0];
+  const viewStore = () => hooks().find((v) => v && typeof v.get === "function" && typeof v.set === "function" && v.get() && typeof v.get().zoom === "number");
+  const world = () => document.getElementById("world");
+  let L = NaN;
+  const toScreen = ([x, y]) => { const p = new DOMPoint(x * L, -y * L).matrixTransform(world().getScreenCTM()); return [p.x, p.y]; };
+  const ev = (type, [x, y], extra = {}) => (document.elementFromPoint(x, y) ?? document.body).dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, pointerId: 1, pointerType: "mouse", isPrimary: true, ...extra }));
+  const move = async (p) => { ev("pointermove", p, { buttons: 0 }); await wait(60); };
+  const click = async (p, extra) => { ev("pointermove", p, { buttons: 0, ...extra }); ev("pointerdown", p, extra); await wait(30); ev("pointerup", p, extra); await wait(160); };
+  const atom = (i) => toScreen(doc().atoms[i].location);
+  const tool = () => [...document.querySelectorAll(".palette .slot > .tool")].find((b) => b.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label");
+  const measureButton = () => [...document.querySelectorAll(".palette .slot > .tool")].find((b) => /^Measure/.test(b.getAttribute("aria-label") ?? ""));
+  const variant = async (name) => {
+    const b = measureButton();
+    b.click(); await wait(250);
+    if (!document.querySelector('.strip[data-tool="measure"]')) { b.click(); await wait(300); }
+    const item = [...document.querySelectorAll('.strip[data-tool="measure"] [role=menuitemradio]')].find((x) => (x.getAttribute("aria-label") ?? x.textContent.trim()) === name);
+    item?.click(); await wait(300);
+    if (!item) throw new Error(`no ${name} in the Measure strip: ${document.querySelector('.strip[data-tool="measure"]')?.textContent}`);
+    return true;
+  };
+  const overlay = () => document.querySelector(".measuring");
+  const liveValue = () => overlay()?.querySelector("text.turn-angle")?.textContent;
+  const measures = () => (doc().captions ?? []).filter((c) => c.measure);
+  const result = (id, title, ok, note) => out.cases.push({ id, title, ok: !!ok, ...(note ? { note } : {}) });
+  const step = async (id, title, f) => { try { await f(); } catch (e) { result(id, title, false, `the script stopped: ${e && e.message}`); } };
+  const escape = async () => { key({ key: "Escape", code: "Escape" }); await wait(150); };
+
+  await until(() => document.querySelector(".home, .editor"));
+  await wait(1200);
+  button("Skip")?.click();
+  await wait(900);
+  document.querySelector(".home-tile.new")?.click();
+  await until(() => document.querySelector(".palette"));
+  [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();
+  await wait(600);
+  // The chain to measure: Octet's own clipboard.
+  const dt = new DataTransfer();
+  dt.setData("application/x-octet+json", CHAIN);
+  window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  if (!(await until(() => doc()?.atoms.length === 6, 8000))) return JSON.stringify({ cases: [{ id: "W0", title: "the chain pasted", ok: false, note: `atoms ${doc()?.atoms.length}, editor ${!!editorFiber()}` }], errors: window.__errors });
+  await wait(400);
+  key({ key: "Escape", code: "Escape" });
+  await wait(200);
+  const atomsBefore = JSON.stringify(doc().atoms);
+  L = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--bond-length")) * 4) / 3;
+
+  await step("W1", "Length: two clicks on two atoms", async () => {
+    await variant("Length");
+    const at0 = hist().at;
+    await click(atom(0));
+    const ringed = overlay()?.querySelectorAll("circle").length ?? 0;
+    await move(atom(3));
+    const live = liveValue(), dotted = !!overlay()?.querySelector("line.live");
+    await click(atom(3));
+    const m = measures().at(-1);
+    result("W1", "Length: a click on A rings it; the dotted line and the value follow the pointer; the second click makes it in one step, picked, Measure still in hand, the value as shown",
+      ringed >= 1 && dotted && m && JSON.stringify(m.measure.ends) === "[0,3]" && m.text === live && hist().at - at0 === 1 && picked()?.has(m.id) && /^Measure length/.test(tool() ?? "") && !overlay(),
+      `ringed ${ringed}, dotted ${dotted}, live ${live}, made ${m?.text} ${JSON.stringify(m?.measure)}, steps ${hist().at - at0}, picked ${picked()?.has(m?.id)}, tool ${tool()}`);
+  });
+  await step("W2", "Length between two empty points", async () => {
+    const at0 = hist().at, a = toScreen([0, -3]), b = toScreen([3, -3]);
+    await click(a);
+    const dot = !!overlay()?.querySelector("circle.end");
+    await move(b);
+    const live = liveValue();
+    await click(b);
+    const m = measures().at(-1), free = m?.measure.ends.every((e) => Array.isArray(e));
+    result("W2", "Length between empty points: free ends, a dot at the first, the value in Å at the document's scale (3 bond lengths: 4.56 Å), the drawing unchanged",
+      dot && free && m.text === live && /^4\.5\d/.test(m.text) && hist().at - at0 === 1 && JSON.stringify(doc().atoms) === atomsBefore,
+      `dot ${dot}, ends ${JSON.stringify(m?.measure.ends)}, live ${live}, made ${m?.text}, steps ${hist().at - at0}`);
+  });
+  await step("W3", "Angle: three clicks with the live arc", async () => {
+    await variant("Angle");
+    const at0 = hist().at;
+    await click(atom(1)); await click(atom(2));
+    await move(atom(3));
+    const arc = !!overlay()?.querySelector("polyline"), live = liveValue();
+    await click(atom(3));
+    const m = measures().at(-1);
+    result("W3", "Angle: after the vertex the arc and the value follow the pointer; the third click makes it with the value shown",
+      arc && m && JSON.stringify(m.measure.ends) === "[1,2,3]" && m.text === live && live === "120.0°" && hist().at - at0 === 1,
+      `arc ${arc}, live ${live}, made ${m?.text}, steps ${hist().at - at0}`);
+  });
+  await step("W4", "Drag and let go", async () => {
+    await variant("Length");
+    const at0 = hist().at, a = atom(0), b = atom(5);
+    ev("pointermove", a, { buttons: 0 }); ev("pointerdown", a);
+    for (let k = 1; k <= 6; k++) { ev("pointermove", [a[0] + ((b[0] - a[0]) * k) / 6, a[1] + ((b[1] - a[1]) * k) / 6]); await wait(30); }
+    const live = liveValue();
+    ev("pointerup", b); await wait(200);
+    const m = measures().at(-1);
+    result("W4", "A press on A dragged and let go on B makes the length A to B", m && JSON.stringify(m.measure.ends) === "[0,5]" && m.text === live && hist().at - at0 === 1, `made ${JSON.stringify(m?.measure)} ${m?.text}, live ${live}, steps ${hist().at - at0}`);
+  });
+  await step("W5", "Hold to Select", async () => {
+    const at0 = hist().at, n = measures().length, p = toScreen([1, -5]);
+    ev("pointermove", p, { buttons: 0 }); ev("pointerdown", p);
+    await wait(700);
+    const held = tool();
+    ev("pointerup", p); await wait(300);
+    result("W5", "A press held still gives Select, and places nothing", /^Select|^Lasso/.test(held ?? "") && measures().length === n && hist().at === at0 && !overlay(), `held ${held}, measurements ${measures().length - n}, steps ${hist().at - at0}`);
+    measureButton().click(); await wait(250);
+  });
+  await step("W6", "Escape", async () => {
+    const at0 = hist().at;
+    await click(atom(0)); await move(atom(2));
+    const had = !!overlay();
+    await escape();
+    await move(atom(4));
+    result("W6", "Escape takes the measurement in progress away; nothing in the history", had && !overlay() && hist().at === at0, `had ${had}, after ${!!overlay()}, steps ${hist().at - at0}`);
+  });
+  await step("W7", "Backspace", async () => {
+    await variant("Angle");
+    const at0 = hist().at;
+    await click(atom(0)); await click(atom(1));
+    await move(toScreen([2, -2]));
+    const rings2 = overlay()?.querySelectorAll("circle:not(.end)").length;
+    key({ key: "Backspace", code: "Backspace" }); await wait(150);
+    await move(toScreen([2, -2]));
+    const rings1 = overlay()?.querySelectorAll("circle:not(.end)").length;
+    await click(atom(4)); await click(atom(5));
+    const m = measures().at(-1);
+    result("W7", "Backspace takes off the last end; the next clicks go on from the one left", rings2 === 2 && rings1 === 1 && m && JSON.stringify(m.measure.ends) === "[0,4,5]" && hist().at - at0 === 1, `rings ${rings2} then ${rings1}, made ${JSON.stringify(m?.measure)}`);
+  });
+  await step("W8", "A tool change mid-way", async () => {
+    const at0 = hist().at;
+    await click(atom(0));
+    const had = !!overlay();
+    [...document.querySelectorAll(".palette .slot > .tool")].find((b) => /^Select/.test(b.getAttribute("aria-label") ?? ""))?.click(); await wait(200);
+    measureButton().click(); await wait(250);
+    await move(atom(3));
+    result("W8", "Changing tool takes the measurement in progress away", had && !overlay() && hist().at === at0, `had ${had}, after ${!!overlay()}`);
+  });
+  await step("W9", "Dihedral: atoms only", async () => {
+    await variant("Dihedral");
+    const at0 = hist().at;
+    await click(toScreen([1, -4]));
+    const none = !overlay() || !overlay().querySelector("circle");
+    for (const i of [0, 1, 2]) await click(atom(i));
+    await click(toScreen([1, -4]));
+    const still = !!overlay();
+    await click(atom(3));
+    const m = measures().at(-1);
+    result("W9", "Dihedral: a click off an atom places nothing; four atoms make it", none && still && m && JSON.stringify(m.measure.ends) === "[0,1,2,3]" && hist().at - at0 === 1, `first off ${none}, still ${still}, made ${JSON.stringify(m?.measure)}`);
+  });
+  await step("W10", "Undo, Redo and ⌘A on a measurement with free ends", async () => {
+    await variant("Length");
+    await click(atom(1));
+    key({ key: "z", code: "KeyZ", metaKey: true }); await wait(200);
+    const undoTakesIt = !overlay();
+    const n = measures().length;
+    await click(toScreen([0, 3])); await click(toScreen([4, 3]));
+    const free = measures().at(-1);
+    key({ key: "z", code: "KeyZ", metaKey: true }); await wait(250);
+    const undone = !measures().some((c) => c.id === free.id) && measures().length === n;
+    key({ key: "z", code: "KeyZ", metaKey: true, shiftKey: true }); await wait(250);
+    const redone = measures().length === n + 1 && measures().some((c) => c.id === free.id && JSON.stringify(c.measure.ends) === JSON.stringify(free.measure.ends));
+    key({ key: "a", code: "KeyA", metaKey: true }); await wait(250);
+    const all = picked()?.has(free.id);
+    await escape();
+    result("W10", "Undo takes a measurement in progress away; Undo and Redo the made one; ⌘A picks it", undoTakesIt && measures().length >= n && undone && redone && all, `undo in progress ${undoTakesIt}, undone ${undone}, redone ${redone}, ⌘A ${all}`);
+  });
+  await step("W14", "Colour and the Text menu on a measurement with free ends", async () => {
+    const palette = async (text) => {
+      key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
+      const find = await until(() => document.querySelector(".command-palette input"), 3000);
+      if (!find) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(find, text);
+      find.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(500);
+      find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+      await wait(700);
+      return true;
+    };
+    await variant("Length");
+    await click(toScreen([0, 4])); await click(toScreen([3, 4]));
+    const id = measures().at(-1).id, at0 = hist().at;
+    // The Actions panel's colour (its swatch for Green), then Bold from the command palette (the Text menu's).
+    const swatch = await until(() => [...document.querySelectorAll(".actions button, .actions [role=radio], .actions [role=menuitemradio]")].find((x) => /^Green$/.test(x.getAttribute("aria-label") ?? x.getAttribute("data-tip") ?? "")), 3000);
+    if (!swatch) throw new Error(`no Green swatch in the Actions panel: ${[...document.querySelectorAll(".actions [aria-label]")].map((x) => x.getAttribute("aria-label")).slice(0, 60).join(", ")}`);
+    swatch.click(); await wait(400);
+    await palette("Bold");
+    const c = doc().captions.find((x) => x.id === id), steps = hist().at - at0;
+    key({ key: "z", code: "KeyZ", metaKey: true }); await wait(250);
+    const undone = doc().captions.find((x) => x.id === id);
+    result("W14", "The Actions panel's colour and Bold (the Text menu's, from the palette) go on a measurement with free ends, one step each, and it stays a measurement; Undo takes the last back",
+      c?.colour === "#22775B" && c.bold && c.measure && steps === 2 && !!undone && !undone.bold && undone.colour === "#22775B", `colour ${c?.colour}, bold ${c?.bold}, measure ${!!c?.measure}, steps ${steps}, after undo ${undone ? `bold ${undone.bold}, colour ${undone.colour}` : "gone"}`);
+    await escape();
+  });
+  for (const [id, zoom] of [["W11", 0.1], ["W12", 8]]) await step(id, `Zoom ${zoom * 100}%`, async () => {
+    const v = viewStore(), was = v.get();
+    const a0 = doc().atoms[0].location;
+    v.set({ zoom, x: innerWidth / 2 - a0[0] * L * zoom, y: innerHeight / 2 + a0[1] * L * zoom });
+    await wait(300);
+    const at0 = hist().at;
+    await click(atom(0)); await move(atom(zoom > 1 ? 1 : 4));
+    const live = liveValue();
+    await click(atom(zoom > 1 ? 1 : 4));
+    const m = measures().at(-1);
+    v.set(was); await wait(200);
+    result(id, `At ${zoom * 100}%: a length by two clicks, its value as shown`, m && m.text === live && hist().at - at0 === 1, `live ${live}, made ${m?.text}`);
+  });
+  await step("W13", "Pointer moves on a large drawing: Measure against the Atom map tool", async () => {
+    await escape();
+    key({ key: "a", code: "KeyA", metaKey: true }); await wait(150);
+    key({ key: "Backspace", code: "Backspace" }); await wait(300);
+    const big = new DataTransfer();
+    big.setData("application/x-octet+json", BIG);
+    window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: big, bubbles: true, cancelable: true }));
+    await until(() => doc().atoms.length >= 2000, 15000);
+    await wait(800); await escape();
+    const v = viewStore(), a0 = doc().atoms[0].location, zoom = 0.6;
+    v.set({ zoom, x: 200 - a0[0] * L * zoom, y: 200 + a0[1] * L * zoom }); await wait(400);
+    const tick = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
+    const path = Array.from({ length: 200 }, (_, k) => atom((k * 97) % doc().atoms.length));
+    const time = async (down) => { const t = []; for (const p of path) { const s = performance.now(); ev("pointermove", p, down ? {} : { buttons: 0 }); await tick(); t.push(performance.now() - s); } return t.reduce((p, q) => p + q, 0) / t.length; };
+    // The Atom map tool: a press on an atom dragged over the drawing (its dashed line and the atom under the pointer).
+    const special = [...document.querySelectorAll(".palette .slot > .tool")].at(-1);
+    special.click(); await wait(250); if (!document.querySelector('.strip[aria-label="More tools"]')) { special.click(); await wait(300); }
+    [...document.querySelectorAll('.strip[aria-label="More tools"] [role=menuitemradio]')].find((x) => (x.getAttribute("aria-label") ?? x.textContent.trim()) === "Atom map")?.click(); await wait(300);
+    const mapTool = tool();
+    ev("pointermove", atom(0), { buttons: 0 }); ev("pointerdown", atom(0)); await wait(50);
+    const map1 = await time(true);
+    ev("pointerup", toScreen([-5, 5])); await wait(300);
+    // Measure with a length in progress: the dotted line, the atom under the pointer and the value follow.
+    await variant("Length");
+    await click(atom(0));
+    const measure1 = await time(false);
+    await escape();
+    // Again in the other order, so a busy moment counts against both.
+    special.click(); await wait(250); if (!document.querySelector('.strip[aria-label="More tools"]')) { special.click(); await wait(300); }
+    [...document.querySelectorAll('.strip[aria-label="More tools"] [role=menuitemradio]')].find((x) => (x.getAttribute("aria-label") ?? x.textContent.trim()) === "Atom map")?.click(); await wait(300);
+    ev("pointermove", atom(0), { buttons: 0 }); ev("pointerdown", atom(0)); await wait(50);
+    const map2 = await time(true);
+    ev("pointerup", toScreen([-5, 5])); await wait(300);
+    await variant("Length"); await click(atom(0));
+    const measure2 = await time(false);
+    await escape();
+    const map = Math.min(map1, map2), measure = Math.min(measure1, measure2);
+    result("W13", "A pointer move with a length in progress on 2000 atoms costs no more than one with the Atom map tool (mean of 200 moves)", /^Atom map/.test(mapTool ?? "") && measure <= map,
+      `map ${map.toFixed(2)} ms (${map1.toFixed(2)}, ${map2.toFixed(2)}), measure ${measure.toFixed(2)} ms (${measure1.toFixed(2)}, ${measure2.toFixed(2)}), atoms ${doc().atoms.length}, tool ${mapTool}`);
+  });
+  out.errors = window.__errors;
+  return JSON.stringify(out);
+}
+// The toolbar's indicator on each tool in hand, in one column and in two (the toggle).
+async function indicatorUi() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (find, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
+  const out = { cases: [], errors: [] };
+  const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+  const key = (init) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+  const editorFiber = () => { const root = document.getElementById("root"), k = Object.keys(root).find((x) => x.startsWith("__reactContainer")), stack = [root[k].stateNode.current]; while (stack.length) { const f = stack.pop(); if (!f) continue; if (f.type?.name === "Editor") return f; if (f.sibling) stack.push(f.sibling); if (f.child) stack.push(f.child); } };
+  const hookList = () => { const r = []; let h = editorFiber()?.memoizedState; while (h) { r.push(h); h = h.next; } return r; };
+  const hooks = () => hookList().map((h) => h.memoizedState);
+  const hist = () => hookList().find((h) => h.memoizedState && Array.isArray(h.memoizedState.stack) && typeof h.memoizedState.at === "number").memoizedState;
+  const doc = () => hist().stack[hist().at];
+  const picked = () => hooks().filter((v) => v instanceof Set).sort((a, b) => b.size - a.size)[0];
+  const viewStore = () => hooks().find((v) => v && typeof v.get === "function" && typeof v.set === "function" && v.get() && typeof v.get().zoom === "number");
+  const world = () => document.getElementById("world");
+  let L = NaN;
+  const toScreen = ([x, y]) => { const p = new DOMPoint(x * L, -y * L).matrixTransform(world().getScreenCTM()); return [p.x, p.y]; };
+  const ev = (type, [x, y], extra = {}) => (document.elementFromPoint(x, y) ?? document.body).dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1, pointerId: 1, pointerType: "mouse", isPrimary: true, ...extra }));
+  const move = async (p) => { ev("pointermove", p, { buttons: 0 }); await wait(60); };
+  const click = async (p, extra) => { ev("pointermove", p, { buttons: 0, ...extra }); ev("pointerdown", p, extra); await wait(30); ev("pointerup", p, extra); await wait(160); };
+  const atom = (i) => toScreen(doc().atoms[i].location);
+  const tool = () => [...document.querySelectorAll(".palette .slot > .tool")].find((b) => b.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label");
+  const measureButton = () => [...document.querySelectorAll(".palette .slot > .tool")].find((b) => /^Measure/.test(b.getAttribute("aria-label") ?? ""));
+  const variant = async (name) => {
+    const b = measureButton();
+    b.click(); await wait(250);
+    if (!document.querySelector('.strip[data-tool="measure"]')) { b.click(); await wait(300); }
+    const item = [...document.querySelectorAll('.strip[data-tool="measure"] [role=menuitemradio]')].find((x) => (x.getAttribute("aria-label") ?? x.textContent.trim()) === name);
+    item?.click(); await wait(300);
+    if (!item) throw new Error(`no ${name} in the Measure strip: ${document.querySelector('.strip[data-tool="measure"]')?.textContent}`);
+    return true;
+  };
+  const overlay = () => document.querySelector(".measuring");
+  const liveValue = () => overlay()?.querySelector("text.turn-angle")?.textContent;
+  const measures = () => (doc().captions ?? []).filter((c) => c.measure);
+  const result = (id, title, ok, note) => out.cases.push({ id, title, ok: !!ok, ...(note ? { note } : {}) });
+  const step = async (id, title, f) => { try { await f(); } catch (e) { result(id, title, false, `the script stopped: ${e && e.message}`); } };
+  const escape = async () => { key({ key: "Escape", code: "Escape" }); await wait(150); };
+
+  await until(() => document.querySelector(".home, .editor"));
+  await wait(1200);
+  button("Skip")?.click();
+  await wait(900);
+  document.querySelector(".home-tile.new")?.click();
+  await until(() => document.querySelector(".palette"));
+  [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();
+  await wait(600);
+
+  // The indicator on each tool in hand: one column, then two (the toggle), and a short window (two by itself).
+  const check = async (how) => {
+    const bad = [];
+    const slots = [...document.querySelectorAll(".palette .slot > .tool")];
+    for (const b of slots) {
+      b.click(); await wait(420);
+      document.querySelector(".strip") && b.click(); await wait(50);
+      key({ key: "Escape", code: "Escape" }); await wait(250);
+      const i = document.querySelector(".palette .indicator").getBoundingClientRect(), r = b.getBoundingClientRect();
+      if (b.getAttribute("aria-pressed") !== "true") bad.push(`${how} ${b.getAttribute("aria-label")}: not in hand`); else if ((Math.abs(i.x - r.x) > 0.5 || Math.abs(i.y - r.y) > 0.5)) bad.push(`${how} ${b.getAttribute("aria-label")}: ${i.x},${i.y} not ${r.x},${r.y}`);
+    }
+    return { how, tools: slots.length, wide: document.querySelector(".palette").classList.contains("wide"), bad };
+  };
+  const res = [await check("one column")];
+  document.querySelector(".palette-toggle")?.click(); await wait(600);
+  res.push(await check("two columns"));
+  document.querySelector(".palette-toggle")?.click(); await wait(400);
+  return JSON.stringify({ res, errors: window.__errors });
+}

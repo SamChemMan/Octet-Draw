@@ -59,11 +59,14 @@ assert.ok(!drew.isError, text(drew));
 assert.equal(m.atoms.length, 4);
 const s = (await read()).structures[0].id as string;
 
-// text with measure: a dihedral of four atoms in order; the flat structure is cleaned up in 3D first, and says so.
+// text with measure: a dihedral of four atoms in order, measured as drawn: the flat structure is not cleaned up (the
+// drawing never changes when it is measured, 19 November 2026).
+const flatAtoms = JSON.stringify(m.atoms);
 let r = await call("change", { operations: [{ op: "text", measure: [`${s}.1`, `${s}.2`, `${s}.3`, `${s}.4`], colour: "#B42323", bold: true }] });
 assert.ok(!r.isError, text(r));
 assert.match(text(r), /Added the dihedral t\d+: −?\d+\.\d°\./);
-assert.match(text(r), /cleaned up s\d+ in 3D first/);
+assert.doesNotMatch(text(r), /cleaned up/);
+assert.equal(JSON.stringify(m.atoms), flatAtoms, "the atoms as they were");
 assert.equal(measures().length, 1);
 const t = `t${measures()[0].id}`;
 assert.equal(measures()[0].colour, "#B42323");
@@ -84,10 +87,10 @@ assert.ok(JSON.stringify(summary).includes('"measure":"dihedral"'), "the summary
 // run_command measure, with ids in order: a distance and an angle. The same one again is the one there (S35).
 r = await call("advanced", { tool: "run_command", args: { command: "measure", ids: [`${s}.1`, `${s}.4`] } });
 assert.match(text(r), /Added the distance t\d+: \d\.\d\d Å\./);
-assert.doesNotMatch(text(r), /cleaned up/, "a structure in 3D already is not cleaned up again");
+assert.doesNotMatch(text(r), /cleaned up/, "no clean-up");
 r = await call("advanced", { tool: "run_command", args: { command: "measure_angle", ids: [`${s}.1`, `${s}.3`, `${s}.2`] } });
 assert.match(text(r), /Added the angle t\d+: 1\d\d\.\d°\./);
-assert.equal(measures().find((c) => c.measure!.atoms.length === 3)!.measure!.atoms[1], 1, "along the bonds: the middle atom is s.2");
+assert.equal(measures().find((c) => c.measure!.ends.length === 3)!.measure!.ends[1], 1, "along the bonds: the middle atom is s.2");
 r = await call("advanced", { tool: "run_command", args: { command: "measure", ids: [`${s}.4`, `${s}.1`] } });
 assert.match(text(r), /already/);
 assert.equal(measures().length, 3);
@@ -136,13 +139,13 @@ const at1 = measures().find((c) => `t${c.id}` === t)!;
 assert.ok(Math.abs(at1.x - at0.x - 1) < 1e-6 && Math.abs(at1.y - at0.y - 0.5) < 1e-6, "moved alone");
 assert.ok(at1.measure!.at, "and keeps its place by its atoms");
 // Moving the whole structure takes its measurements with it, their values the same.
-const v0 = measureValue(m, at1.measure!.atoms);
+const v0 = measureValue(m, at1.measure!.ends);
 r = await call("change", { operations: [{ op: "move", ids: [s], dx: 3, dy: 0 }] });
 const at2 = measures().find((c) => `t${c.id}` === t)!;
 assert.ok(Math.abs(at2.x - at1.x - 3) < 1e-6 && Math.abs(at2.y - at1.y) < 1e-6, "follows its structure");
-assert.ok(Math.abs(measureValue(m, at2.measure!.atoms)! - v0!) < 1e-9);
+assert.ok(Math.abs(measureValue(m, at2.measure!.ends)! - v0!) < 1e-9);
 // S32: new text over a measurement makes it plain text.
-const t2 = `t${measures().find((c) => c.measure!.atoms.length === 2)!.id}`;
+const t2 = `t${measures().find((c) => c.measure!.ends.length === 2)!.id}`;
 r = await call("change", { operations: [{ op: "edit", ids: [t2], text: "about 3 Å" }] });
 assert.ok(!r.isError, text(r));
 assert.equal(m.captions!.find((c) => `t${c.id}` === t2)!.measure, undefined, "plain text now");
@@ -154,11 +157,11 @@ assert.equal(measures().length, 1);
 // S30: two AI sessions. A measures; B deletes a measured atom (the measurement goes in the same step); A's edit of the
 // old t id is told it is not there.
 r = await call("change", { operations: [{ op: "text", measure: [`${s}.1`, `${s}.2`, `${s}.3`, `${s}.4`] }] }, "s-A");
-const tA = `t${measures().find((c) => c.measure!.atoms.length === 4)!.id}`;
+const tA = `t${measures().find((c) => c.measure!.ends.length === 4)!.id}`;
 r = await call("change", { operations: [{ op: "delete", ids: [`${s}.4`] }] }, "s-B");
 assert.ok(!r.isError, text(r));
 assert.ok(!measures().some((c) => `t${c.id}` === tA), "a measurement goes with its atom");
-assert.ok(!measures().some((c) => c.measure!.atoms.some((i) => i >= m.atoms.length)), "no measurement names an atom that is gone");
+assert.ok(!measures().some((c) => c.measure!.ends.some((i) => i >= m.atoms.length)), "no measurement names an atom that is gone");
 r = await call("change", { operations: [{ op: "edit", ids: [tA], colour: "#000000" }] }, "s-A");
 assert.ok(r.isError && /nothing with the id|no text|not/i.test(text(r)), text(r));
 
@@ -166,7 +169,7 @@ assert.ok(r.isError && /nothing with the id|no text|not/i.test(text(r)), text(r)
 // over it makes plain text and keeps the note.
 r = await call("change", { operations: [{ op: "text", measure: [`${s}.1`, `${s}.3`] }] });
 assert.ok(!r.isError, text(r));
-const tN = `t${measures().find((c) => c.measure!.atoms.length === 2)!.id}`;
+const tN = `t${measures().find((c) => c.measure!.ends.length === 2)!.id}`;
 r = await call("change", { operations: [{ op: "edit", ids: [tN], note: "From the X-ray structure" }] });
 assert.ok(!r.isError, text(r));
 assert.match(text(r), new RegExp(`^Put the note on ${tN}\\.`));
@@ -177,4 +180,15 @@ const plainN = m.captions!.find((c) => `t${c.id}` === tN)!;
 assert.equal(plainN.measure, undefined, "plain text now");
 assert.equal(plainN.notes?.[0].content, "From the X-ray structure", "with its note");
 
+// Free ends (19 November 2026): a read of a drawing with measurements the Measure tool made to empty points works, its
+// atom ends as ids and the value its text shows. (Taking free points as arguments is for the 1.2 MCP session.)
+{
+  const { addMeasure } = await import("./edit.ts");
+  const a0 = m.atoms[0].location;
+  for (const ends of [[0, [a0[0], a0[1] - 3]], [[5, 5], [8, 5]]] as Parameters<typeof addMeasure>[1][]) { const made = addMeasure(m, ends, "pick"); assert.ok(typeof made !== "string", String(made)); m = made.mol; }
+  const free = await read(), [mixed, loose] = measures().slice(-2).map((c) => free.captions.find((x: { id: string }) => x.id === `t${c.id}`));
+  assert.deepEqual([mixed.measure.kind, mixed.measure.atoms, mixed.measure.unit], ["distance", [`${s}.1`], "Å"], JSON.stringify(mixed));
+  assert.deepEqual([loose.measure.kind, loose.measure.atoms, loose.measure.value], ["distance", [], 4.56], JSON.stringify(loose));
+  assert.equal(`${loose.measure.value.toFixed(2)}\u00a0Å`, loose.text);
+}
 console.log("measuremcp.check: text measure, run_command measure, read, edit, move, delete, notes and bad arguments ok");

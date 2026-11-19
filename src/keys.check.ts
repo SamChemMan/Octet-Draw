@@ -267,17 +267,17 @@ console.log("keys.check: circled charges on a key ok");
 
 // Every tool can be given a key (PR #58). The tools are read from their own union, so a tool added later needs an action.
 {
-  const { DEFAULT_KEYS, RING_TOOLS, optionCommand } = await import("./keys.ts");
+  const { DEFAULT_KEYS, MEASURE_TOOLS, RING_TOOLS, optionCommand } = await import("./keys.ts");
   const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   const ids = tools.match(/^export type Tool = (.+);$/m)![1].split("|").map((t) => t.trim().replace(/"/g, ""));
   assert.ok(ids.length > 20 && ids.includes("gel") && ids.includes("sequence"), `read the tools: ${ids.join(" ")}`);
   assert.deepEqual(ids.filter((id) => !ACTIONS.some((a) => a.id === `tool.${id}` && a.place === "any" && a.group === "Tools")), [], "every tool has a tool.<id> action");
   assert.deepEqual(ids.filter((id) => !(`tool.${id}` in DEFAULT_KEYS)), [], "every tool has a DEFAULT_KEYS entry");
   // No new default key: ChemDraw 22.2 has none for these.
-  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
+  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure", "measureLength", "measureAngle", "measureDihedral"];
   assert.deepEqual(added.flatMap((id) => DEFAULT_KEYS[`tool.${id}`]), []);
   assert.deepEqual(added.map((id) => ACTIONS.find((a) => a.id === `tool.${id}`)!.name), ["Sequence tool", "Catalytic cycle tool", "Gel tool", "Plasmid map tool", "Table tool",
-    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool"]);
+    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool", "Measure length tool", "Measure angle tool", "Measure dihedral tool"]);
   // A key the user sets picks the tool, over nothing and over an atom with no action for it; it clashes with a tool
   // that has it; Reset to ChemDraw keys (no changes) takes it off.
   const mine = keymap({ "tool.gel": ["shift+v"], "tool.sequence": ["g"] });
@@ -292,6 +292,10 @@ console.log("keys.check: circled charges on a key ok");
     ["tool.benzene", "tool.cyclopentadiene", "tool.cyclohexane", "tool.cyclopentane"]);
   assert.deepEqual([optionCommand("ring", "3"), optionCommand("ring", "chair1"), optionCommand("bond", "single"), optionCommand("more", "gel")], [undefined, undefined, undefined, "tool.gel"]);
   assert.deepEqual([keymap()[optionCommand("ring", "benzene")!], keymap()[optionCommand("ring", "cyclopentadiene")!]], [["j"], ["shift+j"]]);
+  // The Measure slot's variants (Length, Angle, Dihedral) each have a command, with no default key (no ChemDraw key moves).
+  assert.deepEqual(["distance", "angle", "dihedral"].map((k) => optionCommand("measure", k)), ["tool.measureLength", "tool.measureAngle", "tool.measureDihedral"]);
+  assert.deepEqual(Object.values(MEASURE_TOOLS), ["distance", "angle", "dihedral"]);
+  assert.match(tools, /t\.id === "measure" \? optionKey\("measure", p\.variants\.measure\)/, "the Measure slot names its variant's key");
   assert.ok(Object.values(RING_TOOLS).every((k) => new RegExp(`^  "?${k}"?: \\{ name:`, "m").test(tools)), "each ring command picks a ring in RINGS");
   assert.match(tools, /data-key=\{p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key");
   assert.match(tools, /hint: optionKey\("more", id\)/, "the More tools menu names each tool's key");
@@ -302,7 +306,7 @@ console.log("keys.check: circled charges on a key ok");
   assert.match(settings, /Taken from \$\{taken\.map\(\(t\) => ACTIONS\.find\(\(a\) => a\.id === t\)!\.name\.replace\(\/\^\[A-Z\]\(\?=\[a-z\]\)\/, \(c\) => c\.toLowerCase\(\)\)\)/);
   assert.deepEqual(["TLC plate tool", "Gel tool", "Set atom to Me"].map((n) => n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())), ["TLC plate tool", "gel tool", "set atom to Me"]);
   assert.match(settings, /onClick=\{\(\) => \{ p\.onKeys\(\{\}\); setNote\(undefined\); \}\}/);
-  // A specialist tool's key leaves it in its slot, as its menu does.
-  assert.match(editor, /slot = ring \? "ring" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings/);
+  // A specialist tool's key leaves it in its slot, as its menu does; a Measure variant's key picks the variant.
+  assert.match(editor, /slot = ring \? "ring" : measure \? "measure" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings/);
 }
 console.log("keys.check: every tool can be given a key, and the Ring slot names its ring's ok");
