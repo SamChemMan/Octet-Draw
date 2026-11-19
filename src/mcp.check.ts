@@ -1677,8 +1677,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in
   // (L, Ar, R1) and a label written round one (OR, NHPG, OPG, CO2Alkyl) are not named. Ar stays a generic group: it is no phenyl.
   fresh();
-  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
-  assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "OZq"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
+  assert.match(text(out), /\. Octet does not know the labels Xyz, OZq: they are drawn as text\. One undo step\./);
   fresh();
   out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }, { text: "*C(*)(*)*", labels: ["OPG", "CO2Alkyl", "HNu", "MLn"] }] });
   assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));

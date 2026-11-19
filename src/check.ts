@@ -2,7 +2,9 @@
 // marks on the drawing), and messy geometry. Messages follow the brief's style: what is wrong, the rule, then what to do.
 import { bondedTo, bondOrders, fragments, freePairs, LARGE, mayBeChairBond, neighbourSlots, neighbours, perspectiveBonds, pos, WIDE, type P } from "./edit.ts";
 import { chemicalText, endHydrogens, fromEnd, labelSmiles, units } from "./labels.ts";
-import { HBOND, isBracket, orderOf, turnPoint, type Bond, type Mol } from "./render.ts";
+import { onNicknamesChange } from "./nicknames.ts";
+import { HBOND, isBracket, NONMETAL, orderOf, turnPoint, type Bond, type Mol } from "./render.ts";
+import { axisAtoms } from "./axial.ts";
 import { bracketOf, bracketPath, routeOf } from "./render.ts";
 
 // The kinds of warning, as ChemDraw 26.1's Settings > Warnings lists them, each with its switch's default (all on but
@@ -39,7 +41,10 @@ export const onCaptions = (list: Problem[], atoms: number, captions: number[]): 
 // What Indigo works out about a drawing's stereocentres (chem.ts stereoFacts), by atom: centres (atoms that can be
 // stereocentres), unset (centres whose configuration the drawing does not set), conflict (centres whose wedges and
 // hashes conflict), and atoms in structures that cannot be chiral.
-export type StereoFacts = { centres: Set<number>; unset: Set<number>; conflict: Set<number>; achiral: Set<number> };
+// doubles: double bonds (by bond number) that can be E or Z but whose drawing does not show which, read where Show
+// Stereochemistry is on. unread: atoms of structures Indigo could not read. labelled: atoms Octet's labeller gives R, S,
+// r or s, read where a wedge or hash starts at an atom not in centres.
+export type StereoFacts = { centres: Set<number>; unset: Set<number>; conflict: Set<number>; achiral: Set<number>; doubles?: Set<number>; unread?: Set<number>; labelled?: Set<number> };
 
 const NAMES: Record<string, string> = {
   H: "Hydrogen", B: "Boron", C: "Carbon", N: "Nitrogen", O: "Oxygen", F: "Fluorine", Al: "Aluminium", Si: "Silicon", P: "Phosphorus", S: "Sulfur", Cl: "Chlorine",
@@ -83,6 +88,7 @@ const knownIsotope = (label: string, mass: number) => { const r = ISOTOPES[label
 
 // A label's attachment atom, from its SMILES: its bond orders inside the label, its charge, and its element.
 const firstAtoms = new Map<string, { inside: number; charge: number; element: string } | undefined>();
+onNicknamesChange(() => firstAtoms.clear());
 function firstAtom(text: string) {
   if (firstAtoms.has(text)) return firstAtoms.get(text);
   const smiles = labelSmiles(text);
@@ -325,7 +331,7 @@ function stereoProblems(m: Mol, s: StereoFacts, atomOf: (i: number, p: Omit<Prob
   for (const i of s.centres) if (i < n) centre[i] = 1;
   for (const i of s.unset) if (m.atoms[i]?.cip && !s.conflict.has(i)) open[i] = 1;
   for (const k of all) { const e = m.bonds[k].atoms; if (centre[e[0]] && centre[e[1]]) ends[e[1]] = 1; }
-  const need = all.filter((k) => { const e = m.bonds[k].atoms; return centre[e[1]] || ends[e[0]] || open[e[0]] || open[e[1]]; });
+  const need = all.filter((k) => { const e = m.bonds[k].atoms; return centre[e[1]] || !centre[e[0]] || ends[e[0]] || open[e[0]] || open[e[1]]; });
   const slots = need.length ? neighbourSlots(m) : undefined;
   const flat = need.length && (m.bonds.some((b) => b.display === "bold") || mayBeChairBond(m, need, slots)) ? perspectiveBonds(m) : undefined;
   const own = flat?.size ? all.filter((k) => !flat.has(k)) : all, wedges = own.map((k) => m.bonds[k]);
@@ -343,14 +349,38 @@ function stereoProblems(m: Mol, s: StereoFacts, atomOf: (i: number, p: Omit<Prob
     }
     return lone[i] === 1;
   };
+  // The wedges drawn the wrong way round, and those from an atom that is no stereocentre to another (idleWedges).
+  const reversed: number[] = [], loose: number[] = [];
   own.forEach((k, n) => {
     const narrow = wedges[n].atoms[0], wide = wedges[n].atoms[1];
     // A stereocentre whose neighbours are all stereocentres (a quaternary carbon in a cage: ginkgolide's, aconitine's)
     // can only be set by a bond to one of them. Read at its narrow end, as wedges are, the bond sets only that centre,
     // so it is clear where the wide end's centre is set by its own wedge or hash.
     if (centre[narrow] && centre[wide] && !((starts ??= new Set(wedges.map((w) => w.atoms[0]))).has(wide) && !loneAt(narrow))) bondOf(k, { type: "between", message: "This wedge or hash joins two stereocentres, so it is not clear which one it sets. Start it at one stereocentre only." });
-    else if (!centre[narrow] && centre[wide]) bondOf(k, { type: "backwards", message: "This wedge or hash starts at an atom that cannot be a stereocentre. Put its narrow end on the stereocentre.", fix: { label: "Swap the ends", command: `flip_bond:${k}` } });
+    else if (!centre[narrow] && centre[wide]) reversed.push(k);
+    else if (!centre[narrow]) loose.push(k);
   });
+  // Each wedge drawn the wrong way round can be swapped alone or, with two or more shown, all in one step.
+  const shown = reversed.filter((k) => !m.bonds[k].ignoreWarnings);
+  for (const k of reversed) bondOf(k, { type: "backwards", message: "This wedge or hash starts at an atom that cannot be a stereocentre. Put its narrow end on the stereocentre.", fix: shown.length > 1 && shown.includes(k) ? { label: `Swap the ends of all ${shown.length}`, command: `flip_bonds:${shown.join(",")}` } : { label: "Swap the ends", command: `flip_bond:${k}` } });
+  for (const k of idleWedges(m, s, loose)) {
+    bondOf(k, { type: "backwards", message: "This wedge or hash starts at an atom that is not a stereocentre, and its other end is not one either, so it sets nothing. Make it a plain bond, or start it at a stereocentre.", fix: { label: "Redraw stereo bonds", command: `redraw_stereo_at:${m.bonds[k].atoms[0]}` } });
+  }
+  // An allene (or a cumulene with an even number of double bonds) with wedges or hashes at both ends: in a flat drawing
+  // only one end's bonds can leave the page, so it is not clear which way it turns. On its middle atom.
+  const middles = own.length ? cumulated(m) : [];
+  if (middles.length) {
+    starts ??= new Set(wedges.map((w) => w.atoms[0]));
+    for (const [mid, t1, t2] of axesOf(m, new Set(middles)).allenes) if (starts.has(t1) && starts.has(t2)) atomOf(mid, { type: "ambiguous", message: `The allene at ${m.atoms[mid].text ?? m.atoms[mid].label}${mid + 1} has wedges or hashes at both ends, so it is not clear which way it turns. Keep them at one end only.` });
+  }
+  // A double bond that can be E or Z whose drawing does not show which, where Show Stereochemistry is on (read only
+  // there, as ChemDraw warns of an unset stereocentre).
+  for (const k of s.doubles ?? []) {
+    const [p, q] = m.bonds[k]?.atoms ?? [];
+    if (p === undefined || !(m.atoms[p].cip || m.atoms[q].cip)) continue;
+    const at = (i: number) => `${m.atoms[i].text ?? m.atoms[i].label}${i + 1}`;
+    bondOf(k, { type: "unspecified", message: `The double bond ${at(p)}=${at(q)} can be E or Z, but the drawing does not show which. Draw its substituents in a zig-zag, or make it a crossed double bond if E/Z is not known.` });
+  }
   m.atoms.forEach((a, i) => {
     if (!a.cip && !a.enhanced) return;
     const name = `${a.text ?? a.label}${i + 1}`;
@@ -368,6 +398,60 @@ function stereoProblems(m: Mol, s: StereoFacts, atomOf: (i: number, p: Omit<Prob
     told.add(kind);
     atomOf(i, { type: "enhanced", message: `This compound cannot be ${kind}: it is not chiral. Remove its stereo flags.` });
   });
+}
+
+// The atoms with two double bonds and nothing else.
+function cumulated(m: Mol): number[] {
+  const doubles = new Uint8Array(m.atoms.length), others = new Uint8Array(m.atoms.length);
+  for (const b of m.bonds) for (const i of b.atoms) if (b.type === 2) doubles[i]++; else others[i] = 1;
+  return [...doubles.keys()].filter((i) => doubles[i] === 2 && !others[i]);
+}
+// axial.ts axisAtoms, read only in the structures with one of atoms `at`, each on its own (its rings and aromatic atoms
+// cost more than the rest of the checks on a large drawing), in the drawing's atom order.
+function axesOf(m: Mol, at: Set<number>): ReturnType<typeof axisAtoms> {
+  const out: ReturnType<typeof axisAtoms> = { atoms: new Set(), allenes: [] };
+  const groups = fragments(m).filter((g) => g.some((i) => at.has(i)));
+  if (!groups.length) return out;
+  const group = new Int32Array(m.atoms.length).fill(-1), bonds: Mol["bonds"][] = groups.map(() => []);
+  groups.forEach((g, k) => { g.sort((p, q) => p - q); for (const i of g) group[i] = k; });
+  const local = new Map(groups.flatMap((g) => g.map((i, j) => [i, j] as const)));
+  for (const b of m.bonds) if (group[b.atoms[0]] >= 0) bonds[group[b.atoms[0]]].push({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] });
+  groups.forEach((g, k) => {
+    const found = axisAtoms({ atoms: g.map((i) => m.atoms[i]), bonds: bonds[k] });
+    for (const j of found.atoms) out.atoms.add(g[j]);
+    for (const [a, b, c] of found.allenes) out.allenes.push([g[a], g[b], g[c]]);
+  });
+  return out;
+}
+// Of the wedges and hashes ks (each from an atom that is no stereocentre), those that set nothing: their wide end is no
+// stereocentre either, and neither end is one Octet's labeller labels. Left out, as drawn on purpose: a wedge from or to
+// a label, an attachment or bead, a metal (a complex's shape) or an atom drawn in 3D; from a structure Indigo cannot
+// read; from an atom whose wedges and hashes set an axis (axis: an allene's end, a hindered biaryl's axis and ortho
+// atoms, axial.ts axisAtoms, read only where an atom may be one); from an atom with both a wedge and a hash (they show which of two alike groups or H atoms
+// is which, as for a CMe2 or a CH2 in NMR work); and from a carbon whose neighbours are all bare end carbons (a
+// Stereocentres template still to be filled in). Redraw Stereo Bonds (chem.ts redrawStereo) makes these plain.
+export function idleWedges(m: Mol, s: StereoFacts, ks: number[]): number[] {
+  if (!ks.length) return [];
+  const around = bondedTo(m), out: number[] = [];
+  // Atoms with a double or aromatic bond, and the aryl–aryl single bonds: an axis atom has both (an allene's end, the
+  // first), and an ortho atom is next to one.
+  const sp2 = new Uint8Array(m.atoms.length), doubles = new Uint8Array(m.atoms.length), others = new Uint8Array(m.atoms.length);
+  for (const b of m.bonds) for (const i of b.atoms) { if (b.type === 2 || b.type === 4) sp2[i] = 1; if (b.type === 2) doubles[i]++; else others[i] = 1; }
+  const aryl = (x: number) => around[x].length === 3 && sp2[x] && around[x].some((y) => around[y].length === 3 && sp2[y] && m.bonds.some((b) => b.type === 1 && b.atoms.includes(x) && b.atoms.includes(y)));
+  const mayBeAxis = (i: number) => sp2[i] === 1 && (around[i].some((j) => doubles[j] === 2 && !others[j]) || [i, ...around[i]].some(aryl));
+  const asked = new Set(ks.map((k) => m.bonds[k].atoms[0]).filter(mayBeAxis)), axis = asked.size ? axesOf(m, asked).atoms : asked;
+  const plain = (i: number) => { const a = m.atoms[i]; return !a.text && !a.attach && !a.bead && !a.centre && NONMETAL.has(a.label) && a.label !== "*" && a.label !== "R" && !a.location[2]; };
+  const bare = (j: number) => around[j].length === 1 && m.atoms[j].label === "C" && !m.atoms[j].text;
+  // Each atom's wedges (1) and hashes (2) that start at it.
+  const from = new Uint8Array(m.atoms.length);
+  for (const b of m.bonds) if (b.stereo === 1 || b.stereo === 6) from[b.atoms[0]] |= b.stereo === 1 ? 1 : 2;
+  for (const k of ks) {
+    const b = m.bonds[k], [i, j] = b.atoms;
+    if (b.type !== 1 || s.centres.has(i) || s.centres.has(j) || s.labelled?.has(i) || s.labelled?.has(j) || s.unread?.has(i) || !plain(i) || !plain(j) || axis.has(i)) continue;
+    if (from[i] === 3 || ((around[i].length === 3 || around[i].length === 4) && around[i].every(bare))) continue;
+    out.push(k);
+  }
+  return out;
 }
 
 // Is f true for a pair of points (by index) that may be within `cell` of each other? Each point is put in a grid of

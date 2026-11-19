@@ -133,8 +133,9 @@ assert.deepEqual(said(star("C", 5)), ["valence: C1 has 5 bonds. Carbon has a max
   assert.deepEqual(back.map((p) => [p.type, p.bond, p.fix?.command]), [["backwards", 1, "flip_bond:1"]]);
   assert.deepEqual(said(m2, facts([1])), [], "the narrow end is on the stereocentre");
   const shown: Mol = { ...m2, atoms: m2.atoms.map((a) => ({ ...a, cip: true as const })) };
-  assert.deepEqual(said(m2, facts([0], [0])), [], "unset, Show Stereochemistry off");
-  assert.deepEqual(said(shown, facts([0], [0])), ["unspecified: C1 is a stereocentre with no wedge or hash bond. Add one to set its configuration."]);
+  // (C2 a stereocentre too, so its wedge sets it: a wedge between two atoms that are no stereocentres sets nothing.)
+  assert.deepEqual(said(m2, facts([0, 1], [0])), [], "unset, Show Stereochemistry off");
+  assert.deepEqual(said(shown, facts([0, 1], [0])), ["unspecified: C1 is a stereocentre with no wedge or hash bond. Add one to set its configuration."]);
   assert.deepEqual(said(shown, facts([2], [2], [])).filter((t) => t.startsWith("ambiguous")), ["ambiguous: The wedge and hash bonds at C3 conflict, or do not set its configuration. Change a wedge or hash."]);
   const flagged: Mol = { ...m2, atoms: m2.atoms.map((a, k) => (k === 1 ? { ...a, enhanced: "&1" } : k === 3 ? { ...a, enhanced: "or2" } : a)) };
   assert.deepEqual(said(flagged, facts([1, 2], [], [], [0, 1, 2, 3])).filter((t) => t.startsWith("enhanced")), [

@@ -8,6 +8,7 @@ import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind,
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, legible, MY_SET, ringStrip, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
+import type { TemplateAnchor } from "./edit";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
@@ -567,6 +568,8 @@ type PaletteProps = {
   curvedArrows: string[]; // curved arrow variants in the Arrow strip
   onCurvedArrows: (list: string[]) => void;
   libraryRings: string[]; // templates kept in the Ring strip (built-in, named and own), in order
+  anchorOf: (kind: string) => TemplateAnchor | undefined; // the atom or bond a template attaches by (addTemplate)
+  onAnchor: (kind: string, anchor: TemplateAnchor | undefined) => void;
   onLibraryRings: (list: string[]) => void;
   wide: boolean; // the toolbar in two columns
   onWide: (wide: boolean) => void;
@@ -658,7 +661,13 @@ export function Palette(p: PaletteProps) {
   // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
   const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined, size: p.librarySize, onSize: p.onLibrarySize,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
-    onRename: p.onRename, find: p.findNamed });
+    onRename: p.onRename, find: p.findNamed, attach: attachFor(p.variants[tool]) });
+  // The template in hand, drawn large under the library's templates to choose the atom or bond it attaches by: none
+  // for a plain ring, or a template of one atom.
+  const attachFor = (kind: string) => {
+    const own = template(kind), item = libraryItem(kind), mol = own?.mol ?? item?.mol ?? p.named(kind), name = own?.name ?? item?.name ?? kindName(kind) ?? "";
+    return mol && mol.atoms.length > 1 ? { kind, name, mol, anchor: p.anchorOf(kind), onAnchor: (a: TemplateAnchor | undefined) => p.onAnchor(kind, a) } : undefined;
+  };
   // A floating palette's templates: a set of the user's, or one of Octet's.
   const setTemplates = (set: string): LibraryItem[] => (set === MY_SET || p.templateSets.includes(set) ? mine.filter((t) => t.category === set) : LIBRARY.find((c) => c.name === set)?.items ?? []);
   // Palettes closing (by their button, View > Templates, or Home opening): kept a moment, so each leaves with its motion

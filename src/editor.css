@@ -353,6 +353,22 @@ polyline.mark {
 .arrow-mark.mark {
   fill: none;
 }
+/* The arrow text being dragged will be the conditions of, in the snapping colour, faded in. */
+.arrow-mark.slot {
+  stroke: var(--brand-bright);
+  stroke-opacity: 0.35;
+  animation: slot-in var(--motion-fast) var(--ease-out);
+}
+@keyframes slot-in {
+  from {
+    stroke-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arrow-mark.slot {
+    animation: none;
+  }
+}
 /* Page outlines: the page and its purpose's guides (columns, a text block, A1 in A0). Faint, so they never compete
    with the drawing. */
 .pages path {
@@ -3535,6 +3551,54 @@ div.facts {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
+/* The template in hand, large, under the templates: its atoms and bonds take a click (TemplateLibrary AttachPicker). */
+.library-attach {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: center;
+  height: 112px;
+  padding: var(--space-2);
+  border-top: 1px solid var(--hairline);
+  color: var(--ink);
+}
+.library-attach svg {
+  height: 100%;
+  overflow: visible;
+}
+.library-attach-name {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+}
+.attach-ink {
+  pointer-events: none;
+}
+.attach-hit {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  outline: none;
+}
+circle.attach-hit:hover,
+circle.attach-hit:focus-visible {
+  fill: var(--brand-mist);
+}
+line.attach-hit:hover,
+line.attach-hit:focus-visible {
+  stroke: var(--brand-mist);
+}
+circle.attach-hit[aria-checked="true"] {
+  fill: var(--brand-mist);
+  stroke: var(--link);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+line.attach-hit[aria-checked="true"] {
+  stroke: var(--link);
+}
 .library-group + .library-group .library-group-name {
   padding-top: var(--space-3);
 }
@@ -5679,6 +5743,16 @@ div.facts {
   width: 100%;
   height: 150px;
   object-fit: contain;
+}
+/* All pages: the pages as paper, each edged, the drawing on them. */
+.export-sheets {
+  width: 100%;
+  height: 150px;
+}
+.export-sheets rect {
+  fill: var(--canvas);
+  stroke: var(--hairline);
+  vector-effect: non-scaling-stroke;
 }
 .export-none {
   color: var(--ink-muted);

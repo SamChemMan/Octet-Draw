@@ -68,6 +68,9 @@ const OPS: [string, number, (m: Mol, all: Set<number>, half: Set<number>, text: 
   ["groupSelection (Group)", 4, (m, all) => groupSelection(m, all, new Set())],
   ["fragments (structures)", 1, (m) => fragments(m)],
   ["problems (chemical warnings)", 3, (m) => problems(m)],
+  // With the stereo warnings on (Indigo's facts kept, here none): every wedge then starts at an atom that is no
+  // stereocentre, so each is tried as one that sets nothing (check.ts idleWedges, axial.ts axisAtoms).
+  ["problems, stereo warnings on (facts kept)", 5, (m) => problems(m, { centres: new Set(), unset: new Set(), conflict: new Set(), achiral: new Set() })],
   ["bondOrders", 0.3, (m) => bondOrders(m)],
   ["atomsInArea (each move of a selection box)", 0.3, (m, _, half) => atomsInArea(m, half, ([x, y]) => x >= -1 && x <= 30 && y >= -1 && y <= 30)],
   ["toCdxml (Save, Export, Copy)", 50, (m) => toCdxml(m, DEFAULT_STYLE)],

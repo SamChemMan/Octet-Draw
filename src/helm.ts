@@ -11,6 +11,7 @@ import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts
 import { buildAtoms, buildLabels, monomerRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
+import { retie } from "./arrowlink.ts";
 import { byLabel, monomer, naturalLetter, smilesLinks, type PolymerKind } from "./monomers.ts";
 
 // ——— The sequence model (J1) ———
@@ -445,8 +446,12 @@ export function withSequences(m: Mol, to: "atoms" | "labels"): Mol {
   return made.length ? redrawn(m, made) : m;
 }
 // Structures drawn again in place of others: each part's atoms (gone) give way to its new structure (mol). The text
-// under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on and kept
-// ChemDraw data on its atoms go with it to the new atoms: each takes them before the old atoms go.
+// under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on, kept
+// ChemDraw data on its atoms and the curved arrows tied to them go with it to the new atoms: each takes them before the
+// old atoms go. A tied arrow end goes to a new atom of the same element within half a bond of its old one; with none
+// (the residue went, or the layout changed), it lets go and stays where it was, as ChemDraw leaves an arrow whose
+// target goes.
+const dist = (m: Mol, i: number, j: number) => Math.hypot(m.atoms[i].location[0] - m.atoms[j].location[0], m.atoms[i].location[1] - m.atoms[j].location[1]);
 function redrawn(m: Mol, parts: { gone: number[]; mol: Mol }[]): Mol {
   let out = m;
   for (const { gone, mol } of parts) {
@@ -454,8 +459,10 @@ function redrawn(m: Mol, parts: { gone: number[]; mol: Mol }[]): Mol {
     const plus = (atoms: number[]) => (atoms.some((i) => old.has(i)) ? [...atoms, ...fresh] : atoms);
     const kept = (x: Caption): Caption => (x.property?.atoms.some((i) => old.has(i)) ? { ...x, property: { ...x.property, atoms: plus(x.property.atoms) } } : x);
     out = insertMol(out, mol).mol;
+    const nearest = (i: number) => { const k = fresh.filter((j) => out.atoms[j].label === out.atoms[i].label && dist(out, j, i) < 0.5).sort((p, q) => dist(out, p, i) - dist(out, q, i))[0]; return k; };
     out = { ...out, captions: out.captions?.map((c) => kept(c.under?.some((i) => old.has(i)) ? { ...c, under: plus(c.under) } : c)),
-      groups: out.groups?.map((g) => ({ ...g, atoms: plus(g.atoms) })), cycles: out.cycles?.map((c) => ({ ...c, nodes: c.nodes.map(plus) })) };
+      groups: out.groups?.map((g) => ({ ...g, atoms: plus(g.atoms) })), cycles: out.cycles?.map((c) => ({ ...c, nodes: c.nodes.map(plus) })),
+      arrows: retie(out.arrows, (i) => (old.has(i) ? nearest(i) : i)) };
   }
   return erase(out, new Set(), new Set(parts.flatMap((p) => p.gone)));
 }
