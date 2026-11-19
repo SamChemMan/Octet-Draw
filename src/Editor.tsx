@@ -124,7 +124,7 @@ import { commonKey } from "./common";
 import { checkedName, graphOf } from "./naming";
 import { iupacLocants } from "./namer";
 import { nameMixture, namePart, type NamedPart } from "./namepart";
-import { askMixtureName, askName, NAMING, type Outcome } from "./namingworker";
+import { askMixtureName, askName, NAMING, warmNaming, type Outcome } from "./namingworker";
 import { mixturesOf, withSalts, type Mixture } from "./mixtures";
 import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, nounOf, ringOn, type Item as AccessItem } from "./access";
@@ -6717,6 +6717,8 @@ export default function Editor() {
   // and the screen reader does not ask again for it; Structure to Name asks again after a failure.
   type Named = NamedPart & { why?: "late" | "failed" };
   const nameCache = useRef(new Map<string, Named>());
+  // The worker loads 2 s after the drawing opens, away from the window, so the first Structure to Name is quick.
+  useEffect(() => { const t = setTimeout(warmNaming, 2000); return () => clearTimeout(t); }, []);
   const pendingNames = useRef(new Map<string, Promise<void>>());
   // The part is the structure alone: the drawing's text, arrows and boxes stay out of it (a polymer's or R-group's
   // brackets stay), so its key does not change when they do. A risk assessment writes these names into its own text:
