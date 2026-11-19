@@ -1014,13 +1014,18 @@ async function uiStress() {
   await step("U7", "Zoom extremes", async () => {
     const notes = [];
     let ok = true;
+    // S1 is picked alone at the zoom the cases before left, as at the smallest zoom the transitions that cross it lie
+    // within a click of it (the hit test takes the one drawn on top). Zooming keeps it picked.
+    const alone = () => picked().size === 1 && picked().has(byRole(doc(), "level:1").id);
+    await pickAlone(mid(byRole(doc(), "level:1")));
     for (const [dy, label] of [[400, "smallest"], [-400, "largest"]]) {
       for (let k = 0; k < 40; k++) { const q = mid(byRole(doc(), "level:1")); (document.elementFromPoint(...q) ?? world()).dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: q[0], clientY: q[1], deltaY: dy, ctrlKey: true })); await wait(30); }
       await wait(500);
       const s1 = byRole(doc(), "level:1");
       // The level in view: Fit or centre is not needed when its middle is on screen; else skip the drag part.
       const p = mid(s1), onScreen = p[0] > 0 && p[0] < innerWidth && p[1] > 0 && p[1] < innerHeight;
-      if (onScreen) await pickAlone(p);
+      if (onScreen && !alone()) await pickAlone(p);
+      if (onScreen && !alone()) { ok = false; notes.push(`${label}: S1 alone is not picked (${[...picked()].map((id) => doc().arrows.concat(doc().captions).find((x) => x.id === id)?.role?.role).join(", ")})`); }
       await until(() => document.querySelectorAll("circle.handle").length, 2000);
       const hs = [...document.querySelectorAll("circle.handle")].filter((c) => !c.classList.contains("add")).map((c) => c.getBoundingClientRect().width);
       const sizes = hs.map((w) => w.toFixed(1)).join(", ");
