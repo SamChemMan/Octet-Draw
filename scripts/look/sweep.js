@@ -75,6 +75,23 @@ await measure("the Properties panel", !!(await until(() => document.querySelecto
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
 await wait(600);
 
+// Attach Data's dialog, with a field typed in its grid (its empty row then comes under it), in light and in dark.
+labelled("Attach data…")?.click();
+const grid = await until(() => document.querySelector(".dialog .chart-table input"), 3000);
+if (grid) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(grid, "Batch");
+  grid.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait(300);
+  const value = document.querySelector(".dialog .chart-table textarea");
+  if (value) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(value, "B-001\nsecond line"); value.dispatchEvent(new Event("input", { bubbles: true })); }
+}
+await measure("Attach data", !!grid && document.querySelectorAll(".dialog .chart-table input").length === 2);
+document.documentElement.dataset.theme = "dark";
+await measure("Attach data, dark", !!grid);
+delete document.documentElement.dataset.theme;
+key({ key: "Escape" });
+await wait(600);
+
 // Export…: PDF with Pages > All pages, the pages as the preview, then One page again.
 document.querySelector(".export-button")?.click();
 await wait(400);

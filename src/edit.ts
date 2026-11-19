@@ -9,6 +9,7 @@ import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
+import { remapData } from "./datafields.ts";
 import { chainOrder, flatAtoms, remapCaption, sameAtoms, settleMeasures, structuresOf } from "./measurement.ts";
 import { clean3d, MOST_3D } from "./clean3d.ts";
 import { bracketPath, routeOf } from "./render.ts";
@@ -1078,11 +1079,16 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   // A cycle keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.map((c) => ({ ...keepAngles(m, mapBranches(c, (i) => map.get(i))), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }));
   const keptCycles = new Set(cycles?.map((c) => c.id));
-  return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
+  const out = tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
     shapes: m.shapes?.map(kept),
     // A curved arrow's end tied to an atom follows its new number; an end whose atom went lets go where it is.
     arrows: retie(m.arrows, (i) => map.get(i)),
     groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
+  if (!m.data) return out;
+  // Data fields follow their atoms too, and go when they all go. One whose text went with its structure, and that is
+  // on another structure too (a split), holds its value there (datafields.ts).
+  const left = new Set(out.captions?.map((c) => c.id));
+  return { ...out, data: remapData(m.data, (i) => map.get(i), (id) => (left.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) };
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
 const refill = (fills: Mol["fills"], map: Map<number, number>) => {
@@ -1376,6 +1382,8 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
     atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
     bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
     ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
+    // Its data fields come too, not shown (its text does not come).
+    ...(frag.data?.length ? { data: [...(m.data ?? []), ...remapData(frag.data, (i) => i + base, () => undefined, (id) => frag.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
 }
 
@@ -1624,10 +1632,12 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     seen.add(key);
     return true;
   });
+  // A data field's joined atom is the atom it joined.
+  const data = m.data?.map((f) => ({ ...f, atoms: [...new Set(f.atoms.map((k) => into.get(k) ?? k))] }));
   // A curved arrow tied to a joined atom stays tied, to the atom it joined.
   // A measurement goes on with the atom a measured atom joined; one with two of its atoms joined into one goes.
   const captions = m.captions?.some((c) => c.measure) ? m.captions.map((c) => (c.measure ? remapCaption(c, (k) => into.get(k) ?? k) : c)).filter((c, k) => !m.captions![k].measure || c.measure) : m.captions;
-  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(captions ? { captions } : {}), ...(m.arrows ? { arrows: retie(m.arrows, (k) => into.get(k) ?? k) } : {}) }, new Set(into.keys())), joined: true };
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(data ? { data } : {}), ...(captions ? { captions } : {}), ...(m.arrows ? { arrows: retie(m.arrows, (k) => into.get(k) ?? k) } : {}) }, new Set(into.keys())), joined: true };
 }
 
 // Object > Join (⌘J), as ChemDraw's. One atom in each of two structures:
@@ -2681,6 +2691,8 @@ export const deleteGraphics = (m: Mol, ids: Set<number>, at?: (c: Caption) => P 
   cycles: m.cycles?.filter((c) => !ids.has(c.id)).map((c) => keepAngles(m, c)),
   // A table goes with its arrow, or when it is picked itself (its id below 0, gridview.ts TABLE).
   ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow) && !ids.has(-1 - g.arrow)) } : {}),
+  // Deleting a data field's text deletes the field (datafields.ts).
+  ...(m.data?.some((f) => f.caption !== undefined && ids.has(f.caption)) ? { data: ((d) => (d.length ? d : undefined))(m.data.filter((f) => f.caption === undefined || !ids.has(f.caption))) } : {}),
 });
 // Delete, Clear and the Eraser: the atoms, bonds and objects chosen go, and nothing else that shows. Text that belongs to
 // a structure that goes (a compound number), and was not chosen itself, stays as free text where and as it is drawn (at,
@@ -2697,7 +2709,8 @@ export function deleteChosen(m: Mol, atoms: Set<number>, ids: Set<number>, bonds
 }
 // The next compound number in the drawing: one more than the highest bold number already there.
 export function nextNumber(m: Mol): string {
-  const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text)).map((c) => Number(c.text));
+  const shown = new Set((m.data ?? []).flatMap((f) => (f.caption === undefined ? [] : [f.caption])));
+  const used = (m.captions ?? []).filter((c) => c.bold && /^\d+$/.test(c.text) && !shown.has(c.id)).map((c) => Number(c.text));
   return String(Math.max(0, ...used) + 1);
 }
 
@@ -2882,7 +2895,7 @@ function anchoredOnAtom(m: Mol, t: Mol, i: number, anchor: TemplateAnchor, conne
 // atoms as ids gives them, moved by f (k: how much f grows them).
 function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, mirrored: boolean): Mol {
   const objects = [...(t.captions ?? []), ...(t.arrows ?? []), ...(t.shapes ?? []), ...(t.cycles ?? []), ...(t.groups ?? [])];
-  if (!objects.length && !t.fills?.length) return m;
+  if (!objects.length && !t.fills?.length && !t.data?.length) return m;
   let id = nextId(m);
   const to = new Map<number, number>(), atom = (i: number) => ids[i];
   for (const x of objects) to.set(x.id, id++);
@@ -2895,6 +2908,7 @@ function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, m
     ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...mapBranches(c, atom), id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
     ...(t.groups?.length ? { groups: [...(m.groups ?? []), ...t.groups.map((g) => ({ ...g, id: to.get(g.id)!, atoms: g.atoms.map(atom), items: g.items.map((x) => to.get(x) ?? x) }))] } : {}),
     ...(t.fills?.length ? { fills: [...(m.fills ?? []), ...t.fills.map((x) => ({ ...x, atoms: x.atoms.map(atom) }))] } : {}),
+    ...(t.data?.length ? { data: [...(m.data ?? []), ...remapData(t.data, atom, (id) => to.get(id), (id) => t.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
   return transformParts(out, new Set(), new Set(to.values()), f, [k, k], undefined, 1, mirrored ? "across" : undefined);
 }
@@ -3079,6 +3093,8 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
     fills: refill(m.fills, map),
     grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
+    // A data field comes when any of its atoms does; when its text stays behind, the copy holds its value, not shown.
+    ...(m.data ? { data: remapData(m.data, (i) => map.get(i), (id) => (ids.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) } : {}),
   };
 }
 // Paste: another drawing added to this one, moved by offset, with new ids for its objects. Returns the drawing, the
@@ -3112,6 +3128,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     groups: [...(m.groups ?? []), ...(add.groups ?? []).map((g) => ({ ...g, id: ids.get(g.id)!, atoms: g.atoms.map(at), items: g.items.map((x) => ids.get(x) ?? x) }))],
     ...(add.grids?.length ? { grids: [...(m.grids ?? []), ...add.grids.flatMap((g) => (ids.has(g.arrow) ? [{ ...g, arrow: ids.get(g.arrow)! }] : []))] } : {}),
     ...(add.fills?.length ? { fills: [...(m.fills ?? []), ...add.fills.map((f) => ({ ...f, atoms: f.atoms.map(at) }))] } : {}),
+    ...(add.data?.length ? { data: [...(m.data ?? []), ...remapData(add.data, at, (id) => ids.get(id), (id) => add.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
   };
   return { mol, atoms: new Set(add.atoms.map((_, i) => at(i))), items: new Set([...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? [])].map((x) => ids.get(x.id)!)), ids };
 }

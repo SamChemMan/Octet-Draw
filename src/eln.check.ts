@@ -14,6 +14,7 @@ const { gridTsv } = await import("./gridview.ts");
 const { readGrid } = await import("./stoich.ts");
 const { elnArchive, MOST_FIELDS, plain, rdData, readFields, RXN, sdData, TABLE_FIELD, withRecord } = await import("./eln.ts");
 const { fragments } = await import("./edit.ts");
+const { setRows } = await import("./datafields.ts");
 await load();
 
 // --- Numbers, lines and hostile field text ---------------------------------------------------------------------------
@@ -80,6 +81,19 @@ assert.ok(items(records[1]).some(([k, v]) => k === "Yield [%]" && v === "86.5557
 assert.ok(items(records[1]).some(([k, v]) => k === "Title" && v === "Reduction of benzaldehyde"), "the page's details");
 assert.equal(importStructure(sdf).atoms.length, 16, "the SD file still reads");
 assert.match(text("sdf2000"), /V2000[\s\S]*> <Reaction>/);
+// A compound's data fields (issue 68) come first in its record, then its row of the table; Octet reads both back as
+// the compound's fields.
+{
+  const was = d.host.doc(), first = was.captions!.find((c) => c.bold && c.text === "1")!.under!;
+  d.host.set(setRows(was, first, [{ name: "Batch", value: "B-7", show: false }, { name: "mp", value: "-26 °C", show: true }]));
+  const sd = text("sdf"), recs = sd.split("$$$$\n").slice(0, -1);
+  assert.deepEqual(items(recs[0]).slice(0, 4), [["Batch", "B-7"], ["mp", "-26 °C"], ["Reaction", "1"], ["Role", "Reactant"]]);
+  assert.deepEqual(items(recs[0]).slice(2), items(records[0]), "then the table's row as before");
+  assert.deepEqual(items(recs[1]), items(records[1]), "the other compound's record as before");
+  const read = importStructure(sd), fields = read.data!.filter((f) => f.atoms.includes(0)).map((f) => [f.name, f.value]);
+  assert.deepEqual(fields, items(recs[0]), "read back as fields, in order");
+  d.host.set(was);
+}
 
 // add_file on a new experiment page: the table is the same, cell for cell, and so is the record but the page's details.
 const before = gridTsv(d.host.tables()[0].view);

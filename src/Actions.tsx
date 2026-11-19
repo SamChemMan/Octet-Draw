@@ -17,6 +17,8 @@ import {
   Storefront, FirstAidKit, Triangle, TriangleDashed, PlusSquare, ShuffleSimple,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
+// Attach data… and Select linked objects (datafields.ts).
+import { Paperclip, SelectionBackground } from "@phosphor-icons/react";
 import type { Analysis } from "./chem";
 import type { Problem } from "./check";
 import { GENERICS, massText, queryLabel } from "./query";
@@ -86,7 +88,8 @@ export type Context = ({ annotate?: true }) & (
   | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
       // shown when the document's is on and one of them reads as chemistry.
-      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
+      // field: one picked caption that is a data field's text (datafields.ts).
+      script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean; field?: boolean;
       // cycleSide: one picked caption that labels a cycle's side arrow (CycleSide). cycleName: one picked caption that is
       // a step's name, moved from where Octet puts it. values: live values among them (Add to drawing), one showing its
       // names or none. places: the first one's decimals (Decimals), standard or 0 to 8.
@@ -364,6 +367,7 @@ const KIND_OF: Record<string, string> = {
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
+  attach_data: "marks",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
   copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", more_chemfig_copy: "library", more_sln: "library", "template.add": "library", "dictionary.add": "library", delete: "delete",
 };
@@ -468,7 +472,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(small({ ...it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"), short: context.structures > 1 ? "Number compounds" : undefined }), ...numerals(context.roman),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
-        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.values ? [small(names(context.values))] : []),
+        small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
         ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<Signature size={18} />, "Define nickname…", "define_nickname")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
@@ -503,6 +507,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       if (context.convertible) items.push(toStructure);
       if (context.count === 1) items.push(it(<PencilSimpleLine size={18} />, "Edit text", "caption.edit"));
       if (context.values) items.push(names(context.values));
+      if (context.field) items.push(it(<Paperclip size={18} />, "Edit attached data…", "attach_data"), it(<SelectionBackground size={18} />, "Select linked objects", "select_linked"));
       if (context.cycleSide) items.push(...sideItems(context.cycleSide));
       if (context.cycleName?.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       if (context.conditions?.moved) items.push(it(<Magnet size={18} />, "Reset position", "conditions.reset"));
