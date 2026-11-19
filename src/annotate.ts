@@ -2,7 +2,7 @@
 // the drawing (Mol.annotations), on a group (Group.annotations) and on a text, arrow, shape or catalytic cycle (their
 // notes). The note the user types has the keyword Note; one from a ChemDraw file may have any keyword. None is drawn,
 // and none goes into a picture or onto the clipboard for another app (withoutNotes).
-import { FIELDS, PROPERTIES } from "./experiment.ts";
+import { CHANGED_BY, FIELDS, PROPERTIES } from "./experiment.ts";
 import { selectedGroups } from "./edit.ts";
 import type { Annotation, Mol } from "./render.ts";
 
@@ -11,9 +11,10 @@ export const NOTE = "Note";
 // The limits on annotations, in reading CDXML and Octet's own files, and in typing: 1000 on one object or the drawing,
 // a keyword of 200 characters, a content of 10,000; and 10,000 in a whole drawing.
 export const MAX_ANNOTATIONS = 1000, MAX_KEYWORD = 200, MAX_CONTENT = 10_000, MAX_NOTES = 10_000;
-// Keywords that are not notes: the document's properties and an experiment page's details have their own places, and
-// GUID and ComponentID are ChemDraw's own data. They are kept and written back, and never listed or taken out.
-const UNLISTED = new Set<string>([...[...PROPERTIES, ...FIELDS].map(([, name]): string => name), "GUID", "ComponentID"]);
+// Keywords that are not notes: the document's properties (Last changed by too) and an experiment page's details have
+// their own places, and GUID and ComponentID are ChemDraw's own data. They are kept and written back, and never listed
+// or taken out.
+const UNLISTED = new Set<string>([...[...PROPERTIES, ...FIELDS].map(([, name]): string => name), CHANGED_BY, "GUID", "ComponentID"]);
 export const isNote = (a: Annotation) => !UNLISTED.has(a.keyword);
 
 // Text as a note keeps it: line breaks as \n (a CR dropped), a tab a space, no other control characters or lone

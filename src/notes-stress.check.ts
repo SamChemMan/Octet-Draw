@@ -25,7 +25,7 @@ const { cdxToXml, xmlToCdx } = await import("./cdx.ts");
 const { readCdx, readOct, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
 const { layoutCycles } = await import("./cycle.ts");
-const { COMMENT, FIELDS, PROPERTIES, detailsOf, templateOf, withDetails } = await import("./experiment.ts");
+const { CHANGED_BY, COMMENT, FIELDS, PROPERTIES, changedBy, detailsOf, stamped, templateOf, withDetails } = await import("./experiment.ts");
 const { newTemplate } = await import("./templates.ts");
 const { freeSymbol } = await import("./render.ts");
 const { nounOf } = await import("./access.ts");
@@ -199,9 +199,9 @@ it("S10 copy into Word (Mac, Windows, Linux), copy back into Octet, Edit Picture
   assert.equal(allNotes(fromCdxml(toCdxml(bare, DEFAULT_STYLE, { derived })).mol).length, 0);
   // Every type for another app is made from bare; the object window opens with none and offers no Annotate.
   const copy = part("Editor.tsx", "const copyOut = ", "const onCut = ");
-  assert.ok(!/formatOf\(part,|pictureOf\(part\)/.test(copy));
+  assert.ok(!/formatOf\(part,|pictureOf\(part\)|copyPicture\(part\)/.test(copy));
   assert.match(copy, /oct: ask\(object, "oct"\)/, "Windows' Office object from bare (ask)");
-  assert.match(src("Editor.tsx"), /load\(undefined, s\.oct, undefined, undefined, true\)/);
+  assert.match(src("Editor.tsx"), /load\(undefined, s\.oct, undefined, undefined, false, true\)/);
   assert.match(src("../src-tauri/src/main.rs"), /if !notes_here \{\n\s*view\.remove\(&notes\)\?;\n\s*object\.remove\(&annotate\)\?;/);
   assert.match(src("Editor.tsx"), /\.\.\.\(office \? \{\} : \{ notes: \[/, "the palette offers neither in an object window");
 });
@@ -487,12 +487,12 @@ it("N3 an object window (Word, PowerPoint, Excel or LibreOffice) sends no notes:
   const editor = src("Editor.tsx");
   // officeUpdate (Update and close), officePrime (the picture once the drawing is on the canvas) and officeKeep (each
   // change, half a second after it): on the Mac the object is the picture and its CDXML, on Windows the .oct too.
-  assert.match(part("Editor.tsx", "const officeUpdate = ", "const officeClose"), /bare = withoutNotes\(sent\)[\s\S]*writeOct\(\{ \.\.\.bare, guides \}[\s\S]*pictureOf\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/);
+  assert.match(part("Editor.tsx", "const officeUpdate = ", "const officeClose"), /bare = withoutNotes\(sent\)[\s\S]*writeOct\(\{ \.\.\.bare, guides \}[\s\S]*copyPicture\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/);
   const prime = part("Editor.tsx", "const officePrime = useRef(false);", "const officeKept = ");
-  assert.match(prime, /bare = withoutNotes\(doc\), svg = pictureOf\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/);
+  assert.match(prime, /bare = withoutNotes\(doc\), svg = copyPicture\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/);
   const keep = part("Editor.tsx", "officeKeep.current = () => {", "const officeClosed = ");
   assert.match(keep, /bare = withoutNotes\(doc\), oct = mainDirty \? writeOct\(\{ \.\.\.bare, guides \}/);
-  assert.match(keep, /svg: pictureOf\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\)/);
+  assert.match(keep, /svg: copyPicture\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\)/);
   // Every ole_update in the editor sends a drawing without notes.
   for (const call of editor.match(/invoke\("ole_update", \{[^}]*\}/g) ?? []) assert.doesNotMatch(call, /\((doc|sent)\b/, call);
   // A note pasted into the window stays out of what the host gets, on both systems.
@@ -503,11 +503,13 @@ it("N3 an object window (Word, PowerPoint, Excel or LibreOffice) sends no notes:
   assert.equal(noteOf(readOct(windows).mol, "drawing", "Title"), "Route 2", "the title stays");
 });
 
-it("N4 the drawing's comment (Settings > Document > Properties, issue 100) is not a note: never listed, kept in a picture's data", () => {
-  const m = withNote({ atoms: [], bonds: [], annotations: withDetails(undefined, { comment: "for the PDF" }, PROPERTIES) }, ["drawing"], "mine");
+it("N4 the drawing's comment and Last changed by (Settings > Document > Properties, issue 100) are not notes: never listed, kept in a picture's data", () => {
+  const m = withNote(stamped({ atoms: [], bonds: [], annotations: withDetails(undefined, { comment: "for the PDF", author: "Sam" }, PROPERTIES) }, "Sam Ellis"), ["drawing"], "mine");
   assert.deepEqual(allNotes(m).map((r) => r.text), ["mine"]);
   assert.equal(detailsOf(withoutNotes(m).annotations, PROPERTIES).comment, "for the PDF", "a PDF's information keeps it");
+  assert.equal(changedBy(withoutNotes(m).annotations), "Sam Ellis", "a picture's CDXML keeps who saved it last");
   assert.ok(!isNote({ keyword: COMMENT, content: "x" }));
+  assert.ok(!isNote({ keyword: CHANGED_BY, content: "x" }));
 });
 
 it("N5 the comment and the note are apart for an AI app too: set_style sets each on its own", async () => {

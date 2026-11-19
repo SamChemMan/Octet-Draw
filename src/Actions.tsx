@@ -14,6 +14,7 @@ import {
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
+  Storefront, FirstAidKit,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -49,6 +50,7 @@ function pickGlyph(p: ArrowPick, id: string, c: Context): React.ReactNode {
     case "arrow.size": case "cycle.size": return <ArrowGlyph kind={id === "own" ? "reaction" : withSize(arrow === "block" ? "block" : "reaction", id as ArrowSize)} />;
     case "arrow.fill": return <FillGlyph fill={id as CurveFill} />;
     case "cycle.side.ends": return <SideGlyph ends={id as CycleSide["ends"]} />;
+    case "caption.places": return <span className="glyph-text">{id === "standard" ? "Std" : id}</span>;
     default: return id === "back" ? <span className="pick-turned"><ArrowGlyph kind="unbalanced" /></span> : <ArrowGlyph kind={id === "equal" ? "equilibrium" : "unbalanced"} />; // a step's balance
   }
 }
@@ -78,8 +80,8 @@ export type Context = ({ annotate?: true }) & (
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   // risk: the lone group is the page's risk assessment.
-  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden" } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values: as a caption's
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden" } // values: live values among the text picked with it (⌘A), as a caption's
+  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden"; places?: string } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values, places: as a caption's
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden"; places?: string } // values, places: live values among the text picked with it (⌘A), as a caption's
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
@@ -87,15 +89,16 @@ export type Context = ({ annotate?: true }) & (
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
       // cycleSide: one picked caption that labels a cycle's side arrow (CycleSide). cycleName: one picked caption that is
       // a step's name, moved from where Octet puts it. values: live values among them (Add to drawing), one showing its
-      // names or none.
-      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden" }
+      // names or none. places: the first one's decimals (Decimals), standard or 0 to 8.
+      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden"; places?: string }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; chart?: ChartLook; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   // symbol and symbolPt: a free symbol's kind and size (pt).
-  | { kind: "shape"; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; charges?: { circled: boolean }; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
+  // attached: an atom's charge picked alone (issue 164), with its kind, size and colour.
+  | { kind: "shape"; attached?: boolean; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; charges?: { circled: boolean }; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
       ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean; unit?: string } // a TLC plate's side ticks and transparency, whether a lane is picked, and a gel's unit
   // step: one step of the cycle is picked; reversible, balance, shaped and hidden are that step's (shaped: it has a lead,
@@ -352,7 +355,7 @@ const KIND_OF: Record<string, string> = {
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.remove": "cycle",
   "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
   structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
-  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search",
+  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
@@ -400,7 +403,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // One press each: the selection (or the whole drawing) opens in the browser. The exact and substructure searches
   // that are not the default are in the Search menu, with keys.
   const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
-    it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true)] : [];
+    it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true),
+    // PubChem's suppliers and GHS hazards for the structures, in the Properties panel (issue 114).
+    it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<FirstAidKit size={18} />, "Find hazards", "find_hazards", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
   const turnsAndFlips = [...turnings, ...flips, ...mirrors];
@@ -542,6 +547,13 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.remove")), ...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "shape":
+      // An atom's charge picked alone (issue 164): its charge items and Delete; it moves, turns and groups with its atom.
+      if (context.attached) {
+        if (context.charges) items.push(it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+          it(<span className="glyph-text">⊕</span>, context.charges.circled ? "Remove the circle" : "Circle the charge", "charge.circled"));
+        items.push(del);
+        break;
+      }
       if (context.shape === "tlc") {
         const hidden = (k: string) => context.hide?.includes(k);
         // At the lane last pressed or right-clicked (a new lane goes after it), or at the last lane, as ChemDraw's plate
@@ -1036,7 +1048,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {context.kind === "shape" && context.shape === "symbol" && (
         // A free symbol: its kind, each drawn as the symbol, and its size.
         <div className="chips arrows" role="group" aria-label="Symbol">
-          {FREE_SYMBOLS.map((k) => (
+          {(context.attached ? (context.symbol?.startsWith("radical") ? ["radicalCation", "radicalAnion"] as FreeSymbol[] : ["plus", "minus", "circledPlus", "circledMinus"] as FreeSymbol[]) : FREE_SYMBOLS).map((k) => (
             <button key={k} className="chip" aria-pressed={context.symbol === k} aria-label={FREE_SYMBOL_NAMES[k]} data-tip={FREE_SYMBOL_NAMES[k]} onClick={() => run(`shape.symbol.${k}`)}><FreeSymbolGlyph kind={k} /></button>
           ))}
           {context.symbolPt !== undefined && <SizeButton size={context.symbolPt} sizes={sizes} run={run} />}

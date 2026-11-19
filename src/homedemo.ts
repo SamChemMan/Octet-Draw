@@ -1,21 +1,21 @@
-// The UI-only preview's answers to Home's calls (npm run dev, then ?demo): made-up drawings with the starter drawings'
+// The UI-only preview's answers to Home's calls (npm run dev, then ?demo): made-up drawings with the example drawings'
 // pictures, seven projects, and photos for thumbnails drawn on the page. Nothing is saved; a reload starts again.
 // Never in a build (homeApi.ts loads it only in the dev server).
-import structure from "./starters/structure.svg?raw";
-import reaction from "./starters/reaction.svg?raw";
-import cycle from "./starters/cycle.svg?raw";
-import { STARTERS } from "./starters";
+import structure from "./examples/oseltamivir.svg?raw";
+import reaction from "./examples/suzuki.svg?raw";
+import cycle from "./examples/cycle.svg?raw";
+import { exampleText } from "./examples";
 import { STORE_VERSION, type HomeStore } from "./projects";
 
 const t = Math.floor(Date.now() / 1000), day = 86400, dir = "/Users/sam/Documents";
 // A drawing deep in folders, so its tooltip shows how a long place wraps.
 const tamiflu = `${dir}/Group meeting/2026 autumn/Shikimic acid route to oseltamivir, revised after the meeting/tamiflu route.oct`;
-type Recent = { path: string; name: string; at: number; thumb?: string; found: boolean };
+type Recent = { path: string; name: string; at: number; thumb?: string; found: boolean; title?: string; author?: string };
 let recents: Recent[] = [
   { path: `${dir}/Thesis/oseltamivir.oct`, name: "Oseltamivir", at: t - 600, thumb: structure, found: true },
   { path: `${dir}/Thesis/suzuki scheme.cdxml`, name: "Suzuki scheme", at: t - 3 * 3600, thumb: reaction, found: true },
   { path: `${dir}/Thesis/suzuki cycle.oct`, name: "Suzuki cycle", at: t - day, thumb: cycle, found: true },
-  { path: tamiflu, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true },
+  { path: tamiflu, name: "Tamiflu route", at: t - 3 * day, thumb: reaction, found: true, title: "Oseltamivir from shikimic acid, revised after the group meeting", author: "Alexandra Montgomery-Fitzwilliam" },
   { path: `${dir}/Teaching/aldol mechanism.cdx`, name: "Aldol mechanism", at: t - 9 * day, thumb: cycle, found: true },
   { path: `${dir}/Desktop/old scheme.cdx`, name: "Old scheme", at: t - 40 * day, found: false },
 ];
@@ -85,8 +85,8 @@ export async function answer(cmd: string, args: Record<string, unknown> = {}): P
     case "experiment_list": return experiments;
     case "experiment_remove": experiments = experiments.filter((x) => x.path !== args.path); return null;
     case "open_recent": {
-      const r = recents.find((x) => x.path === args.path), text = STARTERS[r?.thumb === reaction ? 1 : r?.thumb === cycle ? 2 : 0].text;
-      return [args.path, text];
+      const r = recents.find((x) => x.path === args.path);
+      return [args.path, await exampleText(r?.thumb === reaction ? "suzuki" : r?.thumb === cycle ? "cycle" : "oseltamivir")];
     }
     case "home_read": {
       const paths = store.projects.flatMap((p) => p.drawings.map((d) => d.path));

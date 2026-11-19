@@ -317,6 +317,16 @@ to fit the release:
 - Seen while checking, not this item's: Octet 1.1.2 calls the clipboard JSON of a drawing with a free symbol
   damaged (it has no free symbols). Its `.oct`, CDX and CDXML readers open such a file.
 
+Merged with `release-1.1.3` 0045cd7 (19 November):
+
+- Last changed by (issue 100) is a document property, as the comment is: the Notes panel does not list it, and
+  `withoutNotes` keeps it, so a picture's CDXML still has ModificationUserName.
+- Copy, Update and what an object window keeps for its host send `copyPicture(bare)`, the picture on whole points
+  (issue 171) of the drawing without its notes.
+- Export ELN Archive… (issue 117) keeps the notes in its `.oct` and CDXML, as Export to those formats does. Its RD and
+  SD files have no place for a note. For Sam: if an ELN record should have no notes, it is `withoutNotes(part)` in
+  `exportEln`.
+
 ## Consistency pillar: the siblings
 
 | Thing | Takes a note | Where it is kept | CDXML |

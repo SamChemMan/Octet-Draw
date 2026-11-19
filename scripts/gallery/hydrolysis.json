@@ -1,0 +1,24 @@
+{
+ "for": "paper",
+ "calls": [
+  { "name": "set_brief", "arguments": { "destination": { "kind": "paper" } } },
+  { "name": "draw", "arguments": { "kind": "reaction", "keep_orientation": false,
+    "start": [{ "text": "[H][O-]", "right": "#1" }, { "text": "CC(=O)OC", "up": "#2" }],
+    "steps": [
+     { "arrow": "equilibrium", "products": [{ "text": "CC([O-])(O)OC", "up": "#2", "right": "#4" }] },
+     { "arrow": "equilibrium", "products": [{ "text": "CC(=O)O[H]", "up": "#2", "right": "#4" }, { "text": "[O-]C", "left": "#0" }] },
+     { "products": [{ "text": "CC(=O)[O-]", "up": "#2" }, { "text": "CO", "right": "#1" }] }
+    ] } },
+  { "name": "change", "arguments": { "operations": [
+   { "op": "edit", "ids": ["s1.2", "s3.3", "s5.1"], "lone_pairs": 3 }
+  ] } },
+  { "name": "change", "arguments": { "operations": [
+   { "op": "arrow", "kind": "curved", "from": "s1.2:pair", "to": "s2.2" },
+   { "op": "arrow", "kind": "curved", "from": "s2.2-3", "to": "s2.3", "bend": 0.8 },
+   { "op": "arrow", "kind": "curved", "from": "s3.3:pair", "to": "s3.2-3", "bend": 0.8 },
+   { "op": "arrow", "kind": "curved", "from": "s3.2-5", "to": "s3.5", "bend": 0.8 },
+   { "op": "arrow", "kind": "curved", "from": "s5.1:pair", "to": "s4.5", "bend": -0.35 },
+   { "op": "arrow", "kind": "curved", "from": "s4.4-5", "to": "s4.4", "bend": 0.8 }
+  ] } }
+ ]
+}

@@ -171,6 +171,29 @@ input:disabled,
 circle.mark {
   stroke: none;
 }
+/* A bracket bond's mark goes along the bracket, in its group's colour. */
+polyline.mark {
+  fill: none;
+  stroke-linejoin: round;
+}
+.selection-marks polyline {
+  fill: none;
+  stroke: var(--select);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.erase-marks polyline {
+  fill: none;
+  stroke: var(--error);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nmr-marks polyline {
+  fill: none;
+  stroke: var(--brand-mist);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* Selection: a stronger tint. A copy that worked: the selection's tint rises and falls once; with nothing selected,
    the page's edge lights once. */
@@ -218,6 +241,7 @@ circle.mark {
   fill: none;
   stroke: var(--select);
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* A group wholly selected: a dotted frame round it, a hairline at any zoom. */
@@ -1615,6 +1639,13 @@ button.variant.add {
 }
 .action-name {
   flex: 1;
+}
+/* A value Settings shows and does not change (Last changed by). */
+.setting-value {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
@@ -3573,6 +3604,13 @@ div.facts {
 }
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
+}
+/* One of the user's own beside the Ring menu: its pin above its ×. */
+.library-cell > .variant-action:has(+ .variant-action) {
+  margin-top: calc(-1 * var(--size-action) - 1px);
+}
+.library-cell > .variant-action + .variant-action {
+  margin-top: 1px;
 }
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
@@ -6044,6 +6082,12 @@ div.facts {
 .home-when {
   color: var(--ink-faint);
   font: 11px/14px var(--font-sans);
+}
+/* A tile's author and time, on one line. */
+.home-caption .home-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-initial {
   color: var(--ink-faint);

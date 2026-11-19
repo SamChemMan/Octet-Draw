@@ -530,7 +530,7 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
   // any object does, and once moved by hand it keeps its place (Grid.free).
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /if \(table\) \{\n\s*choose\(\[\], \[TABLE\(table\.arrow\)\]\);\n\s*setGridPick\(undefined\);\n\s*return grabTable\(table\.arrow\);/);
-  assert.match(editor, /snapBoxes\(boxes\.moving, boxes\.targets, raw, 6 \/ \(views\.get\(\)\.zoom \* L\)\)/, "the table's drag snaps");
+  assert.match(editor, /snapBoxes\(boxes\.moving, boxes\.targets, raw, 6 \/ \(views\.get\(\)\.zoom \* L\), held\)/, "the table's drag snaps");
   assert.match(editor, /changeGrid\(drag\.arrow, \(\) => \(\{ at, free: true \}\)\)/, "and is free once dropped");
   assert.match(editor, /mol = keepPlace\(doc, /, "every edit keeps a free table's place");
   // The Text tool types in a cell, as ChemDraw's does in its grid.

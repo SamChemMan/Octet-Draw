@@ -159,21 +159,21 @@ const xml = toCdxml(noted, DEFAULT_STYLE, { derived });
   assert.match(part("const exportRequest = ", "async function exportPart"), /PICTURES\.includes\(f\.format\) \|\| f\.format === "bmp" \? withoutNotes\(all\) : all/, "Export, Quick export, the MCP and --convert");
   const copy = part("const copyOut = ", "const onCut = ");
   assert.match(copy, /bare = withoutNotes\(part\)/);
-  assert.ok(!/formatOf\(part,|pictureOf\(part\)/.test(copy), "every other app's type is made from bare");
+  assert.ok(!/formatOf\(part,|pictureOf\(part\)|copyPicture\(part\)/.test(copy), "every other app's type is made from bare");
   assert.match(copy, /octetJson = serialize\(\{ \.\.\.part, style \}\)/, "Octet's own type keeps them");
-  assert.match(part("const officeUpdate = ", "const officeClose"), /bare = withoutNotes\(sent\)[\s\S]*pictureOf\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/, "Update sends none");
+  assert.match(part("const officeUpdate = ", "const officeClose"), /bare = withoutNotes\(sent\)[\s\S]*copyPicture\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/, "Update sends none");
   // What the object window keeps for Word, PowerPoint, Excel or LibreOffice while the user draws: the first picture
   // (officePrime) and each change (officeKeep). On the Mac the object is that picture and its CDXML; on Windows the
   // .oct file too. A note pasted into the window goes into none of them.
-  assert.match(part("const officePrime = useRef(false);", "const officeKept = "), /bare = withoutNotes\(doc\), svg = pictureOf\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/, "officePrime");
-  assert.match(part("officeKeep.current = () => {", "const officeClosed = "), /bare = withoutNotes\(doc\), oct = mainDirty \? writeOct\(\{ \.\.\.bare, guides \}[\s\S]*pictureOf\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\)/, "officeKeep");
+  assert.match(part("const officePrime = useRef(false);", "const officeKept = "), /bare = withoutNotes\(doc\), svg = copyPicture\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/, "officePrime");
+  assert.match(part("officeKeep.current = () => {", "const officeClosed = "), /bare = withoutNotes\(doc\), oct = mainDirty \? writeOct\(\{ \.\.\.bare, guides \}[\s\S]*copyPicture\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\)/, "officeKeep");
   for (const sent of editor.match(/invoke\("ole_update", \{[^}]*\}/g) ?? []) assert.doesNotMatch(sent, /\((doc|sent)\b/, "every ole_update sends a drawing with no notes");
   const windowsObject = writeOct(withoutNotes(noted), DEFAULT_STYLE, { derived }), macObject = toCdxml(withoutNotes(noted), DEFAULT_STYLE, { derived });
   for (const object of [windowsObject, macObject]) assert.ok(!object.includes("batch 2"), "an Office object carries no note");
   assert.equal(noteCount(readOct(windowsObject).mol), 1, "only the title");
   // Copy As CDXML Text is text for another app: none either.
   assert.match(part("const copyAs = ", "const [name, write]"), /formatOf\(withoutNotes\(part\), "cdxml"\)/);
-  assert.match(editor, /load\(undefined, s\.oct, undefined, undefined, true\)/, "an object opens with none");
+  assert.match(editor, /load\(undefined, s\.oct, undefined, undefined, false, true\)/, "an object opens with none");
   assert.match(part("function addOwnTemplate(", "function removeRingTemplate"), /newTemplate\(name, withoutNotes\(mol\)\)/, "Add to templates");
   assert.equal(editor.match(/serialize\(templateOf\(withoutNotes\(doc\)\)\)/g)?.length, 2, "a purpose template from the drawing");
   // The page and every picture are drawn by render.ts and export.ts, which never read a note; print shows only those

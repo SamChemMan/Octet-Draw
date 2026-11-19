@@ -61,7 +61,7 @@ console.log("circledcharges.check: ±8 and the circle cleared at 0 ok");
   assert.deepEqual(chargeLook({}, 3, true), { charge: 3, circled: true });
   assert.deepEqual(chargeLook({ charge: 1 }, 3, true), { charge: 3, circled: undefined });
   assert.deepEqual(chargeLook({ charge: 1, circled: true }, 2, false), { charge: 2, circled: true });
-  assert.deepEqual(chargeLook({ charge: 2, circled: true }, 0, true), { charge: undefined, circled: undefined });
+  assert.deepEqual(chargeLook({ charge: 2, circled: true }, 0, true), { charge: undefined, circled: undefined, sign: undefined });
 }
 console.log("circledcharges.check: new charges take the document's look ok");
 
@@ -116,7 +116,8 @@ console.log("circledcharges.check: Circle the charge ok");
   assert.deepEqual(doc.atoms, hundred.atoms, "S3: ten turns of the option change no atom");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), settings = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
   assert.match(settings, /d\("document", "Style", "Circle new charges", "[^"]+", <Switch on=\{!!style\.circled\} label="Circle new charges" onChange=\{\(on\) => change\(\{ circled: on \|\| undefined \}\)\} \/>\)/, "the Settings switch, under Hide implicit hydrogens");
-  assert.match(editor, /onStyle=\{\(next\) => \(madeTemplate \? changeTemplate\(madeTemplate\.id, \{ style: next \}\) : set\(\{ \.\.\.scaleSizes\(doc, next\.scale \/ style\.scale\), style: next \}, true\)\)\}/, "a style change is one set");
+  // (A change of Sequences draws the chains again with the style, in one set too: helm.ts withSequences, issue 27.)
+  assert.match(editor, /onStyle=\{\(next\) => \(madeTemplate \? changeTemplate\(madeTemplate\.id, \{ style: next \}\) : next\.sequences && next\.sequences !== \(seqLabels \? "labels" : "atoms"\) \? setSequences\(next\.sequences, next\) : set\(\{ \.\.\.scaleSizes\(doc, next\.scale \/ style\.scale\), style: next \}, true\)\)\}/, "a style change is one set");
 }
 console.log("circledcharges.check: the document option in files and Settings ok");
 

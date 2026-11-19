@@ -7,7 +7,7 @@ import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
-  readPalettes, readSize, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
+  readPalettes, readSize, keepOwnRings, ringed, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -485,6 +485,10 @@ const STEREO: Record<string, string> = {
   // An R group ranks above any element, as a methyl ranks above H: the E of R-CH=N-Me is MeCH=NMe's.
   "Imine": "(E)-N-methylethanimine", "Oxime": "(E)-N-hydroxyethanimine", "Hydrazone": "(E)-ethylidenehydrazine",
 };
+// The cyclodextrins (issue 97): the closed ring of α-1,4-linked D-glucopyranoses made from OPSIN's chain
+// (tools/library/hosts.mjs); src/hosts.check.ts compares it with PubChem's.
+const { cyclodextrinSmiles } = await import("../tools/library/hosts.mjs");
+for (const [n, name] of [[6, "α-Cyclodextrin"], [7, "β-Cyclodextrin"], [8, "γ-Cyclodextrin"]] as const) STEREO[name] = `smiles:${cyclodextrinSmiles(n, nameToSmiles) ?? assert.fail(name)}`;
 const reference = (t: (typeof items)[number]) => t.category === "Amino acids" ? (t.name === "Glycine" ? undefined : `L-${t.name.toLowerCase()}`)
   : t.category === "Hexoses" ? t.name.replace(/ \((Haworth|chair)\)$/, "").replace(/^α-D-(.)/, (_, c) => `alpha-D-${c.toLowerCase()}`).replace(/^β-D-(.)/, (_, c) => `beta-D-${c.toLowerCase()}`)
   : STEREO[t.name];
@@ -525,12 +529,14 @@ console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are 
 
 // Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
 // templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; a base pair, two
-// molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake). The drawn sets have no structure. The
-// calixarenes, pillar[5]arene and [2.2]paracyclophane take von Baeyer names with compound locants:
+// molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake; a cucurbituril, a cage of many fused
+// rings). The drawn sets have no structure. The calixarenes, pillar[5]arene, [2.2]paracyclophane and the cyclodextrins
+// take von Baeyer names with compound locants:
 // pentacyclo[19.3.1.1³,⁷.1⁹,¹³.1¹⁵,¹⁹]octacosa-1(25),3,5,7(28),…-dodecaene. The decalins cite r and s, read back by
 // Octet's reader (pseudo.ts), and the Cubane template, drawn in 3D, is a cage whose bridgeheads its name need not cite.
 const UNNAMED = new Set(["IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
   "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair",
+  "Cucurbit[5]uril", "Cucurbit[6]uril", "Cucurbit[7]uril", "Cucurbit[8]uril",
   ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))
     // Polyhedra of carbon atoms drawn in 3D that are cages of one stereoisomer: named as their hydrocarbons.
     .filter((n) => !["Trigonal bipyramid", "Square pyramid", "Cube", "Tetrahedrane"].includes(n))]);
@@ -561,10 +567,11 @@ console.log(`templates: ${named} templates named by Structure to Name, each name
 // Clean Up: a structure drawn in perspective (with depth: chairs, Newman, sawhorse and Haworth projections, Fischer
 // projections, paddlewheels, cubane) or with a π ligand (metallocenes) is left exactly where it is. Any other comes out
 // with the same structure and stereo, and tidy (not marked for Clean Up), but for these: bridged rings and crowded
-// biaryl phosphines, [2.2.2]cryptand and pillar[5]arene, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
+// biaryl phosphines, [2.2.2]cryptand, pillar[5]arene and the cucurbiturils, whose short or crossing bonds no flat drawing avoids. (Drawn in 3D, a bridged ring's bridgeheads
 // read as stereocentres and Structure to Name gives it no name, so they stay flat.)
 const CROWDED = new Set(["Bicyclo[1.1.1]pentane", "Bicyclo[2.1.1]hexane", "Bicyclo[3.1.1]heptane", "Norbornane", "Norbornene", "Norbornadiene", "Bicyclo[2.2.2]octane",
-  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos", "[2.2.2]Cryptand", "Pillar[5]arene"]);
+  "Bicyclo[3.2.1]octane", "Bicyclo[3.3.1]nonane", "Adamantane", "DABCO", "BINAP", "Xantphos", "XPhos", "SPhos", "[2.2.2]Cryptand", "Pillar[5]arene",
+  "Cucurbit[5]uril", "Cucurbit[6]uril", "Cucurbit[7]uril", "Cucurbit[8]uril"]);
 let kept = 0, cleaned = 0;
 for (const t of molecular) {
   const after = chem.cleanUp(t.mol);
@@ -701,4 +708,56 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
     assert.ok(mol.atoms.some((a) => a.location[2]), `${t.name}: its depths come back from MOL`);
   }
   console.log(`templates: ${frames.length} polyhedron frames and the fullerenes show no warning, no bond end on, and come back from CDXML, CDX, .oct and MOL ok`);
+}
+
+// Own templates in the Ring menu (1.1.3, docs/plans/c-templates.md): one pin for built-in and own templates.
+{
+  const src = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const a = newTemplate("A", { atoms: [atom("C", 0, 0)], bonds: [] }), b = newTemplate("B", { atoms: [atom("N", 0, 0)], bonds: [] });
+  const [ka, kb] = [templateKind(a.id), templateKind(b.id)];
+  // 4. Settings from 1.1.2: every own template stays in the strip, before the kept built-in ones, in the old order.
+  assert.deepEqual(keepOwnRings(["lib:Adamantane"], [a, b]), [ka, kb, "lib:Adamantane"], "1.1.2 settings: own templates first, then the kept built-in ones");
+  assert.deepEqual(keepOwnRings([kb, "lib:Adamantane"], [a, b]), [ka, kb, "lib:Adamantane"], "a kind already kept is not kept twice");
+  assert.deepEqual(keepOwnRings(["lib:Adamantane"], [null, 3, { id: 7 }, "x"]), ["lib:Adamantane"], "bad saved templates are skipped");
+  assert.deepEqual(keepOwnRings([], []), [], "no templates: nothing kept");
+  const settings = src("settings.ts");
+  assert.match(settings, /saved\.ringOwnKept === true \? kept : keepOwnRings\(kept, /, "loadSettings moves own templates into the strip only while the flag is missing");
+  assert.match(settings, /ringOwnKept: true,\n/, "loadSettings sets the flag, so it moves them once");
+  assert.match(settings, /libraryRings: \[\], ringOwnKept: true,/, "a new user has nothing to move");
+  // 2. The strip: kept kinds that still exist, in order; an own template only when kept.
+  const exists = (k: string) => [ka, kb, "lib:Adamantane"].includes(k);
+  assert.deepEqual(ringStrip([kb, "lib:Adamantane", "custom:gone", ka], exists), [kb, "lib:Adamantane", ka], "the strip: kept ones in order, removed ones left out");
+  assert.deepEqual(ringStrip([], exists), [], "own templates not kept are not in the strip");
+  const tools = src("tools.tsx");
+  assert.match(tools, /\[\.\.\.Object\.keys\(RINGS\), \.\.\.ringStrip\(p\.libraryRings, \(k\) => libraryItem\(k\) \|\| p\.named\(k\) \|\| template\(k\)\)\]/, "the Ring strip lists the rings, then the kept templates of every kind");
+  assert.doesNotMatch(tools, /p\.templates\.map\(\(t\) => templateKind\(t\.id\)\)/, "the Ring strip no longer lists every own template");
+  assert.match(tools, /key\.startsWith\("ring:custom:"\) \? "ring"/, "an own template dragged from the library onto the strip is kept there");
+  assert.match(tools, /tool === "ring" && \(!!libraryItem\(kind\) \|\| !!kindName\(kind\) \|\| !!template\(kind\)\)/, "the strip × on an own template takes it out of the strip");
+  assert.match(tools, /onClick: \(\) => unkeep\(tool, kind\)/, "the strip × never removes the template itself");
+  // 1 and 6. The pin: in the menu of every template (library and floating palette), and on the Ring library's tiles.
+  const library = src("TemplateLibrary.tsx");
+  assert.match(library, /const keep: MenuItem\[\] = a\.onKeep \? \[\{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size=\{18\} \/>, checked: kept \}\] : \[\];/, "one Keep in the Ring menu item, ticked when kept");
+  assert.match(library, /Move to end", icon: <ArrowLineDownRight size=\{18\} \/> \}\] : \[\]\)\],\n\s*keep,\n\s*a\.onRemove/, "an own template's menu has the pin, before Remove");
+  assert.match(library, /\{p\.onKeep && \(\n\s*<button className="variant-action" aria-pressed=\{kept\} aria-label=\{`Keep \$\{t\.name\} in the Ring menu`\}/, "every tile in the Ring library has the pin, own ones too, as a pressed button");
+  // 3 and 5. Saved from the Ring tool (or with it in hand) it goes in the strip; removed, it leaves the strip.
+  const base = { templates: [a, b], templateSets: [] as string[], libraryRings: ["lib:Adamantane", kb] };
+  const c = newTemplate("C", { atoms: [atom("O", 0, 0)], bonds: [] }), kc = templateKind(c.id);
+  assert.deepEqual(ringed(base, addTo(base, c), true).libraryRings, ["lib:Adamantane", kb, kc], "saved from the Ring tool: at the end of the strip");
+  assert.deepEqual(ringed(base, addTo(base, c)).libraryRings, ["lib:Adamantane", kb], "saved anywhere else: library only");
+  assert.deepEqual(ringed(base, addTo(base, c), false).templates.map((t) => t.name), ["A", "B", "C"], "the template is saved either way");
+  const twin = ringed(base, duplicateTemplate(base, a.id), true), copy = twin.templates.find((t) => t.name === "A copy")!;
+  assert.deepEqual(twin.libraryRings, ["lib:Adamantane", kb, templateKind(copy.id)], "Duplicate from the Ring tool: the copy joins the strip");
+  assert.deepEqual(ringed(base, duplicateTemplate(base, a.id), false).libraryRings, base.libraryRings, "Duplicate from the Template tool: library only");
+  assert.deepEqual(ringed(base, removeTemplate(base, b.id)).libraryRings, ["lib:Adamantane"], "a removed template leaves the strip");
+  assert.deepEqual(ringed(base, removeTemplate(base, a.id)).libraryRings, base.libraryRings, "removing one not in the strip leaves the strip as it is");
+  assert.equal(ringed(base, base, true), base, "no change: the same settings");
+  const editor = src("Editor.tsx");
+  assert.match(editor, /\.\.\.ringed\(s, addTo\(s, t, set\), ring\)/, "addOwnTemplate keeps it in the strip only when ring");
+  assert.match(editor, /function addOwnTemplate\(name: string, mol: Mol, set\?: string, tool: TemplateTool = "ring", ring = tool === "ring"\)/, "a template saved from the Ring tool goes in the strip");
+  assert.match(editor, /addPart\(templatePart\(\), command\.slice\(13\) \|\| MY_SET, "ring", undefined, tool === "ring"\)/, "Add to templates from the canvas: in the strip only with the Ring tool in hand");
+  assert.match(editor, /ringed\(s, addTo\(s, t\), e\.tool === "ring"\)/, "a copy edited from the Ring library and saved goes in the strip");
+  assert.match(editor, /ringed\(s, duplicateTemplate\(s, id\), tool === "ring"\)/, "Duplicate from the Ring tool's library or palette goes in the strip");
+  assert.match(editor, /\.\.\.ringed\(s, removeTemplate\(s, id\)\)/, "a removed template leaves the strip");
+  assert.match(tools, /onDuplicate: \(id\) => p\.onDuplicate\(id, tool\)/, "Duplicate says which tool's library or palette it came from");
+  console.log("templates: own templates in the Ring menu: pin, strip, migration and removal ok");
 }

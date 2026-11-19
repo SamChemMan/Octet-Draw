@@ -96,7 +96,8 @@ const cases: Case[] = [
       // GDI-only EMF, Office object off or on).
       assert.match(editor, /const object = WINDOWS && on\.office !== false && on\.pdf;/);
       assert.match(clipboard, /let object = oct\.filter\(\|o\| text\.is_none\(\) && o\.len\(\) <= MAX_TYPE && crate::ole::win::offered\(\)\);/);
-      assert.match(clipboard, /let emf = \|\| crate::vector::make_office_emf\(&tree, cdxml\);/);
+      // Since issue 48 (1.1.3) the EMF's thread also makes the PDF for LibreOffice's copy, after the EMF.
+      assert.match(clipboard, /let emf = \|\| \(crate::vector::make_office_emf\(&tree, cdxml\), /);
       // The switch the reporter asked for (D9): Settings > Import and export > Copy > Office object, Windows only, on
       // by default, found by "word".
       assert.match(settingsUi, /\["office", "Office object", "[^"]*\bword\b[^"]*"\]/);
@@ -121,7 +122,7 @@ const cases: Case[] = [
   {
     id: "S16", what: "an object pasted from 1.1.2 is smooth after File > Update [S20]", hand: /An object pasted with 1\.1\.2[^.]*: jagged when opened[\s\S]*?now smooth/,
     // (bare: the drawing without its notes, which an object never holds; annotate.ts.)
-    here: () => assert.match(fnBody(editor, /const officeUpdate = async/), /invoke\("ole_update", \{ oct, svg: pictureOf\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\) \?\? "", send: true,/),
+    here: () => assert.match(fnBody(editor, /const officeUpdate = async/), /invoke\("ole_update", \{ oct, svg: copyPicture\(bare\) \?\? BLANK_SVG, cdxml: formatOf\(bare, "cdxml"\) \?\? "", send: true,/),
   },
   { id: "S17", what: "two objects from two documents open and changed, then Quit [S22]", hand: /two objects from two documents, change both/ },
   { id: "S18", what: "Word at 10% to 500%; printed; Save as PDF [S19, S29]", windows: ["ole_plus_zoom"], hand: /400%[\s\S]*Save As > PDF/ },
