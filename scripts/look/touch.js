@@ -136,6 +136,11 @@ async function option(i, key) {
   return v && slotTool(i)?.getAttribute("aria-pressed") === "true" ? was ?? key : undefined;
 }
 
+// Whether a pinch on an element zooms the window. touch-action is not inherited: a pinch zooms the window only where
+// every element from the one touched up to the root allows pinch-zoom. The root allows panning only, so nothing under
+// it can zoom the window.
+const pinchable = (el) => { for (let a = el; a; a = a.parentElement) { const t = getComputedStyle(a).touchAction; if (t === "none" || (t !== "auto" && t !== "manipulation" && !t.includes("pinch-zoom"))) return false; } return true; };
+
 // ——— A fixed mouse session (the same on every build: compare session between them) ———
 const SESSION = [
   [/bond$/i, (k) => stroke(k, [520, 380], [580, 380])],
@@ -160,9 +165,6 @@ if (new URLSearchParams(location.search).has("look-session")) { out.look = windo
 if (new URLSearchParams(location.search).has("look-coarse")) { await clear(); await coarseSection(); out.look = window.__look; out.errors = window.__errors.slice(0, 10); return JSON.stringify(out); }
 
 // ——— The page never zooms (job 5, stress 19) ———
-// touch-action is not inherited: a pinch zooms the window only where every element from the one touched up to the
-// root allows pinch-zoom. The root allows panning only, so nothing under it can zoom the window.
-const pinchable = (el) => { for (let a = el; a; a = a.parentElement) { const t = getComputedStyle(a).touchAction; if (t === "none" || (t !== "auto" && t !== "manipulation" && !t.includes("pinch-zoom"))) return false; } return true; };
 if (part("root")) {
   check("the root lets a finger pan but not zoom the window", getComputedStyle(document.documentElement).touchAction === "pan-x pan-y", getComputedStyle(document.documentElement).touchAction);
   check("the canvas takes every touch itself", getComputedStyle(svg).touchAction === "none", getComputedStyle(svg).touchAction);
