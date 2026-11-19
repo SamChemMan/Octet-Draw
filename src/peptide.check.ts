@@ -36,7 +36,7 @@ assert.equal(peptideProblem("aspirin"), undefined);
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
 assert.match(editor, /function insertSequence\(prefix: string\) \{\n\s+warmLayout\(\);\n\s+openNaming\(prefix\);/);
-assert.match(editor, /casProblem\(naming\) \?\? peptideProblem\(naming\)/, "the name field says why codes are refused");
+assert.match(editor, /casProblem\(naming\) \?\? seqNote/, "the name field says why codes are refused (helm.ts fieldSeq)");
 assert.match(readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8"), /item\("insert_peptide", "Insert Peptide…", ""\)/);
 assert.doesNotMatch(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"), /insert_peptide|insert_rna|insert_dna/, "sequences are in the toolbar");
 const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8");

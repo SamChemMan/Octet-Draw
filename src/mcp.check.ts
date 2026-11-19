@@ -20,6 +20,7 @@ const { calculated, propertyValues } = await import("./proprows.ts");
 const { structures: structuresIn } = await import("./chem.ts");
 const { addCaption, subset } = await import("./edit.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
+const { isSeqText, seqBuilt, toFasta, toHelm } = await import("./helm.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
 type Box = import("./render.ts").Box;
@@ -47,13 +48,14 @@ const captionBox = (id: number): Box | undefined => {
 };
 const host: Host = {
   doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async (names) => { readied.push(names); },
-  structure: (t) => { const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
+  // A sequence (Octet's words or HELM) is built from its monomers, as the drawing shows sequences, as the editor does.
+  structure: (t) => { if (isSeqText(t)) { const r = seqBuilt({ build: t, labels: m.style?.sequences === "labels" }); return r && !("problem" in r) ? r : undefined; } const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
   tidy: (x) => x, named: (t) => t in NAMES,
   begin: (step) => { steps.push(step); open++; }, end: (made) => { open--; shown = made; },
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
-  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
+  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "helm" ? toHelm(m) : f === "fasta" ? toFasta(m) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
@@ -2939,6 +2941,27 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(steps.length, 1);
   assert.deepEqual(m.captions!.filter((c) => c.property).map((c) => [c.text, c.property!.attrs.rows]), [["46.07", "weight -names"], ["78.11", "weight -names"]]);
   fresh();
+}
+
+// Sequences (issue 27): a peptide drawn by HELM with its links, as the drawing shows sequences; set_style's sequences
+// draws them again either way; read gives HELM as Copy As writes it.
+{
+  fresh();
+  const INSULIN = "PEPTIDE1{G.I.V.E.Q.C.C.T.S.I.C.S.L.Y.Q.L.E.N.Y.C.N}|PEPTIDE2{F.V.N.Q.H.L.C.G.S.H.L.V.E.A.L.Y.L.V.C.G.E.R.G.F.F.Y.T.P.K.T}$PEPTIDE1,PEPTIDE1,6:R3-11:R3|PEPTIDE1,PEPTIDE2,7:R3-7:R3|PEPTIDE1,PEPTIDE2,20:R3-19:R3$$$V2.0";
+  let out = await call("draw", { kind: "structures", structures: [{ text: INSULIN }] });
+  assert.ok(!out.isError, text(out));
+  assert.equal(analyseCompound(m)?.formula, "C257H383N65O77S6", "insulin");
+  assert.equal(text(await call("read", { format: "helm" })), INSULIN, "read helm: as Copy As writes it");
+  assert.equal(text(await call("read", { format: "fasta" })), "GIVEQCCTSICSLYQLENYCN\nFVNQHLCGSHLVEALYLVCGERGFFYTPKT");
+  const atoms = m.atoms.length;
+  out = await call("advanced", { tool: "set_style", args: { sequences: "labels" } });
+  assert.match(text(out), /sequences now show as residue labels/);
+  assert.ok(m.atoms.length < atoms && m.atoms.every((a) => a.inner || a.text || a.label === "H"), "residue labels");
+  assert.equal(m.style?.sequences, "labels");
+  assert.equal(text(await call("read", { format: "helm" })), INSULIN, "the same HELM");
+  await call("advanced", { tool: "set_style", args: { sequences: "atoms" } });
+  assert.equal(m.atoms.length, atoms, "atoms again");
+  assert.match(text(await call("advanced", { tool: "set_style", args: { sequences: "beads" } })), /sequences: not one of atoms, labels/);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

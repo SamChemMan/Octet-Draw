@@ -8,7 +8,7 @@ import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn,
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { chainLayout } from "./chain.ts";
-import { labelRows } from "./sequence.ts";
+import { labelLayout } from "./sequence.ts";
 import { kekulise } from "./rings.ts";
 import { counts as formulaCounts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
@@ -339,15 +339,20 @@ export function quickMol(smiles: string): Mol | undefined {
 const centre = (pts: readonly (readonly number[])[]) => [0, 1].map((k) => pts.reduce((sum, p) => sum + p[k], 0) / pts.length);
 // Each peptide or oligonucleotide along a straight backbone (chain.ts), where it was. Anything else as it is.
 function straightened(m: Mol): Mol {
-  const atoms = [...m.atoms];
+  const atoms = [...m.atoms], routes = new Map<number, number>();
   for (const frag of fragments(m)) {
     const laid = chainLayout(m, frag);
     if (!laid) continue;
     const [ox, oy] = centre(frag.map((i) => m.atoms[i].location)), [cx, cy] = centre([...laid.values()]);
     for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + x - cx, oy + y - cy, 0] };
+    laid.routes?.forEach((r, b) => routes.set(b, r));
   }
-  return atoms.every((a, i) => a === m.atoms[i]) ? m : keptHands(m, { ...m, atoms });
+  if (atoms.every((a, i) => a === m.atoms[i])) return m;
+  const out = keptHands(m, { ...m, atoms });
+  return routes.size ? { ...out, bonds: routed(out.bonds, routes) } : out;
 }
+// Bonds with the brackets a chain's layout gives its links (chain.ts): a bond in routes takes its route.
+const routed = (bonds: Mol["bonds"], routes: Map<number, number>) => bonds.map((b, k) => (routes.has(k) ? { ...b, route: routes.get(k) } : b));
 // A new layout's wedges and hashes, so each centre keeps the hand they drew before (from): where a centre now lies the
 // other way round, its wedges become hashes and its hashes wedges.
 function keptHands(from: Mol, to: Mol): Mol {
@@ -1079,6 +1084,15 @@ function placeWedges(m: Mol, hands: Map<number, number>, stereo = stereoFacts(m)
   return { ...m, atoms, bonds };
 }
 
+// Wedges and hashes that draw each centre's hand (hands: 1 or -1 by atom, as wedgeHands gives it: its neighbours in atom
+// order, an implicit H last), placed where ChemDraw puts them (placeWedges); the centres' own wedges and hashes go.
+// The sequence builder (seqbuild.ts) knows each hand from its monomers and gives it so, after the layout.
+export function handsDrawn(m: Mol, hands: Map<number, number>): Mol {
+  if (!hands.size) return m;
+  const centres = new Set(hands.keys());
+  const bare = { ...m, bonds: m.bonds.map((b) => ((b.stereo === 1 || b.stereo === 6) && centres.has(b.atoms[0]) ? (({ stereo: _, ...rest }) => rest)(b) : b)) };
+  return placeWedges(bare, hands, centres);
+}
 // Each label's group as Indigo reads it, kept by the label's text, so each label is read once. Not kept while Indigo
 // is loading. Cleared when it grows large.
 const labelGroups = new Map<string, Mol | undefined>();
@@ -1251,6 +1265,21 @@ function convert(input: string, format: string, options: Record<string, string> 
   }
 }
 export const toSmiles = (drawn: Mol): string => convert(ketOf(drawn), "smiles");
+// The drawing as SMILES that is the same however the compound is drawn (a HELM monomer's own SMILES, issue 27): the
+// structure its InChI with fixed hydrogens and metals kept bonded gives (one structure for one such InChI), written by
+// Indigo. The fixed H layer keeps the tautomer drawn (an amide stays C=O), and /RecMet keeps a metal's bonds. Its own
+// SMILES where that fails.
+const FIXED_INCHI = { "inchi-options": "/FixedH /RecMet" };
+export function canonicalSmiles(drawn: Mol): string {
+  try {
+    const inchi = drawn.atoms.length > 1023 ? "" : convert(ketOf(drawn), "inchi", FIXED_INCHI);
+    if (inchi) {
+      const back = parseStructure(inchi, false);
+      if (convert(ketOf(back), "inchi", FIXED_INCHI) === inchi) return toSmiles(back).split(/\s/)[0];
+    }
+  } catch { /* its own SMILES */ }
+  return toSmiles(drawn).split(/\s/)[0];
+}
 // The MCP host's SMILES (Editor.tsx and scripts/headless/host.ts), kept by the KET Indigo reads, as analyses are kept:
 // a draw's reply compares each compound drawn again with its first by SMILES (mcp.ts madeCompounds), call after call.
 // The keys are compounds, not whole drawings: copy as SMILES and the dictionary use toSmiles and keep nothing.
@@ -1666,6 +1695,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
   const pi = new Set(mol.atoms.flatMap((a) => a.centre?.atoms ?? []));
   const groups = fragments(mol, false).filter((frag) => frag.length > 1 && frag.length <= MOST_CLEAN && (!ids?.size || frag.some((i) => ids.has(i))) && !frag.some((i) => mol.atoms[i].centre || mol.atoms[i].location[2] || pi.has(i)));
   let chains = false;
+  // Brackets: each bond of a structure cleaned up loses its own, and a chain's links get theirs again (chain.ts).
+  const routes = new Map<number, number>(), cleaned = new Set(groups.flat());
   for (const frag of groups) {
     const [ox, oy] = centre(frag.map((i) => mol.atoms[i].location));
     // A peptide or oligonucleotide: as residue labels, in rows (sequence.ts); drawn out, cleaned and then along a
@@ -1674,8 +1705,8 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
       const own = ownScale(frag), [cx, cy] = centre([...laid.values()]);
       for (const [i, [x, y]] of laid) atoms[i] = { ...atoms[i], location: [ox + (x - cx) * own, oy + (y - cy) * own, 0] };
     };
-    const rows = labelRows(mol, frag);
-    if (rows) { placeAt(rows); continue; }
+    const rows = labelLayout(mol, frag);
+    if (rows) { placeAt(rows.at); rows.routes.forEach((r, b) => routes.set(b, r)); continue; }
     const local = new Map(frag.map((i, k) => [i, k]));
     const bonds = mol.bonds.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1]));
     const out = clean2d(frag.map((i) => mol.atoms[i].location), bonds.map((b) => ({ atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!], order: shapeType(b.type) })), work * Math.min(1, 2 / groups.length), SAFETY * Math.min(1, 2 / groups.length), rounds);
@@ -1689,7 +1720,7 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
       atoms[i] = { ...atoms[i], location: [ox + (x - nx) * scale, oy + (y - ny) * scale, 0] };
     });
     const chain = chainLayout({ ...mol, atoms }, frag);
-    if (chain) { placeAt(chain); chains = true; continue; }
+    if (chain) { placeAt(chain); chains = true; chain.routes?.forEach((r, b) => routes.set(b, r)); continue; }
     // As ChemDraw's clean up leaves it: a ring structure turned so its bottom ring bond is level, and a structure
     // without rings turned so the most bonds lie at a multiple of 30°.
     const turn = levelTurn({ ...mol, atoms }, frag);
@@ -1699,7 +1730,13 @@ export function cleanUp(mol: Mol, ids?: Set<number>, work = WORK, rounds?: numbe
     }
   }
   // A chain's centres keep their hands (keptHands).
-  const kept = chains ? keptHands(mol, { ...mol, atoms }).bonds : mol.bonds;
+  const handed = chains ? keptHands(mol, { ...mol, atoms }).bonds : mol.bonds;
+  const kept = handed.some((b) => b.route !== undefined) || routes.size ? handed.map((b, k) => {
+    if (routes.has(k)) return { ...b, route: routes.get(k) };
+    if (b.route === undefined || !cleaned.has(b.atoms[0])) return b;
+    const { route: _, ...rest } = b;
+    return rest;
+  }) : handed;
   if (labels) for (const frag of groups) {
     const own = ownScale(frag), local = new Map(frag.map((i, k) => [i, k])), bonds = kept.filter((b) => local.has(b.atoms[0]) && local.has(b.atoms[1])).map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] }));
     const pieceOf = (from: Mol["atoms"]): Mol => ({ atoms: frag.map((i) => ({ ...from[i], location: [from[i].location[0] / own, from[i].location[1] / own, 0], scale: scaleOf(from[i]) / own })), bonds });

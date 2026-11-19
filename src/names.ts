@@ -354,6 +354,8 @@ function tidy(s: string): string {
     .replace(/\.$/, "");
 }
 
+// HELM (issue 27) is a sequence, never a name to correct.
+const HELM = /^\s*(PEPTIDE|RNA|CHEM|BLOB)\d{1,9}\{/;
 // A name close to what was typed, for when it is not a name OPSIN reads: the rest of a common name being
 // typed ("phenylal" to phenylalanine), a common name spelt with up to a few mistakes ("phenylanaline"), or
 // any name one keystroke away ("2-methlypropan-1-ol"). Every suggestion is one OPSIN reads.
@@ -361,7 +363,7 @@ function tidy(s: string): string {
 export function suggestName(typed: string, thorough = true): string | undefined {
   const s = typed.trim(), lower = s.toLowerCase();
   // Text after "peptide:", "rna:" or "dna:" is codes, never a name with a slip in it.
-  if (!opsin || s.length < 3 || s.length > 80 || PEPTIDE.test(s) || NUCLEIC.test(s) || nameToSmiles(s)) return undefined;
+  if (!opsin || s.length < 3 || s.length > 80 || PEPTIDE.test(s) || NUCLEIC.test(s) || HELM.test(s) || nameToSmiles(s)) return undefined;
   // The rest of a common name: the shortest one that starts with what was typed.
   let lo = 0, hi = names.length;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (names[mid] < lower) lo = mid + 1; else hi = mid; }

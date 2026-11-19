@@ -1,9 +1,10 @@
 // Run: node src/namepreview.check.ts. Name to Structure's live preview (namepreview.ts). Typing in the name field
-// never waits: a keystroke reads a sequence ("peptide: …", "rna: …", "dna: …") without OPSIN or Indigo, in well under
-// a frame. A sequence or a structure of over 100 atoms is previewed once typing pauses, laid out by Indigo alone in a
-// worker, and the newest text wins. Anything smaller previews at once, tidied, as before. Return draws the tidied
-// structure, laid out in the same worker so the window never waits: the same structure as the page made before (same
-// InChI), as one undo step, cancelled by an edit or Escape.
+// never waits: a keystroke reads a sequence ("peptide: …", "rna: …", "dna: …", or HELM) without OPSIN or Indigo, in
+// well under a frame. A sequence is built from its monomers in a worker once typing pauses (seqLayout, issue 27), and
+// Return draws the same structure; a structure of over 100 atoms is previewed laid out by Indigo alone in the worker,
+// and the newest text wins. Anything smaller previews at once, tidied, as before. Return draws the tidied structure,
+// laid out in the same worker so the window never waits: the same structure as the page made before (same InChI), as
+// one undo step, cancelled by an edit or Escape.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { browser, loadOpsin, opsinDir } from "../scripts/checkkit.ts";
@@ -12,7 +13,8 @@ browser();
 const g = globalThis as Record<string, unknown>;
 const { fullMol, parseStructure, quickMol, ready, toInchi } = await import("./chem.ts");
 const { sandwich } = await import("./edit.ts");
-const { fullLayout, isSequence, laterSmiles, PREVIEW_ATOMS, PREVIEW_PAUSE, quickLayout } = await import("./namepreview.ts");
+const { fullLayout, isSequence, laterSmiles, PREVIEW_ATOMS, PREVIEW_PAUSE, quickLayout, seqLayout } = await import("./namepreview.ts");
+const { fieldSeq } = await import("./helm.ts");
 const { peptideSmiles } = await import("./peptide.ts");
 const { nucleicText } = await import("./nucleic.ts");
 await ready;
@@ -20,14 +22,10 @@ await ready;
 const PEPTIDE_60 = `peptide: ${"ACDEFGHIKLMNPQRSTVWY".repeat(3)}`, RNA_30 = `rna: ${"ACGU".repeat(8).slice(0, 30)}`, DNA_30 = `dna: ${"ACGT".repeat(8).slice(0, 30)}`;
 const ASPIRIN = "CC(=O)OC1=CC=CC=C1C(=O)O";
 
-// Which text waits. Sequences always (their SMILES built here); a name or SMILES of over PREVIEW_ATOMS atoms; nothing else.
-assert.ok(isSequence(PEPTIDE_60) && isSequence(RNA_30) && isSequence("DNA: AT") && !isSequence("aspirin"));
-assert.equal(laterSmiles(PEPTIDE_60, undefined), peptideSmiles(PEPTIDE_60));
-assert.equal(laterSmiles(RNA_30, undefined), (nucleicText(RNA_30) as { smiles: string }).smiles);
-assert.ok(laterSmiles(DNA_30, undefined));
-assert.equal(laterSmiles("peptide: GG", undefined), peptideSmiles("peptide: GG"), "a short peptide waits too: reading it takes OPSIN");
-assert.equal(laterSmiles("peptide: ABG", undefined), undefined, "bad codes: nothing to lay out");
-assert.equal(laterSmiles("rna: ", undefined), undefined);
+// Which text waits. Sequences always (built from their monomers, seqLayout, never read as names); a name or SMILES of
+// over PREVIEW_ATOMS atoms (laterSmiles); nothing else.
+assert.ok(isSequence(PEPTIDE_60) && isSequence(RNA_30) && isSequence("DNA: AT") && isSequence("PEPTIDE1{A.C}$$$$V2.0") && !isSequence("aspirin"));
+for (const text of [PEPTIDE_60, RNA_30, DNA_30, "peptide: GG", "rna: "]) assert.equal(laterSmiles(text, undefined), undefined, `${text}: built, not laid out from SMILES`);
 assert.equal(laterSmiles("aspirin", ASPIRIN), undefined, "aspirin previews at once");
 assert.equal(laterSmiles(ASPIRIN, undefined), undefined, "so does its SMILES");
 const big = "C".repeat(PREVIEW_ATOMS + 1), edge = "C".repeat(PREVIEW_ATOMS);
@@ -37,18 +35,19 @@ assert.equal(laterSmiles(big, undefined), big, "nor does long SMILES typed or pa
 assert.equal(laterSmiles("not a name", undefined), undefined);
 assert.ok(PREVIEW_PAUSE > 0 && PREVIEW_PAUSE <= 200, "a short pause");
 
-// A keystroke's work on a sequence: well under a frame (16 ms), however long it is.
-for (const text of [PEPTIDE_60, RNA_30, DNA_30]) {
-  laterSmiles(text, undefined);
+// A keystroke's work on a sequence: well under a frame (16 ms), however long it is, HELM too.
+const HELM_LONG = `PEPTIDE1{${Array.from({ length: 1000 }, (_, k) => "ACDEFGHIKLMNPQRSTVWY"[k % 20]).join(".")}}$$$$V2.0`;
+for (const text of [PEPTIDE_60, RNA_30, DNA_30, HELM_LONG]) {
+  fieldSeq(text);
   const t = performance.now();
-  for (let k = 0; k < 20; k++) laterSmiles(text.slice(0, text.length - (k % 3)), undefined);
+  for (let k = 0; k < 20; k++) fieldSeq(text.slice(0, text.length - (k % 3)));
   const ms = (performance.now() - t) / 20;
   assert.ok(ms < 4, `${text.slice(0, 8)}: ${ms.toFixed(2)} ms a keystroke`);
 }
 
-// The quick layout is the same structure as the tidied one (same InChI), and quicker.
+// The quick layout of a large structure's SMILES is the same structure as the tidied one (same InChI), and quicker.
 for (const text of [PEPTIDE_60, RNA_30]) {
-  const smiles = laterSmiles(text, undefined)!;
+  const smiles = peptideSmiles(text) ?? (nucleicText(text) as { smiles: string }).smiles;
   let t = performance.now();
   const quick = quickMol(smiles);
   const fast = performance.now() - t;
@@ -69,12 +68,14 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /const typedSmiles = useMemo\(\(\) => \(naming === undefined \|\| !loaded \|\| isSequence\(naming\.trim\(\)\) \? undefined : nameToSmiles\(naming\)\)/);
 assert.match(editor, /const later = useMemo\(\(\) => \(naming === undefined \|\| !loaded \? undefined : laterSmiles\(naming, typedSmiles\)\)/);
 assert.match(editor, /setTimeout\(\(\) => void quickLayout\(later\)\.then\(\(mol\) => \{ if \(!gone\) setQuickPreview\(\{ smiles: later, mol \}\); \}\), PREVIEW_PAUSE\)/);
-assert.match(editor, /naming === undefined \|\| later \? undefined : structureFromText\(naming, undefined, typedSmiles \?\? null\)/);
-assert.match(editor, /const shownFull = later \? quickPreview\?\.mol : named, shownNamed = useMemo\(\(\) => \(shownFull && naming !== undefined \? asResidues\(naming\.trim\(\), shownFull\) : shownFull\)/);
+assert.match(editor, /naming === undefined \|\| later \|\| seqText !== undefined \? undefined : structureFromText\(naming, undefined, typedSmiles \?\? null\)/);
+assert.match(editor, /const shownNamed = seqText !== undefined \? \(seqKey \? seqPreview\?\.mol : undefined\) : later \? quickPreview\?\.mol : named;/);
+assert.match(editor, /setTimeout\(\(\) => void seqLayout\(seqText!, seqLabels\)\.result\.then/, "a sequence previews from the worker after the pause");
+assert.match(editor, /const built = seqLayout\(seqText, seqLabels\);/, "Return builds the same, kept from the preview");
 assert.match(editor, /if \(later\) \{\n\s+if \(placing === naming\) return true;\n\s+placingJob\.current\?\.cancel\(\);/, "Return on a waiting structure asks the worker, once");
 assert.match(editor, /const job = fullLayout\(list && list\.join\("\."\) === typedSmiles \? list : \[later\], !!typedSmiles \|\| isSequence\(s\)\);/);
 assert.match(editor, /if \(placing === undefined \|\| naming === placing\) return;\n\s+placingJob\.current\?\.cancel\(\);/, "an edit, Escape or closing the field cancels it");
-assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,800}landName\(withOwnCaption\(s, asResidues\(s, frag\)\)\);/, "it lands as one place(), one undo step");
+assert.match(editor, /if \(placingJob\.current !== job\) return;[\s\S]{0,900}landName\(withOwnCaption\(s, frag\)\);/, "it lands as one place(), one undo step");
 assert.match(editor, /const landName = \(frag: Mol\) => \{ settleFrom\.current = doc\.atoms\.length; place\(frag, doc, namingAt\.current\); setNaming\(undefined\); \};/, "it lands as one place(), one undo step");
 assert.match(editor, /aria-busy=\{placing === naming \|\| undefined\}/, "the field shows it is busy");
 const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
@@ -86,16 +87,19 @@ const worker = readFileSync(new URL("layout.worker.ts", import.meta.url), "utf8"
 assert.match(worker, /postMessage\(quickMol\(ask\.smiles\)\)/);
 assert.match(worker, /postMessage\(ask\.pieces\.map\(\(p\) => fullMol\(p, ask\.ions\)\)\)/);
 
-// Return's structure: the same as the page made before Return moved to the worker (Editor.tsx structureFor:
-// sandwich(parseStructure(smiles))), along a straight backbone (fullMol, chain.ts). A 30-nt RNA reads the same SMILES,
-// so it is the same structure. A peptide is laid out from the SMILES built here (peptideSmiles) and not OPSIN's, so it
-// is the same structure (same standard InChI).
-const RNA_SMILES = laterSmiles(RNA_30, undefined)!;
+// Return's structure for a large SMILES: the same as the page made before Return moved to the worker (Editor.tsx
+// structureFor: sandwich(parseStructure(smiles))), along a straight backbone (fullMol, chain.ts). A sequence is built
+// from its monomers (seqLayout): the same compound (standard InChI) as the SMILES 1.1.2 drew it from, and as OPSIN reads
+// the peptide's name.
+const RNA_SMILES = (nucleicText(RNA_30) as { smiles: string }).smiles;
 const rnaBefore = sandwich(parseStructure(RNA_SMILES)), rnaAfter = (await fullLayout([RNA_SMILES], true).result)![0];
 assert.deepEqual(rnaAfter, fullMol(RNA_SMILES), "30-nt RNA: the same drawing");
 assert.equal(toInchi(rnaAfter), toInchi(rnaBefore), "30-nt RNA: the same InChI");
-const pepAfter = (await fullLayout([laterSmiles(PEPTIDE_60, undefined)!], true).result)![0];
-assert.equal(pepAfter.atoms.length, quickMol(laterSmiles(PEPTIDE_60, undefined)!)!.atoms.length, "60-residue peptide: every atom");
+const pepAfter = (await seqLayout(PEPTIDE_60, false, []).result) as import("./render.ts").Mol;
+assert.equal(pepAfter.atoms.length, quickMol(peptideSmiles(PEPTIDE_60)!)!.atoms.length, "60-residue peptide: every atom");
+assert.equal(toInchi(pepAfter), toInchi(peptideSmiles(PEPTIDE_60)!), "60-residue peptide: the same compound as its SMILES");
+assert.equal(toInchi((await seqLayout(RNA_30, false, []).result) as import("./render.ts").Mol), toInchi(RNA_SMILES), "30-nt RNA: the same compound");
+assert.equal(await seqLayout(PEPTIDE_60, false, []).result, pepAfter, "kept: Return after the preview draws at once");
 if (existsSync(new URL("opsin.js", opsinDir))) {
   const { DRUGS } = await import("./drugs.ts");
   const { attachOpsin, nameToSmiles } = await import("./names.ts");
@@ -120,9 +124,13 @@ await import("./layout.worker.ts");
 await workerScope.onmessage!({ data: { smiles: ASPIRIN } });
 await workerScope.onmessage!({ data: { pieces: [RNA_SMILES], ions: true } });
 await workerScope.onmessage!({ data: { pieces: ["not smiles((("], ions: true } });
+await workerScope.onmessage!({ data: { build: "peptide: ACD", labels: true, own: [] } });
+await workerScope.onmessage!({ data: { build: "peptide: [Zzz]", labels: false, own: [] } });
 assert.equal((posted[0] as { atoms: unknown[] }).atoms.length, 13, "a preview");
 assert.deepEqual(posted[1], [rnaAfter], "Return's structure, the same as on the page");
 assert.equal(posted[2], undefined);
+assert.deepEqual((posted[3] as import("./render.ts").Mol).atoms.map((a) => a.text ?? a.label), ["H", "Ala", "Cys", "Asp", "OH"], "a sequence built as labels");
+assert.deepEqual(posted[4], { problem: "Not a monomer: [Zzz]" }, "or why not");
 // A worker whose Indigo did not load still answers (undefined), so the queue moves on and the field is not busy for ever.
 assert.match(worker, /try \{\n\s+await ready;[\s\S]*\} catch \{ postMessage\(undefined\); \}/);
 

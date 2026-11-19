@@ -171,6 +171,29 @@ input:disabled,
 circle.mark {
   stroke: none;
 }
+/* A bracket bond's mark goes along the bracket, in its group's colour. */
+polyline.mark {
+  fill: none;
+  stroke-linejoin: round;
+}
+.selection-marks polyline {
+  fill: none;
+  stroke: var(--select);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.erase-marks polyline {
+  fill: none;
+  stroke: var(--error);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nmr-marks polyline {
+  fill: none;
+  stroke: var(--brand-mist);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* Selection: a stronger tint. A copy that worked: the selection's tint rises and falls once; with nothing selected,
    the page's edge lights once. */
@@ -218,6 +241,7 @@ circle.mark {
   fill: none;
   stroke: var(--select);
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* A group wholly selected: a dotted frame round it, a hairline at any zoom. */

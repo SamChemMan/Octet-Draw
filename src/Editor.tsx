@@ -97,17 +97,18 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, setPseudoReader, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
-import { PEPTIDE, peptideProblem } from "./peptide";
-import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
-import { readSequence, toFasta, toHelm } from "./helm";
-import { NUCLEIC, nucleicProblem } from "./nucleic";
-import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, warmLayout } from "./namepreview";
+import { PEPTIDE } from "./peptide";
+import { relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
+import { fieldSeq, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
+import { monomerRefs } from "./seqbuild";
+import { NUCLEIC } from "./nucleic";
+import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, seqLayout, warmLayout } from "./namepreview";
 import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation, namerName, setCageCheck } from "./naming";
 import { pseudoReader } from "./pseudo";
@@ -182,8 +183,12 @@ const mcpTaken = new Set<number>();
 // never shown) can wait a second.
 const tick = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
-// A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
-labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
+// A bond from a residue label joins at its free link (helm.ts linkResidues); a residue with none says so (linkNotice).
+const linkNotice: { show?: (problem: string) => void } = {};
+// A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel); one joined
+// by its side chain keeps its name, and says why.
+labelHooks.relabel = (m, i, text) => { const r = relabel(m, i, text, parseStructure); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
+labelHooks.link = (m, i, j) => { const r = linkResidues(m, i, j); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
 const HOME_WINDOW = TAURI && !DRAW_WINDOW && !new URLSearchParams(location.search).has("editor");
 // The computer user's name, a new drawing's author (Settings > Document > Properties). Asked for once as the window
 // loads, before the window asks what it opens, so a new window's first drawing has it.
@@ -628,6 +633,7 @@ export default function Editor() {
   const [notice, showNotice] = useState<Notice>();
   const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"], stays?: boolean) =>
     showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1, stays }) : undefined);
+  linkNotice.show = (problem) => setNotice(problem, "info");
   // Feedback (for testers, not in the public release: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
   // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
   // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
@@ -650,9 +656,9 @@ export default function Editor() {
   const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
-  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
+  const drawingPrefs = useMemo(() => ({ sequenceLabels: settings.sequenceLabels, fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
     autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit, riskNew: settings.riskNew }),
-  [settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
+  [settings.sequenceLabels, settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -1078,6 +1084,12 @@ export default function Editor() {
   // joins a cycle as a structure dragged there does.
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
+  // How this document shows sequences (issue 27): its style's Sequences, else as Residue labels was last chosen.
+  const seqLabels = (doc.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels";
+  // A sequence an AI app gives (mcp.ts draw), built on the spot as the drawing m shows sequences; undefined when not.
+  const builtSeq = (text: string, m: Mol): Mol | undefined => {
+    try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels" }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
+  };
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
     // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
@@ -1275,6 +1287,8 @@ export default function Editor() {
   useEffect(() => setRecent({ all: false, at: -1 }), [naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   // Each name is kept with its structure (as SMILES), so it draws again whatever happens to the name lists.
   const rememberName = (name: string, frag: Mol) => {
+    // A long HELM or sequence is not kept in the name history.
+    if (name.length > 200) return;
     let smiles = "";
     try { smiles = toSmiles(frag); } catch { /* kept by name alone */ }
     setSettings((s) => ({ ...s, nameHistory: [{ name, smiles }, ...s.nameHistory.filter((n) => n.name.toLowerCase() !== name.toLowerCase())].slice(0, 50) }));
@@ -1393,8 +1407,8 @@ export default function Editor() {
     if (f === "cml") return toCml(part);
     if (f === "ct") return toCt(part, name);
     if (f === "sln") return toSln(part);
-    if (f === "helm") return toHelm(part, toInchi, toSmiles);
-    if (f === "fasta") return toFasta(part, toInchi);
+    if (f === "helm") return toHelm(part);
+    if (f === "fasta") return toFasta(part);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
     if (kind === "sdf") return toSdf(part, v2000);
     const steps = stepsIn(part);
@@ -2476,12 +2490,19 @@ export default function Editor() {
   function pasteSequence(text: string, field = false): boolean {
     const read = readSequence(text);
     if (read && "problem" in read) setNotice(read.problem);
-    else if (read) (field ? setNaming : insertSequence)(read.text);
+    else if (read) { (field ? setNaming : insertSequence)(read.text); if (read.notes) setNotice(read.notes.join(" "), "info"); }
     return !!read;
   }
-  // A sequence with Residue labels on is drawn as its residues' labels (sequence.ts residues); anything else, and a
-  // sequence whose atoms are not in the order of its SMILES, as it is.
-  const asResidues = (text: string, frag: Mol) => (settings.sequenceLabels && isSequence(text) ? residuesOf(text, frag, parseStructure) ?? frag : frag);
+  // Settings > Document > Style > Sequences, and Residue labels under the name field: every chain in the document drawn
+  // again as atoms or as residue labels (helm.ts withSequences), with the style, in one undo step. New documents start
+  // with the last choice. The chip in a drawing with no sequence to draw again, whose style does not say how they show,
+  // changes only the choice for the next one: the drawing is not edited.
+  function setSequences(to: "atoms" | "labels", next: DocStyle = style) {
+    setSettings((st) => ({ ...st, sequenceLabels: to === "labels" }));
+    const drawn = withSequences(doc, to);
+    if (drawn === doc && next === style && style.sequences === undefined) return;
+    set({ ...drawn, style: { ...next, sequences: to } }, true);
+  }
   // The sequence choices under the name field (sequence.ts): the text is rewritten, the caret goes after the codes, and
   // with the Sequence tool in hand the kind chosen is the tool's choice from now on.
   function chooseSequence(next: SeqParts) {
@@ -2497,7 +2518,20 @@ export default function Editor() {
   function drawNamed(): boolean {
     if (naming === undefined) return false;
     if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
-    // A sequence or large structure, previewed with Indigo's layout alone, is drawn tidied: laid out in the worker
+    // A sequence (issue 27) is built in the worker from its monomers, as its preview was (namepreview.ts seqLayout), as
+    // the document shows sequences. The field is busy until it comes (landLater). One with a problem is not drawn.
+    if (seqText !== undefined) {
+      if (seqNote || !seqRead) return false;
+      if (placing === naming) return true;
+      placingJob.current?.cancel();
+      const built = seqLayout(seqText, seqLabels);
+      const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
+      placingJob.current = job;
+      setPlacing(naming);
+      void job.result.then((mols) => landLater.current?.(naming, mols, job));
+      return true;
+    }
+    // A large structure, previewed with Indigo's layout alone, is drawn tidied: laid out in the worker
     // (namepreview.ts fullLayout), so the window never waits. The field is busy until it comes (landLater).
     if (later) {
       if (placing === naming) return true;
@@ -2512,7 +2546,7 @@ export default function Editor() {
     }
     const frag = named;
     if (!frag) return askPubChem(naming) || offerPubChem(naming);
-    landName(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)));
+    landName(withOwnCaption(naming.trim(), frag));
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), frag); } else if (suggestion) rememberName(suggestion, frag);
     return true;
   }
@@ -2536,7 +2570,7 @@ export default function Editor() {
     let frag = mols && (mols.length > 1 ? inRow(mols) : mols[0]);
     if (frag && !name) frag = asOpened(frag, text);
     if (!frag?.atoms.length) { if (nameField.current) shake(nameField.current); return; }
-    landName(withOwnCaption(s, asResidues(s, frag)));
+    landName(withOwnCaption(s, frag));
     if (name) rememberName(s, frag);
   };
   // Name to Structure's last step (decision 0015): with Settings > Online search on, a name or InChIKey nothing offline
@@ -2932,7 +2966,7 @@ export default function Editor() {
       // phosphate, with each outside bond capped as the free compound has it (OH on C or P, H on N or O).
       if (links.length > 1) {
         const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1];
-        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
+        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi, monomerRefs()) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
       }
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
@@ -3717,7 +3751,11 @@ export default function Editor() {
   const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
   // In place of a suggestion: why a CAS number is refused, or the wait for PubChem.
   const seqParts = naming === undefined ? undefined : sequenceParts(naming);
-  const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming) ?? peptideProblem(naming) ?? nucleicProblem(naming);
+  // A sequence (issue 27): read on each keystroke (a long HELM in well under a frame), its problem shown under the field.
+  const seqText = naming !== undefined && isSequence(naming.trim()) ? naming.trim() : undefined;
+  const seqRead = useMemo(() => (seqText === undefined ? undefined : fieldSeq(seqText)), [seqText]);
+  const seqNote = !seqRead ? undefined : "problem" in seqRead ? seqRead.problem : seqProblem(seqRead.seq, seqLabels);
+  const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming) ?? seqNote;
   // The text read as a name, once a keystroke (a sequence is never read here: OPSIN takes up to 0.3 s over a peptide).
   const typedSmiles = useMemo(() => (naming === undefined || !loaded || isSequence(naming.trim()) ? undefined : nameToSmiles(naming)), [naming, namesLoaded, loaded]);
   // A sequence or a large structure: laid out away from the page once typing pauses (namepreview.ts), with the last
@@ -3732,10 +3770,21 @@ export default function Editor() {
     return () => { gone = true; clearTimeout(t); };
   }, [later, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   const named = useMemo(
-    () => (naming === undefined || later ? undefined : structureFromText(naming, undefined, typedSmiles ?? null) ?? (suggestion ? structureFor(suggestion) : undefined)),
-    [naming, suggestion, namesLoaded, loaded, later, typedSmiles],
+    () => (naming === undefined || later || seqText !== undefined ? undefined : structureFromText(naming, undefined, typedSmiles ?? null) ?? (suggestion ? structureFor(suggestion) : undefined)),
+    [naming, suggestion, namesLoaded, loaded, later, typedSmiles, seqText],
   );
-  const shownFull = later ? quickPreview?.mol : named, shownNamed = useMemo(() => (shownFull && naming !== undefined ? asResidues(naming.trim(), shownFull) : shownFull), [shownFull, settings.sequenceLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A sequence is built in the layout worker once typing pauses, as the document shows sequences; the last one shows
+  // meanwhile. Return draws the same structure (seqLayout keeps it).
+  const [seqPreview, setSeqPreview] = useState<{ key: string; mol?: Mol }>();
+  const seqKey = seqText !== undefined && seqRead && !("problem" in seqRead) && !seqNote ? `${seqLabels}\n${seqText}` : undefined;
+  useEffect(() => {
+    if (naming === undefined) setSeqPreview(undefined);
+    if (!seqKey || seqPreview?.key === seqKey) return;
+    let gone = false;
+    const t = setTimeout(() => void seqLayout(seqText!, seqLabels).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
+    return () => { gone = true; clearTimeout(t); };
+  }, [seqKey, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownNamed = seqText !== undefined ? (seqKey ? seqPreview?.mol : undefined) : later ? quickPreview?.mol : named;
   // Captions as laid out, with the caption being typed in place of its saved text (or added, if it is new).
   // Arrows grow to fit their conditions, including conditions being typed. The arrow lists stay the same lists while
   // their arrows do not change (most typing), so nothing drawn from them is made again.
@@ -7894,7 +7943,8 @@ export default function Editor() {
     ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
     newWindow: (purpose, session, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
     loaded: loaded && namesLoaded, indigo: loaded,
-    structure: (text) => structureFromText(text),
+    // A sequence (Octet's words or HELM, issue 27) is built from its monomers, as the drawing shows sequences.
+    structure: (text) => (isSequence(text.trim()) ? builtSeq(text, now.current) : structureFromText(text)),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
@@ -8062,7 +8112,7 @@ export default function Editor() {
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
     mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], sln: ["SLN", (m) => toSln(m) ?? ""],
-    helm: ["HELM", (m) => toHelm(m, toInchi, toSmiles) ?? ""], fasta: ["FASTA", (m) => toFasta(m, toInchi) ?? ""],
+    helm: ["HELM", (m) => toHelm(m) ?? ""], fasta: ["FASTA", (m) => toFasta(m) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;
@@ -8105,7 +8155,9 @@ export default function Editor() {
   // The names drawn before that match what is typed (all of them when nothing is), five at a time until opened.
   const historyMatches = naming === undefined ? [] : settings.nameHistory.filter(({ name: n }) => { const q = naming.trim().toLowerCase(); return !q || (n.toLowerCase().includes(q) && n.toLowerCase() !== q); });
   const historyRows = recent.all ? historyMatches : historyMatches.slice(0, 5), historyMore = !recent.all && historyMatches.length > 5;
+  // A sequence has no picture here: it is built only as the field builds one (pickHistory), in the worker.
   const historyMol = ({ name, smiles }: { name: string; smiles: string }) => {
+    if (isSequence(name)) return undefined;
     if (!historyMols.current.has(name) && loaded && (smiles || namesLoaded)) {
       let m: Mol | undefined;
       try { m = smiles ? parseStructure(smiles) : structureFor(name); } catch { m = undefined; }
@@ -8114,6 +8166,18 @@ export default function Editor() {
     return historyMols.current.get(name);
   };
   const pickHistory = (entry: { name: string; smiles: string }) => {
+    // A sequence is drawn as the field draws it (drawNamed): built from its monomers in the worker, as the document
+    // shows sequences, and landed when it comes.
+    if (isSequence(entry.name)) {
+      placingJob.current?.cancel();
+      const text = entry.name, built = seqLayout(text, seqLabels);
+      const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
+      placingJob.current = job;
+      setNaming(text);
+      setPlacing(text);
+      void job.result.then((mols) => landLater.current?.(text, mols, job));
+      return;
+    }
     const frag = historyMol(entry) ?? structureFor(entry.name);
     if (!frag) return;
     place(frag, doc, namingAt.current);
@@ -9544,9 +9608,15 @@ export default function Editor() {
     const e = drawing.electrons.find((x) => x.atom === i && x.key === key);
     return e ? <circle key="h" className="mark" cx={e.at[0]} cy={e.at[1]} r={0.22 * L} /> : null;
   };
+  // A bond's line on screen (px, y down): a bracket (Bond.route) goes out, along and back, as render.ts draws it.
+  const bondLine = (i: number): number[][] => {
+    const b = shown.bonds[i], p = pos(shown, b.atoms[0]), q = pos(shown, b.atoms[1]), r = routeOf(shown, b);
+    return (r ? bracketPath(p, q, r) : [p, q]).map(([x, y]) => [x * L, -y * L]);
+  };
   const bondMark = (i: number, key: string, cls: string) => {
-    const [a, b] = shown.bonds[i].atoms.map((k) => pos(shown, k));
-    return <line key={key} className={cls} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeWidth={0.36 * L} />;
+    const l = bondLine(i);
+    if (l.length > 2) return <polyline key={key} className={cls} points={l.join(" ")} strokeWidth={0.36 * L} />;
+    return <line key={key} className={cls} x1={l[0][0]} y1={l[0][1]} x2={l[1][0]} y2={l[1][1]} strokeWidth={0.36 * L} />;
   };
   const captionMark = (id: number, key: string, cls: string) => {
     const c = placed.find((x) => x.id === id);
@@ -9588,8 +9658,7 @@ export default function Editor() {
     const n = (x: number) => Math.round(x * 100) / 100;
     shown.bonds.forEach((b, i) => {
       if (!selection.has(b.atoms[0]) || !selection.has(b.atoms[1]) || shown.atoms[b.atoms[0]].hidden || shown.atoms[b.atoms[1]].hidden) return;
-      const [p, q] = shown.bonds[i].atoms.map((k) => pos(shown, k));
-      bonds += `M${n(p[0] * L)} ${n(-p[1] * L)}L${n(q[0] * L)} ${n(-q[1] * L)}`;
+      bonds += bondLine(i).map(([x, y], k) => `${k ? "L" : "M"}${n(x)} ${n(y)}`).join("");
     });
     for (const i of selection) {
       if (i >= shown.atoms.length || shown.atoms[i].hidden) continue;
@@ -10026,7 +10095,7 @@ export default function Editor() {
         const band = frame.line + 3 * frame.spacing, own = new Set(shown.bonds.flatMap((b) => (b.halo === c ? b.atoms : [])));
         return (
           <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c} stroke={c} strokeLinecap="round">
-            {shown.bonds.map((b, k) => b.halo === c && <line key={`b${k}`} x1={pos(shown, b.atoms[0])[0] * L} y1={-pos(shown, b.atoms[0])[1] * L} x2={pos(shown, b.atoms[1])[0] * L} y2={-pos(shown, b.atoms[1])[1] * L} strokeWidth={band} />)}
+            {shown.bonds.map((b, k) => b.halo === c && <polyline key={`b${k}`} points={bondLine(k).join(" ")} fill="none" strokeLinejoin="round" strokeWidth={band} />)}
             {shown.atoms.map((at, i) => {
               if (at.halo !== c) return null;
               const box = drawing.label[i];
@@ -10690,25 +10759,26 @@ export default function Editor() {
         );
       }}</Live>}
       <Exit>{charMap && <CharMap focus={charFocus.current} onClose={() => setCharMap(false)} />}</Exit>
-      <Exit>{naming !== undefined && seqParts && (
+      <Exit>{naming !== undefined && (seqParts || seqText !== undefined) && (
         // A sequence's kind and ends, under the field. The field keeps the focus, so the codes go on being typed. Another
-        // kind starts with the usual ends: an N-acetyl is not a 5'-phosphate.
+        // kind starts with the usual ends: an N-acetyl is not a 5'-phosphate. HELM says its own kind and ends.
         <div className="name-options" role="toolbar" aria-label="Sequence" onPointerDown={(e) => e.preventDefault()}>
-          <span className="name-kinds" role="radiogroup" aria-label="Kind">
+          {seqParts && <span className="name-kinds" role="radiogroup" aria-label="Kind">
             {(Object.keys(SEQUENCES) as SeqKind[]).map((k) => (
               <button key={k} type="button" role="radio" tabIndex={-1} aria-checked={seqParts.kind === k} onClick={() => chooseSequence({ ...seqParts, kind: k, start: false, end: false })}>{SEQUENCES[k].name}</button>
             ))}
-          </span>
-          {(["start", "end"] as const).map((end, i) => (
+          </span>}
+          {seqParts && (["start", "end"] as const).map((end, i) => (
             <button key={end} type="button" tabIndex={-1} aria-pressed={seqParts[end]} onClick={() => chooseSequence({ ...seqParts, [end]: !seqParts[end] })}>{SEQ_ENDS[seqParts.kind][i]}</button>
           ))}
-          {/* Off: every atom (issue 27). On: one label for each residue, as ChemDraw draws a sequence. Kept for next time. */}
-          <button type="button" tabIndex={-1} aria-pressed={settings.sequenceLabels} onClick={() => setSettings((s) => ({ ...s, sequenceLabels: !s.sequenceLabels }))}>Residue labels</button>
+          {/* The document's Sequences (issue 27): off, every atom; on, one label for each residue, as ChemDraw draws a
+              sequence. It draws the document's sequences again, and new documents start with the last choice. */}
+          <button type="button" tabIndex={-1} aria-pressed={seqLabels} onClick={() => setSequences(seqLabels ? "atoms" : "labels")}>Residue labels</button>
         </div>
       )}</Exit>
       <Exit>{naming !== undefined && nameNote && (
         // A wrong CAS check digit, or the wait for PubChem, under the field where a suggestion shows.
-        <p className={seqParts ? "name-suggestion lower" : "name-suggestion"} aria-live="polite"><span>{nameNote}</span></p>
+        <p className={seqParts || seqText !== undefined ? "name-suggestion lower" : "name-suggestion"} aria-live="polite"><span>{nameNote}</span></p>
       )}</Exit>
       <Exit>{naming !== undefined && !nameNote && suggestion && !nameToSmiles(naming) && (() => {
         // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
@@ -10789,7 +10859,7 @@ export default function Editor() {
           style={madeTemplate?.style ?? style}
           isDefault={isDefault()}
           preview={preview}
-          onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
+          onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : next.sequences && next.sequences !== (seqLabels ? "labels" : "atoms") ? setSequences(next.sequences, next) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
           onDefault={() => keepForNew(style)}
           purposes={purposeList}
           onPurpose={(id) => (!madeTemplate ? applyPurpose(id)

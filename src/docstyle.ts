@@ -76,6 +76,9 @@ export type DocStyle = {
   // What the drawing is for: "paper", "thesis", "slides", "poster", "experiment" or one of the user's own
   // (PURPOSES). It sets the outlines on the canvas. A file from another program has none.
   purpose?: string;
+  // How the drawing's sequences show (issue 27): every atom, or each residue as a label (H–Ala–Cys–OH) with a residue
+  // Octet does not know drawn in full. Unset is as Octet 1.1.2 drew them: as the Residue labels choice said.
+  sequences?: "atoms" | "labels";
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -208,6 +211,7 @@ export function readStyle(v: unknown): DocStyle {
     chainAngle: num("chainAngle", 90, 179),
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),
+    ...(s.sequences === "atoms" || s.sequences === "labels" ? { sequences: s.sequences } : {}),
   };
   const palette = (Array.isArray(s.palette) ? s.palette : []).flatMap((c: unknown) => {
     const x = c as { name?: unknown; hex?: unknown };

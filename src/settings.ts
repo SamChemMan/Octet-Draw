@@ -98,7 +98,7 @@ export type Settings = {
   massUnit: "g" | "mg"; // Settings > Typing > Mass without a unit: a number typed with no unit in a stoichiometry table's mass cell
   cursor: CursorInk; // Settings > General > Cursor: Octet's cursors black, white, or the one that shows on the page
   selectColour: string; // Settings > General > Selection: the selection's colour, #RRGGBB (selectcolour.ts)
-  sequenceLabels: boolean; // the name field's Residue labels: a sequence drawn as H–Ala–Cys–OH (sequence.ts residues)
+  sequenceLabels: boolean; // how sequences show in a new document (its style's Sequences): as residue labels, H–Ala–Cys–OH
 };
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";

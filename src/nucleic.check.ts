@@ -38,9 +38,9 @@ assert.equal(nucleicProblem("aspirin"), undefined);
 // says why codes are refused. Codes never go to PubChem and are never corrected to a name.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
-assert.match(editor, /peptideProblem\(naming\) \?\? nucleicProblem\(naming\)/);
+assert.match(editor, /casProblem\(naming\) \?\? seqNote/);
 assert.match(editor, /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| looksLikeSmiles\(s\)\) return false;/);
-assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
+assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| HELM\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
 const menu = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
 assert.match(menu, /item\("insert_peptide", "Insert Peptide…", ""\)\?,\n\s+&item\("insert_rna", "Insert RNA…", ""\)\?,\n\s+&item\("insert_dna", "Insert DNA…", ""\)\?,/);
 

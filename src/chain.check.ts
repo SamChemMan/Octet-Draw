@@ -16,7 +16,9 @@ const { chainLayout } = await import("./chain.ts");
 const { fragments, neighbours: near } = await import("./edit.ts");
 const { peptideSmiles } = await import("./peptide.ts");
 const { nucleicText } = await import("./nucleic.ts");
-const { residues } = await import("./sequence.ts");
+const { buildLabels } = await import("./seqbuild.ts");
+const { fieldSeq } = await import("./helm.ts");
+const residues = (_full: unknown, text: string) => { const r = fieldSeq(text); const b = r && "seq" in r ? buildLabels(r.seq) : undefined; return b && "mol" in b ? b.mol : undefined; };
 const { readSequence, toFasta, toHelm } = await import("./helm.ts");
 
 const smilesOf = (text: string) => peptideSmiles(text) ?? (nucleicText(text) as { smiles: string }).smiles;
@@ -80,18 +82,23 @@ for (const smiles of ["C[C@H]([C@@H](C(=O)N1CCC[C@H]1C(=O)N2CCC[C@@]2(Cc3ccccc3)
   const m = chem.parseStructure("CC(=O)N1CCC[C@@]1(Cc1ccccc1)C(=O)N[C@@H](C)C(=O)N[C@@H](C)C(=O)N", false);
   assert.ok(chainLayout(m, fragments(m)[0]), "an α-benzylproline along a straight backbone");
 }
-// Left to the usual clean-up: a dipeptide, two cysteines joined by a disulfide, a cyclic peptide, and any other
-// structure.
-for (const smiles of ["N[C@@H](C)C(=O)N[C@@H](C)C(=O)O", "N[C@@H](CS1)C(=O)NCC(=O)N[C@@H](CS1)C(=O)O", "O=C1CNC(=O)CNC(=O)CNC(=O)CN1", "Cn1cnc2c1c(=O)n(C)c(=O)n2C"]) {
+// Left to the usual clean-up: a dipeptide and any other structure. Two cysteines joined by a disulfide and a cyclic
+// peptide are laid out along the backbone, the link drawn as a bracket (issue 27, bridges.check.ts).
+for (const smiles of ["N[C@@H](C)C(=O)N[C@@H](C)C(=O)O", "Cn1cnc2c1c(=O)n(C)c(=O)n2C"]) {
   const m = chem.parseStructure(smiles);
   assert.equal(chainLayout(m, fragments(m)[0]), undefined, smiles);
+}
+for (const smiles of ["N[C@@H](CS1)C(=O)NCC(=O)N[C@@H](CS1)C(=O)O", "O=C1CNC(=O)CNC(=O)CNC(=O)CN1"]) {
+  const m = chem.parseStructure(smiles), laid = chainLayout(m, fragments(m)[0]);
+  assert.equal(laid?.routes?.size, 1, `${smiles}: one bracket`);
 }
 // Residue labels moved about by hand go back into rows of ten, from the H end.
 {
   const text = "peptide: Ac-ACDEFGHIKLMNPQ-NH2", rows = residues(chem.parseStructure(smilesOf(text)), text)!;
   const moved = { ...rows, atoms: rows.atoms.map((a) => ({ ...a, location: [a.location[0] + rnd() * 1.5, a.location[1] + rnd() * 1.5, 0] as [number, number, number] })) };
   const m = chem.cleanUp(moved), at = (k: number) => m.atoms[k].location;
-  assert.ok(rows.atoms.every((_, k) => Math.abs(at(k)[0] - at(0)[0] - rows.atoms[k].location[0]) < 1e-9 && Math.abs(at(k)[1] - at(0)[1] - rows.atoms[k].location[1]) < 1e-9), "back in rows");
+  const was = (k: number) => rows.atoms[k].location;
+  assert.ok(rows.atoms.every((_, k) => Math.abs(at(k)[0] - at(0)[0] - (was(k)[0] - was(0)[0])) < 1e-9 && Math.abs(at(k)[1] - at(0)[1] - (was(k)[1] - was(0)[1])) < 1e-9), "back in rows");
   assert.equal(chem.toInchi(m), chem.toInchi(rows), "the same compound");
 }
 
@@ -101,7 +108,7 @@ assert.deepEqual(readSequence("PEPTIDE1{[ac].A.C.[am]}$$$$V2.0"), { text: "pepti
 assert.deepEqual(readSequence("RNA1{P.R(A)P.R(C)P.R(G)}$$$$"), { text: "rna: pACG" });
 assert.deepEqual(readSequence("RNA1{[dR](A)P.[dR](T)P}$$$$V2.0"), { text: "dna: ATp" });
 assert.deepEqual(readSequence("PEPTIDE1{A.[Aib].C}$$$$"), { problem: "Octet does not know the HELM monomer [Aib]." });
-assert.ok("problem" in readSequence("PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$")!, "a disulfide");
+assert.deepEqual(readSequence("PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$"), { text: "PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$" }, "a disulfide opens as HELM");
 assert.ok("problem" in readSequence("RNA1{R(A)P.[dR](T)}$$$$")!, "RNA and DNA in one chain");
 assert.deepEqual(readSequence("RNA1{R(A)P.R(T)}$$$$"), { problem: "Octet does not know the HELM monomer R(T)." }, "ribothymidine is not rU");
 assert.deepEqual(readSequence("RNA1{[dR](U)P.[dR](A)}$$$$"), { problem: "Octet does not know the HELM monomer [dR](U)P." }, "deoxyuridine is not dT");
@@ -137,7 +144,7 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), men
 assert.equal(editor.match(/if \(text && pasteSequence\(text\)\) return/g)?.length, 2, "both paste paths");
 assert.match(editor, /onPaste=\{\(e\) => \{ if \(pasteSequence\(e\.clipboardData\.getData\("text\/plain"\), true\)\) e\.preventDefault\(\); \}\}/);
 assert.match(editor, /el === nameField\.current && pasteSequence\(c\.text, true\)/, "Edit > Paste on Linux too");
-assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m, toInchi, toSmiles\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m, toInchi\) \?\? ""\]/);
+assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m\) \?\? ""\]/);
 assert.match(menu, /item\("copy_helm", "HELM", if cfg!\(target_os = "macos"\) \{ "Alt\+CmdOrCtrl\+E" \} else \{ "" \}\)/);
 assert.match(menu, /item\("copy_fasta", "FASTA", ""\)/);
 

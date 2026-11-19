@@ -32,6 +32,7 @@ export type DrawingPrefs = {
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; pairBars: boolean;
   autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles"; massUnit: "g" | "mg";
   riskNew: boolean; // a new experiment page gets a risk assessment (riskassess.ts)
+  sequenceLabels: boolean; // how a document whose style does not say shows sequences: as residue labels
 };
 export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent" | "page"; margin: number; quality: number; // JPEG, 1 to 100
@@ -532,6 +533,10 @@ export function SettingsWindow(p: Props) {
       d("document", "Style", "Label every carbon", "non-terminal carbon labels all carbons show", <Switch on={style.carbonLabels} label="Label every carbon" onChange={(on) => change({ carbonLabels: on })} />),
       d("document", "Style", "Hide implicit hydrogens", "implicit hydrogens hide labels h", <Switch on={style.hideH} label="Hide implicit hydrogens" onChange={(on) => change({ hideH: on })} />),
       d("document", "Style", "Circle new charges", "circle circled charge charges plus minus ring oplus ominus", <Switch on={!!style.circled} label="Circle new charges" onChange={(on) => change({ circled: on || undefined })} />),
+      // How the drawing's sequences show (issue 27): every atom, or a label for each residue. A change draws them again.
+      d("document", "Style", "Sequences", "sequences sequence peptide residue labels atoms biopolymer helm display abbreviate", (
+        <Segmented label="Sequences" value={style.sequences ?? (p.drawing.sequenceLabels ? "labels" : "atoms")} options={[["atoms", "Atoms"], ["labels", "Residue labels"]]} onChange={(v) => change({ sequences: v })} />
+      )),
       num("chainAngle", "Chain angle", "°", "chain angle zig-zag bond angle 120"),
       d("drawing", "Bonds", "Fixed lengths", "fixed length bond drag one bond length option", <Switch on={p.drawing.fixedLengths} label="Fixed lengths" onChange={(on) => p.onDrawing({ fixedLengths: on })} />),
       d("drawing", "Bonds", "Fixed angles", "fixed angle bond drag 15 degrees steps option", <Switch on={p.drawing.fixedAngles} label="Fixed angles" onChange={(on) => p.onDrawing({ fixedAngles: on })} />),

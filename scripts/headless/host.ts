@@ -32,7 +32,7 @@ import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, typ
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
 import { toCt, toSln } from "../../src/textformats.ts";
-import { toFasta, toHelm } from "../../src/helm.ts";
+import { isSeqText, seqBuilt, toFasta, toHelm } from "../../src/helm.ts";
 import { chemfig } from "../../src/chemfig.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
@@ -162,6 +162,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
   };
   const structure = (text: string): Mol | undefined => {
     const s = text.trim(), lines = s.includes("\n");
+    // A sequence (Octet's words or HELM) is built from its monomers, as the drawing shows sequences (issue 27).
+    if (isSeqText(s)) { try { const r = seqBuilt({ build: s, labels: doc.style?.sequences === "labels" }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; } }
     const found = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : named(s);
     if (found || !(lines || looksLikeSmiles(s))) return found;
     try {
@@ -242,8 +244,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "cml") return toCml(chem);
       if (format === "ct") return toCt(chem, title);
       if (format === "sln") return toSln(chem);
-      if (format === "helm") return toHelm(chem, toInchi, toSmiles);
-      if (format === "fasta") return toFasta(chem, toInchi);
+      if (format === "helm") return toHelm(chem);
+      if (format === "fasta") return toFasta(chem);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
       // (No pictures and no .oct here: a picture needs the app's renderer.)
