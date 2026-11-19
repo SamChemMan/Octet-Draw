@@ -710,31 +710,32 @@ python("a");
 // ---- LibreOffice source: what its paste takes from Octet's copy on each system ----
 
 // Octet's copy, from clipboard.rs: on Windows the EMF (CF_ENHMETAFILE) and the bitmap (CF_DIB); on the Mac Office's own
-// copy and the PDF; on Linux the PNG, the PDF and the SVG.
+// copy and the PDF; on Linux the PNG, the PDF and the SVG. On Windows and Linux, LibreOffice's own copy of a picture
+// (SVXB) with the PDF goes last (issue 48, 1.1.3).
 const clip = read("../src-tauri/src/clipboard.rs");
-const windowsCopy = /if s == System::Windows \{[\s\S]*?put\(Kind::Emf,[\s\S]*?put\(Kind::Bitmap, b\)/.test(clip);
+const windowsCopy = /if s == System::Windows \{[\s\S]*?put\(Kind::Emf,[\s\S]*?put\(Kind::Bitmap, b\)[\s\S]*?libreoffice = pdf\.and_then/.test(clip);
 const macCopy = /out\.push\(\(name\(Kind::Office\)[\s\S]*?out\.push\(\(name\(Kind::Pdf\), pdf\)\)/.test(clip);
-check("copy.formats", "Octet's copy: Windows puts the EMF and a bitmap, the Mac Office's copy and the PDF", windowsCopy && macCopy);
-// LibreOffice's Windows names: CF_DIB is its BITMAP, CF_ENHMETAFILE its EMF, from which it offers GDIMETAFILE too
-// (vcl/win/dtrans/ftransl.cxx, vcl/source/treelist/transfer.cxx). Writer's paste takes the first of these that is
-// there (sot/source/base/formats.cxx, the Writer free-area copy table, the same in 24.8, 26.8 and master):
+const svxbLast = /put\(Kind::Octet, j\.into_bytes\(\)\);\s*\}\s*if let Some\(b\) = libreoffice \{\s*put\(Kind::Svxb, b\);\s*\}\s*Ok\(out\)/.test(clip);
+check("copy.formats", "Octet's copy: Windows puts the EMF and a bitmap, the Mac Office's copy and the PDF, and Windows and Linux LibreOffice's SVXB last", windowsCopy && macCopy && svxbLast);
+// LibreOffice's Windows names: CF_DIB is its BITMAP, CF_ENHMETAFILE its EMF, from which it offers GDIMETAFILE too, and
+// "SVXB (StarView Bitmap/Animation)" its SVXB (vcl/win/dtrans/ftransl.cxx, vcl/source/treelist/transfer.cxx). Writer's
+// paste takes the first of these that is there (sot/source/base/formats.cxx, the Writer free-area copy table):
 const WRITER = ["SVXB", "SD_OLE", "RICHTEXT", "EMBED_SOURCE", "EMBEDDED_OBJ", "RTF", "PDF", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "GDIMETAFILE", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"];
-const windowsOffer = new Set(["BITMAP", "EMF", "GDIMETAFILE"]);
+const windowsOffer = new Set(["SVXB", "BITMAP", "EMF", "GDIMETAFILE", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"]);
 const writerTakes = WRITER.find((f) => windowsOffer.has(f));
-// So a paste from Octet into LibreOffice on Windows is LibreOffice's own picture (issue 48 cuts it for 1.1.3: a new
-// Windows clipboard type needs a real run). Decision 0025 and the checklist say what LibreOffice does, and no What's
-// New line or checklist step promises the paste opens in Octet.
-const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md"), plan = read("../docs/plans/issue-48-libreoffice-win-mac.md");
-const whatsNew = plan.slice(plan.indexOf("## 13."), plan.indexOf("## 14."));
-const noPromise = !/So a paste from Octet is the EMF picture/.test(decision) && !/Paste it into Writer\. Right-click the picture: Edit in Octet Draw is first/.test(manual) && !/paste a structure from Octet into LibreOffice on Windows/i.test(whatsNew);
-check("O14.writer.windows", "LibreOffice source: Writer on Windows takes Octet's bitmap before the EMF, and Octet's documents and What's New say so, with no promise that the paste opens in Octet", writerTakes === "BITMAP" && /takes BITMAP \(the `CF_DIB`\) before\s+GDIMETAFILE/.test(decision) && noPromise, `Writer takes ${writerTakes}`);
-// Impress and Draw (sd View::InsertData, InsertMetaFile) and Calc (ScViewFunc::PasteDataFormat) read GDIMETAFILE with
-// GetGDIMetaFile, which converts the EMF to LibreOffice's own metafile: its bytes, and Octet's comment, are not kept.
-// Only GetGraphic keeps an EMF's own bytes, and only from LibreOffice 26.2 (tdf#168886).
-check("O15.impress.calc.windows", "LibreOffice source: Impress, Draw and Calc on Windows convert a pasted EMF (Octet's CDXML comment is lost): decision 0025 says so, and Insert > Octet Drawing on Windows asks for a PDF", /`TransferableDataHelper::GetGDIMetaFile`, which converts\s+the EMF/.test(decision) && noPromise && /Session\(ctx, controller, None, "pdf", at\)/.test(readFileSync(ext + "octet_draw.py", "utf8")), "decision 0025 or the extension's Insert");
-// Calc's paste table (formats.cxx, Calc free-area copy table) and ScViewFunc::PasteFromSystem have no PDF.
-const CALC = ["SVXB", "GDIMETAFILE", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "EMBED_SOURCE_OLE"];
-check("O16.calc.mac", "LibreOffice source: Calc's paste has no PDF, so a structure pasted into Calc is LibreOffice's picture: decision 0025 says so, and Calc's way in is Insert > Octet Drawing", !CALC.includes("PDF") && /Calc's paste table and `ScViewFunc::PasteFromSystem` have no PDF/.test(decision) && /In Calc a structure goes in by Insert > Octet Drawing/.test(decision) && !/paste[^.]*Calc/i.test(whatsNew), "decision 0025 or What's New");
+const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md");
+check("O14.writer.windows", "LibreOffice source: Writer on Windows takes Octet's SVXB (the PDF) before the bitmap, the EMF and the Office object, and decision 0025 and the checklist say so", writerTakes === "SVXB" && /Writer \(`sot\/source\/base\/formats\.cxx`, the free-area copy table\) and Calc/.test(decision) && /\(W3\) Settings > Import and export > Copy > Office object on/.test(manual), `Writer takes ${writerTakes}`);
+// Impress and Draw (sd View::InsertData, with no format from DoPaste): a PDF first, then the OLE step, then SVXB, then
+// GDIMETAFILE. The OLE step runs with EMBED_SOURCE_OLE and OBJECTDESCRIPTOR_OLE (Octet's object, Office object on); with
+// a GDIMETAFILE there it inserts that (converted, losing Octet's comment) and stops, before SVXB.
+const impress = (offer: Set<string>) => offer.has("PDF") ? "PDF" : offer.has("EMBED_SOURCE_OLE") && offer.has("OBJECTDESCRIPTOR_OLE") && offer.has("GDIMETAFILE") ? "GDIMETAFILE" : ["SVXB", "GDIMETAFILE", "BITMAP"].find((f) => offer.has(f));
+const impressOn = impress(new Set([...windowsOffer, "OBJECTDESCRIPTOR_OLE"])), impressOff = impress(new Set(["SVXB", "BITMAP", "EMF", "GDIMETAFILE"]));
+check("O15.impress.windows", "LibreOffice source: Impress and Draw on Windows take Octet's SVXB with the Office object off and the EMF with it on, decision 0025 says so, and Insert > Octet Drawing still asks for a PDF", impressOff === "SVXB" && impressOn === "GDIMETAFILE" && /Impress and Draw on Windows paste\s+LibreOffice's own picture/.test(decision) && /Session\(ctx, controller, None, "pdf", at\)/.test(readFileSync(ext + "octet_draw.py", "utf8")), `Impress takes ${impressOff} (object off), ${impressOn} (object on)`);
+// Calc's paste table (formats.cxx, Calc free-area copy table) and ScViewFunc::PasteFromSystem have no PDF: SVXB first.
+// The Mac's LibreOffice spells SVXB "svbx" in its pasteboard table, so it reads no SVXB from Octet there.
+const CALC = ["SVXB", "EMBED_SOURCE", "GDIMETAFILE", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"];
+const calcWindows = CALC.find((f) => windowsOffer.has(f)), calcLinux = CALC.find((f) => ["PNG", "PDF", "SVXB"].includes(f)), calcMac = CALC.find((f) => ["PDF"].includes(f));
+check("O16.calc", "LibreOffice source: Calc takes Octet's SVXB on Windows and Linux; on the Mac it can take nothing of Octet's as a PDF, and decision 0025 says so", calcWindows === "SVXB" && calcLinux === "SVXB" && calcMac === undefined && !CALC.includes("PDF") && /Calc takes no PDF/.test(decision) && /in Calc on the Mac a structure goes\s+in by Insert > Octet Drawing/.test(decision), `Windows ${calcWindows}, Linux ${calcLinux}, Mac ${calcMac}`);
 const writerMac = WRITER.find((f) => ["PDF", "PNG", "BITMAP"].includes(f));
 check("mac.writer", "LibreOffice source: Writer and Impress on the Mac paste Octet's PDF before any bitmap", writerMac === "PDF");
 
