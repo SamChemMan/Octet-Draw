@@ -2,8 +2,8 @@
 
 Issue 101 asks for notes that belong to the drawing: a panel of notes that is not exported with the figure and stays in
 the file sent to a co-author. Issue 102 asks for a note on one object, shown on demand, that stays with the object when
-the drawing is rearranged. Both are for release 1.2 (Friday 20 November 2026). Branch `item/101-102-notes`, from
-`release-1.2-mcp` b30f413.
+the drawing is rearranged. Both are for release 1.1.3 (Friday 20 November 2026). Branch `item/101-102-notes`, from
+`release-1.2-mcp` b30f413, rebased on `release-1.1.3` f06d1b4 on 19 November (see "At the rebase onto 1.1.3").
 
 Sam's conditions (9 November): the notes stay out of every export and picture, stay in the `.oct` file and survive
 ChemDraw files.
@@ -288,11 +288,34 @@ Done once issue 68's model is in the branch the two items meet in.
 - Done: cases in `annotate.check.ts`, `annotatefiles.check.ts` and `annotatemcp.check.ts` for a structure, and
   issue 68's own checks still pass.
 
-If issue 68 is not in 1.2, N9 waits with it, and Annotate is not offered on a structure in 1.2.
+If issue 68 is not in the release, N9 waits with it, and Annotate is not offered on a structure.
 
 Status (17 November): issue 68's model (`item/68-data-fields` c49d327) is not in this branch, so N9 waits. Annotate…
 is not offered on a structure, an atom or a bond, and the MCP's edit says a structure takes no note. A text made into
 an atom label (Make element) or converted to a structure loses its note until N9 (Undo brings it back).
+
+## At the rebase onto 1.1.3 (19 November)
+
+Release 1.1.3 has the AI apps switched off, so job N7 is built and checked but does nothing in 1.1.3. What changed
+to fit the release:
+
+- One `TextField` for Settings > Document > Properties > Comment (issue 100) and the notes. Both grow with their
+  text up to their lines (the comment 4, a note 12), then scroll, and Escape leaves the field. Before, the comment
+  showed 4 lines when empty and could be resized by hand.
+- The comment is a document property (`PROPERTIES`), so it is not a note: the Notes panel does not list it, and a
+  picture keeps it in its document information, as issue 100 says.
+- Free symbols (issue 164) are shapes, so each takes a note. In CDXML a free symbol's note is in its `Symbol`
+  graphic, and a δ+ or δ−'s in its `t`.
+- An object window from LibreOffice (issue 48) is an object window: no Annotate and no Notes panel.
+- What an object window keeps for its host while the user draws (`officePrime`, the first picture, and
+  `officeKeep`, each change) is made from `withoutNotes`, as Update is. A note pasted into the window goes to none
+  of them, on the Mac (the picture and its CDXML) or on Windows (the `.oct` too).
+- Copy As CDXML Text is text for another app, so it has no notes.
+- A chart's or page spectrum's text and lines keep their notes when it is drawn again (`pageplot.ts` `CAPTION_KEEP`
+  and `ARROW_KEEP`): Edit data, a resize, a Jablonski diagram's level moved.
+- `src/notes-stress.check.ts` runs the stress list (S1 to S30) and cases for the above (N1 to N10).
+- Seen while checking, not this item's: Octet 1.1.2 calls the clipboard JSON of a drawing with a free symbol
+  damaged (it has no free symbols). Its `.oct`, CDX and CDXML readers open such a file.
 
 ## Consistency pillar: the siblings
 
@@ -302,7 +325,7 @@ an atom label (Make element) or converted to a structure loses its note until N9
 | Structure (an atom or a bond selected is its structure) | yes (N9) | issue 68's field `Note`, not shown | in `fragment` (issue 68) |
 | Text: free text, conditions, compound numbers, a cycle's labels, chart and spectrum text | yes | `Caption.notes` | in `t` |
 | Arrows: every kind, lines, arcs, curved and fishhook arrows, orbitals, cuts, pen curves, membranes | yes | `Arrow.notes` | in `arrow`, `curve`, `graphic` or `group` |
-| Shapes: box, rounded box, oval, highlight, brackets, parentheses, braces, TLC plate, gel, plasmid, table, picture | yes | `Shape.notes` | in `graphic`, `tlcplate`, `embeddedobject` or `group` |
+| Shapes: box, rounded box, oval, highlight, brackets, parentheses, braces, TLC plate, gel, plasmid, table, picture, free symbols | yes | `Shape.notes` | in `graphic`, `tlcplate`, `embeddedobject`, `group` or `t` (δ+, δ−) |
 | Catalytic cycle | yes | `Cycle.notes` | in its first arc |
 | Group (also a page spectrum, chart or risk assessment) | yes | `Group.annotations` | in `group` |
 | Stoichiometry grid | no (cut) | | |
@@ -346,7 +369,7 @@ saves.
 | 10 | Copy into Word (Mac PDF, Windows EMF and object, Linux PNG and PDF), copy it back into Octet, and Edit Picture from Word | No note in the picture's data; none back in Octet; the object window offers no Annotate. |
 | 11 | Paste from ChemDraw (CDX and CDXML) with annotations on a text, an arrow and a group | Each comes with its object. The page's annotations do not join this drawing's notes. |
 | 12 | Save as `.oct`, CDXML and CDX; open each; ChemDraw 22.2 opens and saves each as CDXML and CDX; Octet opens the result | Every note on its object, no double from ChemDraw's group copy. |
-| 13 | Octet 1.1.2 opens the 1.2 `.oct`, `.cdx` and `.cdxml` with a note on every kind | It opens each, with no "damaged". The drawing's note is kept; the rest as the Files table says. |
+| 13 | Octet 1.1.2 opens the 1.1.3 `.oct`, `.cdx` and `.cdxml` with a note on every kind | It opens each, with no "damaged". The drawing's note is kept; the rest as the Files table says. |
 | 14 | A group whose members are deleted until one is left; Ungroup a group with a note | The group and its note go; Undo brings them back. |
 | 15 | Turn, flip, scale, align and nudge text, arrows, shapes, cycles and groups with notes | The notes do not change. |
 | 16 | A note on a catalytic cycle; the file goes through ChemDraw 22.2 | The cycle comes back as arcs; the note is on the first arc. |
@@ -379,6 +402,7 @@ saves.
 | N8, cases 18, 19 | `perf.check.ts`; interleaved medians against v1.1.2 |
 | N9, case 30 | The structure cases in the three check files, after issue 68's model is in |
 | Case 4 | `annotate.check.ts` (limit) and by hand (the notice) |
+| Every stress case, and N1 to N10 | `notes-stress.check.ts` (with `OCTET_112` for 1.1.2's readers, `OCTET_BASE` to time against the release without this item) |
 | Everything | Full `npm test`; `cargo test` in `src-tauri` (the menu items) |
 
 ## Not in this plan

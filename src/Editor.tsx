@@ -8162,7 +8162,8 @@ export default function Editor() {
     const part = selectedPart() ?? doc;
     if (what === "cdxml") {
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return setNotice("There is nothing to copy.", "info");
-      const cdxml = formatOf(part, "cdxml");
+      // Text for another app: no notes (annotate.ts), as Copy.
+      const cdxml = formatOf(withoutNotes(part), "cdxml");
       return cdxml ? copyPlain(cdxml) : setNotice("Octet cannot write this drawing as CDXML.");
     }
     const [name, write] = COPY_AS[what], mol = withCaptionAtoms(part, style.interpret).mol;
