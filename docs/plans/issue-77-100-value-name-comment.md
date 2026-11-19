@@ -310,6 +310,33 @@ Actions panel, the right-click menu (Molecule and copy) and the command palette,
 Escape that clears the Settings search and Escape that closes Settings both keep the typed comment, and one Undo
 takes back one comment change. The console has no errors and no `look:` lines.
 
+### State on 19 November (for 1.1.3)
+
+The branch is bd7c684 (`release-1.2-mcp` after the 1.2 bug sweep and the trim) plus this item's commits, with no merge
+commits. Five files had conflicts (imports in `host.ts`, `Actions.tsx`, `Editor.tsx`; the end of `mcp.check.ts`; four
+hunks of `mcp.ts`). Each keeps both sides: the trim's `plainOf` and imports, #164's symbol tests and grid commands,
+and this item's lines. `calc` moved to `proprows.ts` (`calculated`) is the same function as bd7c684's.
+
+Fixed on 19 November, from the review:
+
+- The Comment, Title, Author and Keywords fields called the `onAnnotations` that Settings' memo kept, which held the
+  drawing as it was when the annotations last changed. A live value worked out or an AI app's change while Settings
+  was open came undone when a property was set. They call the latest one now.
+- The Names toggle's tip says what a click does, as Solvent peaks and Details do.
+- `add_values` is an op of `change` too, so one call draws a series and adds their values.
+- A length refusal of text with emoji says that an emoji counts as 2 (Octet counts UTF-16 units, the files' unit; a
+  JSON Schema validator counts code points).
+
+Checks on 19 November: `valuename-stress` 59 of 59, with and without `OCTET_112` (S15b: live update of 40 values
+13.44 ms in 1.2, 13.47 ms in 1.1.2). Against bd7c684 (interleaved medians, 40 paclitaxel-sized structures with values):
+the live update 13.2 against 13.2 ms, `toCdxml` 14.4 against 14.4 ms, `parseXml` 4.50 against 4.48 ms. With AI off
+(release-1.1.3's switch applied for the check only): `npm test` passes but for `libreoffice.check.ts`, which fails only
+because that switch also sets the version to 1.1.3; `npm run look` at port 1463: every control matches in 22 places.
+In Chromium at port 1463: ⌘A on an aspirin with its value and an ethane gives Hide property names in the Actions panel;
+it hides the names at once, and Undo and Redo are one step each; the command palette finds Show property names after
+⌘A; the right-click menu on the value has it; Escape that clears the Settings search and Escape that closes Settings
+keep the typed comment, and one Undo takes back one comment change. No console errors.
+
 ## Design decisions
 
 - **D1. The names setting is a token in `rows`.** Octet 1.1.2 refuses any new key in a live value's `attrs` (A4), and
@@ -450,7 +477,9 @@ structure or no live value are named in the result.
 24. `\r\n` and `\r` line ends (Windows, an old Mac file): line feeds.
 25. 10,000 characters: kept. 10,001 typed or pasted: the field stops at 10,000. From the MCP: refused.
 26. An emoji across the 10,000th place, and a title of 199 letters and an emoji: no half character; PDF export works.
-27. A lone surrogate from a hostile CDXML (`&#xD800;`): dropped; PDF export works.
+27. A lone surrogate from a hostile CDXML (`&#xD800;`): the file is not XML (a character reference must name an XML
+    character), so Octet refuses it, as it does for that reference in any attribute. A lone surrogate typed or from
+    the MCP: dropped; PDF export works.
 28. PDF escaping: `a (b) \c )(` gives a literal string that reads back the same; `é`, `日本` and a line break give
     UTF-16.
 29. `< > & " '` and `]]>` in CDXML: escaped; ChemDraw keeps them (tried with `&` and `\`).
@@ -499,9 +528,11 @@ structure or no live value are named in the result.
 
 ## Cut from this item
 
-- ChemDraw's Property Labels (Document Settings): a word of the user's for each property, for the whole document,
-  with Restore Defaults, read from and written to the `ChemProp…` attributes. It is a table of 19 words in Settings
-  and a reader for ChemDraw's words; #77 asks only to hide the name, which A1 to A3 do per value.
+- ChemDraw's Property Labels: a word of the user's for each property, for the whole document (Document Settings,
+  with Restore Defaults) or for the picked objects (Object Settings), read from and written to the `ChemProp…`
+  attributes. The words also rename a label ("Molecular Weight" to "MW"). Octet has neither the words nor renaming. It
+  is a table of 19 words in two places and a reader for ChemDraw's words; #77 asks only to hide the name, which A1 to
+  A3 do per value.
 - Decimals for a value already on the page. Decimals applies when the value is added, as in 1.1.2.
 - ChemDraw's Prompt for Comment on save and its Set Document Comment dialog. Octet's Comment is always in Settings.
 - ChemDraw's Document Properties dialog (typed rows with rules). A project of its own.
