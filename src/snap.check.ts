@@ -199,7 +199,8 @@ console.log("snap.check: one axis ok");
   // key repeat or while typing, with the other keys as they were.
   assert.match(editor, /lastMove\.current = e;/);
   assert.match(editor, /if \(e\.key !== "Shift" \|\| e\.repeat \|\| !last \|\| last\.shiftKey === down \|\| \(drag\?\.kind !== "move" && drag\?\.kind !== "grid"\) \|\| !drag\.moved \|\| typing\(\)\) return;\n\s+onPointerMove\(\{ clientX: last\.clientX, clientY: last\.clientY, shiftKey: down, altKey: last\.altKey, metaKey: last\.metaKey, ctrlKey: last\.ctrlKey \}/);
-  assert.match(editor, /addEventListener\("keyup", onShift\);/);
+  // The listeners go on once (empty deps), so no render or pointer move adds listener work.
+  assert.match(editor, /const on = \(e: KeyboardEvent\) => onShift\.current\?\.\(e\);\n\s+addEventListener\("keydown", on\);\n\s+addEventListener\("keyup", on\);\n\s+return \(\) => \{ removeEventListener\("keydown", on\); removeEventListener\("keyup", on\); \};\n\s+\}, \[\]\);/);
   // The line: drawn with the snap guides while an axis is held, across the window through the press.
   assert.match(editor, /\(drag\?\.kind === "move" \|\| drag\?\.kind === "grid"\) && \(drag\.held === undefined \? drag\.guides : \[\.\.\.drag\.guides, lockLine\(drag, view\)\]\)\.map/);
   assert.match(editor, /return dr\.held === 1 \? \{ axis: "y", at: dr\.from\[1\], from: -view\.x \/ s, to: \(innerWidth - view\.x\) \/ s \} : \{ axis: "x", at: dr\.from\[0\], /);

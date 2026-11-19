@@ -5080,16 +5080,19 @@ export default function Editor() {
   };
   // The pointer's last move, so Shift pressed or let go during a drag acts from there at once.
   const lastMove = useRef<{ clientX: number; clientY: number; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }>(undefined);
+  // The listeners go on once; each render only swaps the handler, so a pointer move adds no listener work.
+  const onShift = useRef<(e: KeyboardEvent) => void>(undefined);
+  onShift.current = (e) => {
+    const last = lastMove.current, down = e.type === "keydown";
+    if (e.key !== "Shift" || e.repeat || !last || last.shiftKey === down || (drag?.kind !== "move" && drag?.kind !== "grid") || !drag.moved || typing()) return;
+    onPointerMove({ clientX: last.clientX, clientY: last.clientY, shiftKey: down, altKey: last.altKey, metaKey: last.metaKey, ctrlKey: last.ctrlKey } as React.PointerEvent<SVGSVGElement>);
+  };
   useEffect(() => {
-    const onShift = (e: KeyboardEvent) => {
-      const last = lastMove.current, down = e.type === "keydown";
-      if (e.key !== "Shift" || e.repeat || !last || last.shiftKey === down || (drag?.kind !== "move" && drag?.kind !== "grid") || !drag.moved || typing()) return;
-      onPointerMove({ clientX: last.clientX, clientY: last.clientY, shiftKey: down, altKey: last.altKey, metaKey: last.metaKey, ctrlKey: last.ctrlKey } as React.PointerEvent<SVGSVGElement>);
-    };
-    addEventListener("keydown", onShift);
-    addEventListener("keyup", onShift);
-    return () => { removeEventListener("keydown", onShift); removeEventListener("keyup", onShift); };
-  });
+    const on = (e: KeyboardEvent) => onShift.current?.(e);
+    addEventListener("keydown", on);
+    addEventListener("keyup", on);
+    return () => { removeEventListener("keydown", on); removeEventListener("keyup", on); };
+  }, []);
   // alone: the atoms move without becoming the selection (a bond tool's Shift-drag).
   const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false, alone = false) => {
     stopGlide();
