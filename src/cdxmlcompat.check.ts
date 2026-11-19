@@ -209,10 +209,13 @@ await test("pages: Slides, A3, Legal, Tabloid, small pages and Custom are poster
   }
 });
 
-// The writer as it was before this change (release-1.1.3 at 0045cd76), for the files that must not change.
-const BASE = "0045cd76b9c5f1164a9fdbdbebf50b1f9468f0b7";
+// The writer as it was before this change (release-1.1.3 at 0045cd76), for the files that must not change. Only while
+// this change is the one change to cdxml.ts since then: a later change may change these files on purpose.
+const BASE = "0045cd76b9c5f1164a9fdbdbebf50b1f9468f0b7", SUBJECT = "Keep generic labels and poster pages through ChemDraw 22.2";
+const since = spawnSync("git", ["log", "--format=%s", `${BASE}..HEAD`, "--", "src/cdxml.ts"], { cwd: root, encoding: "utf8" });
+const why = since.status !== 0 ? `no commit ${BASE.slice(0, 8)}` : since.stdout.split("\n").some((s) => s && s !== SUBJECT) ? `cdxml.ts has other changes since ${BASE.slice(0, 8)}` : "";
 let oldToCdxml: typeof toCdxml | undefined, oldDir: string | undefined;
-if (spawnSync("git", ["cat-file", "-e", `${BASE}^{commit}`], { cwd: root }).status === 0) {
+if (!why) {
   oldDir = mkdtempSync(join(tmpdir(), "octet-cdxml-base-"));
   execFileSync("tar", ["-x", "-C", oldDir], { input: execFileSync("git", ["archive", BASE, "src", "package.json"], { cwd: root, maxBuffer: 1 << 28 }) });
   symlinkSync(join(root, "node_modules"), join(oldDir, "node_modules"));
@@ -233,7 +236,7 @@ for (const id of ["oseltamivir", "suzuki", "epoxidation", "hydrolysis", "threoni
 for (const [what, m, st] of same) await test(`pages: ${what} is written as before, byte for byte`, () => {
   const xml = toCdxml(m, st);
   assert.doesNotMatch(pageOf(xml), /DrawingSpace|Width=|Height=/);
-  if (!oldToCdxml) return skip(`byte check of ${what}`, `no commit ${BASE.slice(0, 8)}`);
+  if (!oldToCdxml) return skip(`byte check of ${what}`, why);
   assert.equal(xml, oldToCdxml(m, st));
 });
 
@@ -291,7 +294,7 @@ else {
     assert.equal(st.page, "A4");
     const xml = d.host.fileText("cdxml")!;
     assert.doesNotMatch(pageOf(xml), /DrawingSpace/);
-    if (!oldToCdxml) return skip("byte check of the experiment", `no commit ${BASE.slice(0, 8)}`);
+    if (!oldToCdxml) return skip("byte check of the experiment", why);
     assert.equal(toCdxml(m, st), oldToCdxml(m, st));
   });
 
