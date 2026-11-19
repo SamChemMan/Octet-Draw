@@ -380,24 +380,30 @@ function onRing(text: string): string | undefined {
 // same label from its attachment atom.
 // A phenyl written with what is on it and where is that ring, and n- before a formula is the formula (RING, STRAIGHT).
 // Kept by the label, as the drawing and its captions read each label on every change.
-// A whole label that is a nickname of the user's own is read as it first (Structure > Define Nickname…); one of Octet's
-// built-in nicknames only where the reading here reads nothing (nicknames.ts). Nicknames are whole labels: a part of a
-// longer label is read as before ((oTol)2P is not read through oTol).
-const read = new Map<string, string | undefined>();
-let inside = 0;
+// A whole label that is a nickname of the user's own is read as it first (Structure > Define Nickname…). Then Octet's
+// own reading; then one of Octet's built-in nicknames, as the whole label (nicknames.ts); then the reading with words
+// Octet reads no group in taken as the nicknames they spell (NHPbf, CH2ODMTr). A part of a longer label is read
+// with Octet's reading alone ((oTol)2P is not read through oTol).
+const read = new Map<string, string | undefined>(), worded = new Map<string, string | undefined>();
+let inside = 0, words = false;
+const kept = (store: Map<string, string | undefined>, label: string, withWords: boolean) => {
+  if (store.has(label)) return store.get(label);
+  const was = words;
+  inside++; words = withWords;
+  let smiles: string | undefined;
+  try { smiles = inside > 8 ? undefined : readLabel(label); } finally { inside--; words = was; }
+  if (store.size >= 1000) store.clear();
+  store.set(label, smiles);
+  return smiles;
+};
 export function labelSmiles(label: string): string | undefined {
   const mine = inside ? undefined : ownNickname(label);
   if (mine) return mine.smiles;
-  let smiles = read.get(label);
-  if (!read.has(label)) {
-    inside++;
-    try { smiles = inside > 8 ? undefined : readLabel(label); } finally { inside--; }
-    if (read.size >= 1000) read.clear();
-    read.set(label, smiles);
-  }
-  return smiles ?? (inside ? undefined : builtInNickname(label)?.smiles);
+  const smiles = kept(read, label, false);
+  if (smiles || inside) return smiles;
+  return builtInNickname(label)?.smiles ?? kept(worded, label, true);
 }
-onNicknamesChange(() => ends.clear());
+onNicknamesChange(() => { ends.clear(); worded.clear(); });
 // Why a label cannot be a nickname of the user's own, or undefined when it can: it is one word of up to 32
 // characters, and no element or generic label (typed on an atom, those are never read as a group). A label Octet reads
 // already may be one: the user's group comes first, as a name of their own does in Name to Structure.
@@ -490,9 +496,12 @@ function readLabel(label: string): string | undefined {
       if (once && us.length > 1 && !(smiles && (u.count || (us.length === 2 && us[0].kind === "element" && /^(?:[CNOS]|F|Cl|Br|I)$/.test(us[0].text))))) return undefined;
       smiles += smiles && (n > 1 || once) ? `(${atom(u.text)})`.repeat(n) : atom(u.text).repeat(n);
     } else {
-      // A group, or what a bracket holds, hangs off the atom before it. A diolate (pin, in any case) closes its ring
+      // A group, a nickname, or what a bracket holds, hangs off the atom before it. A diolate (pin, in any case) closes its ring
       // on the boron written just before it (Bpin, CH2Bpin, OB(pin)).
-      const name = u.kind === "bracket" ? u.text.slice(1, -1) : u.text, g = u.kind === "group" ? GROUPS[SPELT[name]] : u.kind === "bracket" ? labelSmiles(name) : undefined;
+      // A word or bracket Octet reads no group in (Pbf in NHPbf and N(Pbf)2, DMTr in CH2ODMTr) is the nickname it
+      // spells, if there is one.
+      const name = u.kind === "bracket" ? u.text.slice(1, -1) : u.text, nick = words && !standsIn(name) ? (ownNickname(name) ?? builtInNickname(name))?.smiles : undefined;
+      const g = u.kind === "group" ? GROUPS[SPELT[name]] : u.kind === "bracket" ? labelSmiles(name) ?? nick : u.kind === "other" ? nick : undefined;
       const diol = g ? undefined : DIOLATES[name.toLowerCase()];
       if (g) smiles += smiles ? `(${g})`.repeat(n) : g + `(${g})`.repeat(n - 1);
       else if (diol && n === 1 && us[k - 1]?.text === "B" && !us[k - 1].count) smiles += `1${diol}1`;

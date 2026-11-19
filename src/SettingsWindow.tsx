@@ -132,6 +132,10 @@ type Props = {
   onRemoveName: (name: string) => void;
   onExportNames: () => void;
   onImportNames: () => void;
+  // The user's own nicknames (Structure > Define Nickname…): each label to change or remove here, as in the = list.
+  nicknames: { label: string; smiles: string }[];
+  onRenameNickname: (from: string, to: string) => void;
+  onRemoveNickname: (label: string) => void;
   onClose: () => void;
 };
 
@@ -214,20 +218,23 @@ function OwnTemplates({ list, onRename, onRemove }: { list: { id: string; name: 
 }
 
 // The user's own dictionary: each name to change (it is kept when the field is left, if no other entry has it), its
-// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one.
-function OwnDictionary({ list, onRename, onRemove }: { list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void }) {
+// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one. The user's own
+// nicknames use it too (field "Nickname", at most 32 characters).
+function OwnDictionary({ list, onRename, onRemove, field = "Name", most = 80, empty = "To add a name, select a structure. Then right-click it and choose Add to dictionary." }: {
+  list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void; field?: string; most?: number; empty?: string;
+}) {
   const [names, setNames] = useState<Record<string, string>>({});
   const keep = (from: string) => {
     const to = names[from];
     if (to !== undefined) onRename(from, to);
     setNames(({ [from]: _, ...rest }) => rest);
   };
-  if (!list.length) return <p className="dictionary-empty">To add a name, select a structure. Then right-click it and choose Add to dictionary.</p>;
+  if (!list.length) return <p className="dictionary-empty">{empty}</p>;
   return (
     <div className="palette-editor dictionary-list">
       {list.map((n) => (
         <div key={n.name} className="palette-line">
-          <input className="palette-name" aria-label="Name" value={names[n.name] ?? n.name} maxLength={80} spellCheck={false}
+          <input className="palette-name" aria-label={field} value={names[n.name] ?? n.name} maxLength={most} spellCheck={false}
             onChange={(e) => setNames((x) => ({ ...x, [n.name]: e.target.value }))} onBlur={() => keep(n.name)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); setNames(({ [n.name]: _, ...rest }) => rest); } }} />
           <span className="dictionary-smiles" data-tip={n.smiles}>{n.smiles}</span>
@@ -380,7 +387,7 @@ const MODULES: { id: ModuleId; name: string; icon: React.ReactNode; words: strin
   { id: "appearance", name: "Appearance", icon: <Swatches size={18} />, words: "appearance look actions panel side menus sections colour colours palette custom swatch named" },
   { id: "files", name: "Import and export", icon: <Files size={18} />, words: "import export file clipboard" },
   { id: "warnings", name: "Warnings", icon: <Warning size={18} />, words: "warnings chemical check structure errors problems" },
-  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure" },
+  { id: "dictionary", name: "Dictionary", icon: <BookOpenText size={18} />, words: "dictionary names name to structure own words abbreviations add structure nicknames" },
   // The settings few people need, such as the rare formats in the File menu.
   { id: "pro", name: "Pro", icon: <Toolbox size={18} />, words: "pro advanced expert rare" },
 ] as { id: ModuleId; name: string; icon: React.ReactNode; words: string }[]).filter((m) => AI || m.id !== "ai");
@@ -704,8 +711,12 @@ export function SettingsWindow(p: Props) {
       d("pro", "Window", "Feedback button", "feedback button mail email send hide remove report", <Switch on={p.feedbackButton && !p.feedbackOff} label="Feedback button" disabled={p.feedbackOff} onChange={p.onFeedbackButton} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
+      // ChemDraw's List Nicknames: the user's own nicknames, renamed and removed here as in the = list.
+      d("dictionary", "Nicknames", "Your nicknames", "nicknames nickname define list labels abbreviations groups own rename remove smiles",
+        <OwnDictionary list={p.nicknames.map((n) => ({ name: n.label, smiles: n.smiles }))} onRename={p.onRenameNickname} onRemove={p.onRemoveNickname} field="Nickname" most={32}
+          empty="To add a nickname, select a group joined by one bond. Then choose Structure > Define Nickname." />, true),
     ].filter((x) => AI || x.module !== "ai");
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.feedbackButton, p.feedbackOff, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.feedbackButton, p.feedbackOff, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.nicknames, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
