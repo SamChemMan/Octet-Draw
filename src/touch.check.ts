@@ -115,7 +115,7 @@ const H = 350;
 }
 {
   // A long press opens the Actions menu where the finger is; lifting chooses nothing and a drag after it draws nothing
-  // (stress 18).
+  // (stress 12).
   const g = new Gate(H);
   const t = g.down(ev("touch", 13, 50, 60))[1] as Extract<Act, { act: "timer" }>;
   g.move(ev("touch", 13, 53, 62));
@@ -134,7 +134,7 @@ const H = 350;
   assert.deepEqual(k.timer("hold", m), [], "the first finger's timer, run after a second tap");
 }
 {
-  // Stress 17: ten taps a second on one atom: one press and release for each.
+  // Stress 11: ten taps a second on one atom: one press and release for each.
   const g = new Gate(H);
   let presses = 0;
   for (let k = 0; k < 10; k++) {
@@ -162,7 +162,7 @@ const H = 350;
   assert.equal(g.state, "idle");
 }
 {
-  // Stress 2 and 3: a second finger after the first started a drag cancels it, as Escape does, then pans.
+  // Stress 2: a second finger after the first started a drag cancels it, as Escape does, then pans.
   const g = new Gate(H);
   g.down(ev("touch", 23, 100, 100));
   g.move(ev("touch", 23, 150, 100));
@@ -172,7 +172,7 @@ const H = 350;
   assert.equal(acts(g.up(ev("touch", 23, 210, 100))), "", "the drag never lets go: it was cancelled");
 }
 {
-  // Stress 5: a third touch (a palm) does nothing, and its lift first leaves the two fingers' gesture as it was.
+  // Stress 4: a third touch (a palm) does nothing, and its lift first leaves the two fingers' gesture as it was.
   const g = new Gate(H);
   g.down(ev("touch", 31, 0, 0));
   g.down(ev("touch", 32, 100, 0, { primary: false }));
@@ -183,7 +183,7 @@ const H = 350;
   assert.equal(g.state, "view");
 }
 {
-  // Stress 6: one finger of a pinch lifts: the other does nothing, nor does a finger landing then, until all lift; the
+  // Stress 4: one finger of a pinch lifts: the other does nothing, nor does a finger landing then, until all lift; the
   // next touch starts afresh with no jump.
   const g = new Gate(H);
   g.down(ev("touch", 41, 0, 0));
@@ -198,7 +198,7 @@ const H = 350;
   assert.equal(acts(g.down(ev("touch", 44, 10, 10))), "ring timer");
 }
 {
-  // Stress 8: NaN and infinite coordinates: the touch does nothing, the view is never NaN.
+  // Stress 5: NaN and infinite coordinates: the touch does nothing, the view is never NaN.
   const g = new Gate(H);
   assert.deepEqual(g.down(ev("touch", 51, NaN, 0)), []);
   assert.deepEqual(g.move(ev("touch", 51, 10, 10)), []);
@@ -210,7 +210,7 @@ const H = 350;
   assert.ok(v.every((a) => a.act !== "view" || (a.by === 1 && Number.isFinite(a.dx + a.dy + a.x + a.y))), "fingers on one spot do not zoom");
 }
 {
-  // Stress 9: a cancel (an edge swipe) during a finger's drag stops it; before its press, only the ring goes.
+  // Stress 6: a cancel (an edge swipe) during a finger's drag stops it; before its press, only the ring goes.
   const g = new Gate(H);
   g.down(ev("touch", 61, 0, 0));
   g.move(ev("touch", 61, 30, 0));
@@ -220,7 +220,7 @@ const H = 350;
   assert.equal(g.state, "idle");
 }
 {
-  // Stress 10: a pointerup that never came (the finger left the window), then a new first finger: the old one is
+  // Stress 6: a pointerup that never came (the finger left the window), then a new first finger: the old one is
   // dropped, and the new one starts as any first finger. reset() (blur, lost capture) does the same.
   const g = new Gate(H);
   g.down(ev("touch", 71, 0, 0));
@@ -233,7 +233,7 @@ const H = 350;
 
 // ——— Palm rejection ———
 {
-  // Stress 11: a palm lands and starts a press, then the pen comes down: the palm's press stops, the pen presses, and
+  // Stress 7: a palm lands and starts a press, then the pen comes down: the palm's press stops, the pen presses, and
   // the palm does nothing until it lifts.
   const g = new Gate(H);
   g.down(ev("touch", 81, 0, 0));
@@ -248,7 +248,7 @@ const H = 350;
   assert.deepEqual(h.up(ev("touch", 82, 0, 0)), []);
 }
 {
-  // Stress 12: the pen hovering, a palm resting and moving: nothing from the palm.
+  // Stress 7: the pen hovering, a palm resting and moving: nothing from the palm.
   const g = new Gate(H);
   g.move(ev("pen", 9, 300, 300, { buttons: 0 }));
   assert.deepEqual(g.down(ev("touch", 83, 0, 0)), []);
@@ -270,12 +270,12 @@ const H = 350;
   g.down(ev("touch", 86, 0, 0));
   g.down(ev("touch", 87, 100, 0, { primary: false }));
   assert.equal(acts(g.move(ev("touch", 87, 200, 0, { primary: false }))), "view");
-  // Stress 25: in another window (its own gate) a finger still draws.
+  // Stress 16: in another window (its own gate) a finger still draws.
   const other = new Gate(H);
   assert.equal(acts(other.down(ev("touch", 88, 0, 0))), "ring timer");
 }
 {
-  // Stress 26: an unknown pointer type is a mouse; the mouse passes straight through.
+  // Stress 10: an unknown pointer type is a mouse; the mouse passes straight through.
   for (const type of ["", "mouse", "eraser", "stylus", "PEN"]) assert.equal(kindOf(type), "mouse", type);
   assert.equal(kindOf("pen"), "pen");
   assert.equal(kindOf("touch"), "touch");
@@ -283,7 +283,7 @@ const H = 350;
   const g = new Gate(H);
   for (const kind of ["down", "move", "up", "cancel"] as const) assert.equal(acts(g[kind](ev("", 1, 0, 0))), "pass");
   assert.equal(g.penUsed, false);
-  // Stress 21's gate side: a finger's touches while a mouse is about are the gate's own; the editor ignores the mouse
+  // Stress 7's gate side: a finger's touches while a mouse is about are the gate's own; the editor ignores the mouse
   // while the finger presses (WebKit check).
   assert.equal(acts(g.down(ev("mouse", 1, 0, 0))), "pass");
   assert.equal(acts(g.down(ev("touch", 89, 0, 0))), "ring timer");
@@ -322,11 +322,11 @@ const H = 350;
     const by = 0.8 + rnd() * 0.4, x = rnd() * 1400, y = rnd() * 900, zoom = clamp(v.zoom * by), kk = zoom / v.zoom;
     assert.deepEqual(viewAfter(v, { dx: 0, dy: 0, by, x, y }, clamp), { zoom, x: x - (x - v.x) * kk, y: y - (y - v.y) * kk });
   }
-  // Stress 7: past the limit the zoom stops and the pan goes on.
+  // Stress 5: past the limit the zoom stops and the pan goes on.
   const w = viewAfter({ x: 0, y: 0, zoom: 8 }, { dx: 30, dy: -20, by: 1.5, x: 500, y: 400 }, clamp);
   assert.equal(w.zoom, 8);
   assert.deepEqual([w.x, w.y], [30, -20]);
-  // Stress 8: one spot, or not numbers.
+  // Stress 5: one spot, or not numbers.
   assert.equal(pinch([5, 5], [5, 5], [5, 5], [5.5, 5])?.by ?? 1, 1);
   assert.equal(pinch([0, 0], [NaN, 0], [0, 0], [10, 0]), undefined);
   assert.equal(pinch([0, 0], [10, 0], [0, 0], [10, 0]), undefined, "nothing moved");
@@ -350,7 +350,7 @@ const H = 350;
       assert.ok(atom < 0.5, "an atom never covers the middle of its bonds");
     }
   }
-  // Stress 22: at 8x the floors add nothing; at 0.25x a finger's reach is at its caps.
+  // Stress 14: at 8x the floors add nothing; at 0.25x a finger's reach is at its caps.
   assert.equal(reachIn(0.3, 0.4, REACH.touch, L * 8), 0.3);
   assert.equal(reachIn(0.3, 0.4, REACH.touch, L * 0.25), 0.4);
   assert.equal(reachIn(0.2, 0.5, REACH.touch, L * 0.25), 0.5);
