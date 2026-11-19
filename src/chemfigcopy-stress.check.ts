@@ -705,7 +705,7 @@ rec("ST18 U2 keyboard only: palette copies readable code", first && first.starts
   svg.dispatchEvent(new A.w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.bottom - 30, button: 2 }));
   await wait(700);
   const items = [...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean);
-  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Molecule and copy");
+  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy");
   sub?.click();
   await wait(700);
   items.push("|", ...[...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean));
