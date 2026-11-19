@@ -81,7 +81,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   type Part = Extract<Step, { kind: "structure" | "text" | "arrow" }>;
   const item = (step: Step): Item => { const c = corners(step.box), xs = c.map(along), ys = c.map(across); return { step, lo: Math.min(...xs), hi: Math.max(...xs), off: (Math.min(...ys) + Math.max(...ys)) / 2, half: (Math.max(...ys) - Math.min(...ys)) / 2 }; };
   const items: Item[] = drawn.parts.map((p) => item({ kind: "structure", atoms: p.atoms, box: p.box }));
-  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle) items.push(item({ kind: c.text.trim() === "+" && !drawn.owners.has(c.id) ? "plus" : "text", id: c.id, box: b })); }
+  for (const c of m.captions ?? []) { const b = captionBox(c.id); if (b && !c.under && !c.on && !c.cycle && !c.measure) items.push(item({ kind: c.text.trim() === "+" && !drawn.owners.has(c.id) ? "plus" : "text", id: c.id, box: b })); }
   for (const s of plusShapes(m)) if (!drawn.owners.has(s.id)) items.push(item({ kind: "plus", id: s.id, box: shapeBox(s), shape: true }));
   // Straight arrows: one that points the same way can be a step of the reaction; one that points another way (the
   // other reaction of C ← A → B) ends the row where it stands.
@@ -298,10 +298,11 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   }
   // Curved arrows.
   const on = (q: P) => row.find((r) => r.step.kind === "structure" && near(q, r.step.box))?.step as Part | undefined;
+  // An end tied to its atom, bond or lone pair (arrowlink.ts) follows it by itself, so only free ends are carried.
   for (const x of arrows) {
-    if (!curved(x)) continue;
+    if (!curved(x) || (x.fromOn && x.toOn)) continue;
     const s0 = on(x.from), s1 = on(x.to);
-    if (s0 && s1 && s0 !== s1) { carry(s0).ends.push([x.id, "from"]); carry(s1).ends.push([x.id, "to"]); continue; }
+    if (s0 && s1 && s0 !== s1) { if (!x.fromOn) carry(s0).ends.push([x.id, "from"]); if (!x.toOn) carry(s1).ends.push([x.id, "to"]); continue; }
     const s = s0 ?? s1;
     if (!s) continue;
     const k = carry(s), other = s0 ? x.to : x.from;
@@ -337,7 +338,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   // Its captions: the plus signs and text in the row, each arrow's conditions, the numbers and names under its
   // structures, and the text its parts carry.
   const inRow = new Set(atoms), own = new Set([...steps, ...condSteps].flatMap((s) => (s.kind === "plus" || s.kind === "text" ? [s.id] : [])).concat(carries.flatMap((k) => k.captions)));
-  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i)))).map((c) => c.id);
+  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i))) || (c.measure && c.measure.atoms.every((i) => inRow.has(i)))).map((c) => c.id);
   return { steps, arrows: arrowIds, atoms, captions, carried: [...new Set([...steps.flatMap((s) => (s.kind === "plus" && s.shape ? [s.id] : [])), ...carries.flatMap((k) => [...k.arrows, ...k.shapes, ...k.ends.map((e) => e[0])])])], conditions };
 }
 // A reaction wrapped onto lines (as Clean Up Reaction wraps one wider than the page) reads as one reaction: a line that
@@ -473,6 +474,7 @@ export type Layout = {
   captionBox: (id: number) => Box | undefined; // a caption's box as drawn now
   plusBox: Box; // a new plus sign's box, about its point
   captionPt: number; bondPt: number; // the document's caption size and bond length (pt), for text kept on arrows
+  arrowGap?: number; // the document's space between an arrow and its conditions (pt; unset GAP_ARROW_PT)
 };
 
 // Clean Up Reaction, as ChemDraw 26.1's (its help, and its ReactionNeatener):
@@ -546,8 +548,9 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
     out = { ...out, captions: out.captions?.map((c) => (give.has(c.id) ? { ...give.get(c.id)!, id: c.id } : c)) };
   }
   const kept = (id: number, side: "above" | "below") => (out.captions ?? []).filter((c) => c.on?.arrow === id && c.on.side === side);
-  // How far text kept on an arrow reaches from it, as the renderer stacks it (render.ts placeCaptions).
-  const block = (cs: Caption[]) => (cs.length ? (GAP_ARROW_PT + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
+  // How far text kept on an arrow reaches from it, as the renderer stacks it (render.ts placeCaptions): from the
+  // largest gap on the side.
+  const block = (cs: Caption[]) => (cs.length ? (Math.max(...cs.map((c) => c.on?.gap ?? o.arrowGap ?? GAP_ARROW_PT)) + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
   // The widest text kept on an arrow across the page (beside an arrow down the page, text does not set its length).
   const textWidth = (cs: Caption[]) => (flat ? Math.max(0, ...cs.map((c) => { const b = o.captionBox(c.id); return b ? b[2] - b[0] : 0; })) : 0);
 
@@ -794,7 +797,7 @@ function covers(m: Mol, next: Mol, ink: (atoms: number[]) => Box | undefined, in
     if (b && (straightArrow(a) || a.kind === "line")) things.push({ was: span(a.from, a.to), now: span(b.from, b.to) });
   }
   // (A name or number under a structure goes with it; it is not counted apart.)
-  for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle)) {
+  for (const c of (m.captions ?? []).filter((x) => !x.under && !x.cycle && !x.measure)) {
     const d = next.captions?.find((x) => x.id === c.id), on = d?.on && m.arrows?.find((x) => x.id === d.on!.arrow), was = mid(on), now = mid(on && next.arrows?.find((x) => x.id === on.id));
     if (d) things.push({ was: captionBox(c.id), now: shift(captionBox(c.id), on ? [now[0] - was[0], now[1] - was[1]] : [d.x - c.x, d.y - c.y]) });
   }

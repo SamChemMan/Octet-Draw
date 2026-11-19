@@ -1,0 +1,17 @@
+{
+ "for": "experiment",
+ "calls": [
+  { "name": "set_brief", "arguments": { "destination": { "kind": "notebook" } } },
+  { "name": "advanced", "arguments": { "tool": "run_command", "args": { "command": "risk.remove" } } },
+  { "name": "draw", "arguments": { "lines": "salicylic acid + acetic anhydride -> aspirin, H3PO4 (85%), 85 °C, 15 min", "below": "t0", "gap": 1.5, "align": "left" } },
+  { "name": "advanced", "arguments": { "tool": "fill_experiment", "args": {
+   "details": { "title": "Aspirin from salicylic acid", "number": "EX-001", "date": "17 November 2026", "notebook": "Teaching lab 1", "project": "Esters", "author": "A. N. Other", "pressure": "1 atm", "solvent": "Neat" },
+   "amounts": [
+    { "of": "salicylic acid", "mass": "2.00 g", "limiting": true },
+    { "of": "acetic anhydride", "volume": "5.0 mL", "density": "1.08 g/mL" },
+    { "of": "H3PO4 (85%)", "role": "catalyst", "volume": "0.25 mL", "density": "1.69 g/mL", "purity": "85%" },
+    { "of": "aspirin", "measured": "2.08 g" }
+   ] } } },
+  { "name": "change", "arguments": { "operations": [{ "op": "text", "text": "Salicylic acid (2.00 g, 14.5 mmol) was put in a 50 mL conical flask. Acetic anhydride (5.0 mL, 52.9 mmol) and 85% H3PO4 (5 drops, 0.25 mL) were added. The mixture was heated at 85 °C for 15 min and then cooled to room temperature. Water (2 mL) was added drop by drop to destroy the excess anhydride, then cold water (20 mL). The mixture was cooled in ice for 10 min. The crystals were collected by vacuum filtration, washed with cold water (2 × 5 mL) and dried in air. Aspirin (2.08 g, 80%) was obtained as white crystals, mp 134–136 °C." }] } }
+ ]
+}

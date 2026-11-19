@@ -1,6 +1,7 @@
 // The document's style: its page, its drawing style and its text defaults. Saved in the file, so a drawing looks
 // the same wherever it is opened. Journal presets use each publisher's house numbers (lengths in points).
-import type { Style } from "./render.ts";
+import { GAP_ARROW_PT, type Style } from "./render.ts";
+import { readGap } from "./conditions.ts";
 
 // Pages in mm, portrait. Half: a half-width manuscript column. ACS columns: 3.25 in and 7 in wide, 9.5 in tall.
 // Slides: PowerPoint's Widescreen (13.333 x 7.5 in, its default) and On-screen Show (10 x 7.5 in), stored portrait like
@@ -79,6 +80,9 @@ export type DocStyle = {
   // How the drawing's sequences show (issue 27): every atom, or each residue as a label (H–Ala–Cys–OH) with a residue
   // Octet does not know drawn in full. Unset is as Octet 1.1.2 drew them: as the Residue labels choice said.
   sequences?: "atoms" | "labels";
+  // The space between a reaction arrow and its conditions (pt, at the arrow's scale). Unset is GAP_ARROW_PT (3 pt).
+  // ChemDraw has no such setting.
+  arrowGap?: number;
 };
 
 type Drawn = Pick<DocStyle, "bond" | "line" | "bold" | "margin" | "hash" | "spacing" | "labelFont" | "labelSize" | "captionFont" | "captionSize">;
@@ -212,6 +216,7 @@ export function readStyle(v: unknown): DocStyle {
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),
     ...(s.sequences === "atoms" || s.sequences === "labels" ? { sequences: s.sequences } : {}),
+    ...(readGap(s.arrowGap) !== undefined && readGap(s.arrowGap) !== GAP_ARROW_PT ? { arrowGap: readGap(s.arrowGap) } : {}),
   };
   const palette = (Array.isArray(s.palette) ? s.palette : []).flatMap((c: unknown) => {
     const x = c as { name?: unknown; hex?: unknown };

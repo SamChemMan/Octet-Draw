@@ -21,7 +21,11 @@ export type MenuItem = {
   more?: boolean; // it opens a sub-menu beside the menu (a caret on its right)
   hint?: string; // its key, named with its name when the pointer rests on it
   rename?: (name: string) => void; // its name is being changed: a field in its place, kept as it loses the focus
+  swatch?: boolean; // a colour: drawn as its icon alone, a swatch, named when the pointer rests on it
 };
+// A group of swatches (a colour menu's colours) is a grid of them, SWATCHES across, under its hairline like any group.
+export const SWATCHES = 8;
+const swatchGroup = (g: MenuItem[]) => g.length > 0 && g.every((i) => i.swatch);
 
 export const CELL = 192, GAP = 2, PAD = 4; // px: an option's width and height, the gap and the padding
 export const menuWidth = (columns: number) => columns * CELL + (columns - 1) * GAP + 2 * PAD + 2;
@@ -72,8 +76,13 @@ export function Menu(p: Props) {
       <div className="menu-body">
       {p.head && <div className="menu-head">{p.head}</div>}
       {p.groups.filter((g) => g.length).map((g, i) => (
-        <div key={i} className="menu-group" role="group">
-          {g.map((item) => (
+        <div key={i} className={swatchGroup(g) ? "menu-group swatches" : "menu-group"} role="group">
+          {g.map((item) => item.swatch ? (
+            <button key={item.key} role="menuitemradio" aria-checked={!!item.checked} aria-label={item.name} className={item.arrived ? "variant swatch-cell arrived" : "variant swatch-cell"} data-tip={item.name} data-item={item.key}
+              onPointerDown={(e) => p.onPress?.(e, item.key)} onClick={() => p.onChoose(item.key)} onPointerUp={() => p.onRelease?.(item.key)}>
+              {item.icon}
+            </button>
+          ) : (
             <div key={item.key} className={item.arrived ? "variant-cell arrived" : "variant-cell"}>
               {item.rename ? (
                 <label className="variant">
@@ -135,6 +144,9 @@ export function Menu(p: Props) {
 // opened by a click leaves it where it was (in text being typed, say). A right-click on an option (or the Menu key)
 // opens the option's own menu, where the list has one (the user's own colours in a colour list).
 const ROW = 32; // px: a list option's height and the gap under it
+// The rows a group takes in a list: a grid of swatches is one row of SWATCHES for every SWATCHES of them, each row
+// shorter than an option.
+const rowsOf = (g: MenuItem[]) => (swatchGroup(g) ? (Math.ceil(g.length / SWATCHES) * 26) / ROW : g.length);
 export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving), .eyedropper"); // a list, a colour picker or the eyedropper is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
@@ -142,6 +154,7 @@ type PickProps = {
   groups: MenuItem[][];
   onPick: (key: string) => void;
   more?: { name: string; icon?: React.ReactNode; find: string; load: () => Promise<MenuItem[]> };
+  find?: string; // a list of more than 12 options has a field at the top, with this name, that narrows every group but the last (Find suppliers: Open in PubChem stays below)
   className?: string; // the button's look
   title?: string;
   style?: React.CSSProperties;
@@ -152,6 +165,8 @@ type PickProps = {
   disabled?: boolean; // nothing to choose yet: the button shows, greyed, as a disabled button does
   onPress?: (e: React.PointerEvent, key: string) => void; // a press on an option, which may become a drag
   onItemMenu?: (key: string, at: { x: number; y: number }, keyboard: boolean) => void; // a right-click, the Menu key or Shift+F10 on an option
+  onKeep?: (key: string) => boolean; // an option that changes the list and keeps it open (show the rest of a group): true when it used the key
+  shut?: React.RefObject<(() => void) | undefined>; // set to close the list from outside it (an option's own menu opened a window)
 };
 
 // A list's keys (Pick's, the Actions menu's): up and down move along its options, Home and End go to the ends, a
@@ -159,6 +174,20 @@ type PickProps = {
 export function listKeys(e: React.KeyboardEvent, list: HTMLElement): boolean {
   const options = [...list.querySelectorAll<HTMLElement>(".variant")], at = options.indexOf(document.activeElement as HTMLElement);
   const go = (k: number) => { e.preventDefault(); e.stopPropagation(); options[Math.max(0, Math.min(options.length - 1, k))]?.focus(); return true; };
+  // In a grid of swatches the arrows go as they point: left and right along it, up and down to the nearest option in the
+  // row above or below.
+  if (options[at]?.classList.contains("swatch-cell")) {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") return go(at + (e.key === "ArrowLeft" ? -1 : 1));
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const r = options[at].getBoundingClientRect(), down = e.key === "ArrowDown", x = r.left + r.width / 2;
+      const rows = options.map((o) => o.getBoundingClientRect()).map((b, k) => ({ k, b })).filter(({ b }) => (down ? b.top >= r.bottom - 2 : b.bottom <= r.top + 2));
+      if (!rows.length) return go(at);
+      const near = down ? Math.min(...rows.map(({ b }) => b.top)) : Math.max(...rows.map(({ b }) => b.bottom));
+      const row = rows.filter(({ b }) => Math.abs((down ? b.top : b.bottom) - near) < 2);
+      const best = row.reduce((a, c) => (Math.abs(c.b.left + c.b.width / 2 - x) < Math.abs(a.b.left + a.b.width / 2 - x) ? c : a));
+      return go(best.k);
+    }
+  }
   if (e.key === "ArrowDown") return go(at + 1);
   if (e.key === "ArrowUp") return go(at < 0 ? options.length - 1 : at - 1);
   if (e.key === "Home" || e.key === "End") return go(e.key === "Home" ? 0 : options.length - 1);
@@ -173,6 +202,7 @@ export function Pick(p: PickProps) {
   const [open, setOpen] = useState<{ focus: boolean }>(), [all, setAll] = useState<MenuItem[]>(), [query, setQuery] = useState("");
   const button = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null);
   const close = (refocus = false) => { setOpen(undefined); setAll(undefined); setQuery(""); if (refocus) button.current?.focus(); };
+  if (p.shut) p.shut.current = () => close();
   useEffect(() => {
     if (!open) return;
     // An option's own right-click menu (onItemMenu) is part of the list: its clicks and its Escape are its own.
@@ -196,15 +226,20 @@ export function Pick(p: PickProps) {
     if (!open?.focus || !list.current) return;
     (list.current.querySelector<HTMLElement>(".menu-head input") ?? list.current.querySelector<HTMLElement>('.variant[aria-checked="true"]') ?? list.current.querySelector<HTMLElement>(".variant"))?.focus();
   }, [open, all]);
-  const found = all?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = found ? [found.slice(0, 300)] : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
+  // The options the field narrows: the longer list, or the list's own when it has a field (find), all but its last group.
+  const own = p.find && p.groups.slice(0, -1).flat().length > 12 ? p.groups.slice(0, -1).flat() : undefined, pool = all ?? own, findName = all ? p.more!.find : p.find;
+  const found = pool?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = found ? (all ? [found.slice(0, 300)] : [...(found.length ? [found] : []), p.groups[p.groups.length - 1]])
+    : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
   const choose = (key: string) => {
     if (key === "\u0000more") return void p.more!.load().then((items) => { setAll(items); setOpen({ focus: true }); });
+    if (p.onKeep?.(key)) return;
     close(!!open?.focus);
     if (key !== p.value) p.onPick(key);
   };
   const place = (): React.CSSProperties => {
-    const r = button.current!.getBoundingClientRect(), rows = all ? 12 : groups.reduce((n, g) => n + g.length, 0), want = rows * ROW + 2 * PAD + 2 + 8 * (groups.length - 1);
+    // A list with a field keeps its height as the field narrows it.
+    const r = button.current!.getBoundingClientRect(), shown = own ? p.groups : groups, rows = all ? 12 : shown.reduce((n, g) => n + rowsOf(g), 0), want = rows * ROW + 2 * PAD + 2 + 8 * (shown.length - 1);
     const below = innerHeight - r.bottom - 12, above = r.top - 12, down = above < Math.min(want, 6 * ROW + 2 * PAD + 2) && below > above;
     const across = r.right - menuWidth(1) < 8 ? { left: Math.max(8, r.left), right: "auto" } : { left: "auto", right: innerWidth - r.right };
     // Always inside the window, even for a button partly out of view.
@@ -234,8 +269,8 @@ export function Pick(p: PickProps) {
           if (key && p.onItemMenu) { e.preventDefault(); p.onItemMenu(key, { x: e.clientX, y: e.clientY }, false); }
         }}>
           <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} onPress={p.onPress} style={place()}
-            head={all && (
-              <input className="list-find" autoFocus placeholder={p.more!.find} aria-label={p.more!.find} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
+            head={pool && (
+              <input className="list-find" autoFocus placeholder={findName} aria-label={findName} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && found?.[0]) { e.preventDefault(); e.stopPropagation(); choose(found[0].key); }
                   if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); list.current?.querySelector<HTMLElement>(".variant")?.focus(); }
@@ -297,6 +332,9 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
   }, [open]);
   const keys = (e: React.KeyboardEvent, inSide: boolean) => {
     const focused = (document.activeElement as HTMLElement | null)?.dataset.item;
+    // In a grid of swatches left and right go along it (from its first, left closes a side menu as from any option).
+    const swatches = document.activeElement?.classList.contains("swatch-cell") && document.activeElement.previousElementSibling;
+    if ((e.key === "ArrowRight" || (e.key === "ArrowLeft" && swatches)) && document.activeElement?.classList.contains("swatch-cell") && listKeys(e, (inSide ? side : main).current!)) return;
     if (e.key === "Escape" || e.key === "ArrowLeft") {
       e.preventDefault(); e.stopPropagation();
       if (!inSide && e.key === "Escape") return onClose();
@@ -311,7 +349,7 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     if (listKeys(e, (inSide ? side : main).current!)) return;
     e.stopPropagation(); // the menu's keys are its own
   };
-  const inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.flat().length * 32 + 24;
+  const inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.reduce((n, g) => n + rowsOf(g), 0) * 32 + 24;
   return createPortal(
     <>
       <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}

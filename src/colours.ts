@@ -1,54 +1,53 @@
-// Octet's one colour system (Sam, 11 November 2026): every colour menu lists the same parts in the same order
-// (colourOptions), and the recent colours are shared by every menu, document and window. ColourPicker.tsx draws them.
-import { COLOURS, RING_FILLS, TINTS } from "./docstyle.ts";
+// Octet's one colour system (Sam, 19 November 2026): every colour menu lists the same parts in the same order
+// (colourOptions), each colour once, as swatches. ColourPicker.tsx draws them.
+import { COLOURS, HIGHLIGHT_COLOURS, RING_FILLS, TINTS } from "./docstyle.ts";
 import type { Swatch } from "./settings.ts";
 
 export const OWN_MOST = 100; // the user's own colours
-export const RECENT_MOST = 8;
-export const PICK = "\u0000pick", ADD = "\u0000add"; // Pick from screen and Add colour…
+export const PICK = "\u0000pick", ADD = "\u0000add"; // Pick from screen and Custom colour…
 export type ColourOption = { key: string; name: string; hex?: string };
+const HEX = /^#[0-9a-f]{6}$/i;
+const same = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-// The recent colours, newest first, kept on this computer as the recent characters are (CharMap.tsx). Another window's
-// change reaches this one as a storage event.
-const RECENT = "octet.colours.recent", HEX = /^#[0-9a-f]{6}$/i;
-let recent: string[] | undefined;
-export function recentColours(): string[] {
-  if (recent) return recent;
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT) ?? "[]");
-    recent = Array.isArray(v) ? v.filter((h) => typeof h === "string" && HEX.test(h)).slice(0, RECENT_MOST) : [];
-  } catch {
-    recent = [];
-  }
-  return recent;
-}
-export function rememberColour(hex: string) {
-  if (!HEX.test(hex)) return;
-  recent = [hex, ...recentColours().filter((h) => h.toLowerCase() !== hex.toLowerCase())].slice(0, RECENT_MOST);
-  try { localStorage.setItem(RECENT, JSON.stringify(recent)); } catch { /* storage is optional */ }
-}
-if (typeof addEventListener === "function") addEventListener("storage", (e) => { if (e.key === RECENT) recent = undefined; });
-
-// A colour menu's options, in groups: the recent colours, then None (where it applies), the preset colours and the
-// colour chosen now when it is none of them (Custom), then the user's own colours (with the drawing's after them),
-// then Pick from screen and Add colour…. Each key is its own (r3, o3), so only one option shows as chosen (chosenKey).
-// A recent colour has its name from this menu, the user's colours or Octet's other lists, else its hex.
-export function colourOptions(presets: [string, string][], own: Swatch[], value?: string, none = false, latest = recentColours()): ColourOption[][] {
-  const same = (a: string, b?: string) => a.toLowerCase() === b?.toLowerCase();
-  const named = (hex: string) => presets.find(([, h]) => same(h, hex))?.[0] ?? own.find((c) => same(c.hex, hex))?.name ?? [...COLOURS, ...TINTS, ...RING_FILLS].find(([, h]) => same(h, hex))?.[0] ?? hex.toUpperCase();
-  const known = value === "none" || !value || latest.some((h) => same(h, value)) || presets.some(([, h]) => same(h, value)) || own.some((c) => same(c.hex, value));
+// A colour menu's options, in groups: None (where it applies), Octet's colours for the menu and the colour chosen now
+// when it is in no group (named from Octet's other lists, else by its hex); then the user's own colours (o3: the third of theirs); then the drawing's
+// colours (d3); then Pick from screen and Custom colour…. A colour shows once, at its first place.
+export function colourOptions(presets: [string, string][], own: Swatch[], drawing: Swatch[] = [], value?: string, none = false): ColourOption[][] {
+  const seen: string[] = [];
+  const fresh = (hex: string) => (seen.some((h) => same(h, hex)) ? false : (seen.push(hex), true));
+  const base = presets.filter(([, h]) => fresh(h)).map(([name, hex]) => ({ key: hex, name, hex }));
+  const mine = own.flatMap((c, k) => (fresh(c.hex) ? [{ key: `o${k}`, name: c.name, hex: c.hex }] : []));
+  const drawn = drawing.flatMap((c, k) => (fresh(c.hex) ? [{ key: `d${k}`, name: c.name, hex: c.hex }] : []));
+  const odd = value && HEX.test(value) && fresh(value) ? [{ key: value, name: colourName(value, presets), hex: value }] : [];
   return [
-    latest.map((hex, k) => ({ key: `r${k}`, name: named(hex), hex })),
-    [...(none ? [{ key: "none", name: "None" }] : []), ...presets.map(([name, hex]) => ({ key: hex, name, hex })), ...(known ? [] : [{ key: value!, name: "Custom", hex: value }])],
-    own.map((c, k) => ({ key: `o${k}`, name: c.name, hex: c.hex })),
-    [{ key: PICK, name: "Pick from screen" }, { key: ADD, name: "Add colour…" }],
+    [...(none ? [{ key: "none", name: "None" }] : []), ...base, ...odd],
+    mine,
+    drawn,
+    [{ key: PICK, name: "Pick from screen" }, { key: ADD, name: "Custom colour…" }],
   ];
 }
-// The option shown as chosen: the first with the colour chosen now (None for "none").
+// The option shown as chosen: the one with the colour chosen now (None for "none").
 export const chosenKey = (groups: ColourOption[][], value?: string) =>
-  groups.flat().find((o) => (o.hex ? o.hex.toLowerCase() === value?.toLowerCase() : o.key === "none" && value === "none"))?.key;
+  groups.flat().find((o) => (o.hex ? same(o.hex, value) : o.key === "none" && value === "none"))?.key;
 // The user's own colour an option is (o3), or -1.
 export const ownIndex = (key: string | undefined, own: Swatch[]) => { const k = /^o(\d+)$/.exec(key ?? "") ? Number(key!.slice(1)) : -1; return k < own.length ? k : -1; };
+// A colour's name: from the menu's presets, the user's colours, the drawing's or Octet's other lists, else its hex.
+export const colourName = (hex: string, presets: [string, string][], own: Swatch[] = [], drawing: Swatch[] = []) =>
+  hex === "none" ? "None" : presets.find(([, h]) => same(h, hex))?.[0] ?? own.find((c) => same(c.hex, hex))?.name ?? drawing.find((c) => same(c.hex, hex))?.name
+    ?? [...COLOURS, ...TINTS, ...RING_FILLS].find(([, h]) => same(h, hex))?.[0] ?? hex.toUpperCase();
+
+// Pinned colours: the swatches each colour row in the Actions panel shows, one click to apply. Each kind of row keeps
+// its own (PIN_MOST at most, with None first where it applies); until the user pins one it shows Octet's first ones.
+export type PinKind = "ink" | "tint" | "highlight" | "ring";
+export const PIN_MOST = 6;
+export const PIN_PRESETS: Record<PinKind, [string, string][]> = { ink: COLOURS, tint: TINTS, highlight: HIGHLIGHT_COLOURS, ring: RING_FILLS };
+// The row's colours: the user's pins for that kind, else Octet's first ones. room: the swatches the row has for them.
+export const pinsOf = (pins: Partial<Record<PinKind, string[]>>, kind: PinKind, room = PIN_MOST) =>
+  (pins[kind] ?? PIN_PRESETS[kind].map(([, h]) => h)).slice(0, room);
+// A colour pinned: at the end, in the last place when the row is full. Pinned already: no change.
+export const pin = (list: string[], hex: string, room = PIN_MOST) => (list.some((h) => same(h, hex)) ? list : [...list.slice(0, room - 1), hex]);
+export const unpin = (list: string[], hex: string) => list.filter((h) => !same(h, hex));
+export const pinned = (list: string[], hex?: string) => list.some((h) => same(h, hex));
 
 // The user's own colours with one moved from one place to another, and with a colour added (once, at the end).
 export const moveColour = (own: Swatch[], from: number, to: number) => { const next = own.filter((_, k) => k !== from); next.splice(to, 0, own[from]); return next; };

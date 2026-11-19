@@ -33,6 +33,19 @@ const LONE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\ud
 const upTo = (v: string, n: number) => (v.length <= n ? v : v.slice(0, /[\ud800-\udbff]/.test(v[n - 1]) ? n - 1 : n));
 // A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most. A grid's conditions too.
 export const oneLine = (v: string) => upTo(v.replace(LONE, "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim(), MAX_VALUE).trim();
+// Who saved the drawing last (issue 100): the computer user's name, set by each save, read-only in Settings. ChemDraw's
+// ModificationUserName on the document in CDXML and CDX (cdxml.ts). Not in PROPERTIES, so nothing else sets it.
+// A drawing with no Author has none: clearing Author in Settings keeps every name out of the file.
+export const CHANGED_BY = "Last changed by";
+const CHANGED = [["by", CHANGED_BY]] as const;
+export const changedBy = (annotations?: Annotation[]) => (detailsOf(annotations, PROPERTIES).author ? detailsOf(annotations, CHANGED).by : undefined);
+// The drawing as saved by this user: with no Author, without Last changed by; else with the name. The same drawing
+// when it says so already, or when there is no name.
+export function stamped<M extends { annotations?: Annotation[] }>(m: M, name: string): M {
+  const by = oneLine(name), named = !!detailsOf(m.annotations, PROPERTIES).author;
+  const same = named ? !by || changedBy(m.annotations) === by : !m.annotations?.some((a) => a.keyword === CHANGED_BY);
+  return same ? m : { ...m, annotations: withDetails(m.annotations, { by: named ? by : "" }, CHANGED) };
+}
 // A comment as the drawing keeps it: its lines (each line break a line feed), a tab as a space, no other control
 // characters, MAX_COMMENT units at most (the files' limit on an annotation).
 export const commentText = (v: string) => upTo(cleanComment(v), MAX_COMMENT).trim();
@@ -109,7 +122,7 @@ export function newExperiment(s: Sheet, template?: Mol, date = today(), author?:
 // other page, or a template without them).
 const spanOf = (x: Shape): [number, number, number, number] => [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])];
 function schemeShape(m: Mol, heading = /^reaction scheme$/i): Shape | undefined {
-  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && heading.test(c.text.trim()));
+  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && !c.measure && heading.test(c.text.trim()));
   if (!h) return undefined;
   const near = (m.shapes ?? []).filter((x) => (x.kind === "box" || x.kind === "rounded") && !x.angle).filter((x) => { const b = spanOf(x); return b[3] <= h.y + 1e-6 && b[0] <= h.x + 1e-6 && b[2] > h.x; });
   return near.sort((p, q) => spanOf(q)[3] - spanOf(p)[3])[0];
@@ -148,7 +161,7 @@ export function growScheme(m: Mol, bottom: number, pad = 1, heading?: RegExp): M
     const [, lo, , hi] = spanOf(x), keep = d - Math.max(0, Math.min(d, hi - lo - PROCEDURE_MIN));
     return { ...x, ...(x.from[1] > x.to[1] ? { from: move(x.from, d), to: move(x.to, keep) } : { to: move(x.to, d), from: move(x.from, keep) }) };
   });
-  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && c.y < b[1] && !risk.has(c.id) ? { ...c, y: c.y - d } : c));
+  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && !c.measure && c.y < b[1] && !risk.has(c.id) ? { ...c, y: c.y - d } : c));
   return { ...m, shapes, ...(captions ? { captions } : {}) };
 }
 // The least the Procedure box keeps when the scheme above it grows (bond lengths: twice ROOM, about eight lines).
@@ -179,7 +192,7 @@ export const growProcedure = (m: Mol, bottom: number) => growScheme(m, bottom, R
 const TITLE = 1.4, GAP = 0.8; // the title's size, and the space between a name and its value, in text sizes
 const titleSize = (s: Sheet) => Math.round(TITLE * s.size * 100) / 100;
 export const titleSizeOf = titleSize;
-const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role;
+const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role && !c.measure;
 const NAMES = new Map<string, Field>(FIELDS.map(([key, name]) => [name.toLowerCase(), key]));
 const nameOf = (c: Caption) => (free(c) && !c.field ? NAMES.get(c.text.trim().replace(/:$/, "").toLowerCase()) : undefined);
 const valueOf = (m: Mol, key: Field) => m.captions?.find((c) => c.field === key && free(c));

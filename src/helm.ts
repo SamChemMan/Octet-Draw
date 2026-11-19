@@ -11,6 +11,7 @@ import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts
 import { buildAtoms, buildLabels, endRefs, monomerRefs, nucleicRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
+import { retie } from "./arrowlink.ts";
 import { baseLetter, byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isLinker, isNEnd, monomer, N_ENDS, naturalLetter, nucleotideCode, nucleotideParts, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 // What a peptide's ends can be, in the field's words.
 const ENDS_PROBLEM = `Ends can be ${[["H", ...N_ENDS.map((e) => e.word)].map((w) => `${w}-`), ["OH", ...C_ENDS.map((e) => e.word)].map((w) => `-${w}`)].flat().join(", ").replace(/, ([^,]*)$/, " or $1")}.`;
@@ -533,17 +534,26 @@ export function chainText(m: Mol, gone: number[], own: Own = []): string | undef
   return seqWords(read.seq) ?? helmOf(read.seq);
 }
 // Structures drawn again in place of others: each part's atoms (gone) give way to its new structure (mol). The text
-// under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on and kept
-// ChemDraw data on its atoms go with it to the new atoms: each takes them before the old atoms go.
-function redrawn(m: Mol, parts: { gone: number[]; mol: Mol }[]): Mol {
+// under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on, kept
+// ChemDraw data on its atoms, its data fields (datafields.ts) and the curved arrows tied to them go with it to the new
+// atoms: each takes them before the old atoms go. A tied arrow end goes to the new atom that is its old one (same: a
+// residue label the Bond tool's link draws again, by its old atom), else to a new atom of the same element (or label)
+// within half a bond of its old one; with none (the residue went, or the layout changed), it lets go and stays where it
+// was, as ChemDraw leaves an arrow whose target goes.
+const dist = (m: Mol, i: number, j: number) => Math.hypot(m.atoms[i].location[0] - m.atoms[j].location[0], m.atoms[i].location[1] - m.atoms[j].location[1]);
+function redrawn(m: Mol, parts: { gone: number[]; mol: Mol; same?: Map<number, number> }[]): Mol {
   let out = m;
-  for (const { gone, mol } of parts) {
+  for (const { gone, mol, same } of parts) {
     const old = new Set(gone), fresh = mol.atoms.map((_, k) => out.atoms.length + k);
     const plus = (atoms: number[]) => (atoms.some((i) => old.has(i)) ? [...atoms, ...fresh] : atoms);
     const kept = (x: Caption): Caption => (x.property?.atoms.some((i) => old.has(i)) ? { ...x, property: { ...x.property, atoms: plus(x.property.atoms) } } : x);
     out = insertMol(out, mol).mol;
+    const like = (j: number, i: number) => out.atoms[j].label === out.atoms[i].label && out.atoms[j].text === out.atoms[i].text;
+    const nearest = (i: number) => (same?.has(i) ? fresh[same.get(i)!] : fresh.filter((j) => like(j, i) && dist(out, j, i) < 0.5).sort((p, q) => dist(out, p, i) - dist(out, q, i))[0]);
     out = { ...out, captions: out.captions?.map((c) => kept(c.under?.some((i) => old.has(i)) ? { ...c, under: plus(c.under) } : c)),
-      groups: out.groups?.map((g) => ({ ...g, atoms: plus(g.atoms) })), cycles: out.cycles?.map((c) => ({ ...c, nodes: c.nodes.map(plus) })) };
+      groups: out.groups?.map((g) => ({ ...g, atoms: plus(g.atoms) })), cycles: out.cycles?.map((c) => ({ ...c, nodes: c.nodes.map(plus) })),
+      arrows: retie(out.arrows, (i) => (old.has(i) ? nearest(i) : i)),
+      ...(out.data ? { data: out.data.map((f) => { const atoms = plus(f.atoms); return atoms === f.atoms ? f : { ...f, atoms }; }) } : {}) };
   }
   return erase(out, new Set(), new Set(parts.flatMap((p) => p.gone)));
 }
@@ -607,5 +617,5 @@ export function linkResidues(m: Mol, i: number, j: number, own: Own = m.monomers
   const oldOf = new Map([...fromOld].map(([k, o]) => [o, k])), key = (p: number, q: number) => (p < q ? `${p} ${q}` : `${q} ${p}`);
   const kept = new Map(part.bonds.flatMap((x) => (oldOf.has(x.atoms[0]) && oldOf.has(x.atoms[1]) ? [[key(oldOf.get(x.atoms[0])!, oldOf.get(x.atoms[1])!), x] as const] : [])));
   const bonds = built.mol.bonds.map((x) => { const o = kept.get(key(x.atoms[0], x.atoms[1])); return o ? { ...x, ...(o.colour ? { colour: o.colour } : {}), ...(o.halo ? { halo: o.halo } : {}), ...(o.line ? { line: o.line } : {}) } : x; });
-  return redrawn(m, [{ gone: all, mol: { ...built.mol, atoms, bonds } }]);
+  return redrawn(m, [{ gone: all, mol: { ...built.mol, atoms, bonds }, same: new Map([...fromOld].map(([k, o]) => [all[o], k])) }]);
 }

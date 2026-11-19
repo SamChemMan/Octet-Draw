@@ -10,9 +10,11 @@
 // curvedArrows: the curved arrows kept in the Arrow strip, as "kind-sweep".
 // folded: the Actions panel's titled sections folded to their title, by set ("turn", "colour"), for every kind of
 // selection. A new user has every section open.
-import { readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
+import { keepOwnRings, readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
 import type { OwnName } from "./names";
 import { readMonomers, type OwnMonomer } from "./monomers";
+import { readNicknames, type OwnNickname } from "./nicknames";
+import type { TemplateAnchor } from "./edit";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 import { DPI_MIN, DPI_MAX, PICTURES } from "./export";
@@ -22,7 +24,7 @@ import type { LabelTurn } from "./spectrumplot";
 import { readLayout, type HomeLayout } from "./homeLayout";
 import { CURSOR_INKS, type CursorInk } from "./cursor";
 import { readSelectColour, SELECT_DEFAULT } from "./selectcolour";
-import { OWN_MOST } from "./colours";
+import { OWN_MOST, PIN_MOST, PIN_PRESETS, type PinKind } from "./colours";
 
 const inRange = (n: unknown, lo: number, hi: number) => typeof n === "number" && n >= lo && n <= hi;
 
@@ -63,16 +65,22 @@ export type Settings = {
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
-  libraryRings: string[]; // library templates kept in the Ring strip, as "lib:name"
+  libraryRings: string[]; // templates kept in the Ring strip: built-in ("lib:name"), named ("name:…") and own ("custom:id")
+  anchors: Record<string, TemplateAnchor>; // the atom or bond each built-in or named template attaches by, by kind (the user's own keep theirs)
+  ringOwnKept: boolean; // the user's own templates from before the Ring menu pin (1.1.3) are in libraryRings
   palettes: FloatingPalette[]; // template sets open as floating palettes, each where it was left (the last on top)
   librarySize: TemplateSize; // the size of the templates in the template library (each floating palette has its own)
   dictionary: OwnName[]; // the user's own names for structures (Structure > Add Structure to Dictionary), in the order added
+  nicknames: OwnNickname[]; // the user's own nicknames (Structure > Define Nickname…), up to 500, in the order defined
+  monomers: OwnMonomer[]; // the user's own peptide monomers (Structure > Define Monomer…), up to 500, in the order defined
   templateSets: string[]; // the user's named template sets, in order (My templates is always first and not listed)
   nameHistory: { name: string; smiles: string }[]; // names drawn with Name to structure, newest first (50 at most), each with its structure
   paletteWide: boolean; // the toolbar in two columns
   palette: Swatch[]; // the user's own colours, named, after Octet's in every colour menu and the Colour menu (OWN_MOST at most)
+  colourPins: Partial<Record<PinKind, string[]>>; // the colours pinned to each kind of colour row in the Actions panel (PIN_MOST at most)
   elementColours: Record<string, string>; // Colour by Element: the user's colour for an element, where it differs from Octet's
   properties: boolean; // the Chemical Properties panel is open
+  notesPanel: boolean; // the Notes panel is open (annotate.ts)
   propertyRows: string[]; // the rows Add to drawing writes under a structure
   decimals?: number; // Properties > Decimals: places for the exact mass, molecular weight and m/z (0 to 8); unset is 4, 2 and 2
   propertyNames?: false; // Properties > Names off: Add to drawing writes the values without their names (issue 77)
@@ -84,6 +92,7 @@ export type Settings = {
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
   onlineSearch: boolean; // The online searches are offered (decision 0008); off hides them everywhere
   moreFormats: boolean; // Settings > Pro: File > More Formats, the rare formats, is in the File menu (off by default)
+  feedbackButton: boolean; // Settings > Pro: the round Feedback button shows beside the palette (on by default)
   chemfigCompact: boolean; // Settings > Pro: chemfig code on one line (off: an atom on each line, branches indented)
   interpretation: boolean; // View > Show Reaction Interpretation: pointing at a reaction shows what each part of it is
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
@@ -96,16 +105,18 @@ export type Settings = {
   // aromaticOnOpen: Normalize Aromatic Display (on opening and importing: alternating bonds or circles; "" leaves
   // each structure as the file has it).
   autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles";
+  // Names Show Stereochemistry adds (stereonames.ts; off by default): D and L before R and S, steroid alpha and beta in
+  // place of R and S, and a mark on an undefined stereocentre ("" none, ? or Ξ).
+  dlNames: boolean; steroidNames: boolean; unsetMark: "" | "?" | "Ξ";
   massUnit: "g" | "mg"; // Settings > Typing > Mass without a unit: a number typed with no unit in a stoichiometry table's mass cell
   cursor: CursorInk; // Settings > General > Cursor: Octet's cursors black, white, or the one that shows on the page
   selectColour: string; // Settings > General > Selection: the selection's colour, #RRGGBB (selectcolour.ts)
   sequenceLabels: boolean; // how sequences show in a new document (its style's Sequences): as residue labels, H–Ala–Cys–OH
-  monomers: OwnMonomer[]; // the user's own peptide monomers (Structure > Define Monomer…), up to 500, in the order defined
 };
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false, monomers: [] };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], monomers: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -118,13 +129,18 @@ export function loadSettings(): Settings {
       ...DEFAULTS, ...saved, variants: { ...DEFAULTS.variants, ...saved.variants, ...(["in", "out"].includes(saved.variants?.cycle) ? { cycle: "circle" } : {}) },
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
       pinned: list<string>(saved.pinned, (k) => typeof k === "string"),
-      libraryRings: list<string>(saved.libraryRings, (k) => typeof k === "string"),
+      // Once: the user's own templates, all in the Ring strip before its pin (1.1.3), stay there.
+      anchors: Object.fromEntries(Object.entries(saved.anchors && typeof saved.anchors === "object" ? saved.anchors : {}).filter(([k, a]) => /^(lib|name):./.test(k) && k.length <= 300
+        && !!a && typeof a === "object" && [(a as { atom?: unknown }).atom, (a as { bond?: unknown }).bond].some((n) => Number.isInteger(n) && (n as number) >= 0)).slice(0, 500)),
+      libraryRings: ((kept: string[]) => (saved.ringOwnKept === true ? kept : keepOwnRings(kept, Array.isArray(saved.templates) ? saved.templates : [])))(list<string>(saved.libraryRings, (k) => typeof k === "string")),
+      ringOwnKept: true,
       templateSets: list<string>(saved.templateSets, (k) => typeof k === "string" && !!k.trim() && k.length <= 40).slice(0, 50),
       palettes: readPalettes(saved.palettes),
-      monomers: readMonomers(saved.monomers),
       librarySize: readSize(saved.librarySize),
       dictionary: list<OwnName>(saved.dictionary, (n) => typeof n === "object" && n !== null && typeof (n as OwnName).name === "string" && !!(n as OwnName).name.trim() && (n as OwnName).name.length <= 80
         && typeof (n as OwnName).smiles === "string" && !!(n as OwnName).smiles && (n as OwnName).smiles.length <= 4000 && ((n as OwnName).inchi === undefined || typeof (n as OwnName).inchi === "string")).slice(0, 2000),
+      nicknames: readNicknames(saved.nicknames),
+      monomers: readMonomers(saved.monomers),
       nameHistory: (Array.isArray(saved.nameHistory) ? saved.nameHistory : []).flatMap((k: unknown) =>
         typeof k === "string" ? [{ name: k, smiles: "" }] : typeof k === "object" && k && typeof (k as { name?: unknown }).name === "string" && typeof (k as { smiles?: unknown }).smiles === "string" ? [k as { name: string; smiles: string }] : [],
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
@@ -133,7 +149,7 @@ export function loadSettings(): Settings {
       // A saved 350 dpi is the old default, not a choice: it moves to the new default. A dpi or JPEG quality out of
       // range (the quality a whole number, as Rust reads it), or a background Octet does not have, takes the default.
       files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), ...(saved.files?.dpi === 350 || !inRange(saved.files?.dpi, DPI_MIN, DPI_MAX) ? { dpi: DEFAULT_FILES.dpi } : {}),
-        ...(Number.isInteger(saved.files?.quality) && inRange(saved.files.quality, 1, 100) ? {} : { quality: DEFAULT_FILES.quality }), ...(["white", "transparent", "page"].includes(saved.files?.background) ? {} : { background: DEFAULT_FILES.background }), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct", quick: PICTURES.includes(saved.files?.quick) ? saved.files.quick : DEFAULT_FILES.quick },
+        ...(Number.isInteger(saved.files?.quality) && inRange(saved.files.quality, 1, 100) ? {} : { quality: DEFAULT_FILES.quality }), ...(["white", "transparent", "page"].includes(saved.files?.background) ? {} : { background: DEFAULT_FILES.background }), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct", quick: PICTURES.includes(saved.files?.quick) ? saved.files.quick : DEFAULT_FILES.quick, pdfPages: saved.files?.pdfPages === "document" ? "document" : "one" },
       paletteWide: saved.paletteWide === true,
       warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
       checkCopy: saved.checkCopy === true,
@@ -144,6 +160,7 @@ export function loadSettings(): Settings {
       guides: { grid: saved.guides ? saved.guides.grid === true : [saved.docStyle, saved.purposeStyles?.[saved.purpose ?? "paper"]].some((st) => typeof st?.grid === "number" && st.grid > 0), rulers: saved.guides?.rulers === true, crosshair: saved.guides?.crosshair === true },
       rulerUnit: RULER_UNITS.some(([u]) => u === saved.rulerUnit) ? saved.rulerUnit : DEFAULTS.rulerUnit,
       properties: saved.properties === true,
+      notesPanel: saved.notesPanel === true,
       nmrMhz: typeof saved.nmrMhz === "number" && saved.nmrMhz >= 20 && saved.nmrMhz <= 1500 ? saved.nmrMhz : DEFAULTS.nmrMhz,
       nmrSolvent: typeof saved.nmrSolvent === "string" && saved.nmrSolvent.length < 20 ? saved.nmrSolvent : DEFAULTS.nmrSolvent,
       nmrSolventPeaks: saved.nmrSolventPeaks !== false,
@@ -153,7 +170,7 @@ export function loadSettings(): Settings {
       ...(typeof saved.stripHeight === "number" && saved.stripHeight >= 100 && saved.stripHeight <= 4000 ? { stripHeight: Math.round(saved.stripHeight) } : {}),
       massSpec: readMsPrefs(saved.massSpec),
       fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true, clickTriple: saved.clickTriple === true,
-      autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,
+      autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, dlNames: saved.dlNames === true, steroidNames: saved.steroidNames === true, unsetMark: saved.unsetMark === "?" || saved.unsetMark === "Ξ" ? saved.unsetMark : "", hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,
       aromaticOnOpen: saved.aromaticOnOpen === "kekule" || saved.aromaticOnOpen === "circles" ? saved.aromaticOnOpen : "",
       massUnit: saved.massUnit === "mg" ? "mg" : "g",
       cursor: CURSOR_INKS.some(([c]) => c === saved.cursor) ? saved.cursor : DEFAULTS.cursor,
@@ -161,12 +178,15 @@ export function loadSettings(): Settings {
       scaleLabels: saved.scaleLabels !== false,
       onlineSearch: saved.onlineSearch !== false,
       moreFormats: saved.moreFormats === true,
+      feedbackButton: saved.feedbackButton !== false,
       chemfigCompact: saved.chemfigCompact === true,
       interpretation: saved.interpretation === true,
       decimals: Number.isInteger(saved.decimals) && saved.decimals >= 0 && saved.decimals <= 8 ? saved.decimals : undefined,
       propertyNames: saved.propertyNames === false ? false : undefined,
       propertyRows: Array.isArray(saved.propertyRows) ? list<string>(saved.propertyRows, (k) => typeof k === "string" && k.length < 20).slice(0, 30) : DEFAULTS.propertyRows,
       elementColours: Object.fromEntries(Object.entries(typeof saved.elementColours === "object" && saved.elementColours ? saved.elementColours : {}).filter(([k, v]) => /^[A-Z][a-z]?$/.test(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))) as Record<string, string>,
+      colourPins: Object.fromEntries(Object.entries(typeof saved.colourPins === "object" && saved.colourPins ? saved.colourPins : {}).filter(([k, v]) => k in PIN_PRESETS && Array.isArray(v))
+        .map(([k, v]) => [k, list<string>(v, (h) => typeof h === "string" && /^#[0-9a-f]{6}$/i.test(h)).slice(0, PIN_MOST)])),
       palette: list<Swatch>(saved.palette, (c) => typeof c === "object" && c !== null && typeof (c as Swatch).name === "string" && /^#[0-9a-f]{6}$/i.test((c as Swatch).hex)).slice(0, OWN_MOST),
       // Layouts arranged before the panel's sub-menus (17 October 2026) start again from the new defaults.
       actionLayout: saved.layoutVersion === 3 && typeof saved.actionLayout === "object" && saved.actionLayout !== null && !Array.isArray(saved.actionLayout) ? saved.actionLayout : {},

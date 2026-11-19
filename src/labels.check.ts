@@ -165,11 +165,14 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
   // not know; a diolate with no boron; a phenyl whose positions and groups do not agree, with a linker on it (4-OPh is
   // no biphenylol), or with a count that is the group's own (the 2 of NO2); and capitals that spell no group, where a
   // D or T is a letter of an abbreviation (OTPS is no tritium compound, CDI no deuterium on carbon).
-  for (const label of ["Ar", "Ar1", "Ar'", "OAr", "ArO", "NHAr", "CH2Ar", "SO2Ar", "N(Ar)2", "R", "R1", "X", "OR", "NR2", "Het", "HetAr", "L", "Ln", "Alkyl", "Aryl", "EWG", "PG", "Nu", "MIV", "MII", "M(IV)", "Xyz", "ODMT", "n-Hex",
+  for (const label of ["Ar", "Ar1", "Ar'", "OAr", "ArO", "NHAr", "CH2Ar", "SO2Ar", "N(Ar)2", "R", "R1", "X", "OR", "NR2", "Het", "HetAr", "L", "Ln", "Alkyl", "Aryl", "EWG", "PG", "Nu", "MIV", "MII", "M(IV)", "Xyz", "OZq", "n-Xyz",
     "pin", "Spin", "B2pin2", "4-C6H4", "3,5-MeC6H3", "3,3-Me2C6H3", "1-ClC6H4", "4-ClC6H3", "4-XyzC6H4", "4-OPh", "4-SPh", "4-NPh", "4-NHPh", "4-CPh", "4-CHPh", "4-CH2Ph", "4-COPh", "4-SOPh", "4-SO2Ph", "4-OC6H4", "4-C(O)Ph",
     "3,5-NO2C6H3", "3,4,5-CF3C6H2", "3,5-OMeC6H3", "THF", "DBU", "DCC", "TPS", "OTPS", "CDI", "PDC", "BHT", "COT", "HBTU", "T3P", "CuTC", "TS", "T3C", "CDCl3", "CH2D", "PhD", "DCl",
     // A nitrile ligand written from its N: no amine (it was NC(C), ethylamino).
     "MeCN", "NCMe", "NCCH3", "PhCN", "NCPh"]) assert.equal(labelSmiles(label), undefined, label);
+  // ODMT and n-Hex are Octet's nicknames (nicknames.ts): read whole, as the DMTr ether and n-hexyl.
+  assert.equal(labelSmiles("ODMT"), "OC(c1ccccc1)(c1ccc(OC)cc1)c1ccc(OC)cc1");
+  assert.equal(labelSmiles("n-Hex"), "CCCCCC");
   assert.equal(labelSmiles("CH2CN"), "CC#N");
   for (const label of ["Ar", "Ar1", "Ar'", "Het", "HetAr", "L", "Ln", "L'", "Alkyl", "Aryl", "EWG", "EDG", "PG", "LG", "Nu", "E", "Hal", "R", "R1", "R''", "X", "ALK", "Q", "MIV", "MII", "MIII", "MX", "M(IV)", "M(0)"]) assert.ok(standsIn(label), label);
   for (const label of ["Xyz", "Ph", "Me", "ODMT", "OAr", "Arg", "Lys", "Li", "Al", "EtO", "All", "Allyl", "Mn", "Me", "MIVa", "M(IV", "MIV)", "M()"]) assert.ok(!standsIn(label), label);
@@ -235,6 +238,39 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["OBpin pinBO", "CC1(C)OB(Oc2ccccc2)OC1(C)C", "C12H17BO3"],
     ["NHBpin", "CC1(C)OB(Nc2ccccc2)OC1(C)C", "C12H18BNO2"],
     ["9-BBN BBN", "C1CC2CCCC(C1)B2c1ccccc1", "C14H19B"],
+    // Perfluoro chains and C6F5, labels written from the left (bond on their last atom), imines in brackets and
+    // silylethynyls, which Octet read as other groups before (PR #146's nicknames found them). Each structure is the
+    // compound's standard one; the molar mass is checked below.
+    ["C2F5 F5C2", "FC(F)(F)C(F)(F)c1ccccc1", "C8H5F5"],
+    ["C3F7 F7C3", "FC(F)(F)C(F)(F)C(F)(F)c1ccccc1", "C9H5F7"],
+    ["C4F9 F9C4", "FC(F)(F)C(F)(F)C(F)(F)C(F)(F)c1ccccc1", "C10H5F9"],
+    ["C6F13 F13C6", "FC(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)c1ccccc1", "C12H5F13"],
+    ["C6F5 F5C6", "Fc1c(F)c(F)c(-c2ccccc2)c(F)c1F", "C12H5F5"],
+    ["HOH2C", "OCc1ccccc1", "C7H8O"],
+    ["ClH2C", "ClCc1ccccc1", "C7H7Cl"],
+    ["BrH2C", "BrCc1ccccc1", "C7H7Br"],
+    ["FH2C", "FCc1ccccc1", "C7H7F"],
+    ["IH2C", "ICc1ccccc1", "C7H7I"],
+    ["HCl2C", "ClC(Cl)c1ccccc1", "C7H6Cl2"],
+    ["HOHN", "ONc1ccccc1", "C6H7NO"],
+    ["NCH2C", "N#CCc1ccccc1", "C8H7N"],
+    ["NCH2CH2C", "N#CCCc1ccccc1", "C9H9N"],
+    ["ClOC", "ClC(=O)c1ccccc1", "C7H5ClO"],
+    ["HOHNOC", "ONC(=O)c1ccccc1", "C7H7NO2"],
+    ["H2NSC", "NC(=S)c1ccccc1", "C7H7NS"],
+    ["EtO2CCO", "CCOC(=O)C(=O)c1ccccc1", "C10H10O3"],
+    ["OHCHN", "O=CNc1ccccc1", "C7H7NO"],
+    ["H2NOCHN", "NC(=O)Nc1ccccc1", "C7H8N2O"],
+    ["H3CCONH", "CC(=O)Nc1ccccc1", "C8H9NO"],
+    ["ClO2S", "ClS(=O)(=O)c1ccccc1", "C6H5ClO2S"],
+    ["FO2S", "FS(=O)(=O)c1ccccc1", "C6H5FO2S"],
+    ["Cl3CC(O)", "ClC(Cl)(Cl)C(=O)c1ccccc1", "C8H5Cl3O"],
+    ["OC(NH)CCl3 Cl3CC(NH)O", "N=C(Oc1ccccc1)C(Cl)(Cl)Cl", "C8H6Cl3NO"],
+    ["OC(NPh)CF3 F3CC(NPh)O", "FC(F)(F)C(=Nc1ccccc1)Oc1ccccc1", "C14H10F3NO"],
+    ["CCTMS TMSCC CCSiMe3", "C[Si](C)(C)C#Cc1ccccc1", "C11H14Si"],
+    ["CCTIPS TIPSCC", "CC(C)[Si](C#Cc1ccccc1)(C(C)C)C(C)C", "C17H26Si"],
+    ["C(NH)NH2", "NC(=N)c1ccccc1", "C7H8N2"],
+    ["C(NMe)Ph", "CN=C(c1ccccc1)c1ccccc1", "C14H13N"],
     ["BF3K KF3B", "F[B-](F)(F)c1ccccc1.[K+]", "C6H5BF3K", "C6H5BF3 + K"],
     ["H", "c1ccccc1", "C6H6"],
     ["D T", "[2H]c1ccccc1", "C6H6"], // Octet's formulas count deuterium and tritium with hydrogen (the InChIKey tells T from D)
@@ -327,6 +363,9 @@ assert.ok(!/OO|#/.test(labelSmiles("CCO2H") ?? ""), "CCO2H: no peroxide, no trip
     ["PhCC", "c1ccc(cc1)C#Cc1ccccc1", "C14H10"],
     ["NCCH2CH2 CH2CH2CN", "N#CCCc1ccccc1", "C9H9N"],
   ];
+  // Molar masses (g/mol) of the fixed readings on benzene, against the compounds' published values.
+  for (const [label, mass] of Object.entries({ "C2F5": 196.12, "C3F7": 246.12, "C4F9": 296.13, "C6F13": 396.15, "C6F5": 244.16, "HOH2C": 108.14, "ClH2C": 126.58, "BrH2C": 171.04, "FH2C": 110.13, "IH2C": 218.03, "HCl2C": 161.02, "HOHN": 109.13, "NCH2C": 117.15, "NCH2CH2C": 131.18, "ClOC": 140.57, "HOHNOC": 137.14, "H2NSC": 137.20, "EtO2CCO": 178.19, "OHCHN": 121.14, "H2NOCHN": 136.15, "H3CCONH": 135.17, "ClO2S": 176.61, "FO2S": 160.16, "Cl3CC(O)": 223.48, "OC(NH)CCl3": 238.49, "OC(NPh)CF3": 265.23, "CCTMS": 174.32, "CCTIPS": 258.48, "C(NH)NH2": 120.15, "C(NMe)Ph": 195.26 }))
+    assert.ok(Math.abs(analyse(labelled("*c1ccccc1", [label]))![0].weight - mass) < 0.02, `${label} on benzene: ${mass} g/mol`);
   for (const [labels, full, want, apart] of table) for (const label of labels.split(" ")) {
     const m = labelled("*c1ccccc1", [label]), e = expandLabels(m), whole = parseStructure(label === "T" ? full.replace("[2H]", "[3H]") : full);
     assert.equal(toInchiKey(e), toInchiKey(whole), `${label} on benzene is ${full}`);

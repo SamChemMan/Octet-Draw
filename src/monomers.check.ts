@@ -221,7 +221,7 @@ assert.match(main, /item\("define_monomer", "Define Monomer…", ""\)/);
 assert.match(main, /async fn import_monomers\(/);
 assert.match(exporter, /\("json", "HELM Monomer Library", &\["json"\]\)/);
 assert.match(editor, /define_monomer: \(\) => defineMonomer\(\),/);
-assert.match(actions, /"Define monomer…", "monomer\.define"/);
+assert.match(actions, /"Define monomer…", "define_monomer"/);
 assert.match(editor, /<Dialog title="Define monomer" action=\{there \? "Replace" : "Define"\}/);
 assert.match(settings, /d\("dictionary", "Monomers", "Your monomers"/);
 assert.ok(fragments(labels).length === 1);

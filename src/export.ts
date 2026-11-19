@@ -153,7 +153,7 @@ export const readClipboard = () => invoke<Clipboard>("read_clipboard");
 export const pasteRefused = (clip: Pick<Clipboard, "filled">, text: string | undefined, why: string) =>
   text?.trim() ? `Octet cannot read this structure. ${why}` : clip.filled ? "Octet cannot read what is on the clipboard." : undefined;
 
-export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi";
+export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif" | "jpg" | "gif" | "bmp" | "cdxml" | "cdx" | "mol" | "mol2000" | "sdf" | "sdf2000" | "rxn" | "rxn2000" | "rdf" | "rdf2000" | "smi" | "inchi" | "nmredata";
 // The pictures: vector (PDF, SVG, EMF, EPS) and pixels at a resolution (PNG, TIFF, JPEG, GIF; JPEG is always on white).
 // BMP, in File > More Formats only, is pixels on white too.
 export const PICTURES: ExportFormat[] = ["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"];
@@ -168,12 +168,20 @@ export const MDL: ExportFormat[] = ["mol", "mol2000", "sdf", "sdf2000", "rxn", "
 // Every format, with its name in Export and Settings.
 export const EXPORT_FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["emf", "EMF (Windows Office)"], ["eps", "EPS"],
   ["tif", "TIFF"], ["jpg", "JPEG"], ["gif", "GIF"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["mol2000", "MOL V2000"],
-  ["sdf", "SDF"], ["sdf2000", "SDF V2000"], ["rxn", "RXN"], ["rxn2000", "RXN V2000"], ["rdf", "RDF"], ["rdf2000", "RDF V2000"], ["smi", "SMILES"], ["inchi", "InChI"]];
-// A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
-export function withMargin(svg: string, pt: number): string {
-  const m = Math.max(0, Math.min(72, pt)), n = (v: number) => +v.toFixed(4);
+  ["sdf", "SDF"], ["sdf2000", "SDF V2000"], ["nmredata", "NMReDATA"], ["rxn", "RXN"], ["rxn2000", "RXN V2000"], ["rdf", "RDF"], ["rdf2000", "RDF V2000"], ["smi", "SMILES"], ["inchi", "InChI"]];
+// A picture from standaloneSvg with a margin of `pt` all round (`ptY` above and below when given): its size and view
+// box grow by that much.
+export function withMargin(svg: string, pt: number, ptY = pt): string {
+  const [m, my] = [pt, ptY].map((v) => Math.max(0, Math.min(72, v))), n = (v: number) => +v.toFixed(4);
   return svg.replace(/^(<svg[^>]*?)\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"\sviewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/, (_, head, w, h, x, y, vw, vh) =>
-    `${head} width="${n(+w + 2 * m)}pt" height="${n(+h + 2 * m)}pt" viewBox="${n(+x - m)} ${n(+y - m)} ${n(+vw + 2 * m)} ${n(+vh + 2 * m)}"`);
+    `${head} width="${n(+w + 2 * m)}pt" height="${n(+h + 2 * my)}pt" viewBox="${n(+x - m)} ${n(+y - my)} ${n(+vw + 2 * m)} ${n(+vh + 2 * my)}"`);
+}
+// Copy's picture (and the Office object's): a picture from standaloneSvg made whole points wide and high, the spare
+// split equally between the two sides. Issue 171: Word for Mac cut the fraction of a point off the top and right of a
+// pasted picture. ChemDraw's clipboard PDF on the Mac is whole points too.
+export function onWholePoints(svg: string): string {
+  const size = /^<svg[^>]*?\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"/.exec(svg), spare = (v: number) => (Math.ceil(v - 1e-6) - v) / 2;
+  return size ? withMargin(svg, spare(+size[1]), spare(+size[2])) : svg;
 }
 // Raster resolution: any dpi from 36 to 2400 (Rust clamps to the same), with these as quick picks (1440 is ChemDraw's
 // highest). A picture has at most 100 million pixels and 20,000 on a side (draw in src-tauri/src/export.rs).
@@ -212,9 +220,10 @@ export function pictureAs(svg: string, f: { format: ExportFormat; margin: number
 // connection table (File > More Formats); csv: Home's Experiments list; model: a 3MF file's 3D model (src/model3mf.ts);
 // tex: chemfig code (chemfig.ts); info: the drawing's title, author and keywords, for a PDF's document information;
 // pages: a PDF's pages, each a standalone SVG of one page (an experiment page and its risk assessment), in place of svg.
+// eln: an ELN archive's files, each its path in the zip and its text (src/eln.ts elnArchive).
 // Resolves to the path written, or null if cancelled.
 export type ExportRequest = {
-  name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct"; csv?: string; model?: string; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
+  name: string; format?: ExportFormat | "csv" | "3mf" | "tex" | "cml" | "ct" | "eln"; csv?: string; model?: string; eln?: [string, string][]; tex?: string; oct?: string; svg?: string; cdxml?: string; cdx?: string; mdl?: string; smiles?: string; inchi?: string;
   dpi?: number; transparent?: boolean; quality?: number; info?: Properties; pages?: string[];
 };
 export const exportFile = (request: ExportRequest) => invoke<string | null>("export_file", { export: request });

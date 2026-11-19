@@ -20,6 +20,7 @@ const { buildAtoms } = await import("./seqbuild.ts");
 const { fragments, insertMol } = await import("./edit.ts");
 const { serialize, parse } = await import("./file.ts");
 const { readStyle, DEFAULT_STYLE } = await import("./docstyle.ts");
+const { rowsOf, setRows } = await import("./datafields.ts");
 
 const atoms = (h: string) => (buildAtoms((parseHelm(h) as { seq: Parameters<typeof buildAtoms>[0] }).seq) as { mol: Mol }).mol;
 const mid = (m: Mol, frag: number[]) => [0, 1].map((k) => { const v = frag.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; });
@@ -74,6 +75,25 @@ assert.equal(withSequences(labels, "labels"), labels, "already labels: the same 
   const reds = b.atoms.filter((a) => a.colour === "#e0201b").map((a) => a.label).sort().join("");
   assert.equal(reds, "CCCNOS", "the Cys residue's atoms red, no others");
   assert.equal(withSequences(b, "labels").atoms[cys(withSequences(b, "labels"))[0]].colour, "#e0201b", "and its label red again");
+}
+// A chain's data fields (issue 68) go with it both ways: one not shown, and one shown as text tied under it, which
+// stays its field's text. Benzene's field stays on benzene.
+{
+  let m = insertMol(chem.parseStructure("c1ccccc1"), atoms(OXYTOCIN), [0, 20]).mol;
+  const chain = (x: Mol) => fragments(x).find((f) => f.length > 6)!;
+  m = setRows(m, chain(m), [{ name: "Batch", value: "B-1", show: false }, { name: "mp", value: "123 °C", show: true }]);
+  m = setRows(m, [0, 1, 2, 3, 4, 5], [{ name: "ID", value: "X-7", show: false }]);
+  const rows = (x: Mol) => [rowsOf(x, chain(x)).map((r) => [r.name, r.value, r.show]), rowsOf(x, [0, 1, 2, 3, 4, 5]).map((r) => [r.name, r.value, r.show])];
+  const want = [[["Batch", "B-1", false], ["mp", "123 °C", true]], [["ID", "X-7", false]]];
+  const shown = (x: Mol) => x.captions!.find((c) => c.id === x.data!.find((f) => f.name === "mp")!.caption)!;
+  for (const x of [withSequences(m, "labels"), withSequences(withSequences(m, "labels"), "atoms")]) {
+    assert.deepEqual(rows(x), want, "each structure keeps its fields");
+    assert.deepEqual(new Set(shown(x).under), new Set(chain(x)), "the shown field's text stays under the chain");
+  }
+  // The Bond tool's link between two residue labels keeps them too.
+  const l = withSequences(atoms("PEPTIDE1{C.Y.I.Q.N.C.P.L.G.[am]}$$$$V2.0"), "labels"), cys = l.atoms.flatMap((a, i) => (a.text === "Cys" ? [i] : []));
+  const linked = linkResidues(setRows(l, l.atoms.map((_, i) => i), [{ name: "Batch", value: "B-2", show: true }]), cys[0], cys[1]) as Mol;
+  assert.deepEqual(rowsOf(linked, linked.atoms.map((_, i) => i)).map((r) => [r.name, r.value, r.show]), [["Batch", "B-2", true]], "a link keeps the chain's fields");
 }
 // The Bond tool's link between two residue labels keeps the chain's compound number.
 {

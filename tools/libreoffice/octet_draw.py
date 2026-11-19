@@ -1,7 +1,8 @@
 # Octet Draw in LibreOffice Writer, Impress, Draw and Calc, on Linux, Windows and the Mac (decision 0025). A
 # double-click on a structure that Octet or ChemDraw made opens it in an Octet object window: a PDF picture with the
-# drawing's CDXML in it (Octet's copy on the Mac and Linux, ChemDraw's on the Mac), or an EMF picture with Octet's
-# CDXML comment (Octet's copy on Windows, Word for Windows). Each Update in Octet puts the new picture in its place as
+# drawing's CDXML in it (Octet's copy on every system, ChemDraw's on the Mac; on Windows and Linux Octet's copy gives
+# LibreOffice the PDF in LibreOffice's own copy of a picture, which Calc takes too), or an EMF picture with Octet's
+# CDXML comment (Word for Windows, Octet 1.1.2's copy on Windows). Each Update in Octet puts the new picture in its place as
 # one undo step, with its anchor, wrap, rotation and alt text kept and its crop taken off. Other pictures, and every
 # picture in a read-only document, keep LibreOffice's own double-click. The context menu gets Edit in Octet Draw, and
 # Insert gets Octet Drawing for a new one.
@@ -193,6 +194,53 @@ def selected_picture(controller):
     except Exception:
         pass
     return None
+
+
+# The page in front: the slide or page in Impress and Draw, the sheet's draw page in Calc. None in Writer.
+def draw_page(controller):
+    for get in (lambda: controller.getCurrentPage(), lambda: controller.getActiveSheet().getDrawPage()):
+        try:
+            page = get()
+        except Exception:
+            continue
+        if page is not None:
+            return page
+    return None
+
+
+def shapes_on(page):
+    try:
+        return [page.getByIndex(k) for k in range(page.getCount())] if page is not None else []
+    except Exception:
+        return []
+
+
+# The picture on the page now that was not on it before: added last, or in an empty placeholder's place. (Ending a
+# text edit can take an empty text box off the page, so places move.) Shapes are looked up by their hash, the UNO
+# object's own pointer, then compared as UNO objects. None if there is none.
+def added(page, before):
+    old = {}
+    for shape in before:
+        old.setdefault(hash(shape), []).append(shape)
+    for shape in shapes_on(page):
+        try:
+            if not any(shape == o for o in old.get(hash(shape), ())) and shape.supportsService("com.sun.star.drawing.GraphicObjectShape"):
+                return shape
+        except Exception:
+            pass
+    return None
+
+
+# Nothing selected on the page. In Calc only a selection of shapes is taken off (with no shapes on the sheet, Calc
+# would take off the selected cells instead).
+def unselect(controller):
+    try:
+        selection = controller.getSelection()
+        shapes = selection is not None and selection.supportsService("com.sun.star.drawing.ShapeCollection")
+        if shapes or not controller.getModel().supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+            controller.select(None)
+    except Exception:
+        pass
 
 
 # Whether the document is read-only: then the extension leaves its pictures to LibreOffice.
@@ -512,6 +560,10 @@ class Session:
     # they add through the API has no undo step. Insert > Image reads a private copy of the picture checked above.
     # Octet's file can be gone by now (its window closed), or be a link. On Windows LibreOffice can still hold the copy
     # when Insert > Image ends: it stays in the temporary folder, and the drawing goes on.
+    # Insert > Image puts the picture into one selected picture, or fills one selected shape with it (sd's
+    # FuInsertGraphic, Calc's lcl_InsertGraphic), so nothing is selected first. Calc does not select a picture inserted
+    # by a command with a file name (SdrInsertFlags::DONTMARK), so the picture is the one new on the page: added last,
+    # or in place of an empty placeholder in Impress.
     def insert(self, graphic, size, data):
         if self.at is not None:
             shape = self.doc.createInstance("com.sun.star.text.TextGraphicObject")
@@ -524,6 +576,9 @@ class Session:
                 self.at = text_cursor(self.controller)
                 self.at.getText().insertTextContent(self.at, shape, False)
             return shape
+        page = draw_page(self.controller)
+        before = shapes_on(page)
+        unselect(self.controller)
         fd, name = tempfile.mkstemp(suffix="." + (kind_of(data) or "pdf"))
         try:
             with os.fdopen(fd, "wb") as f:
@@ -535,7 +590,7 @@ class Session:
                 os.unlink(name)
             except OSError:
                 pass
-        return selected_picture(self.controller)
+        return added(page, before) or selected_picture(self.controller)
 
     # The document closed, or the picture is gone: Octet's window says so and keeps the drawing for Save Copy As.
     def went(self):
@@ -705,8 +760,8 @@ def insert(ctx, controller):
         message(ctx, controller, READ_ONLY)
         return
     at = text_cursor(controller) if controller.getModel().supportsService("com.sun.star.text.TextDocument") else None
-    # A PDF on every system, which LibreOffice reads the same way on each. (Windows' Copy is an EMF, but LibreOffice on
-    # Windows does not keep a pasted EMF as its own bytes, so the PDF is the one kind that stays an Octet drawing.)
+    # A PDF on every system, which LibreOffice reads the same way on each. (LibreOffice on Windows does not keep a
+    # pasted EMF as its own bytes, so the PDF is the one kind that stays an Octet drawing. Copy gives it the PDF too.)
     session = Session(ctx, controller, None, "pdf", at)
     write_new(session.path, b"")
     start(session)

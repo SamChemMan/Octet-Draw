@@ -17,6 +17,7 @@ import { render, type Ink, type Mol } from "./render.ts";
 import { toCdxml } from "./cdxml.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
+import { allNotes, NOTE, withoutNotes } from "./annotate.ts";
 
 type P = [number, number];
 // n benzene rings in a square grid, 4 bond lengths apart. Each has a side group (an atom label, or a group such as
@@ -60,29 +61,40 @@ function time(f: () => unknown): number {
 }
 
 // What each operation is (for the editor), its budget in ms on the large drawing, and how to run it on a drawing.
-const OPS: [string, number, (m: Mol, all: Set<number>, half: Set<number>, text: string) => unknown][] = [
+const OPS: [string, number, (m: Mol, all: Set<number>, half: Set<number>, text: string, d: Sized) => unknown][] = [
   ["render (each change to the structures)", 50, (m) => render(m, S, ink, S.bond)],
   ["messy, nothing selected (each change)", 10, (m) => messy(m, new Set())],
   ["messy, all selected (each selection)", 10, (m, all) => messy(m, all)],
   ["groupSelection (Group)", 4, (m, all) => groupSelection(m, all, new Set())],
   ["fragments (structures)", 1, (m) => fragments(m)],
   ["problems (chemical warnings)", 3, (m) => problems(m)],
+  // With the stereo warnings on (Indigo's facts kept, here none): every wedge then starts at an atom that is no
+  // stereocentre, so each is tried as one that sets nothing (check.ts idleWedges, axial.ts axisAtoms).
+  ["problems, stereo warnings on (facts kept)", 5, (m) => problems(m, { centres: new Set(), unset: new Set(), conflict: new Set(), achiral: new Set() })],
   ["bondOrders", 0.3, (m) => bondOrders(m)],
   ["atomsInArea (each move of a selection box)", 0.3, (m, _, half) => atomsInArea(m, half, ([x, y]) => x >= -1 && x <= 30 && y >= -1 && y <= 30)],
   ["toCdxml (Save, Export, Copy)", 50, (m) => toCdxml(m, DEFAULT_STYLE)],
   ["serialize (Octet's own form)", 5, (m) => serialize(m)],
   ["parse (Paste, Open)", 5, (_m, _a, _h, text) => parse(text)],
+  // Notes (annotate.ts), on the drawing with a text under each ring and a 200-character note on each text.
+  ["allNotes (the Notes panel, each change)", 2, (_m, _a, _h, _t, d) => allNotes(d.noted)],
+  ["withoutNotes (each picture and copy)", 2, (_m, _a, _h, _t, d) => withoutNotes({ ...d.noted })],
+  ["withoutNotes, no notes (the same drawing)", 0.05, (m) => withoutNotes({ ...m })],
+  ["serialize with notes", 5, (_m, _a, _h, _t, d) => serialize(d.noted)],
+  ["parse with notes", 5, (_m, _a, _h, _t, d) => parse(d.notedText)],
 ];
 
 const sized = (rings: number) => {
   const m = drawing(rings), all = new Set(m.atoms.map((_, i) => i));
-  return { m, all, half: new Set([...all].filter((i) => i % 2 === 0)), text: serialize(m) };
+  const noted: Mol = { ...m, captions: Array.from({ length: rings }, (_, k) => ({ id: k + 1, text: `${k + 1}`, x: (k % 32) * 4, y: -Math.floor(k / 32) * 4 - 2, notes: [{ keyword: NOTE, content: `Batch ${k}. ${"n".repeat(190)}` }] })) };
+  return { m, all, half: new Set([...all].filter((i) => i % 2 === 0)), text: serialize(m), noted, notedText: serialize(noted) };
 };
+type Sized = ReturnType<typeof sized>;
 const large = sized(128), larger = sized(512);
 console.log(`perf.check: ${large.m.atoms.length} atoms, then ${larger.m.atoms.length}`);
 const slow: string[] = [];
 for (const [what, budget, op] of OPS) {
-  const run = (d: typeof large) => () => op(d.m, d.all, d.half, d.text);
+  const run = (d: typeof large) => () => op(d.m, d.all, d.half, d.text, d);
   // Other programs on a busy computer can slow one measurement. When a test fails, measure again (3 times at most)
   // and keep the best time for each size. A slow operation fails each time.
   let t = Infinity, t4 = Infinity;

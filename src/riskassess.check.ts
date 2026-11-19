@@ -303,7 +303,7 @@ assert.equal(riskGroup(parse(JSON.stringify(raw))), undefined);
 const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), dialog = readFileSync(new URL("./ExportDialog.tsx", import.meta.url), "utf8");
 assert.match(dialog, /alt=\{\{ label: "Print…", onClick: \(\) => onPrint\(part\) \}\}/);
 assert.match(editor, /onPrint=\{\(part\) => \{ setExportView\(undefined\); void printDrawing\(part === "selection"\); \}\}/);
-assert.match(editor, /const sheets = f\.format === "pdf" && part === "all" && expPage \? pagePictures\(mol\) : undefined;/);
+assert.match(editor, /const paged = f\.format === "pdf" && \(\(part === "all" && expPage\) \|\| f\.pdfPages === "document"\), sheets = paged \? pagePictures\(mol\) : undefined;/);
 assert.match(editor, /pages: sheets\?\.texts/);
 // A reaction's table that grows the scheme box leaves the risk assessment where it is, on its page.
 {

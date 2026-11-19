@@ -6,6 +6,7 @@
 // is "lib:" and its name. also: more words the library search finds it by. icon: the part of a Lab item its 20 px icon
 // draws.
 import data from "./library.json" with { type: "json" };
+import { commonKey } from "./common.ts";
 import type { Arrow, Group, Mol } from "./render.ts";
 
 export type LibraryItem = { kind: string; name: string; category: string; mol: Mol; also?: string; icon?: Mol };
@@ -48,6 +49,13 @@ const index = () => {
 };
 index();
 export const libraryItem = (kind: string) => byKind.get(kind);
+// The library search's order: the template named as typed first, then one with an other word exactly as typed (EnT,
+// IC, CB7, as place_template takes it), then the rest in the order found.
+export function exactFirst<T extends { name: string; also?: string }>(found: T[], typed: string): T[] {
+  const key = commonKey(typed), word = new RegExp(`(?:^|,)\\s*${typed.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*(?:,|$)`, "i");
+  const rank = found.map((t) => (commonKey(t.name) === key ? 0 : t.also && word.test(t.also) ? 1 : 2));
+  return [0, 1, 2].flatMap((r) => found.filter((_, k) => rank[k] === r));
+}
 
 // The later sets: each new set in its place in the order the build gives, and a set Octet has already (Lab) grown by
 // its later items. The promise is kept, so the file is fetched and read once.

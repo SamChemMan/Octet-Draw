@@ -353,6 +353,22 @@ polyline.mark {
 .arrow-mark.mark {
   fill: none;
 }
+/* The arrow text being dragged will be the conditions of, in the snapping colour, faded in. */
+.arrow-mark.slot {
+  stroke: var(--brand-bright);
+  stroke-opacity: 0.35;
+  animation: slot-in var(--motion-fast) var(--ease-out);
+}
+@keyframes slot-in {
+  from {
+    stroke-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arrow-mark.slot {
+    animation: none;
+  }
+}
 /* Page outlines: the page and its purpose's guides (columns, a text block, A1 in A0). Faint, so they never compete
    with the drawing. */
 .pages path {
@@ -1640,6 +1656,13 @@ button.variant.add {
 .action-name {
   flex: 1;
 }
+/* A value Settings shows and does not change (Last changed by). */
+.setting-value {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
   color: var(--ink-muted);
@@ -2577,8 +2600,8 @@ div.facts {
 .unit-field.text input {
   text-align: left;
 }
-/* Text of several lines (Settings > Document > Properties > Comment): the same well, as wide as its row, as high as
-   its lines. Its name stays level with the first line. */
+/* Text of several lines (Settings > Document > Properties > Comment, a note): the same well, as wide as its row,
+   growing with its text (TextField's lines). Its name stays level with the first line. */
 .unit-field.text.lines {
   width: 100%;
   height: auto;
@@ -2595,9 +2618,12 @@ div.facts {
   background: transparent;
   color: var(--ink);
   font: 13px/18px var(--font-sans);
-  resize: vertical;
+  resize: none;
   -webkit-user-select: text;
   user-select: text;
+}
+.unit-field.lines textarea::placeholder {
+  color: var(--ink-faint);
 }
 .setting-control:has(> .unit-field.lines) {
   flex: 1;
@@ -3525,6 +3551,54 @@ div.facts {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
+/* The template in hand, large, under the templates: its atoms and bonds take a click (TemplateLibrary AttachPicker). */
+.library-attach {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: center;
+  height: 112px;
+  padding: var(--space-2);
+  border-top: 1px solid var(--hairline);
+  color: var(--ink);
+}
+.library-attach svg {
+  height: 100%;
+  overflow: visible;
+}
+.library-attach-name {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+}
+.attach-ink {
+  pointer-events: none;
+}
+.attach-hit {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  outline: none;
+}
+circle.attach-hit:hover,
+circle.attach-hit:focus-visible {
+  fill: var(--brand-mist);
+}
+line.attach-hit:hover,
+line.attach-hit:focus-visible {
+  stroke: var(--brand-mist);
+}
+circle.attach-hit[aria-checked="true"] {
+  fill: var(--brand-mist);
+  stroke: var(--link);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+line.attach-hit[aria-checked="true"] {
+  stroke: var(--link);
+}
 .library-group + .library-group .library-group-name {
   padding-top: var(--space-3);
 }
@@ -3594,6 +3668,13 @@ div.facts {
 }
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
+}
+/* One of the user's own beside the Ring menu: its pin above its ×. */
+.library-cell > .variant-action:has(+ .variant-action) {
+  margin-top: calc(-1 * var(--size-action) - 1px);
+}
+.library-cell > .variant-action + .variant-action {
+  margin-top: 1px;
 }
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
@@ -4155,7 +4236,7 @@ div.facts {
   user-select: text;
 }
 /* Mapping an atom: rings on the two atoms and a dashed line between, in brand blue. */
-.mapping circle, .mapping line {
+.mapping circle, .mapping line, .mapping polyline {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.4px;
@@ -4517,6 +4598,31 @@ div.facts {
   width: auto;
   min-width: 0;
 }
+/* A column's name over its fields (Attached data's Name, Value and Show). */
+.chart-table .cell-title {
+  padding: 0 var(--space-2);
+}
+.chart-table .cell-switch {
+  display: flex;
+  justify-content: center;
+}
+/* A field of lines of text in a grid (a data field's value): as high as any field, one line in view, the caret's. A
+   note's well grows with its text instead (.unit-field.lines). */
+.chart-table .unit-field textarea {
+  width: 100%;
+  min-width: 0;
+  height: 1lh;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+  -webkit-user-select: text;
+  user-select: text;
+}
 /* An energy diagram's joins in the Actions panel: three chips. */
 .chips.joins {
   grid-template-columns: repeat(3, 1fr);
@@ -4630,6 +4736,96 @@ div.facts {
 .lane-picked {
   fill: var(--select);
   fill-opacity: 0.08;
+}
+
+/* The Notes panel (Notes.tsx): the Actions panel's look and width, on the right just above it (or its pill), as tall
+   as the room up to the Export pill; beside it, at the bottom, when that room is too small. Each field is a well of
+   several lines; the rows are the Actions panel's rows, each object's name and the first line of its note. It moves
+   by its header (movable.ts). */
+.note-panel {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
+  z-index: var(--z-panel);
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  box-sizing: border-box;
+  max-height: calc(100% - var(--below, 0px) - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  transform-origin: bottom right;
+  animation: panel-in var(--motion-fast) var(--ease-out);
+}
+.note-panel.beside {
+  right: calc(var(--space-4) * 2 + 248px);
+  bottom: var(--space-4);
+  max-height: calc(100% - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+}
+.note-panel.leaving {
+  animation: panel-out var(--motion-fast) var(--ease-out) forwards;
+  pointer-events: none;
+}
+.note-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  cursor: grab;
+}
+.note-panel header button {
+  cursor: default;
+}
+.note-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+}
+.note-name {
+  font: 13px/18px var(--font-sans);
+  color: var(--ink-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-rows {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--hairline);
+}
+.note-row > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-row-name {
+  flex: none;
+  max-width: 50%;
+}
+.note-row-text {
+  min-width: 0;
+  color: var(--ink-muted);
 }
 
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in
@@ -5368,6 +5564,105 @@ div.facts {
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
 }
+/* A colour as a swatch in a colour menu's grid and in a colour row (ColourPick): the swatch (.swatch) in a round cell
+   the size of a small control, so the grid is SWATCHES across a list menu and the pointer has room. The colour chosen
+   has the swatch's ring, not a filled cell. None is an empty swatch with a stroke; the rest of a group is three dots. */
+.menu-group.swatches {
+  grid-template-columns: repeat(auto-fill, var(--size-control-sm));
+  gap: 0;
+}
+.variant.swatch-cell,
+.strip.list .variant.swatch-cell {
+  display: grid;
+  place-items: center;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  padding: 0;
+  border-radius: var(--radius-pill);
+}
+.strip.list .variant.swatch-cell[aria-checked="true"],
+.variant.swatch-cell[aria-pressed="true"] {
+  background: transparent;
+}
+.swatch-cell > .swatch {
+  box-sizing: border-box;
+}
+.swatch-cell:is([aria-checked="true"], [aria-pressed="true"]) > .swatch {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--brand-bright);
+}
+.swatch-cell:active > .swatch {
+  transform: scale(var(--press-small));
+}
+.swatch-cell > .swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%), var(--canvas);
+}
+.swatch-cell > .swatch.more {
+  display: grid;
+  place-items: center;
+  border-color: var(--hairline);
+  color: var(--ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .variant.swatch-cell:hover {
+    background: var(--surface-sunken);
+  }
+}
+/* A colour row in the Actions panel: its name, the pinned colours, and the button that opens every colour. */
+.colour-rows {
+  display: grid;
+  gap: 2px;
+}
+.colour-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-row);
+  padding-left: var(--space-2);
+}
+.colour-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.colour-pins {
+  display: flex;
+}
+.chip.colour-more {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-1);
+}
+/* The picker's own fields: a colour's name over it, and Save to colours or Remove under it, the picker's width. */
+.picker-name {
+  width: 100%;
+  height: var(--size-control);
+  box-sizing: border-box;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+}
+.picker-name:focus-visible {
+  border-color: var(--brand-bright);
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.dialog-button.picker-save {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  margin: var(--space-1) 0;
+}
 /* Printing: only the page Print laid out, at true size. */
 .print-root {
   display: none;
@@ -5473,6 +5768,16 @@ div.facts {
   width: 100%;
   height: 150px;
   object-fit: contain;
+}
+/* All pages: the pages as paper, each edged, the drawing on them. */
+.export-sheets {
+  width: 100%;
+  height: 150px;
+}
+.export-sheets rect {
+  fill: var(--canvas);
+  stroke: var(--hairline);
+  vector-effect: non-scaling-stroke;
 }
 .export-none {
   color: var(--ink-muted);
@@ -5975,6 +6280,12 @@ div.facts {
 .home-when {
   color: var(--ink-faint);
   font: 11px/14px var(--font-sans);
+}
+/* A tile's author and time, on one line. */
+.home-caption .home-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-initial {
   color: var(--ink-faint);

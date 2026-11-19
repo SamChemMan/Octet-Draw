@@ -1,13 +1,14 @@
 // The user's own templates for the Ring and Template tools, added by name or from the drawing. Each is kept as an
 // .octet file in the settings (Octet's clipboard format), so it keeps everything that was selected (text, arrows,
 // shapes, curves, groups, colours) and loading one goes through the same checks as opening a file. set: the named
-// set it is in (the library's own category); unset is My templates.
-import { normalise } from "./edit.ts";
+// set it is in (the library's own category); unset is My templates. anchor: the atom or bond it attaches by
+// (addTemplate), as the user last chose it in the library.
+import { normalise, validAnchor, type TemplateAnchor } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
 
-export type Template = { id: string; name: string; mol: Mol; set?: string };
-export type SavedTemplate = { id: string; name: string; file: string; set?: string };
+export type Template = { id: string; name: string; mol: Mol; set?: string; anchor?: TemplateAnchor };
+export type SavedTemplate = { id: string; name: string; file: string; set?: string; anchor?: TemplateAnchor };
 export const MY_SET = "My templates";
 // The tool a template is used with: the Ring tool (its Templates row) or the Template tool.
 export type TemplateTool = "ring" | "template";
@@ -46,6 +47,14 @@ export function legible(whole: Mol): boolean {
 export const templateKind = (id: string) => `custom:${id}`;
 // The id of one of the user's templates from its kind, or undefined for a built-in one.
 export const ownId = (kind: string) => (kind.startsWith("custom:") ? kind.slice(7) : undefined);
+// The Ring strip's kept templates (built-in, named and the user's own, one list): those that still exist, in order.
+export const ringStrip = (kept: string[], exists: (kind: string) => unknown) => kept.filter((k) => !!exists(k));
+// Settings from before the Ring menu pin for the user's own templates (1.1.3) showed every own template in the Ring
+// strip, before the kept built-in ones: they stay there, in that order.
+export const keepOwnRings = (kept: string[], saved: unknown[]) => {
+  const own = saved.flatMap((t) => (typeof (t as SavedTemplate)?.id === "string" ? [templateKind((t as SavedTemplate).id)] : []));
+  return [...new Set([...own, ...kept])];
+};
 // A structure the library's search found by name or abbreviation (TREN, a name OPSIN reads), as a template: its kind,
 // and the name from a kind (undefined for any other kind).
 export const namedKind = (name: string) => `name:${name}`;
@@ -75,7 +84,8 @@ export function loadTemplates(saved: unknown): Template[] {
     try {
       if (typeof t?.id !== "string" || typeof t.name !== "string" || typeof t.file !== "string") return [];
       const mol = readKept(t.file), set = typeof t.set === "string" && setName(t.set) && setName(t.set) !== MY_SET ? setName(t.set) : undefined;
-      return hasContent(mol) ? [{ id: t.id, name: t.name.slice(0, 80), mol, ...(set ? { set } : {}) }] : [];
+      const anchor = validAnchor(mol, t.anchor);
+      return hasContent(mol) ? [{ id: t.id, name: t.name.slice(0, 80), mol, ...(set ? { set } : {}), ...(anchor ? { anchor } : {}) }] : [];
     } catch {
       return [];
     }
@@ -133,8 +143,12 @@ export const templateToEnd = <S extends Kept>(s: S, id: string): S => placeTempl
 export const updateTemplate = <S extends Kept>(s: S, id: string, mol: Mol): S => {
   if (!hasContent(mol) || !s.templates.some((t) => t.id === id)) return s;
   const file = serialize(normalise(mol));
-  return { ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, file } : t)) };
+  // Its atoms may be numbered another way now, so the atom or bond it attached by goes.
+  return { ...s, templates: s.templates.map((t) => { if (t.id !== id) return t; const { anchor: _, ...rest } = t; return { ...rest, file }; }) };
 };
+// The atom or bond one of the user's templates attaches by (none: as Octet places any template).
+export const setTemplateAnchor = <S extends Kept>(s: S, id: string, anchor: TemplateAnchor | undefined): S =>
+  s.templates.some((t) => t.id === id) ? { ...s, templates: s.templates.map((t) => { if (t.id !== id) return t; const { anchor: _, ...rest } = t; return anchor ? { ...rest, anchor } : rest; }) } : s;
 // A copy of one of the user's templates, just after it in its set, named "… copy".
 export const duplicateTemplate = <S extends Kept>(s: S, id: string): S => {
   const k = s.templates.findIndex((t) => t.id === id);
@@ -143,6 +157,14 @@ export const duplicateTemplate = <S extends Kept>(s: S, id: string): S => {
   return { ...s, templates: [...s.templates.slice(0, k + 1), copy, ...s.templates.slice(k + 1)] };
 };
 export const removeTemplate = <S extends Kept>(s: S, id: string): S => ({ ...s, templates: s.templates.filter((t) => t.id !== id) });
+// The Ring strip after the user's templates change (next is s changed): a template that is gone leaves the strip, and
+// a new one (added, duplicated, saved as a copy) joins its end when ring (saved from the Ring tool or with it in hand).
+export const ringed = <S extends Kept & { libraryRings: string[] }>(s: S, next: S, ring = false): S => {
+  if (next === s) return s;
+  const had = new Set(s.templates.map((t) => t.id)), has = new Set(next.templates.map((t) => t.id));
+  const added = ring ? next.templates.filter((t) => !had.has(t.id)).map((t) => templateKind(t.id)) : [];
+  return { ...next, libraryRings: [...next.libraryRings.filter((k) => { const id = ownId(k); return !id || has.has(id); }), ...added] };
+};
 // A name a new set can take: not empty, not My templates, not one the user has.
 export const freeSetName = (s: Kept, name: string) => { const n = setName(name); return !!n && n !== MY_SET && !s.templateSets.includes(n); };
 export const addSet = <S extends Kept>(s: S, name: string): S => (freeSetName(s, name) && s.templateSets.length < 50 ? { ...s, templateSets: [...s.templateSets, setName(name)] } : s);

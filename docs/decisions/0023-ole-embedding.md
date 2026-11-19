@@ -122,9 +122,10 @@ Decision:
   167): Copy with the object or without it (`CF_ENHMETAFILE`, made on a thread beside the bitmap), every picture the
   object window sends (at open, after each change, Update, Close and Return, Word's Close, Quit), and Export as EMF,
   Quick export, `--convert` and the AI apps' `read` with format emf. Copy without the object was 1.1.2's GDI-only
-  EMF, and Word drew it aliased and dropped bond outlines thinner than a pixel (issue 167). The Mac's EMF for Office
-  keeps its GDI records (it carries the PDF, which Word draws). Paste reads the CDXML comment as before, in 1.2 and
-  in 1.1.2.
+  EMF, and Word drew it aliased and dropped bond outlines thinner than a pixel (issue 167). Two EMFs keep their GDI
+  records only: the Mac's EMF for Office (it carries the PDF, which Word draws) and the picture of a LibreOffice
+  object (`objects.rs`; LibreOffice fills every EMF+ path even-odd, decision 0025). Paste reads the CDXML comment as
+  before, in 1.2 and in 1.1.2.
 - ChemDraw: the pictures of ChemDraw for Windows objects in Word documents are EMF+ dual EMFs with anti-aliasing on
   (190 of 192 objects in five documents; MestReNova's 179 of 179). ChemDraw has a switch, File > Preferences >
   General > "Use Antialiasing When Generating Windows Metafiles"; Revvity's support article 4408239935508 gives it as
