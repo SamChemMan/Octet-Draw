@@ -1,5 +1,6 @@
 // Run: node src/chemfigcopy-stress.check.ts [--ui http://localhost:1462/]. The stress cases ST1 to ST20 of the plan
-// (docs/plans/issue-59-chemfig-copy.md) for Copy as LaTeX (chemfig) and the readable chemfig code (issue 59). Each case
+// (docs/plans/issue-59-chemfig-copy.md) for Copy as LaTeX (chemfig) and the readable chemfig code (issue 59), and ST21
+// to ST30 of docs/plans/issue-59-59-1-1-3.md for schemes, names, brackets, arrows, numbers and stereo labels. Each case
 // is one risk, made of checks that keep the plan's earlier names (S, X and U) in their descriptions. Checks that only
 // repeat src/chemfig.check.ts are left to it. The checks drive the real code: the writer, the file readers and writers,
 // the MCP tools on Octet with no window, and with --ui the app itself in WebKit (scripts/look/webkit.swift, in two
@@ -16,7 +17,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import "../scripts/headless/browser.ts";
 import { nesting, splitTop, texLint } from "../scripts/chemfiglint.ts";
-import { chemfig, toChemfig, WAVY_NOTE } from "./chemfig.ts";
+import { chemfig, toChemfig, TWICE_NOTE, WAVY_ARROW_NOTE, WAVY_NOTE, type ChemfigOptions, type Scheme } from "./chemfig.ts";
 import { render, type Atom, type Bond, type Ink, type Mol } from "./render.ts";
 import { setLabel } from "./edit.ts";
 
@@ -45,13 +46,14 @@ const median = (f: () => void, n = 5) => { const ts: number[] = []; for (let k =
 // A time budget, measured again (alone, up to three times) before it counts as a failure: the machine is busy.
 const within = (ms: number, f: () => void, what: string, n = 5) => { const got: number[] = []; for (let k = 0; k < 3; k++) { got.push(median(f, n)); if (got[k] < ms) return got[k]; } assert.fail(`${what}: ${got.map((x) => x.toFixed(0)).join(", ")} ms, over ${ms} ms each time`); };
 
-// Both layouts of a drawing read at TeX's level, and the readable lines, trimmed and joined, the compact code (rule 4).
-function strict(name: string, m: Mol) {
-  const r = cf(m), c = cf(m, true);
+// Both layouts of a drawing read at TeX's level, and the readable lines, trimmed and joined, the compact code (rule 4):
+// comment lines stay lines, and a scheme's line loses the % that ends it. more: the writer's other options.
+function strict(name: string, m: Mol, more: ChemfigOptions = {}) {
+  const r = chemfig(m, S, ink, more), c = chemfig(m, S, ink, { ...more, compact: true });
   texLint(r.code, `${name} (readable)`);
   texLint(c.code, `${name} (compact)`);
-  const [lead, rest] = r.code.startsWith("%") ? [r.code.slice(0, r.code.indexOf("\n") + 1), r.code.slice(r.code.indexOf("\n") + 1)] : ["", r.code];
-  assert.equal(lead + rest.split("\n").map((l) => l.trim()).join(""), c.code, `${name}: readable and compact differ`);
+  const joined = r.code.split("\n").map((l) => (l.startsWith("%") ? `${l}\n` : l.trim().replace(/(?<!\\)%$/, ""))).join("");
+  assert.equal(joined, c.code, `${name}: readable and compact differ`);
   assert.equal(r.notice, c.notice, `${name}: two notices`);
   return { code: r.code, compact: c.code, notice: r.notice };
 }
@@ -180,7 +182,7 @@ await kase("ST10", "S11 zoom and dark mode cannot change the code: the writer ta
   const src = readFileSync(new URL("chemfig.ts", import.meta.url), "utf8");
   assert.ok(!/matchMedia|prefers-color-scheme|zoom|darkPaper|systemDark/.test(src.replace(/^\s*\/\/.*$/gm, "")), "the writer reads no theme or zoom");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => chemfig\(mol, frame, measure, \{ compact \}\);/);
+  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\), labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
 });
 
 await kase("ST11", "S12 colours on labels, bonds and marks; black writes nothing; Colour by Element as the page has it", () => {
@@ -470,6 +472,138 @@ else {
     texLint(text(await call("read", { format: "chemfig" })), "MCP Fe with III raised");
   });
 }
+
+// ==== Issue 59 reopened (docs/plans/issue-59-59-1-1-3.md): PR 127's schemes, names, brackets, arrows, numbers and
+// stereo labels, ST21 to ST30 ====
+// A reaction row of n steps: ethane, then an arrow and a propane after it, each arrow with text above and a structure
+// below; the scheme the Editor reads from it.
+function steps(n: number) {
+  const m: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0)], bonds: [B(0, 1)], captions: [], arrows: [] };
+  const row: Scheme["row"] = [{ atoms: [0, 1] }], above = new Map<number, ({ caption: number } | { atoms: number[] })[]>(), below = new Map<number, ({ caption: number } | { atoms: number[] })[]>();
+  for (let k = 0; k < n; k++) {
+    const x = 1.5 + k * 5, id = 1000 + k, at = m.atoms.length;
+    m.arrows!.push({ id, kind: k % 2 ? "equilibrium" : "reaction", from: [x, 0], to: [x + 2, 0] });
+    m.captions!.push({ id: 5000 + k, text: `step ${k + 1}`, x: x + 1, y: 0.5, on: { arrow: id, side: "above" } });
+    m.atoms.push(A("C", x + 0.5, -1), A("O", x + 1.5, -1), A("C", x + 2.5, 0), A("C", x + 2.5 + c30, s30), A("C", x + 2.5 + 2 * c30, 0));
+    m.bonds.push(B(at, at + 1), B(at + 2, at + 3), B(at + 3, at + 4));
+    row.push({ arrow: id }, { atoms: [at + 2, at + 3, at + 4] });
+    above.set(id, [{ caption: 5000 + k }]);
+    below.set(id, [{ atoms: [at, at + 1] }]);
+  }
+  return { m, schemes: [{ row, above, below }] as Scheme[] };
+}
+await kase("ST21", "J20 a two-step scheme with text above and a structure below: \\schemestart, \\+, \\arrow with both labels, valid in both layouts, nothing named", () => {
+  const { m, schemes } = steps(2), r = strict("two steps", m, { schemes });
+  assert.match(r.compact, /^\\schemestart\\chemfig\{-\[:0\]\}\\arrow\{->\[\{step 1\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.2\]\\chemfig\{-\[:30\]-\[:-30\]\}\\arrow\{<=>\[\{step 2\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.2\]\\chemfig\{-\[:30\]-\[:-30\]\}\\schemestop$/);
+  assert.equal(r.notice, "");
+  assert.ok(r.code.startsWith("\\schemestart%\n\t\\chemfig{\n\t\t-[:0]\n\t}%\n\t\\arrow{") && r.code.endsWith("%\n\\schemestop"), "readable: a piece a line, each ended by %");
+});
+await kase("ST22", "J21 every straight arrow kind in a scheme; a leftward arrow swaps its labels; the kinds chemfig lacks named", () => {
+  const m: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 4, 0), A("C", 5, 0)], bonds: [B(0, 1), B(2, 3)], captions: [{ id: 5, text: "a", x: 2.5, y: 0.5 }] };
+  const one = (kind: string, from: P = [1.5, 0], to: P = [3.5, 0]) => strict(kind, { ...m, arrows: [{ id: 9, kind: kind as never, from, to }] }, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map() }] });
+  const kinds: Record<string, string> = { reaction: "->", equilibrium: "<=>", resonance: "<->", nogo: "-/>", hash: "-/>", retro: "->", dipole: "->", block: "->" };
+  for (const [k, type] of Object.entries(kinds)) assert.ok(one(k).compact.includes(`\\arrow{${type}[{a}]}`), k);
+  assert.equal(one("dipole").notice, "The code shows dipole arrows as plain arrows.");
+  assert.ok(one("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[][{a}]}[180,1.2]"), "leftward: above goes second");
+  assert.ok(one("reaction", [2.5, 1], [2.5, -1]).compact.includes("\\arrow{->[{a}]}[-90,1.2]"), "downward: above stays first");
+});
+await kase("ST23", "J22 hostile text in names and conditions (%, #, $, \\input, braces, control characters, 中): escaped or left out and named; valid at TeX's level", () => {
+  const evil = "50% #1 $x$ \\input{/etc/passwd} } { ^_~ &\u0007中\nline two";
+  const m: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 4, 0), A("C", 5, 0)], bonds: [B(0, 1), B(2, 3)], arrows: [{ id: 9, kind: "reaction", from: [1.5, 0], to: [3.5, 0] }],
+    captions: [{ id: 5, text: evil, x: 2.5, y: 0.5, on: { arrow: 9, side: "above" } }, { id: 6, text: evil, x: 0.5, y: -1, under: [0, 1] }] };
+  const r = strict("hostile names", m, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map() }] });
+  assert.ok(!/\\input/.test(r.compact) && !/(^|[^\\])[#%&]/.test(r.compact.replace(/%$/gm, "")), r.compact);
+  assert.match(r.compact, /\\shortstack\{/);
+  assert.match(r.compact, /\\chemname\*\{\\chemfig\{-\[:0\]\}\}\{50\\% \\#1 \\\$x\\\$ \\textbackslash\{\}input\\\{\/etc\/passwd\\\} \\\} \\\{ \\textasciicircum\{\}\\_\\textasciitilde\{\} \\&\\\\line two\}/);
+  assert.equal(r.notice, "The code does not have the character 中.");
+});
+await kase("ST24", "J23 curved arrows, fishhooks, double-headed arcs and lines with \\chemmove; nodes named once each, in the \\chemfig; two runs asked for", () => {
+  const m: Mol = { atoms: [A("O", 0, 0, { charge: -1, pairs: 3 }), A("C", 1, 0), A("O", 2, 0.5)], bonds: [B(0, 1), B(1, 2, 2)],
+    arrows: [{ id: 5, kind: "curved", from: [0.2, 0.3], to: [0.7, 0.3], bend: 0.3 }, { id: 6, kind: "fishhook", from: [1, 0.5], to: [2, 1], bend: -0.2 }, { id: 7, kind: "double", from: [0, 1], to: [1, 1], bend: 0.5, style: "bold" },
+      { id: 8, kind: "line", from: [0, -1], to: [2, -1], style: "wavy" }, { id: 9, kind: "arc", from: [0, -2], to: [2, -2], bend: 0.1 }, { id: 10, kind: "reaction", from: [3, 0], to: [5, 0], head: "hollow" }] };
+  const r = strict("arrows", m);
+  assert.deepEqual(r.code.split("\n").filter((l) => l.startsWith("%")), [WAVY_ARROW_NOTE, TWICE_NOTE]);
+  const nodes = [...r.compact.matchAll(/@\{(\w+)\}/g)].map((x) => x[1]);
+  assert.equal(new Set(nodes).size, nodes.length, "each node once");
+  for (const used of r.compact.matchAll(/\((oct\w+)\)/g)) assert.ok(nodes.includes(used[1]), `${used[1]} is placed`);
+  assert.match(r.compact, /\\draw\[\{CF\}-\{CF\},line width=0\.8pt\]/);
+  assert.match(r.compact, /\\draw\[-\{CF\[open\]\}\]/);
+  assert.equal(r.notice, "");
+  for (const k of ["orbital", "cut", "curve", "retro", "block"]) assert.match(strict(k, { ...m, arrows: [{ id: 1, kind: k as never, from: [0, 1], to: [2, 1] }] }).notice, /arrows/, k);
+  // Two drawings in one document: their nodes differ.
+  const other = strict("arrows moved", { ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] + 10, a.location[1], 0] as [number, number, number] })) });
+  assert.notEqual(/@\{(oct\w{4})/.exec(r.compact)![1], /@\{(oct\w{4})/.exec(other.compact)![1]);
+});
+await kase("ST25", "J24 brackets: both sides, one side, turned, n, a count, a mark and repeat tags, round two structures; round nothing named", () => {
+  const two: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 0, -2), A("C", 1, -2)], bonds: [B(0, 1), B(2, 3)] };
+  const shapes = [{ id: 40, kind: "brackets", from: [-0.3, -0.5], to: [1.3, 0.5], polymer: { usage: "sru", pattern: "hh", flip: "flip" }, mark: "+" }, { id: 41, kind: "parens", from: [-0.3, -2.5], to: [1.3, -1.5], side: "right", angle: 15, polymer: { usage: "mult", label: "3" } },
+    { id: 42, kind: "braces", from: [-0.5, -3], to: [1.5, 1] }, { id: 43, kind: "brackets", from: [9, 9], to: [10, 10] }];
+  const r = strict("brackets", { ...two, shapes } as Mol);
+  assert.equal((r.compact.match(/\\polymerdelim\[/g) ?? []).length, 3);
+  assert.match(r.compact, /indice=\{n\}\]/);
+  assert.match(r.compact, /\{\\scriptstyle \+\\mbox\{ \}hh\\mbox\{ \}flip\}/);
+  assert.match(r.compact, /delimiters=\{\.\)\},height=1\.5em,depth=1\.5em,indice=\{3\},h align=false,rotate=15\]/);
+  assert.match(r.compact, /delimiters=\{\\\{\\\}\},height=6em,depth=6em,indice=\{\}\]/);
+  assert.equal(r.notice, "The code does not have the brackets.");
+});
+await kase("ST26", "J25 names: a name and a number under one structure, two named structures, a salt with one name, a name over a structure in a scheme", () => {
+  const m: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("Na", 3, 0, { charge: 1 }), A("Cl", 4, 0, { charge: -1 }), A("C", 7, 0), A("C", 8, 0)], bonds: [B(0, 1), B(4, 5)],
+    captions: [{ id: 1, text: "ethane", x: 0.5, y: -1, under: [0, 1] }, { id: 2, text: "1", bold: true, x: 0.5, y: -1.5, under: [0, 1] }, { id: 3, text: "salt", x: 3.5, y: -1, under: [2, 3] }] };
+  const r = strict("names", m);
+  assert.equal(r.compact, "\\chemname*{\\chemfig{-[:0]}}{ethane\\\\\\textbf{1}}\\qquad\\chemname*{\\chemfig{Na^{+}(-[:0,1,,,draw=none]Cl^{-})}}{salt}\\qquad\\chemfig{-[:0]}");
+  assert.equal(r.notice, "");
+  const s = strict("named in a scheme", { ...m, arrows: [{ id: 9, kind: "reaction", from: [1.5, 0], to: [2.5, 0] }] }, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] });
+  assert.match(s.compact, /^\\schemestart\\chemname\*\{\\chemfig\{-\[:0\]\}\}\{ethane\\\\\\textbf\{1\}\}\\arrow\{->\}\[0,0\.6\]\\chemname\*\{\\chemfig\{Na\^\{\+\}\(-\[:0,1,,,draw=none\]Cl\^\{-\}\)\}\}\{salt\}\\schemestop\\par\\chemfig\{-\[:0\]\}$/);
+});
+await kase("ST27", "J26 atom numbers in the gaps the page uses, on a chain and a ring; map numbers where the page draws them, on a label and a skeletal carbon", () => {
+  const ring = { atoms: hex.map((a, k) => ({ ...a, number: String(k + 1) })), bonds: kekule };
+  const r = strict("numbered ring", ring);
+  const angles = [...r.compact.matchAll(/\\charge\{(-?\d+):9pt\[anchor=180\+\\chargeangle\]=\$\\scriptstyle (\d)\$\}/g)].map((x) => [+x[2], +x[1]]);
+  assert.equal(angles.length, 6);
+  for (const [k, t] of angles) { const want = 30 + 60 * (k - 1); assert.ok(Math.abs(((t - want + 540) % 360) - 180) <= 1, `number ${k} at ${t}°, out of the ring at ${want}°`); }
+  const maps = strict("map numbers", { atoms: [A("C", 0, 0, { map: 1 }), A("N", c30, s30, { map: 2 }), A("C", 2 * c30, 0, { map: 3 })], bonds: [B(0, 1), B(1, 2)] });
+  const d = render({ atoms: [A("C", 0, 0, { map: 1 }), A("N", c30, s30, { map: 2 }), A("C", 2 * c30, 0, { map: 3 })], bonds: [B(0, 1), B(1, 2)] }, S, ink);
+  assert.equal(d.maps.length, 3);
+  for (const x of d.maps) assert.match(maps.compact, new RegExp(`\\$\\\\scriptstyle ${x.text}\\$`));
+  assert.equal(maps.notice, "");
+});
+await kase("ST28", "J27 R/S with and without parentheses, E/Z on a chain and on a ring's exocyclic double bond, coloured; none without Show Stereochemistry; named when not given", () => {
+  const m: Mol = { atoms: [...hex.map((a) => ({ ...a, cip: true as const })), A("C", 2, 0, { cip: true }), A("C", 2 + c30, s30, { cip: true })], bonds: [...hex.map((_, k) => B(k, (k + 1) % 6)), B(0, 6, 2), B(6, 7)] };
+  const labels = { atoms: ["R", undefined, "s", undefined, undefined, undefined, undefined, undefined], bonds: [...hex.map(() => undefined), "Z", undefined] };
+  const r = strict("stereo", m, { stereo: { ...labels, parens: true } });
+  assert.match(r.compact, /\$\\scriptstyle \(\\mathit\{R\}\)\$/);
+  assert.match(r.compact, /\$\\scriptstyle \(\\mathit\{s\}\)\$/);
+  assert.match(r.compact, /draw=none\]\{\\scriptstyle \(\\mathit\{Z\}\)\}/);
+  assert.equal(r.notice, "");
+  assert.match(strict("stereo bare", m, { stereo: labels }).compact, /\$\\scriptstyle \\mathit\{R\}\$/);
+  assert.doesNotMatch(strict("stereo off", { ...m, atoms: m.atoms.map(({ cip: _, ...a }) => a) }, { stereo: labels }).compact, /mathit/);
+  assert.equal(strict("stereo not given", m).notice, "The code does not have the stereo labels.");
+  // A label out of the reader's alphabet is cut to its letters.
+  assert.match(strict("stereo hostile", m, { stereo: { atoms: ["R}\\input{x", ...labels.atoms.slice(1)], bonds: labels.bonds } }).compact, /\\mathit\{Rinputx\}/);
+});
+await kase("ST29", "J28 time: a 100-step scheme and 300 named salts within budget; nesting one deep", () => {
+  const { m, schemes } = steps(100);
+  const ms = within(300, () => chemfig(m, S, ink, { schemes }), "100-step scheme");
+  console.log(`chemfigcopy-stress: a 100-step scheme in ${ms.toFixed(0)} ms`);
+  const r = strict("100 steps", m, { schemes });
+  assert.equal((r.compact.match(/\\arrow\{/g) ?? []).length, 100);
+  const salts: Mol = { atoms: Array.from({ length: 600 }, (_, k) => A(k % 2 ? "Cl" : "Na", (k % 40) * 1.5, -Math.floor(k / 40) * 2, { charge: k % 2 ? -1 : 1 })), bonds: [],
+    captions: Array.from({ length: 300 }, (_, k) => ({ id: k + 1, text: `${k + 1}`, x: 0, y: 0, under: [2 * k, 2 * k + 1] })) };
+  const t = within(300, () => chemfig(salts, S, ink), "300 named salts");
+  console.log(`chemfigcopy-stress: 300 named salts in ${t.toFixed(0)} ms`);
+  const s = strict("300 named salts", salts);
+  assert.equal((s.compact.match(/\\chemname\*/g) ?? []).length, 300);
+  for (const b of s.compact.split("\\qquad")) assert.ok(nesting(b) <= 1, "one deep");
+});
+await kase("ST30", "J29 everything at once in two schemes, with a bracket, a curved arrow, names, numbers and stereo labels: valid in both layouts; the same bytes twice", () => {
+  const { m, schemes } = steps(3);
+  const all: Mol = { ...m, atoms: m.atoms.map((a, k) => (k < 2 ? { ...a, number: String(k + 1), cip: true } : a)), shapes: [{ id: 40, kind: "brackets", from: [-0.3, -0.5], to: [1.3, 0.5], polymer: { usage: "sru" } }],
+    arrows: [...m.arrows!, { id: 50, kind: "curved", from: [0, 0.3], to: [1, 0.3], bend: 0.3 }], captions: [...m.captions!, { id: 60, text: "1", x: 0.5, y: -1, under: [0, 1] }] };
+  const opts = { schemes: [...schemes, { row: [{ atoms: [all.atoms.length - 3] }], above: new Map(), below: new Map() }], stereo: { atoms: ["R"], bonds: [] } };
+  const a = strict("everything", all, opts), b = strict("everything", all, opts);
+  assert.equal(a.code, b.code);
+  assert.equal(a.notice, "");
+});
 
 // The page script (the body of an async function webkit.swift runs in the dev server's page): windows of the app in
 // iframes, each with its clipboard writes caught (execCommand("copy") fires the copy event the app answers, as a click
@@ -784,7 +918,8 @@ else {
 
 // ---- The end: each case with the checks it ran, and each failed check named (stderr, which npm test shows) ----
 const TITLES = ["", "Nothing to code", "Lone atoms and salts", "Big drawings", "Long and deep", "Hostile label text", "Unicode labels", "Raised and lowered runs", "Rings", "Turned, flipped and scaled",
-  "Zoom and dark mode", "Colour", "Marks", "Bonds and hidden H", "Atoms on one spot", "Hostile drawing data", "Undo and fast input", "Two windows and pasted code", "More formats on and off", "AI apps", "Round trips and other apps"];
+  "Zoom and dark mode", "Colour", "Marks", "Bonds and hidden H", "Atoms on one spot", "Hostile drawing data", "Undo and fast input", "Two windows and pasted code", "More formats on and off", "AI apps", "Round trips and other apps",
+  "Schemes", "Arrow kinds", "Hostile names", "Curved arrows", "Brackets", "Names", "Atom and map numbers", "Stereo labels", "Big schemes and names", "Everything at once"];
 const failed = results.filter((r) => !r.ok);
 let passed = 0, ran = 0;
 for (let n = 1; n < TITLES.length; n++) {
@@ -795,5 +930,5 @@ for (let n = 1; n < TITLES.length; n++) {
   console.log(`${mine.every((r) => r.ok) ? "ok  " : "FAIL"} ST${n} ${TITLES[n]} (${mine.map((r) => r.what.slice(0, r.what.indexOf(" "))).join(", ")})`);
 }
 for (const r of failed) console.error(`FAIL ${r.id} ${r.what}: ${r.why}`);
-console.log(`chemfigcopy-stress: ${passed} of ${ran} cases pass${ran < 20 ? ` (${20 - ran} need --ui)` : ""}`);
+console.log(`chemfigcopy-stress: ${passed} of ${ran} cases pass${ran < TITLES.length - 1 ? ` (${TITLES.length - 1 - ran} need --ui)` : ""}`);
 if (failed.length) process.exitCode = 1;

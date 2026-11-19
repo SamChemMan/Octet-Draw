@@ -165,13 +165,41 @@ function atomsIn(group: string): string[] {
   }
   return out.filter(Boolean);
 }
-// Throws where TeX would stop on the code (where: the name for the message).
+// The code's \chemfig{…} commands, each whole, in order (a scheme's, a name's and an arrow label's too).
+export function chemfigBlocks(code: string): string[] {
+  const out: string[] = [];
+  for (let k = code.indexOf("\\chemfig{"); k >= 0; k = code.indexOf("\\chemfig{", k)) {
+    let d = 0, j = k + 8;
+    for (; j < code.length; j++) { if (code[j] === "\\") { j++; continue; } if (code[j] === "{") d++; if (code[j] === "}" && !--d) break; }
+    out.push(code.slice(k, j + 1));
+    k = j + 1;
+  }
+  return out;
+}
+// The text round a group's end at k (the index of its }), from a { at start.
+const groupEnd = (s: string, start: number) => { let d = 0, j = start; for (; j < s.length; j++) { if (s[j] === "\\") { j++; continue; } if (s[j] === "{") d++; if (s[j] === "}" && !--d) break; } return j; };
+// Throws where TeX would stop on the code (where: the name for the message): each \chemfig's atoms in maths mode, and
+// what is round them (schemes, names, conditions) in text mode. \chemmove's TikZ paths and \polymerdelim's keys are
+// skipped there; its indice is read in maths mode. A % ends a line only at its end (a scheme's lines), never in text.
 export function texLint(code: string, where: string): void {
   for (const [n, line] of code.split("\n").entries()) if (line.length > BUF) throw new Error(`${where}: line ${n + 1} has ${line.length} characters, more than TeX's buffer (${BUF})`);
   if (!/^[\t\n\x20-\x7e]*$/.test(code)) throw new Error(`${where}: not ASCII`);
   const danger = DANGER.exec(code);
   if (danger) throw new Error(`${where}: ${danger[0]} in the code`);
-  for (const group of groupsOf(code)) for (const a of atomsIn(group)) typeset(tokens(a, where), true, `${where} [${a.slice(0, 80)}]`);
+  const blocks = chemfigBlocks(code);
+  for (const block of blocks) for (const group of groupsOf(block)) for (const a of atomsIn(group)) typeset(tokens(a, where), true, `${where} [${a.slice(0, 80)}]`);
+  let rest = code.split("\n").filter((l) => !l.startsWith("%")).map((l) => l.replace(/(?<!\\)%$/, "")).join("\n");
+  for (const block of blocks) rest = rest.replace(block, "");
+  for (let k = rest.indexOf("\\chemmove{"); k >= 0; k = rest.indexOf("\\chemmove{")) rest = rest.slice(0, k) + rest.slice(groupEnd(rest, k + 9) + 1);
+  for (let k = rest.indexOf("\\polymerdelim["); k >= 0; k = rest.indexOf("\\polymerdelim[")) {
+    let j = k + 14, d = 0;
+    for (; j < rest.length; j++) { if (rest[j] === "{") d++; if (rest[j] === "}") d--; if (rest[j] === "]" && !d) break; }
+    const indice = /indice=\{((?:[^{}]|\{[^{}]*\})*)\}/.exec(rest.slice(k, j));
+    if (indice) typeset(tokens(indice[1], where), true, `${where} [indice]`);
+    j = groupEnd(rest, groupEnd(rest, j + 1) + 1);
+    rest = rest.slice(0, k) + rest.slice(j + 1);
+  }
+  typeset(tokens(rest, where), false, `${where} [text]`);
 }
 // How deep branches and rings nest (outside braces): each is a TeX group, and rule 8 holds it to log2(atoms) + 24.
 export const nesting = (code: string) => { let d = 0, most = 0, br = 0; const body = code.slice(code.indexOf("\\chemfig{") + 9, code.lastIndexOf("}")); for (let k = 0; k < body.length; k++) { const ch = body[k]; if (ch === "\\") { k++; continue; } if (ch === "{") br++; if (ch === "}") br--; if (!br && ch === "(") most = Math.max(most, ++d); if (!br && ch === ")") d--; } return most; };

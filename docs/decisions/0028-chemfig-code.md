@@ -47,11 +47,19 @@ and an AI app's `read` with format `chemfig`. Much of the writer is from konokon
 11. **A ring bond by bond closes on a plain bond where it can.** A hook takes a coloured or styled bond's TikZ options,
    but a double bond on a hook has no side, so a double bond or wedge closes a ring only where nothing else is left.
 
+## Added for 1.1.3 (issue 59 reopened)
+
+12. **PR 127's other features**, in the same writer (`docs/plans/issue-59-59-1-1-3.md`): reactions as
+   `\schemestart` rows (the Editor gives the drawing's or the selection's reactions), `\chemmove` for curved arrows,
+   lines and lone reaction arrows, `\polymerdelim` for brackets round atoms, `\chemname*` for names under
+   structures, atom and map numbers and R/S as `\charge` items, and E/Z as an atom by its bond. A drawing with a
+   scheme or a name has a `\chemfig` for each compound; one with neither is one `\chemfig`, byte for byte as before.
+   `\polymerdelim` and `\chemmove` go after the code, and a comment line asks for two LaTeX runs.
+
 ## Not in this release
 
-Reaction schemes (`\schemestart`), `\chemmove` arrows, `\polymerdelim` brackets, names under structures
-(`\chemname`), atom and map numbers and R/S and E/Z labels, and reading chemfig code. PR 127 had the first five;
-they need TeX to check and two LaTeX runs, and nothing on this Mac compiles LaTeX.
+Reading chemfig code, branching schemes, and arrows outside a scheme that `\chemmove` does not draw (equilibrium,
+retrosynthetic, no-go, dipole, block, orbitals, fragmentation lines, pen curves). Nothing on this Mac compiles LaTeX.
 
 ## How it is checked
 
