@@ -42,6 +42,12 @@ if (name) {
 if (!labelled("Add a caption")) key({ key: "a", code: "KeyA", metaKey: true });
 await measure("the Structure panel", !!(await until(() => labelled("Add a caption"), 4000)));
 
+// The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
+labelled("Show the Properties panel")?.click();
+await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
+document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
+await wait(600);
+
 // The spectrum panel: one tab, then two (each with its X, and the + after them).
 labelled("Predict ¹³C-NMR shifts")?.click();
 await measure("the spectrum panel", !!(await until(() => document.querySelector(".spectrum-controls"), 6000)));
