@@ -225,8 +225,11 @@ export function elementKey(atoms: readonly { label: string; isotope?: number }[]
 // it ("C[C@H](N[*])C([*])=O |$;;;_R1;;_R2;$|"). Only peptide backbone monomers that Octet can define come in.
 const MOST_LIBRARY = 4_000_000;
 // (seqbuild.ts helmLibrary writes one.)
-// The monomers in a HELM monomer library file, or why there are none.
-export function readHelmLibrary(text: string): { monomers: OwnMonomer[]; left: number } | { problem: string } {
+// The monomers in a HELM monomer library file, or why there are none. usable: whether Octet can use a monomer's SMILES
+// (seqbuild.ts usableMonomer: a whole structure of real atoms, an α-amino acid); each one that is not counts as left out.
+// It is asked of at most MOST_TRIED monomers, so a hostile file costs little time.
+const MOST_TRIED = 2000;
+export function readHelmLibrary(text: string, usable: (smiles: string) => boolean = () => true): { monomers: OwnMonomer[]; left: number } | { problem: string } {
   if (text.length > MOST_LIBRARY) return { problem: "Octet reads monomer libraries of up to 4 MB." };
   let data: unknown;
   try { data = JSON.parse(text); } catch { return { problem: "This file is not a HELM monomer library." }; }
@@ -234,12 +237,12 @@ export function readHelmLibrary(text: string): { monomers: OwnMonomer[]; left: n
   const list = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as { monomers?: unknown }).monomers) ? (data as { monomers: unknown[] }).monomers : undefined;
   if (!list) return { problem: "This file is not a HELM monomer library." };
   const out: OwnMonomer[] = [], seen = new Set<string>();
-  let left = 0;
+  let left = 0, tried = 0;
   for (const x of list.slice(0, 20_000)) {
     const m = x && typeof x === "object" ? (x as Record<string, unknown>) : {};
     const code = typeof m.symbol === "string" ? m.symbol.trim() : "", raw = typeof m.smiles === "string" ? m.smiles.trim() : "";
     const smiles = raw && (m.polymerType ?? "PEPTIDE") === "PEPTIDE" ? numbered(raw) : undefined;
-    if (!smiles || codeProblem(code) || seen.has(code) || smilesProblem(smiles) || out.length >= MOST_OWN_MONOMERS) { left++; continue; }
+    if (!smiles || codeProblem(code) || seen.has(code) || smilesProblem(smiles) || out.length >= MOST_OWN_MONOMERS || tried++ >= MOST_TRIED || !usable(smiles)) { left++; continue; }
     seen.add(code);
     out.push({ code, smiles, ...(typeof m.name === "string" && m.name.trim() && m.name.trim() !== code ? { name: m.name.trim().slice(0, 80) } : {}) });
   }

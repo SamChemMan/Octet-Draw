@@ -527,3 +527,23 @@ Built on this branch after the 1.1.3 hand-over (5bea9cb), each with its checks: 
 Cut, for a later stage: deleting a residue on the page closing the gap (ChemDraw's Removing Residues), a menu of ends
 under the field, renaming a residue label to a non-natural or user's code, custom RNA/DNA monomers, the AI apps'
 `define_monomer`, and Schramm's display asks (residues per line, termini style).
+
+## 18. Review fixes (19 November 2026, evening)
+
+Each with its check: stress cases N41, N42 and U11, `nicknames.check.ts` and `monomers.check.ts`.
+
+- **A chain opened in the field and changed before Return** (the Residue labels chip, an undo, a move) is found again
+  (`helm.ts markChain`, `chainAgain`): its own atoms while they are drawn as they were, else the structure with the
+  same sequence nearest to where it was. Return draws one structure in its place. A chain that is gone gives way to a
+  new one, placed as any name is, with no notice. Settings takes the focus, so the field closes and nothing more is
+  drawn.
+- **A peptide's Ac, OH and NH2 end labels** keep no atoms. In a structure with residue labels they are read by their
+  place as Octet's ends (`sequence.ts chainEnds`), never by the user's nicknames: in the InChI, Expand Label and CDXML.
+  Define Nickname refuses Octet's end and residue labels (OH, NH2, Boc, OMe, Ala, D-Phe, Aib, rA). A nickname an older
+  Octet kept stays in the settings and still reads on a label that is no chain's end.
+- **Import… of a HELM library** keeps only monomers Octet can use (`seqbuild.ts usableMonomer`: an α-amino acid whose
+  SMILES reads whole, each atom an element), asked of at most 2,000; the rest are counted as left out.
+- **One nucleotide as a residue label** is a chain, as one amino acid is: HELM, FASTA and the field's words.
+- Define nickname… is in every right-click menu that has Define monomer…. The command palette names the items of
+  Structure > Sequence Peptide sequence…, DNA sequence… and RNA sequence…. The Define monomer dialog says when the
+  drawing has its own monomer by that code, which comes first in that drawing.

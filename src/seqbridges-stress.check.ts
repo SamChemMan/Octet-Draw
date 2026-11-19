@@ -26,7 +26,8 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { parseHelm, helmOf, toHelm, toFasta, readSequence, fieldSeq, linkResidues, seqBuilt, seqProblem, seqOf, withSequences, MOST_TEXT } = await import("./helm.ts");
+const helmMod = await import("./helm.ts");
+const { parseHelm, helmOf, toHelm, toFasta, readSequence, fieldSeq, linkResidues, seqBuilt, seqProblem, seqOf, withSequences, chainText, MOST_TEXT } = helmMod;
 const { buildAtoms, buildLabels, MOST_BUILT_ATOMS } = await import("./seqbuild.ts");
 const { bracketOf, bracketPath, render } = await import("./render.ts");
 const { relabel } = await import("./sequence.ts");
@@ -1298,8 +1299,65 @@ await check("N40", "The Sequence field's worker: a preview timer that fires afte
   } finally { delete gl.Worker; }
 });
 
+await check("N41", "One residue label alone is a chain, a nucleotide as an amino acid is: rA, dG, [mA] and Ala each give HELM, FASTA and the field's words; Sequences > Atoms draws it out, the same compound; drawn as atoms it stays a small molecule", () => {
+  for (const [words, helm, fasta] of [["rna: A", "RNA1{R(A)}$$$$V2.0", "A"], ["dna: G", "RNA1{[dR](G)}$$$$V2.0", "G"], ["rna: [mA]", "RNA1{[mR](A)}$$$$V2.0", "A"], ["peptide: A", "PEPTIDE1{A}$$$$V2.0", "A"]]) {
+    const seq = (fieldSeq(words) as { seq: Seq }).seq, l = (buildLabels(seq) as { mol: Mol }).mol, a = (buildAtoms(seq) as { mol: Mol }).mol;
+    assert.equal(l.atoms.filter((_, i) => isLabel(l, i)).length, 1, `${words}: one residue label`);
+    assert.equal(toHelm(l), helm, `${words}: HELM`);
+    assert.equal(toFasta(l), fasta, `${words}: FASTA`);
+    assert.equal(chainText(l, l.atoms.map((_, i) => i)), words, `${words}: the field's words (the Sequence tool's click)`);
+    const out = withSequences(l, "atoms");
+    assert.ok(out.atoms.length > l.atoms.length && !out.atoms.some((_, i) => isLabel(out, i)), `${words}: drawn out`);
+    assert.equal(inchi(out), inchi(a), `${words}: the same compound`);
+    assert.equal(toHelm(a), undefined, `${words}: as atoms, a small molecule (adenosine, alanine)`);
+    assert.equal(withSequences(a, "labels"), a, `${words}: and stays one`);
+  }
+});
+
+await check("N42", "A chain opened in the Sequence field and changed under it before Return (drawn again as labels or atoms, moved, undone, one of two alike): Return draws one structure in its place; a chain deleted or changed is gone", () => {
+  const { markChain, chainAgain, inPlaceOf } = helmMod;
+  const built = (words: string, as: "atoms" | "labels") => { const seq = (fieldSeq(words) as { seq: Seq }).seq; return ((as === "atoms" ? buildAtoms(seq) : buildLabels(seq)) as { mol: Mol }).mol; };
+  const aspirin = chem.parseStructure("CC(=O)Oc1ccccc1C(=O)O");
+  const page = insertMol(aspirin, built("peptide: AGF", "atoms"), [12, 0]).mol, chain = page.atoms.map((_, i) => i).slice(aspirin.atoms.length);
+  const opened = markChain(page, chain);
+  assert.ok(opened, "the chain opens in the field");
+  assert.equal(opened.text, "peptide: AGF");
+  const parts = (m: Mol) => fragments(m).length, mid = (m: Mol, atoms: number[]) => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; });
+  const want = inchi(built("peptide: AGGF", "atoms"));
+  // Return: the new chain in place of the one found; the drawing keeps its two structures, the new one where it was.
+  const land = (m: Mol, found: number[] | undefined, as: "atoms" | "labels", why: string) => {
+    assert.ok(found, `${why}: found again`);
+    const out = inPlaceOf(m, found, built("peptide: AGGF", as)), fresh = fragments(out).find((f) => f.some((i) => out.atoms[i].label === "N" || isLabel(out, i)))!;
+    assert.equal(parts(out), 2, `${why}: one structure in its place, none added`);
+    assert.equal(inchi(pickAtoms(out, fresh)), want, `${why}: the new chain`);
+    mid(out, fresh).forEach((v, k) => assert.ok(Math.abs(v - mid(m, found)[k]) < 1e-6, `${why}: at its centre`));
+  };
+  // The Residue labels choice, or Settings > Document > Sequences: every chain drawn again with new atoms.
+  const labelled = withSequences(page, "labels");
+  assert.notEqual(labelled, page);
+  land(labelled, chainAgain(labelled, opened.mark), "labels", "drawn again as labels");
+  // Moved: the same atoms.
+  const moved = { ...page, atoms: page.atoms.map((a, i) => (i >= aspirin.atoms.length ? { ...a, location: [a.location[0] + 3, a.location[1] - 2, 0] as [number, number, number] } : a)) };
+  assert.deepEqual(chainAgain(moved, opened.mark), chain, "moved: its own atoms");
+  land(moved, chainAgain(moved, opened.mark), "atoms", "moved");
+  // Drawn again as labels, then moved: found by its sequence.
+  const both = { ...labelled, atoms: labelled.atoms.map((a) => (a.inner || a.text || a.label === "H" ? { ...a, location: [a.location[0] + 4, a.location[1], 0] as [number, number, number] } : a)) };
+  land(both, chainAgain(both, opened.mark), "labels", "as labels and moved");
+  // Opened as labels, then undone to atoms.
+  const fromLabels = markChain(labelled, fragments(labelled).find((f) => f.some((i) => isLabel(labelled, i)))!)!;
+  land(page, chainAgain(page, fromLabels.mark), "atoms", "undone");
+  // Two chains alike: the one nearest to where it was.
+  const two = insertMol(page, built("peptide: AGF", "atoms"), [30, 0]).mol, second = two.atoms.map((_, i) => i).slice(page.atoms.length), twice = markChain(two, second)!;
+  const again = withSequences(two, "labels"), found = chainAgain(again, twice.mark)!;
+  assert.ok(mid(again, found)[0] > mid(again, chainAgain(withSequences(page, "labels"), opened.mark)!)[0] + 5, "the second of two alike");
+  // Gone: deleted, or changed by hand (a sequence no longer).
+  assert.equal(chainAgain(erase(page, new Set(), new Set(chain)), opened.mark), undefined, "deleted");
+  assert.equal(chainAgain(insertMol(aspirin, built("peptide: AGW", "atoms"), [12, 0]).mol, opened.mark), undefined, "another sequence");
+  assert.match(editorSource, /const gone = e && naming !== undefined && isSequence\(naming\.trim\(\)\) \? \(e\.doc === doc \? e\.mark\.atoms : chainAgain\(doc, e\.mark, ownMonomers\)\) : undefined;/, "Return looks for it");
+});
+
 // ==================================================================================================================
-// ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8)
+// ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8 to U11)
 // ==================================================================================================================
 await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) and Boc-A-Aib-Nle-G-OMe (labels), saves CDXML, Octet reads it: the same InChI, labels kept as labels", async () => {
   if (!process.env.OCTET_STRESS_CHEMDRAW) return "set OCTET_STRESS_CHEMDRAW=1 to run ChemDraw 22.2 by AppleScript";
@@ -1333,7 +1391,7 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) 
 // nothing from this file. It reads the editor's state from React's own records (the undo history) and drives the
 // canvas and the name field with pointer and key events, as scripts/look/sweep.js does.
 const ui = process.env.OCTET_STRESS_URL;
-await check("U", "The app in WebKit: U1 to U6, U9 and U10", async () => {
+await check("U", "The app in WebKit: U1 to U6 and U9 to U11", async () => {
   if (!ui) return "set OCTET_STRESS_URL to the dev server (npx vite --port 1467) to drive the app in WebKit";
   if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) return "needs a Mac with Xcode's swift";
   const dir = mkdtempSync(join(tmpdir(), "octet-ui27-")), script = join(dir, "stress.js");
@@ -1370,7 +1428,9 @@ await check("U8", "The look sweep in light and dark: every control matches", asy
 // one undo step. U2: the field's problems ([Zzz]; 115 Glu, too many atoms in full). U3: the Residue labels chip turns
 // the document's chains into labels in one undo step and back. U4: dark paper draws the bracket in the light ink. U5:
 // the smallest and largest zoom: no error, the bracket drawn. U6: Escape while a sequence builds leaves nothing. U10:
-// the worker busy, Return, then the field's preview timer: Return draws.
+// the worker busy, Return, then the field's preview timer: Return draws. U11: a chain opened in the field, the drawing
+// changed before Return (the Residue labels chip, Settings > Document > Sequences, an undo, a move): Return draws one
+// structure in its place.
 async function uiStress(helmText: string) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const until = async <T,>(find: () => T, ms = 10000): Promise<T | null> => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
@@ -1405,7 +1465,7 @@ async function uiStress(helmText: string) {
     await wait(700);
     return true;
   };
-  // The field: a click with the Sequence tool, else Structure > Insert Peptide… from the command palette.
+  // The field: a click with the Sequence tool, else Structure > Sequence > Peptide… from the command palette.
   const openField = async () => {
     if (field()) return field();
     sequenceTool()?.click();
@@ -1413,7 +1473,7 @@ async function uiStress(helmText: string) {
     const r = world().getBoundingClientRect();
     await click([r.left + r.width * 0.4, r.top + r.height * 0.4]);
     if (await until(() => field(), 2500)) return field();
-    await palette("Insert Peptide");
+    await palette("Peptide sequence");
     return await until(() => field(), 3000);
   };
 
@@ -1510,7 +1570,7 @@ async function uiStress(helmText: string) {
     await wait(500);
     const landed = doc().atoms.length - n0, parts0 = parts(doc());
     // Structure > Sequence > Peptide… with the chain selected: the field holds its sequence.
-    await palette("Insert Peptide");
+    await palette("Peptide sequence");
     const f = await until(() => field(), 3000), held = f?.value ?? "";
     type("peptide: Boc-A[Aib]GGF-OMe");
     await wait(900);
@@ -1551,6 +1611,76 @@ async function uiStress(helmText: string) {
     await wait(300);
     result("U10", "The worker is busy, Return is pressed, then the preview timer fires: Return draws what is in the field, in one undo step", drawn > 0 && open === undefined && hist().at - at0 === 1 && still > 1000,
       `drawn ${drawn} atoms, field left "${open ?? ""}", steps ${hist().at - at0}, the worker was busy for ${Math.round(still)} ms after Return (the timer fires within a second)`);
+  });
+  await step("U11", "A chain opened in the field, the drawing changed before Return", async () => {
+    const notes: string[] = [];
+    let ok = true;
+    // A drawing with one chain, AGF, opened in the field from Structure > Sequence > Peptide… (it lands selected).
+    const opened = async () => {
+      histHook().queue.dispatch({ type: "set", mol: { atoms: [], bonds: [], ...(doc().style ? { style: doc().style } : {}) } });
+      await wait(400);
+      await openField();
+      type("peptide: AGF");
+      await wait(900);
+      key({ key: "Enter", code: "Enter" }, field());
+      await until(() => doc().atoms.length > 0 && !field(), 8000);
+      await wait(500);
+      await palette("Peptide sequence");
+      return (await until(() => field(), 3000))?.value === "peptide: AGF";
+    };
+    const mid = (m: any) => { const xs = m.atoms.map((a: any) => a.location[0]); return (Math.min(...xs) + Math.max(...xs)) / 2; };
+    const chip = () => [...document.querySelectorAll(".name-options button")].find((b) => b.textContent!.trim() === "Residue labels") as HTMLButtonElement | undefined;
+    // Gly typed in, Return: one structure (the chain drawn again in its place), the field closed. closes: the change may
+    // close the field (Settings takes the focus), and then nothing more is drawn.
+    const finish = async (how: string, at0: number, steps: number, where?: number, closes = false) => {
+      const open = !!field();
+      if (open) { type("peptide: AGGF"); await wait(900); key({ key: "Enter", code: "Enter" }, field()); await until(() => !field(), 8000); await wait(600); }
+      const n = parts(doc()), d = hist().at - at0, x = mid(doc());
+      const good = (open || closes) && n === 1 && d === (open ? steps : steps - 1) && (where === undefined || Math.abs(x - where) < 0.5);
+      ok &&= good;
+      notes.push(`${how}: field open ${open}, structures ${n}, steps ${d}${where === undefined ? "" : `, centre ${x.toFixed(2)} (was ${where.toFixed(2)})`}`);
+    };
+    // The Residue labels chip under the field.
+    if (await opened()) { const at0 = hist().at, x = mid(doc()); chip()?.click(); await wait(800); await finish("the chip", at0, 2, x); } else { ok = false; notes.push("the chip: the field did not open"); }
+    // Settings > Document > Style > Sequences, with the field open.
+    if (await opened()) {
+      const at0 = hist().at, x = mid(doc());
+      document.querySelector(".actions-reopen")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await wait(300);
+      (document.querySelector(".actions-settings") as HTMLElement | null)?.click();
+      const page = await until(() => [...document.querySelectorAll(".module")].find((m) => m.textContent!.trim().startsWith("Document")) as HTMLElement | undefined, 3000);
+      page?.click();
+      await wait(600);
+      const seg = await until(() => document.querySelector('[role="radiogroup"][aria-label="Sequences"]'), 3000), off = seg && [...seg.querySelectorAll("button")].find((b) => b.getAttribute("aria-checked") !== "true") as HTMLElement | undefined;
+      off?.click();
+      await wait(800);
+      (document.querySelector(".settings-window .actions-close") as HTMLElement | null)?.click();
+      await wait(500);
+      if (!off) { ok = false; notes.push("Settings: no Sequences row"); } else await finish("Settings > Document > Sequences", at0, 2, x, true);
+    } else { ok = false; notes.push("Settings: the field did not open"); }
+    // An undo: the chain drawn again by the chip, the field opened on it, then Edit > Undo (the menu leaves the field
+    // open) gives back the chain as it was, with other atoms.
+    if (await opened()) {
+      chip()?.click();
+      await wait(800);
+      key({ key: "Escape", code: "Escape" }, field());
+      await wait(300);
+      key({ key: "a", code: "KeyA", metaKey: true }, document.body);
+      await wait(300);
+      await palette("Peptide sequence");
+      const again = (await until(() => field(), 3000))?.value === "peptide: AGF", before = hist().at;
+      histHook().queue.dispatch({ type: "undo" });
+      await wait(600);
+      if (again && hist().at === before - 1) await finish("an undo", hist().at, 1); else { ok = false; notes.push(`an undo: field open ${again}, undone ${hist().at === before - 1}`); }
+    } else { ok = false; notes.push("an undo: the field did not open"); }
+    // A move of the chain (as a nudge or Object > Flip from the menu would) while the field is open.
+    if (await opened()) {
+      const at0 = hist().at, x = mid(doc()) + 3;
+      histHook().queue.dispatch({ type: "set", mol: { ...doc(), atoms: doc().atoms.map((a: any) => ({ ...a, location: [a.location[0] + 3, a.location[1] - 2, 0] })) } });
+      await wait(500);
+      await finish("a move", at0, 2, x);
+    } else { ok = false; notes.push("a move: the field did not open"); }
+    result("U11", "(issue 27) A chain opened in the field, then the Residue labels chip, Settings > Document > Sequences, an undo or a move before Return: Return draws one structure in its place, no second one", ok, notes.join("; "));
   });
   await step("U6", "Escape while it builds", async () => {
     const before = doc();

@@ -35,6 +35,7 @@ import { readPart, readPlot, type Plot } from "./pageplot.ts";
 import { readRisk, type Risk } from "./riskassess.ts";
 import { CHANGED_BY, changedBy, cleanComment, COMMENT, MAX_COMMENT, oneLine } from "./experiment.ts";
 import { readMonomers } from "./monomers.ts";
+import { chainEnds } from "./sequence.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -282,7 +283,7 @@ const hex = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
 export type CdxmlOptions = {
   selection?: { atoms: Iterable<number>; items: Iterable<number> }; // only these atoms (and the bonds between them) and objects
   derived?: Arrow[]; // arrows Octet draws from other objects (a catalytic cycle's), written so ChemDraw shows them too
-  expand?: (text: string) => Mol | undefined; // a written label's atoms (atom 0 attaches), for ChemDraw's abbreviation
+  expand?: (text: string, end?: boolean) => Mol | undefined; // a written label's atoms (atom 0 attaches), for ChemDraw's abbreviation; end: a peptide's end label (sequence.ts chainEnds), Octet's group whatever the user's nicknames say
   own?: (text: string) => boolean; // a label whose group the file keeps as the label's own (a nickname of the user's): read back from the file, as another computer may not know it
   name?: string; // the document's name
   // Several drawings written into one document, one after another (a template file's panes): ids from firstId up, and
@@ -649,6 +650,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // writes a monomer, a connection point inside for each bond (ExternalConnectionNum) and that number on the bond.
   const ported = new Set<number>();
   for (const b of mol.bonds) if (b.ports) b.atoms.forEach((k, e) => { if (b.ports![e] >= 0 && mol.atoms[k]?.inner?.atoms.length) ported.add(k); });
+  // A peptide's Ac, OH and NH2 end labels: Octet's ends, never the user's nicknames (sequence.ts chainEnds).
+  const ends = ported.size ? chainEnds(mol) : new Set<number>();
   mol.bonds.forEach((b, k) => { nbrs[b.atoms[0]].push(b.atoms[1]); nbrs[b.atoms[1]].push(b.atoms[0]); bondsAt[b.atoms[0]].push(k); bondsAt[b.atoms[1]].push(k); });
   const used = (i: number) => bondsAt[i].reduce((n, k) => n + orderOf(mol.bonds[k].type), 0);
   // Node and bond ids rise in Octet's atom and bond order, which is how the reader puts that order back.
@@ -771,7 +774,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // Interpret Chemically off is a node of no known kind (Unspecified), its text marked as not chemistry.
     const plain = a.chemical === false, q = plain ? undefined : queryLabel(a.text), named = q === "generic" ? altIds.get(a.text!) : undefined;
     const list = q === "list" ? elementList(a.text!) : undefined, link = q === "link" ? linkNode(a.text!) : undefined, alts = q === "alt" ? altGroup(a.text!) : undefined;
-    const known = a.text && !q && !plain && !ported.has(i) ? opts.expand?.(a.text) : undefined, inner = known ?? (a.text && !q && !plain ? a.inner : undefined);
+    const known = a.text && !q && !plain && !ported.has(i) ? opts.expand?.(a.text, ends.has(i)) : undefined, inner = known ?? (a.text && !q && !plain ? a.inner : undefined);
     const type = a.centre ? (a.centre.variable ? "VariableAttachment" : "MultiAttachment") : a.attach || a.bead ? "ExternalConnectionPoint" : named !== undefined ? "NamedAlternativeGroup"
       : q === "generic" ? "GenericNickname" : list ? "ElementList" : link ? "LinkNode" : alts ? "AnonymousAlternativeGroup" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
     const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : atomicNumber(a.label);
@@ -800,7 +803,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ cip: stereoAdded.has(i) ? 1 : undefined, hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
-    }, (inner ? nested(i, inner, !!known && !opts.own?.(a.text!)) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
+    }, (inner ? nested(i, inner, !!known && (ends.has(i) || !opts.own?.(a.text!))) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }

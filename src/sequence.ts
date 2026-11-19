@@ -213,6 +213,25 @@ export function portRole(inner: Mol, k: number): 0 | 1 | 2 | 3 {
   return 3;
 }
 const START_LABELS = new Set(["H", ...N_ENDS.map((e) => e.label)]), END_LABELS = new Set([...START_LABELS, "OH", ...C_ENDS.map((e) => e.label)]);
+// A peptide's end labels that keep no atoms (Ac-, -OH and -NH2, as the sequence builder and Octet 1.1.2 draw them),
+// each as its group's SMILES from the atom that joins the chain. In a chain they mean Octet's ends: they are read by
+// their place there (chainEnds), never by the user's nicknames, so a nickname OH or NH2 kept by an older Octet does not
+// change a peptide drawn as residue labels.
+export const END_GROUPS: ReadonlyMap<string, string> = new Map([["Ac", "C(C)=O"], ["OH", "O"], ["NH2", "N"]]);
+// The atoms of m that are such ends: an Ac, OH or NH2 label with no kept atoms and one bond, in a structure with a
+// residue label (a label that a bond joins at one of its kept atoms). Linear in the drawing.
+export function chainEnds(m: Mol): Set<number> {
+  const ends = new Set<number>(), n = m.atoms.length;
+  const maybe = m.atoms.flatMap((a, i) => (!a.inner?.atoms.length && a.text && a.chemical !== false && END_GROUPS.has(a.text) ? [i] : []));
+  if (!maybe.length || !m.bonds.some((b) => b.ports?.some((p) => p >= 0))) return ends;
+  const up = Array.from({ length: n }, (_, i) => i), root = (i: number): number => { while (up[i] !== i) i = up[i] = up[up[i]]; return i; };
+  const degree = new Uint32Array(n);
+  for (const b of m.bonds) { degree[b.atoms[0]]++; degree[b.atoms[1]]++; up[root(b.atoms[0])] = root(b.atoms[1]); }
+  const residues = new Set<number>();
+  for (const b of m.bonds) if (b.ports) b.atoms.forEach((k, e) => { if (b.ports![e] >= 0 && m.atoms[k]?.inner?.atoms.length && m.atoms[k].text) residues.add(root(k)); });
+  for (const i of maybe) if (degree[i] === 1 && residues.has(root(i))) ends.add(i);
+  return ends;
+}
 // The chains of residue labels in a structure (frag), each in order from its N or 5' end, or undefined when it is not
 // one: every atom a label, each bond between two of them along a chain (a residue's C=O to the next one's N, an end
 // label) or a link. A ring of residues is cut at its bracket, else before its label with the lowest number.

@@ -5,6 +5,7 @@
 
 import { condensedLabel, condensedRoot } from "./condensed.ts";
 import { builtInNickname, NICKNAME_MOST, onNicknamesChange, ownNickname } from "./nicknames.ts";
+import { C_ENDS, N_ENDS, nucleicMonomers, peptideMonomers } from "./monomers.ts";
 
 const SYMBOLS = (
   "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr " +
@@ -405,12 +406,18 @@ export function labelSmiles(label: string): string | undefined {
 }
 onNicknamesChange(() => { ends.clear(); worded.clear(); });
 // Why a label cannot be a nickname of the user's own, or undefined when it can: it is one word of up to 32
-// characters, and no element or generic label (typed on an atom, those are never read as a group). A label Octet reads
-// already may be one: the user's group comes first, as a name of their own does in Name to Structure.
+// characters, no element or generic label (typed on an atom, those are never read as a group), and no end or residue
+// label of Octet's sequences (OH, NH2, Boc, OMe, Ala, D-Phe, rA): a chain's labels mean Octet's monomers in every
+// drawing. Any other label Octet reads already may be one: the user's group comes first, as a name of their own does
+// in Name to Structure.
+let sequenceLabels: { ends: Set<string>; residues: Set<string> } | undefined;
 export function nicknameProblem(label: string): string | undefined {
   if (!label) return "Type a nickname.";
   if (/\s/.test(label) || [...label].length > NICKNAME_MOST) return `A nickname is one word of up to ${NICKNAME_MOST} characters.`;
   if (isElement(label) || standsIn(label)) return `${label} is an element or a generic label.`;
+  sequenceLabels ??= { ends: new Set(["H", "OH", ...[...N_ENDS, ...C_ENDS].map((e) => e.label)]), residues: new Set([...peptideMonomers(), ...nucleicMonomers()].map((m) => m.label)) };
+  if (sequenceLabels.ends.has(label)) return `${label} is a peptide end in Octet's sequences.`;
+  if (sequenceLabels.residues.has(label)) return `${label} is a residue label in Octet's sequences.`;
   return undefined;
 }
 function readLabel(label: string): string | undefined {

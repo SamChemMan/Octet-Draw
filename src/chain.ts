@@ -98,7 +98,8 @@ function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: 
   }
   const link = (o3: number, o5: number) => at[o3].find((p) => el(p) === "P" && at[p].includes(o5));
   const chain = longest(units, (u) => units.filter((v) => link(u.o3, v.o5) !== undefined));
-  if (chain.length < LEAST_NUCLEIC) return undefined;
+  // Read (least 1), one nucleotide is a chain too, as one amino acid is.
+  if (chain.length < Math.min(least, LEAST_NUCLEIC)) return undefined;
   // A phosphate on either end is backbone too.
   const end = (o: number) => at[o].filter((p) => el(p) === "P").slice(0, 1);
   const path = end(chain[0].o5), flat = new Set<number>();
@@ -197,7 +198,7 @@ function chainOf(m: Mol, frag: number[], least = LEAST_PEPTIDE) {
 export type ChainEnd = { chain: number; residue: number; r: 1 | 2 | 3 };
 export type ChainRead = { nucleic: boolean; chains: { residues: number[][]; start: number[]; end: number[] }[]; links: { a: ChainEnd; b: ChainEnd; bond: number }[] };
 export function chainRead(m: Mol, frag: number[]): ChainRead | undefined {
-  // Read, a peptide of one or two residues is a chain too (it is laid out as a small molecule).
+  // Read, a peptide of one or two residues is a chain too (it is laid out as a small molecule), and so is one nucleotide.
   const c = chainOf(m, frag, 1);
   if (!c) return undefined;
   const { path, groups, bases, starts, links } = c, last = (p: number) => (p + 1 < starts.length ? starts[p + 1] : path.length) - 1;

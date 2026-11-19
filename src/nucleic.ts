@@ -1,5 +1,5 @@
-// RNA and DNA typed as one-letter codes: "rna: AACGUU" and "dna: ATGC" in Name to Structure, and Structure > Insert
-// RNA… and Insert DNA…, which open the name field with "rna: " or "dna: " in it, as Insert Peptide… does (peptide.ts).
+// RNA and DNA typed as one-letter codes: "rna: AACGUU" and "dna: ATGC" in Name to Structure, and Structure > Sequence >
+// RNA… and DNA…, which open the name field with "rna: " or "dna: " in it, as Peptide… does (peptide.ts).
 // The structure is built here as SMILES, one nucleotide after another from the 5' end to the 3' end: a β-D-
 // ribofuranose (RNA) or 2-deoxy-β-D-ribofuranose (DNA) on N9 of a purine or N1 of a pyrimidine, joined 3'-O to 5'-O
 // by phosphodiester bridges. The ends are 5'-OH and 3'-OH; a p before or after the codes puts a phosphate on that
@@ -51,7 +51,7 @@ export function nucleicSmiles(text: string, dna: boolean): { smiles: string } | 
   return { smiles: `${five ? `O${PHOSPHATE}` : ""}${chain}${three ? `${PHOSPHATE}O` : ""}` };
 }
 
-// Text that starts "rna:" or "dna:": its SMILES or its problem (none yet when no codes are typed, as when Insert RNA…
+// Text that starts "rna:" or "dna:": its SMILES or its problem (none yet when no codes are typed, as when Sequence > RNA…
 // opens the field). Undefined for any other text.
 export function nucleicText(text: string): { smiles: string } | { problem: string } | undefined {
   const m = NUCLEIC.exec(text);

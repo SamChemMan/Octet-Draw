@@ -115,9 +115,9 @@ import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, me
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE } from "./peptide";
-import { relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
-import { chainText, fieldSeq, inPlaceOf, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
-import { helmLibrary, monomerOf, monomerRefs } from "./seqbuild";
+import { chainEnds, END_GROUPS, relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
+import { chainAgain, fieldSeq, inPlaceOf, linkResidues, markChain, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences, type ChainMark } from "./helm";
+import { helmLibrary, monomerOf, monomerRefs, usableMonomer } from "./seqbuild";
 import { codeProblem, MOST_OWN_MONOMERS, readHelmLibrary, withMonomer, type Own } from "./monomers";
 import { NUCLEIC } from "./nucleic";
 import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, seqLayout, warmLayout } from "./namepreview";
@@ -941,7 +941,8 @@ export default function Editor() {
     try {
       const picked = await invoke<[string, string] | null>("import_monomers");
       if (!picked) return;
-      const read = readHelmLibrary(picked[1]);
+      await ready;
+      const read = readHelmLibrary(picked[1], usableMonomer);
       if ("problem" in read) return setNotice(read.problem);
       // New codes only, as many as there is room for (up to MOST_OWN_MONOMERS): a monomer the user has stays as it is.
       const fresh = read.monomers.filter((m) => !settings.monomers.some((x) => x.code === m.code)), add = fresh.slice(0, Math.max(0, MOST_OWN_MONOMERS - settings.monomers.length));
@@ -1812,7 +1813,7 @@ export default function Editor() {
   const cdxmlOptions = (): CdxmlOptions => ({
     derived: cycleArrows, name,
     stereoTexts: loaded && (settings.dlNames || settings.steroidNames || settings.unsetMark) ? (m) => stereoTexts(stereoLabels(m)?.atoms ?? [], stereoNames(m, nameOptions), (c) => (settings.stereoParens ? `(${c})` : c)) : undefined,
-    expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
+    expand: (text, end) => { const smiles = !loaded ? undefined : end ? END_GROUPS.get(text) : labelSmiles(text); try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
     own: (text) => !!ownNickname(text),
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
@@ -2737,14 +2738,15 @@ export default function Editor() {
   }
   // A chain clicked with the Sequence tool, or selected when Structure > Sequence is chosen (issue 27): the name field
   // with its sequence, and Return draws what the field then holds in its place (helm.ts inPlaceOf), so a residue is put
-  // in or taken out by typing, as in ChemDraw's sequence tools. False when the structures are not wholly chains.
-  const seqEdit = useRef<{ doc: Mol; atoms: number[] }>(undefined);
+  // in or taken out by typing, as in ChemDraw's sequence tools. False when the structures are not wholly chains. The
+  // chain is marked (helm.ts markChain), so Return finds it again if the drawing changes first.
+  const seqEdit = useRef<{ doc: Mol; mark: ChainMark }>(undefined);
   function editSequence(atoms: number[]): boolean {
-    const text = atoms.length ? chainText(doc, atoms, ownMonomers) : undefined;
-    if (!text) return false;
+    const marked = atoms.length ? markChain(doc, atoms, ownMonomers) : undefined;
+    if (!marked) return false;
     warmLayout();
-    openNaming(text);
-    seqEdit.current = { doc, atoms };
+    openNaming(marked.text);
+    seqEdit.current = { doc, mark: marked.mark };
     requestAnimationFrame(() => { const f = nameField.current; f?.setSelectionRange(f.value.length, f.value.length); });
     return true;
   }
@@ -2756,7 +2758,7 @@ export default function Editor() {
     openNaming(prefix);
     requestAnimationFrame(() => { const f = nameField.current; f?.setSelectionRange(f.value.length, f.value.length); });
   }
-  // Pasted HELM or FASTA (helm.ts): the field with the sequence in it, as Insert Peptide… opens it (or, pasted into the
+  // Pasted HELM or FASTA (helm.ts): the field with the sequence in it, as Structure > Sequence > Peptide… opens it (or, pasted into the
   // field, in place of its text), so its kind and ends can be chosen before Return draws it. HELM that Octet cannot read
   // says why. False for any other text. bare: FASTA with no ">" line too (helm.ts bareFasta), for a paste nothing else
   // reads.
@@ -2787,10 +2789,13 @@ export default function Editor() {
   }
   // A structure from the name field lands where the field was, and the field closes.
   const landName = (frag: Mol) => {
-    // A chain opened in the field (editSequence) is drawn again in its place while the drawing is as it was.
+    // A chain opened in the field (editSequence) is drawn again in its place: where it is now, when the drawing changed
+    // under the field (the Residue labels choice drew it again, an undo, a move; helm.ts chainAgain). A chain that is
+    // gone gives way to a new one, placed as any name is.
     const e = seqEdit.current;
     seqEdit.current = undefined;
-    if (e && e.doc === doc && naming !== undefined && isSequence(naming.trim())) { set(inPlaceOf(doc, e.atoms, frag)); setNaming(undefined); return; }
+    const gone = e && naming !== undefined && isSequence(naming.trim()) ? (e.doc === doc ? e.mark.atoms : chainAgain(doc, e.mark, ownMonomers)) : undefined;
+    if (gone) { set(inPlaceOf(doc, gone, frag)); setNaming(undefined); return; }
     settleFrom.current = doc.atoms.length;
     place(frag, doc, namingAt.current);
     setNaming(undefined);
@@ -3260,12 +3265,13 @@ export default function Editor() {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
-      const residues = new Set<number>();
+      const residues = new Set<number>(), ends = chainEnds(doc);
       for (const i of labelled) {
         // An abbreviation Octet knows, else the group Contract Label kept with the label (or a ChemDraw file's).
-        // A residue label (its bonds say which kept atom each joins) is its kept group, even when its text is P.
+        // A residue label (its bonds say which kept atom each joins) is its kept group, even when its text is P; a
+        // peptide's Ac, OH or NH2 end is Octet's end (sequence.ts chainEnds).
         const inner = m.atoms[i].inner, ported = !!inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
-        const smiles = ported ? undefined : labelSmiles(chemicalText(doc.atoms[i].text, doc.atoms[i].runs)!);
+        const smiles = ported ? undefined : ends.has(i) ? END_GROUPS.get(doc.atoms[i].text!) : labelSmiles(chemicalText(doc.atoms[i].text, doc.atoms[i].runs)!);
         if (!smiles && !inner?.atoms.length) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
         try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); if (ported) residues.add(i); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
@@ -3360,7 +3366,7 @@ export default function Editor() {
     name_to_structure: () => nameToStructure(),
     // Image to Structure (decision 0027): from a file (File menu), or the selected picture (Actions, right-click).
     ...(AI ? { image_to_structure: () => void imageToStructure(), recognise_structures: () => void recognisePictures() } : {}),
-    // Structure > Insert Peptide… (issue 27), Insert RNA… and Insert DNA…: the name field, ready for one-letter codes
+    // Structure > Sequence > Peptide… (issue 27), RNA… and DNA…: the name field, ready for one-letter codes
     // after "peptide: " (peptide.ts), "rna: " or "dna: " (nucleic.ts).
     ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => { if (!selection.size || !editSequence(selectedStructures())) insertSequence(`${k}: `); }])),
     // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
@@ -9031,7 +9037,7 @@ export default function Editor() {
     clean_up: ["Clean up structure", `⇧${MOD}K`, <MagicWand size={18} />], flip_h: ["Rotate 180° horizontal", `⇧${MOD}H`, <ArrowsLeftRight size={18} />], flip_v: ["Rotate 180° vertical", `⇧${MOD}V`, <ArrowsDownUp size={18} />],
     zoom_in: ["Magnify", `⇧${MOD}+`, <MagnifyingGlassPlus size={18} />], zoom_out: ["Reduce", `⇧${MOD}−`, <MagnifyingGlassMinus size={18} />],
     zoom_actual: ["Actual size", `${MOD}\\`, <FrameCorners size={18} />], zoom_fit: ["Fit to window", `${MOD}/`, <CornersOut size={18} />], centre_view: ["Centre in window", `⌥${MOD}/`, <Crosshair size={18} />], show_page: ["Show page", "", <PageIcon size={18} />],
-    name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />], recognise_structures: ["Image to structure", "", <Scan size={18} />], insert_peptide: ["Insert peptide…", "", <Dna size={18} />], insert_rna: ["Insert RNA…", "", <span className="glyph-text">RNA</span>], insert_dna: ["Insert DNA…", "", <span className="glyph-text">DNA</span>], char_map: [charMap ? "Hide character map" : "Character map", `⇧${MOD}Space`, <span className="glyph-text">αβ</span>],
+    name_to_structure: ["Convert name to structure", `⇧${MOD}N`, <AtomIcon size={18} />], recognise_structures: ["Image to structure", "", <Scan size={18} />], insert_peptide: ["Peptide sequence…", "", <Dna size={18} />], insert_rna: ["RNA sequence…", "", <span className="glyph-text">RNA</span>], insert_dna: ["DNA sequence…", "", <span className="glyph-text">DNA</span>], char_map: [charMap ? "Hide character map" : "Character map", `⇧${MOD}Space`, <span className="glyph-text">αβ</span>],
     check_structure: ["Check structure", "", <CheckCircle size={18} />], stereo_clear: ["Clear enhanced stereochemistry", "", <Prohibit size={18} />],
     stereo_abs: ["Mark as absolute", "", <span className="glyph-text">abs</span>], stereo_or: ["Create or group", "", <span className="glyph-text">or</span>], stereo_and: ["Create and group", "", <span className="glyph-text">&amp;</span>],
     snap: [settings.snap ? "Turn snapping off" : "Turn snapping on", undefined, <MagnetStraight size={18} />],
@@ -12335,7 +12341,9 @@ export default function Editor() {
       <Exit>{dialog?.kind === "monomer" && (() => {
         // Define Monomer (issue 27): the code the monomer is typed by (1 to 12 letters, digits or _) and a name. A code the
         // user has already is replaced, as Add to dictionary replaces a name; the dialog says so first.
+        // The drawing's own copy of the code (Mol.monomers) comes first in this drawing, so the dialog says so too.
         const code = dialog.code.trim(), problem = code ? codeProblem(code) : undefined, there = code && !problem ? settings.monomers.find((x) => x.code === code) : undefined;
+        const drawn = code && !problem ? doc.monomers?.find((x) => x.code === code && x.smiles !== dialog.smiles) : undefined;
         const define = () => {
           if (!code || problem) return;
           const d = dialog;
@@ -12349,6 +12357,7 @@ export default function Editor() {
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
             {problem && <p className="dialog-note">{problem}</p>}
             {there && <p className="dialog-note">You have the monomer [{code}] already. Replace gives it this structure.</p>}
+            {drawn && <p className="dialog-note">This drawing has its own monomer [{code}]. In this drawing, [{code}] keeps that structure.</p>}
           </Dialog>
         );
       })()}</Exit>

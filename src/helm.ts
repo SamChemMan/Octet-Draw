@@ -525,6 +525,54 @@ export function inPlaceOf(m: Mol, gone: number[], built: Mol): Mol {
   const [ox, oy] = mid(part), [nx, ny] = mid(built), scale = gone.map((i) => m.atoms[i].scale ?? 1).sort((p, q) => p - q)[gone.length >> 1];
   return redrawn(m, [{ gone, mol: { ...built, atoms: built.atoms.map((a) => ({ ...a, location: [ox + (a.location[0] - nx) * scale, oy + (a.location[1] - ny) * scale, 0] as [number, number, number], ...(scale !== 1 ? { scale } : {}) })) } }]);
 }
+// A chain opened in the Sequence field, so Return finds it again when the drawing changes before Return (the Residue
+// labels choice or Settings > Document > Sequences draws it again with new atoms, an undo, a move): its atoms, how they
+// are drawn (each atom's label and text, and the bonds between them), and each structure's sequence and centre.
+type P = [number, number];
+export type ChainMark = { atoms: number[]; drawn: string; parts: { text: string; mid: P }[] };
+const midOf = (m: Mol, atoms: number[]): P => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; }) as P;
+function drawnKey(m: Mol, atoms: number[]): string {
+  const at = new Map(atoms.map((i, k) => [i, k]));
+  const bonds = m.bonds.flatMap((b) => { const p = at.get(b.atoms[0]), q = at.get(b.atoms[1]); return p === undefined || q === undefined ? [] : [`${Math.min(p, q)}-${Math.max(p, q)}:${b.type}`]; }).sort();
+  return `${atoms.map((i) => `${m.atoms[i].label}${m.atoms[i].text ?? ""}${m.atoms[i].inner ? "+" : ""}`).join(",")}|${bonds.join(",")}`;
+}
+// The field's text for chains (as chainText) and their mark; undefined when they are not wholly chains.
+export function markChain(m: Mol, atoms: number[], own: Own = []): { text: string; mark: ChainMark } | undefined {
+  const text = chainText(m, atoms, own), sorted = [...atoms].sort((p, q) => p - q), inside = new Set(sorted);
+  if (!text) return undefined;
+  const frags = fragments(m).filter((f) => f.some((i) => inside.has(i))).map((f) => [...f].sort((p, q) => p - q));
+  const parts: ChainMark["parts"] = [];
+  for (const f of frags) {
+    const t = frags.length === 1 ? text : chainText(m, f, own);
+    if (!t) return undefined;
+    parts.push({ text: t, mid: midOf(m, f) });
+  }
+  return { text, mark: { atoms: sorted, drawn: drawnKey(m, sorted), parts } };
+}
+// The marked chain in the drawing as it is now: the same atoms when they are still drawn as they were (moved or
+// coloured), else for each structure the one with the same sequence, the nearest to where it was; undefined when one is
+// gone (deleted, changed, or undone away).
+export function chainAgain(m: Mol, mark: ChainMark, own: Own = []): number[] | undefined {
+  const n = m.atoms.length, inside = new Set(mark.atoms);
+  if (mark.atoms.every((i) => i < n)) {
+    const frags = fragments(m).filter((f) => f.some((i) => inside.has(i)));
+    if (frags.flat().length === mark.atoms.length && drawnKey(m, mark.atoms) === mark.drawn) return mark.atoms;
+  }
+  const frags = fragments(m).map((f) => [...f].sort((p, q) => p - q)), texts = new Map<number, string | undefined>(), used = new Set<number>(), out: number[] = [];
+  const textOf = (k: number) => { if (!texts.has(k)) texts.set(k, chainText(m, frags[k], own)); return texts.get(k); };
+  for (const part of mark.parts) {
+    let best = -1, far = Infinity;
+    for (let k = 0; k < frags.length; k++) {
+      if (used.has(k) || textOf(k) !== part.text) continue;
+      const [x, y] = midOf(m, frags[k]), d = Math.hypot(x - part.mid[0], y - part.mid[1]);
+      if (d < far) { far = d; best = k; }
+    }
+    if (best < 0) return undefined;
+    used.add(best);
+    out.push(...frags[best]);
+  }
+  return out.sort((p, q) => p - q);
+}
 // The Sequence field's text for chains (gone: whole structures that are only chains), or undefined when they are not.
 export function chainText(m: Mol, gone: number[], own: Own = []): string | undefined {
   const part = pickAtoms(m, gone);

@@ -10,6 +10,7 @@ import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
 import { byLabel, endMonomers, extraCodes, isEnd, isLinker, modifiedNucleic, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 import { labelLayout } from "./sequence.ts";
+import { ELEMENTS } from "./labels.ts";
 import type { End, Seq, SeqUnit } from "./helm.ts";
 
 type P = [number, number];
@@ -92,6 +93,14 @@ function alpha(p: Prepared): boolean {
   return alphas.some((a) => (c !== undefined ? near(a).includes(c) : true) && (n !== undefined ? near(a).includes(n) : true) && near(a).some((j) => (n !== undefined ? acyl(j) : label(j) === "N")));
 }
 
+// Whether a user's monomer (from a HELM library's Import…) is one Octet can use: its brackets pair up, it reads with each
+// R on one atom by a single bond (prepare), every other atom is an element (no [Xx]), and it is an α-amino acid.
+export function usableMonomer(smiles: string): boolean {
+  let depth = 0;
+  for (const ch of smiles) if ((depth += ch === "(" ? 1 : ch === ")" ? -1 : 0) < 0) return false;
+  const p = depth === 0 ? prepare(smiles) : undefined;
+  return !!p && p.mol.atoms.every((a, i) => p.r.includes(i) || ELEMENTS.has(a.label)) && alpha(p);
+}
 // What a sequence's units are, and what each link joins.
 type Units = { kind: PolymerKind; unit: SeqUnit; smiles: string; label: string; prep: Prepared }[][];
 const keyOf = (e: End) => `${e.chain} ${e.unit} ${e.r}`;

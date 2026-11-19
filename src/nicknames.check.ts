@@ -54,7 +54,9 @@ assert.deepEqual(withNickname([{ label: "A1", smiles: "C" }], { label: "A1", smi
 assert.deepEqual(withoutNickname([{ label: "A1", smiles: "C" }, { label: "B1", smiles: "C" }], "A1"), [{ label: "B1", smiles: "C" }]);
 assert.ok(nicknameProblem("Cl") && nicknameProblem("R") && nicknameProblem("a b") && nicknameProblem("") && nicknameProblem("x".repeat(33)));
 assert.equal(nicknameProblem("OPv"), undefined);
-assert.equal(nicknameProblem("OMe"), undefined, "a label Octet reads may be the user's own: theirs comes first");
+assert.equal(nicknameProblem("OEt"), undefined, "a label Octet reads may be the user's own: theirs comes first");
+// A peptide's end or a residue label of Octet's sequences is never the user's: a chain's labels mean Octet's monomers.
+for (const l of ["OH", "NH2", "Boc", "Cbz", "Fmoc", "OMe", "OtBu", "NHMe", "Ala", "D-Phe", "Aib", "Nle", "rA", "dG", "mA", "sP"]) assert.match(nicknameProblem(l) ?? "", /^\S+ is a (peptide end|residue label) in Octet's sequences\.$/, l);
 
 // Define Nickname: methyl pivalate, the pivaloyloxy group selected (all but the methyl).
 const A = (label: string, x: number, y: number) => ({ label, location: [x, y, 0] as [number, number, number] });
@@ -104,4 +106,35 @@ setOwnNicknames([{ label: "Ph", smiles: "C1CCCCC1" }]);
 assert.equal(capped(labelSmiles("Ph")!), capped("C1CCCCC1"));
 setOwnNicknames([]);
 assert.equal(capped(labelSmiles("Ph")!), capped("c1ccccc1"));
+
+// A peptide drawn as residue labels is the same compound whatever the user's nicknames are: its H, Ac, OH and NH2 end
+// labels keep no atoms and are read by their place in the chain, as Octet's ends. Such nicknames are refused now, but an
+// older Octet kept them in the settings: the InChI, Expand Label's group and the CDXML are Octet's all the same.
+const { fieldSeq } = await import("./helm.ts");
+const { buildAtoms, buildLabels } = await import("./seqbuild.ts");
+const { chainEnds, END_GROUPS } = await import("./sequence.ts");
+const { readFileSync } = await import("node:fs");
+const built = (text: string) => { const read = fieldSeq(text) as { seq: Parameters<typeof buildAtoms>[0] }; return { atoms: (buildAtoms(read.seq) as { mol: Mol }).mol, labels: (buildLabels(read.seq) as { mol: Mol }).mol }; };
+const odd = readNicknames([{ label: "OH", smiles: "OC" }, { label: "NH2", smiles: "NCC" }, { label: "Ac", smiles: "C(=O)CC" }]);
+assert.equal(odd.length, 3, "an older Octet's settings keep them");
+for (const text of ["peptide: AGF", "peptide: Ac-KAF-NH2"]) {
+  setOwnNicknames([]);
+  const { atoms, labels } = built(text), want = chem.toInchi(atoms);
+  assert.equal(chem.toInchi(labels), want, `${text}: labels as atoms`);
+  setOwnNicknames(odd);
+  assert.equal(chem.toInchi(labels), want, `${text}: the user's OH, NH2 and Ac change nothing`);
+  const ends = chainEnds(labels);
+  assert.deepEqual([...ends].map((i) => labels.atoms[i].text).sort(), text.includes("Ac-") ? ["Ac", "NH2"] : ["OH"], `${text}: its end labels`);
+  const expand = (t: string, end?: boolean) => { const s = end ? END_GROUPS.get(t) : labelSmiles(t); return s ? chem.parseStructure(s) : undefined; };
+  const xml = toCdxml(labels, DEFAULT_STYLE, { expand, own: (t) => odd.some((n) => n.label === t) });
+  assert.equal(chem.toInchi(fromCdxml(xml).mol), want, `${text}: CDXML`);
+  setOwnNicknames([]);
+  assert.equal(chem.toInchi(fromCdxml(xml).mol), want, `${text}: CDXML on another computer`);
+}
+// An NH2 label on no chain is still the user's (an older Octet's nickname is not lost).
+setOwnNicknames(odd);
+assert.equal(chem.analyse({ atoms: [A("C", 0, 0), { ...A("N", 1, 0), text: "NH2" }], bonds: [{ atoms: [0, 1], type: 1 }] })?.[0]?.formula, "C3H9N");
+setOwnNicknames([]);
+// Expand Label takes a chain's end label as Octet's end too.
+assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const smiles = ported \? undefined : ends\.has\(i\) \? END_GROUPS\.get\(doc\.atoms\[i\]\.text!\) : labelSmiles\(/);
 console.log(`nicknames.check: ${BUILT_IN.length} built-in nicknames, ${spellings.size} spellings; own nicknames ok`);

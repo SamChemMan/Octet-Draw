@@ -235,6 +235,7 @@ for (const code of ["Cha", "Aib", "Sar"]) {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /if \(tool === "sequence"\) \{\n\s+const on = t\.atom \?\? \(t\.bond !== undefined \? doc\.bonds\[t\.bond\]\.atoms\[0\] : undefined\), chain = [^\n]*\n\s+if \(chain && editSequence\(chain\)\) return;/);
   assert.match(editor, /\[`insert_\$\{k\}`, \(\) => \{ if \(!selection\.size \|\| !editSequence\(selectedStructures\(\)\)\) insertSequence\(`\$\{k\}: `\); \}\]/);
-  assert.match(editor, /if \(e && e\.doc === doc && naming !== undefined && isSequence\(naming\.trim\(\)\)\) \{ set\(inPlaceOf\(doc, e\.atoms, frag\)\); setNaming\(undefined\); return; \}/);
+  // Return draws it in place of the chain as it is then: found again when the drawing changed under the field (N42, U11).
+  assert.match(editor, /const gone = e && naming !== undefined && isSequence\(naming\.trim\(\)\) \? \(e\.doc === doc \? e\.mark\.atoms : chainAgain\(doc, e\.mark, ownMonomers\)\) : undefined;\n\s+if \(gone\) \{ set\(inPlaceOf\(doc, gone, frag\)\); setNaming\(undefined\); return; \}/);
 }
 console.log("seqextras: ok");

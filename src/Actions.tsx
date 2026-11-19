@@ -465,7 +465,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "selection":
       if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"), it(<ShieldSlash size={18} />, "Remove risk assessment", "risk.remove"));
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3, redraw] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict, monomer] : []), del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3, redraw] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict, nickname, monomer] : []), del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -497,12 +497,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.circled !== undefined ? [it(<span className="glyph-text">⊕</span>, context.circled ? "Remove the circle" : "Circle the charge", "charge.circled")] : []),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, monomer, clean3, redraw, ...(context.invertible ? [small(it(<ShuffleSimple size={18} />, "Invert configuration here", "invert_here"))] : []), del);
+        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, ...(context.invertible ? [small(it(<ShuffleSimple size={18} />, "Invert configuration here", "invert_here"))] : []), del);
       break;
     case "bond":
       if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, monomer, clean3, redraw, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;

@@ -15,7 +15,7 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { monomerOf, buildAtoms, buildLabels, helmLibrary, monomerRefs } = await import("./seqbuild.ts");
+const { monomerOf, buildAtoms, buildLabels, helmLibrary, monomerRefs, usableMonomer } = await import("./seqbuild.ts");
 const { codeProblem, withMonomer, readMonomers, readHelmLibrary, monomer, smilesKey, elementKey, MOST_OWN_MONOMERS } = await import("./monomers.ts");
 const { fieldSeq, parseHelm, toHelm, toFasta, withSequences, seqBuilt, readSequence, seqOf } = await import("./helm.ts");
 const { residueName } = await import("./sequence.ts");
@@ -203,6 +203,27 @@ assert.ok(monomerRefs(own).some((r) => r.label === "Kac") && monomerRefs(own) ==
   // Wrapped in an object, as some libraries are.
   assert.equal((readHelmLibrary(JSON.stringify({ monomers: JSON.parse(lib) })) as { monomers: unknown[] }).monomers.length, 2);
 }
+// Import… keeps only monomers Octet can use (seqbuild.ts usableMonomer): an α-amino acid whose SMILES reads whole. A β-amino
+// acid, brackets that do not pair, an atom no element ([Xx]) and links with no residue are left out and counted.
+{
+  const lib = JSON.stringify([
+    { symbol: "Abu2", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H](CC)C(=O)[*:2]" },
+    { symbol: "Bal", polymerType: "PEPTIDE", smiles: "[*:1]NCCC(=O)[*:2]" },
+    { symbol: "Open", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H](CC(=O)[*:2]" },
+    { symbol: "Shut", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H](C)C(=O)[*:2])" },
+    { symbol: "Xx1", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H]([Xx])C(=O)[*:2]" },
+    { symbol: "Rr", polymerType: "PEPTIDE", smiles: "[*:1][*:2]" },
+  ]);
+  const read = readHelmLibrary(lib, usableMonomer);
+  assert.deepEqual(read, { monomers: [{ code: "Abu2", smiles: "[*:1]N[C@@H](CC)C(=O)[*:2]" }], left: 5 });
+  assert.ok(["Bal", "Open", "Shut", "Xx1", "Rr"].every((c) => !usableMonomer(JSON.parse(lib).find((x: { symbol: string }) => x.symbol === c).smiles)));
+  assert.ok(usableMonomer(KAC) && own.every((m) => usableMonomer(m.smiles)), "a monomer Define Monomer makes is one Import keeps");
+  // A hostile library of 20,000 that no α-amino acid is in: each asked of at most 2,000, quickly.
+  const t = performance.now(), bad = readHelmLibrary(JSON.stringify(Array.from({ length: 20_000 }, (_, k) => ({ symbol: `B${k}`, smiles: `[*:1]NCC${"C".repeat(k % 40)}C(=O)[*:2]` }))), usableMonomer);
+  assert.deepEqual(bad, { monomers: [], left: 20_000 });
+  assert.ok(performance.now() - t < 1500, `${Math.round(performance.now() - t)} ms`);
+  assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const read = readHelmLibrary\(picked\[1\], usableMonomer\);/, "Import… asks it");
+}
 assert.deepEqual(readHelmLibrary("{"), { problem: "This file is not a HELM monomer library." });
 assert.deepEqual(readHelmLibrary("[]"), { monomers: [], left: 0 });
 assert.deepEqual(readHelmLibrary("x".repeat(4_000_001)), { problem: "Octet reads monomer libraries of up to 4 MB." });
@@ -223,6 +244,17 @@ assert.match(exporter, /\("json", "HELM Monomer Library", &\["json"\]\)/);
 assert.match(editor, /define_monomer: \(\) => defineMonomer\(\),/);
 assert.match(actions, /"Define monomer…", "define_monomer"/);
 assert.match(editor, /<Dialog title="Define monomer" action=\{there \? "Replace" : "Define"\}/);
+// A code the open drawing has its own copy of (Mol.monomers) is said in the dialog too: in this drawing it comes first.
+assert.match(editor, /const drawn = code && !problem \? doc\.monomers\?\.find\(\(x\) => x\.code === code && x\.smiles !== dialog\.smiles\) : undefined;/);
+assert.match(editor, /\{drawn && <p className="dialog-note">This drawing has its own monomer \[\{code\}\]\. In this drawing, \[\{code\}\] keeps that structure\.<\/p>\}/);
+// Define nickname… is offered wherever Define monomer… is (a selection with atoms, a structure, an atom, a bond).
+assert.equal((actions.match(/\bdict, nickname, monomer\b/g) ?? []).length, 4);
+assert.equal((actions.match(/\bmonomer\b(?=[,\]])/g) ?? []).length, 4, "and nowhere else");
+// The command palette names the Structure > Sequence items as the menu does.
+assert.match(editor, /insert_peptide: \["Peptide sequence…"/);
+assert.match(editor, /insert_rna: \["RNA sequence…"/);
+assert.match(editor, /insert_dna: \["DNA sequence…"/);
+assert.doesNotMatch(editor, /Insert (peptide|RNA|DNA)…/i);
 assert.match(settings, /d\("dictionary", "Monomers", "Your monomers"/);
 assert.ok(fragments(labels).length === 1);
 console.log("monomers: ok");
