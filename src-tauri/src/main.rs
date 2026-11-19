@@ -660,6 +660,13 @@ async fn save_drawing(app: AppHandle, picked: State<'_, Picked>, path: Option<St
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
+// Octet's example drawings (issue 94), as the page lists them (src/examples/examples.json): each one's id and name.
+// File > Open Example has an item for each, the command example_<id>, which opens a copy of it (Editor.tsx).
+fn examples() -> Vec<(String, String)> {
+    let list: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../src/examples/examples.json")).unwrap_or_default();
+    list.iter().filter_map(|x| Some((x["id"].as_str()?.to_string(), x["name"].as_str()?.to_string()))).collect()
+}
+
 // An object window's File > Update <document> and Close and Return to <document>. In menu text & marks the next
 // letter as an access key, so an & in the document's name is written &&.
 fn object_texts(host: &str) -> (String, String) {
@@ -705,6 +712,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     recent_items.push(&clear);
     let open_recent = Submenu::with_items(app, "Open Recent", true, &recent_items)?;
+    // File > Open Example, between Open… and Open Recent, where ChemDraw has Open Samples: each example a command, so
+    // Settings lists it, with no shortcut of its own (the Command Palette lists them too, Editor.tsx paletteCommands).
+    section.replace("File › Open Example".into());
+    let example_items = examples().iter().map(|(id, name)| item(&format!("example_{id}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
+    let open_example = Submenu::with_items(app, "Open Example", true, &example_items.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     // File > New For: Quick start (as on Home), then Paper, Thesis, Slides, Poster and Experiment, then the user's own
     // purposes.
     let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
@@ -747,6 +759,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("new", &new_name, "CmdOrCtrl+N")?,
         &new_for,
         &item("open", "Open…", "CmdOrCtrl+O")?,
+        &open_example,
         &open_recent,
         &item("import", "Import a Structure…", "")?,
         // Image to Structure (decision 0027): a picture's structures as atoms and bonds, read on this computer.
@@ -782,7 +795,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     // The picture selected in Word, or a new drawing at Word's cursor, in an object window (word.rs). After Insert…
     #[cfg(target_os = "macos")]
-    file.insert(&item("edit_word", "Edit Picture from Word", "")?, 7)?;
+    file.insert(&item("edit_word", "Edit Picture from Word", "")?, 8)?;
     if more_list.is_none() {
         file.remove(&more)?;
     }
@@ -1612,6 +1625,21 @@ mod tests {
         }
         assert_eq!(own(&words("--register-ole")), ["--register-ole"]);
         assert!(ole::embedding(&own(&words("-Embedding"))));
+    }
+
+    // File > Open Example reads the page's list: every example, each a command id the page takes (example_<id>).
+    #[test]
+    fn the_examples_are_read_for_the_menu() {
+        let list = examples();
+        let page: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../src/examples/examples.json")).unwrap();
+        assert_eq!(list.len(), page.len());
+        assert!(list.len() >= 10);
+        assert_eq!(list.iter().map(|(id, _)| id).collect::<HashSet<_>>().len(), list.len(), "no id twice");
+        for (id, name) in &list {
+            assert!(!id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase()), "{id}");
+            assert!(!name.trim().is_empty() && !name.contains('&'), "{name}");
+        }
+        assert_eq!(list[0], ("oseltamivir".to_string(), "Oseltamivir".to_string()));
     }
 
     #[test]

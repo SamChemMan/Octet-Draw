@@ -1186,7 +1186,7 @@ windowless = false;
   host.windows = async () => [{ id: "draw-2", name: "esters", edited: false }];
   out = await call("drawings", { action: "new", text: "CCO" });
   assert.ok(!out.isError && text(out).startsWith("Octet opened a new drawing of the file: draw-2."), text(out));
-  assert.deepEqual(asked, ["quick", "s-1", "CCO"]);
+  assert.deepEqual(asked, ["quick", "s-1", "CCO", undefined]);
   // A file that does not open opens no window: the reply says why, and this session's calls stay where they were.
   // What File > Open would leave out of it, the reply says.
   asked = [];
@@ -1200,6 +1200,47 @@ windowless = false;
   assert.ok(out.isError && commands.length === 0, text(out));
   assert.ok(!("text" in tools.find((t) => t.name === "drawings")!.inputSchema.properties));
   assert.match(((await call("advanced", { tool: "help", args: { of: "new" } })) as any).structuredContent.description, /text: a file's text/);
+}
+// drawings new with an example (issue 94): a copy of one of Octet's example drawings in a window of its own, in its own
+// style (a purpose given with it is left out, and the reply says so). A name, in any case and with beta for β, reads as
+// its id. Anything else is refused before a window opens: an id Octet does not have, a path, a number, an empty or a
+// very long one, and an example with a file's text. With no windows (the web component) it cannot open.
+{
+  const [newWindow, windows] = [host.newWindow, host.windows];
+  let asked: unknown[] = [];
+  host.newWindow = async (...a) => { asked = a; return "draw-5"; };
+  host.windows = async () => [];
+  out = await call("drawings", { action: "new", example: "hydrolysis" });
+  assert.ok(!out.isError && text(out) === "Octet opened a new drawing with a copy of its example Ester hydrolysis, in its own style: draw-5. This session's calls go to it now.", text(out));
+  assert.deepEqual([asked, out.structuredContent], [["quick", "s-1", undefined, "hydrolysis"], { opened: "draw-5" }]);
+  for (const [given, id] of [["Ester Hydrolysis", "hydrolysis"], ["beta-lactam antibiotics", "lactams"], ["β-Lactam antibiotics", "lactams"], [" THREONINE ", "threonine"]]) {
+    asked = [];
+    out = await call("drawings", { action: "new", example: given });
+    assert.ok(!out.isError && asked[3] === id, `${given}: ${text(out)}`);
+  }
+  out = await call("drawings", { action: "new", example: "aspirin", for: "poster" });
+  assert.ok(!out.isError && asked[3] === "aspirin" && text(out).includes("Octet left out for poster: an example opens in its own style."), text(out));
+  for (const bad of ["../../examples/aspirin", "aspirin.json", "", "x".repeat(500), 3, "C:\\examples\\aspirin", "examples", "<script>"]) {
+    asked = [];
+    out = await call("drawings", { action: "new", example: bad });
+    assert.ok(out.isError && !asked.length, `${JSON.stringify(bad).slice(0, 40)}: ${text(out)}`);
+  }
+  assert.match(text(await call("drawings", { action: "new", example: "nothing" })), /example: not one of oseltamivir, suzuki, epoxidation, hydrolysis, threonine, cycle, ibuprofen, photooxygenation, aspirin, lactams/);
+  out = await call("drawings", { action: "new", example: "aspirin", text: "CCO" });
+  assert.ok(out.isError && text(out) === "Give example or text." && !asked.length, text(out));
+  // Two sessions at once each get a window of their own.
+  const opened: unknown[][] = [];
+  host.newWindow = async (...a) => { opened.push(a); return `draw-${10 + opened.length}`; };
+  const [one, two] = await Promise.all([call("drawings", { action: "new", example: "lactams" }, "s-7"), call("drawings", { action: "new", example: "lactams" }, "s-8")]);
+  assert.deepEqual([one.structuredContent, two.structuredContent].map((x) => x.opened).sort(), ["draw-11", "draw-12"]);
+  assert.deepEqual(opened.map((a) => a[1]).sort(), ["s-7", "s-8"]);
+  // The example is listed in the tool's schema, with its ids.
+  const schema = tools.find((t) => t.name === "drawings")!.inputSchema.properties.example;
+  assert.deepEqual(schema.enum, ["oseltamivir", "suzuki", "epoxidation", "hydrolysis", "threonine", "cycle", "ibuprofen", "photooxygenation", "aspirin", "lactams"]);
+  [host.newWindow, host.windows] = [newWindow, windows];
+  commands = [];
+  out = await call("drawings", { action: "new", example: "aspirin" });
+  assert.ok(out.isError && text(out) === "Octet cannot open a new drawing now." && commands.length === 0, text(out));
 }
 // drawings close: a drawing the session opened with drawings new closes (mcp.rs mcp_close), the one it uses when no
 // drawing is given. Octet refuses a drawing it did not open, and one with unsaved changes stays open: the reply says

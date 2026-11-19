@@ -24,6 +24,15 @@ if (button("Skip")) await measure("the welcome page"); // the first run only
 button("Skip")?.click();
 await wait(900);
 await measure("Home", !!document.querySelector(".home"));
+// Home's example drawings: the Examples page when there are recent drawings (the UI-only preview's ?demo), else the
+// Recent section, which shows them all.
+const examples = document.querySelector("[data-examples]");
+if (examples) {
+  examples.click();
+  await measure("the Examples page", !!(await until(() => document.querySelector("[data-section='examples'] .home-tile"), 4000)));
+  key({ key: "Escape" });
+  await wait(600);
+} else await measure("Home's examples", !!document.querySelector('.home-tile[data-tile^="example:"]'));
 document.querySelector(".home-tile.new")?.click();
 await measure("a new drawing", !!(await until(() => document.querySelector(".actions .action"))));
 [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();

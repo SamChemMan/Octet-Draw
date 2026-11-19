@@ -1,0 +1,7 @@
+{
+ "for": "paper",
+ "calls": [
+  { "name": "set_brief", "arguments": { "destination": { "kind": "paper" } } },
+  { "name": "draw", "arguments": { "lines": "benzaldehyde (1) + triethyl phosphonoacetate (2)\n-> ethyl (E)-cinnamate (3), NaH, THF, 0 °C to rt\n-> (E)-cinnamyl alcohol (4), DIBAL-H (2.2 equiv), CH2Cl2, −78 °C\n-> [(2S,3S)-3-phenyloxiran-2-yl]methanol (5), Ti(OiPr)4 (5 mol%), (+)-DET (6 mol%), TBHP, 4 Å MS, CH2Cl2, −20 °C" } }
+ ]
+}

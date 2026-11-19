@@ -1,10 +1,10 @@
-// The UI-only preview's answers to Home's calls (npm run dev, then ?demo): made-up drawings with the starter drawings'
+// The UI-only preview's answers to Home's calls (npm run dev, then ?demo): made-up drawings with the example drawings'
 // pictures, seven projects, and photos for thumbnails drawn on the page. Nothing is saved; a reload starts again.
 // Never in a build (homeApi.ts loads it only in the dev server).
-import structure from "./starters/structure.svg?raw";
-import reaction from "./starters/reaction.svg?raw";
-import cycle from "./starters/cycle.svg?raw";
-import { STARTERS } from "./starters";
+import structure from "./examples/oseltamivir.svg?raw";
+import reaction from "./examples/suzuki.svg?raw";
+import cycle from "./examples/cycle.svg?raw";
+import { exampleText } from "./examples";
 import { STORE_VERSION, type HomeStore } from "./projects";
 
 const t = Math.floor(Date.now() / 1000), day = 86400, dir = "/Users/sam/Documents";
@@ -85,8 +85,8 @@ export async function answer(cmd: string, args: Record<string, unknown> = {}): P
     case "experiment_list": return experiments;
     case "experiment_remove": experiments = experiments.filter((x) => x.path !== args.path); return null;
     case "open_recent": {
-      const r = recents.find((x) => x.path === args.path), text = STARTERS[r?.thumb === reaction ? 1 : r?.thumb === cycle ? 2 : 0].text;
-      return [args.path, text];
+      const r = recents.find((x) => x.path === args.path);
+      return [args.path, await exampleText(r?.thumb === reaction ? "suzuki" : r?.thumb === cycle ? "cycle" : "oseltamivir")];
     }
     case "home_read": {
       const paths = store.projects.flatMap((p) => p.drawings.map((d) => d.path));

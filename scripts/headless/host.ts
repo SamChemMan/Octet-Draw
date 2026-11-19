@@ -36,6 +36,7 @@ import { toFasta, toHelm } from "../../src/helm.ts";
 import { chemfig } from "../../src/chemfig.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
+import { rings } from "../../src/rings.ts";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -251,6 +252,20 @@ export function drawing(purpose = "paper", title = "Untitled") {
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);
+  // The Actions panel's Ring fill (ringfill.#rrggbb or ringfill.none), as the editor's: the rings wholly picked, else
+  // those with a picked atom in them, else every ring of the structures picked (all of them, with nothing picked).
+  // Each takes the fill in place of the one it had.
+  const ringFill = (id: string) => {
+    const v = /^ringfill\.(#[0-9a-f]{6}|none)$/i.exec(id)?.[1];
+    if (!v) return false;
+    const atoms = new Set(picked.atoms.length ? picked.atoms : doc.atoms.map((_, i) => i)), key = (r: number[]) => [...r].sort((p, q) => p - q).join(",");
+    const all = rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }).filter((r) => r.length <= 12);
+    const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i))), touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
+    const targets = whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i))), keys = new Set(targets.map(key));
+    const fills = [...(doc.fills ?? []).filter((f) => !keys.has(key(f.atoms))), ...(v === "none" ? [] : targets.map((r) => ({ atoms: r, colour: v })))];
+    set({ ...doc, fills: fills.length ? fills : undefined });
+    return true;
+  };
   const COMMANDS: Record<string, () => boolean> = {
     undo: () => { const was = past.pop(); if (!was) return false; future.push(doc); doc = was; undid = true; return true; },
     redo: () => { const next = future.pop(); if (!next) return false; past.push(doc); doc = next; undid = true; return true; },
@@ -304,7 +319,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     cleanReactions: (ids) => cleanReactions((r) => r.arrows.some((id) => ids.has(id))),
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) set(spread(doc, c)); },
     command: (id) => COMMANDS[id]?.() ?? false,
-    act: (id) => COMMANDS[id]?.() ?? false, // the Actions panel's actions need the editor: a menu command here, else nothing
+    act: (id) => COMMANDS[id]?.() ?? ringFill(id), // the Actions panel's actions need the editor: a menu command or Ring fill here, else nothing
     map: (reactants, products) => mapReaction(reactants, products),
     newWindow: () => false,
     reaction: (id) => { const d = drawn(doc); return findReaction(doc, id, d.arrows, d.ink, d.captionBox); },
