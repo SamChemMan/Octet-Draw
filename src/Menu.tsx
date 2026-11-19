@@ -323,6 +323,11 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     onClose();
     onChoose(key);
   };
+  // Lifting the finger whose hold opened the menu chooses nothing. The touch screen's click for that lift lands on the
+  // option under the finger, with no press in the menu before it. A tap on an option presses in the menu, and chooses.
+  const pressed = useRef(false);
+  const press = () => { pressed.current = true; };
+  const lift = (e: React.MouseEvent) => { if ((e.nativeEvent as PointerEvent).pointerType === "touch" && !pressed.current) { e.preventDefault(); e.stopPropagation(); } };
   useEffect(() => {
     const away = (e: Event) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
     const gone = () => onClose();
@@ -361,13 +366,13 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
   const row = rowPx(), inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.reduce((n, g) => n + rowsOf(g, row), 0) * row + 24;
   return createPortal(
     <>
-      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}
+      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()} onPointerDownCapture={press} onClickCapture={lift}
         onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } }}>
         <Menu label={label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => (i.more ? { ...i, checked: open?.key === i.key } : i)))} onChoose={choose}
           style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, rows(groups)))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
       </div>
       <Exit>{open && inner && (
-        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()}>
+        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()} onPointerDownCapture={press} onClickCapture={lift}>
           <Menu label={inner.label} className="list" placed columns={1} groups={inner.groups} onChoose={choose}
             style={{ position: "fixed", left: subLeft, top: Math.max(8, Math.min(open.top, innerHeight - 8 - rows(inner.groups))), maxHeight: innerHeight - 16, zIndex: 31, transformOrigin: subLeft < left ? "top right" : "top left" }} />
         </div>

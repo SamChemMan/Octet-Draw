@@ -2,8 +2,11 @@
 // Pen and touch on the canvas in headless Chrome, the engine of Windows' web view (WebView2), sent over the DevTools
 // protocol as a touch screen and a pen send them. touch.js's events come from the page itself, so they skip what the
 // browser does around real ones: a finger's implicit pointer capture on what it lands on, which moves to the canvas
-// when its press goes in, and the lostpointercapture after each pointerup. Each finger and pen sequence must draw what
-// the same mouse sequence draws. It prints one line of JSON, as webkit.swift does. CHROME=path picks the browser.
+// when its press goes in, the lostpointercapture after each pointerup, and the mouse events and click it sends after a
+// finger's tap. Each finger and pen sequence must draw what the same mouse sequence draws, a finger's tap that opens a
+// text field leaves the focus there, and lifting a finger whose hold opened the Actions menu chooses nothing. It prints
+// one line of JSON, as webkit.swift does. CHROME=path picks the browser. OCTET_STRESS_URL=<url> node
+// src/touch.check.ts runs it too.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,20 +45,40 @@ try {
   await sleep(2500); // Indigo and the fonts
   out.engine = (await call("Browser.getVersion")).product;
   // The drawing as screen readers get it (CanvasAccess), once it has stopped changing; and an empty canvas, Bond in hand.
-  const settled = () => run(`
-    const read = () => [...document.querySelectorAll('[data-object]')].map((e) => [e.getAttribute('aria-roledescription'), e.getAttribute('aria-label'), e.getAttribute('aria-description')].join('|')).sort().join('\\n');
+  // boxes: with each object's box too.
+  const settled = (boxes = false) => run(`
+    const read = () => [...document.querySelectorAll('[data-object]')].map((e) => [e.getAttribute('aria-roledescription'), e.getAttribute('aria-label'), e.getAttribute('aria-description')${boxes ? ", e.style.cssText" : ""}].join('|')).sort().join('\\n');
     let last = read(), since = Date.now();
     for (const t0 = Date.now(); Date.now() - t0 < 5000;) { await new Promise((r) => setTimeout(r, 100)); const now = read(); if (now !== last) { last = now; since = Date.now(); } else if (Date.now() - since > 600) break; }
     return last;`);
-  const fresh = () => run(`
+  // An empty canvas, and the tool in hand: the toolbar's tool at slot (1 Bond, 5 Sequence, 12 Text, 14 the specialist
+  // tool), with the option of its menu with the key given. keep: the drawing stays.
+  const fresh = (slot = 1, option = "", keep = false) => run(`
     const key = (init) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     key({ key: 'Escape', code: 'Escape' }); await wait(200);
-    key({ key: 'a', code: 'KeyA', metaKey: /Mac/.test(navigator.platform), ctrlKey: !/Mac/.test(navigator.platform) }); await wait(200);
-    key({ key: 'Delete', code: 'Delete' }); await wait(200);
-    const bond = document.querySelectorAll('.palette .slot > button.tool')[1];
-    if (bond.getAttribute('aria-pressed') !== 'true') bond.click();
-    await wait(250); key({ key: 'Escape', code: 'Escape' }); await wait(250);`);
+    if (!${keep}) {
+      key({ key: 'a', code: 'KeyA', metaKey: /Mac/.test(navigator.platform), ctrlKey: !/Mac/.test(navigator.platform) }); await wait(200);
+      key({ key: 'Delete', code: 'Delete' }); await wait(200);
+    }
+    const tool = document.querySelectorAll('.palette .slot > button.tool')[${slot}];
+    if (tool.getAttribute('aria-pressed') !== 'true') { tool.click(); await wait(250); }
+    if (${JSON.stringify(option)}) {
+      tool.click(); await wait(400);
+      const v = document.querySelector('.palette .strip:not(.leaving) .variant[data-item=${JSON.stringify(option)}]');
+      if (!v) throw new Error('no option ${option} in the menu of tool ${slot}');
+      v.click(); await wait(300);
+    }
+    key({ key: 'Escape', code: 'Escape' }); await wait(250);`);
+  // What has the focus, by its name.
+  const focused = () => run("return document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName;");
+  const zoom = () => run("return /--zoom: ([-\\d.e]+)/.exec(document.querySelector('.canvas-access-layer')?.getAttribute('style') ?? '')?.[1];");
+  // Real keys: text as typed, and Return.
+  const typeText = async (text) => { await call("Input.insertText", { text }); await sleep(150); };
+  const enter = async () => {
+    for (const type of ["rawKeyDown", "keyUp"]) await call("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await sleep(150);
+  };
   const frame = () => sleep(20);
   // A finger, a pen or the mouse, from a through the points after it, a frame apart. One point is a tap.
   const touch = async (pts) => {
@@ -95,6 +118,54 @@ try {
     ["a drag from an atom that starts on its bond", atom, async () => line(await onBond([600, 400]), [660, 460])],
   ];
   const drawn = {}, byMouse = mouse("mouse");
+  const report = (name, ok, why) => (ok ? out.reached : out.missed).push(`Chrome, ${name}${ok ? "" : `: ${why}`}`);
+
+  // A finger's tap that opens a text field leaves the focus in it, as the mouse's click does, and what is typed there
+  // goes in where the finger tapped. The finger's press goes in at the lift, and Chromium sends its mousedown for the
+  // tap after that: in this page before the field opens, and in a page just loaded after it, where it took the focus.
+  // So no mousedown may come at all. The Sequence tool's name field (Peptide), on the canvas and on
+  // an atom; a new table's first cell; and a tap away from a caption being typed, which closes it and starts the next
+  // as the mouse's click does. Each case: its setup and its step, both by the pointer under test.
+  const FIELDS = [
+    ["Peptide: a tap, ACDE and Return", () => fresh(5), async (act) => { await act([[600, 400]]); await sleep(500); await typeText("ACDE"); await enter(); }],
+    ["Peptide: a tap on an atom", async (act) => { await fresh(); await act([[600, 400]]); await settled(); await fresh(5, "", true); }, (act) => act([[600, 400]])],
+    ["Table: a tap", () => fresh(14, "table"), (act) => act([[600, 400]])],
+    ["Text: a tap away from a caption being typed", async (act) => { await fresh(12); await act([[600, 400]]); await sleep(300); await typeText("THF"); }, (act) => act([[800, 500]])],
+  ];
+  const typed = {};
+  for (const [kind, act] of [["mouse", byMouse], ["finger", touch]]) {
+    for (const [name, setup, step] of FIELDS) {
+      await setup(act);
+      await run("window.__downs = 0; if (!window.__down) { window.__down = true; addEventListener('mousedown', (e) => { if (e.isTrusted) __downs++; }, true); }");
+      await step(act);
+      await sleep(400);
+      const now = `${await settled(true)}\nfocus: ${await focused()}`, downs = await run("return __downs;");
+      if (kind === "mouse") { typed[name] = now; continue; }
+      report(`finger: ${name}`, now === typed[name] && !downs, `${downs} mousedown, drew and focused ${JSON.stringify(now)}, the mouse ${JSON.stringify(typed[name])}`);
+    }
+  }
+
+  // A long press opens the Actions menu at the finger, and lifting the finger chooses nothing. The finger drifts 6 px
+  // right and down while it is held (under the 10 px of a drag), so it lifts over an option, and Chromium sends its
+  // click for the lift there. By the bottom of the window the menu moves up to fit, and Delete is under the finger.
+  // Bond in hand, a bond drawn at bond; the finger held at at.
+  const HOLDS = [["on an atom", [600, 400], [600, 400]], ["on an atom by the bottom", [600, 770], [600, 770]], ["on the canvas", [500, 300], [600, 400]], ["on the canvas by the bottom", [800, 750], [600, 400]]];
+  for (const [name, [x, y], bond] of HOLDS) {
+    await fresh();
+    await byMouse([bond]);
+    const was = await settled(), z = await zoom();
+    await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y, id: 1 }] });
+    await sleep(150);
+    for (let k = 1; k <= 3; k++) { await sleep(30); await call("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + 2 * k, y: y + 2 * k, id: 1 }] }); }
+    await sleep(260); // 500 ms in all: the menu opened at 350
+    const over = await run(`return document.elementFromPoint(${x + 6}, ${y + 6})?.closest('.context-menu [data-item]')?.dataset.item ?? '';`);
+    await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await sleep(500);
+    const now = await settled(), shown = await run("return !!document.querySelector('.context-menu') && !document.querySelector('.name-field, [role=dialog]');");
+    report(`finger: a long press ${name}, lifted over ${over || "no option"}, chooses nothing`, over && now === was && (await zoom()) === z && shown,
+      !over ? "the finger does not lift over an option" : `the drawing ${now === was ? "is the same" : `became ${JSON.stringify(now)}`}, zoom ${z} to ${await zoom()}, ${shown ? "the menu open" : "the menu closed or a field opened"}`);
+  }
+
   for (const [kind, act] of [["mouse", byMouse], ["finger", touch], ["pen", mouse("pen")]]) {
     for (const [name, start, stroke] of CASES) {
       await fresh();

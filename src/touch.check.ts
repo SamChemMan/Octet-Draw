@@ -4,6 +4,8 @@
 // <dev server> touch (scripts/look/touch.js).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Gate, gated, kindOf, MENU_GAP_MS, PALM_MS, pinch, REACH, reachIn, SIDE_MS, SLOP, viewAfter, type Act, type In } from "./touch.ts";
 import { atomAt, bondAt, markNear } from "./edit.ts";
 import { markIn, tieAt } from "./arrowlink.ts";
@@ -478,6 +480,33 @@ const H = 350;
   // main.tsx follows the main pointer.
   const main = readFileSync(new URL("main.tsx", import.meta.url), "utf8");
   assert.match(main, /matchMedia\("\(pointer: coarse\)"\)/);
+  // A finger's tap: Chromium's mousedown for it comes after the gate's press and took the focus from a field the tap
+  // opened. The canvas cancels a finger's pointerdown, so no mousedown comes, and the press moves the focus as the
+  // mouse's mousedown does. The finger's leave as it lifts waits for its tap's release (the name field lands there).
+  const down = editor.slice(editor.indexOf("function onDown("), editor.indexOf("\n  }\n", editor.indexOf("function onDown(")));
+  assert.match(down, /if \(gated\(e\.pointerType\)\) \{\n(\s*\/\/.*\n)*\s*if \(e\.pointerType === "touch"\) e\.preventDefault\(\);\n\s*return follow\(e, gate\.down\(read\(e\)\)\);/, "a finger's pointerdown sends no mousedown");
+  assert.match(editor, /send\("pointerdown", a\.id, a\.x, a\.y, "touch"\);\n(\s*\/\/.*\n)*\s*queueMicrotask\(\(\) => \(document\.activeElement as HTMLElement \| null\)\?\.blur\?\.\(\)\);/, "a finger's press moves the focus");
+  assert.match(editor, /if \(e\.pointerType === "touch" && e\.pointerId === owner\.current\) requestAnimationFrame\(leave\);\n\s*else leave\(\);/, "a finger's leave waits a frame for its tap's release");
+  // Lifting a finger whose hold opened a menu chooses nothing: every right-click menu (ContextMenu) leaves out a
+  // finger's click with no press in the menu before it, on its options and on those of an option's own menu.
+  const context = menu.slice(menu.indexOf("export function ContextMenu("));
+  assert.match(context, /const lift = \(e: React\.MouseEvent\) => \{ if \(\(e\.nativeEvent as PointerEvent\)\.pointerType === "touch" && !pressed\.current\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); \} \};/);
+  assert.equal(context.match(/className="context-menu" onKeyDown=\{\(e\) => keys\(e, (false|true)\)\} onContextMenu=\{\(e\) => e\.preventDefault\(\)\} onPointerDownCapture=\{press\} onClickCapture=\{lift\}/g)?.length, 2, "both of a right-click menu's lists");
 }
+
+// ——— Real touch in Chrome (OCTET_STRESS_URL) ———
+// What Chromium does around a finger's events (its mouse events and click after a tap, and its click for the lift
+// after a hold) cannot be sent from a page. With a dev server, scripts/look/chrome-touch.mjs drives the app in
+// headless Chrome over the DevTools protocol, as a touch screen and a pen send their events:
+// OCTET_STRESS_URL=http://localhost:1420 node src/touch.check.ts. npm run look -- <url>/?editor touch runs it too.
+const stress = process.env.OCTET_STRESS_URL?.replace(/\/$/, "");
+if (stress) {
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/look/chrome-touch.mjs", import.meta.url)), `${stress}/?editor`], { encoding: "utf8", timeout: 400_000 });
+  const out = JSON.parse(run.stdout.trim().split("\n").pop() ?? "{}") as { reached?: string[]; missed?: string[]; errors?: string[] };
+  assert.ok(out.reached, `the Chrome checks did not finish:\n${run.stdout}${run.stderr}`);
+  assert.deepEqual(out.missed, [], "the Chrome checks");
+  assert.deepEqual(out.errors, [], "errors on the page in Chrome");
+  console.log(`touch: Chrome passed ${out.reached.length} checks`);
+} else console.log("touch: the Chrome checks are off (OCTET_STRESS_URL=<dev server> runs them)");
 
 console.log("touch: ok");

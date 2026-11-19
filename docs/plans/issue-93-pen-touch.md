@@ -72,6 +72,15 @@ Sam put every built item in 1.1.3. The branch is rebased onto release-1.1.3 f06d
   pointerup, as a browser does, and taps the eraser end quickly. scripts/look/chrome-touch.mjs sends real touch and
   pen input to headless Chrome over the DevTools protocol: `npm run look -- <url>/?editor touch` runs it after the
   WebKit pages, and `look-only=chrome` runs it alone.
+- Review of 3430216 (on release-1.1.3): in Chrome, a finger held for the Actions menu that drifted a few px and lifted
+  over an option ran it (Chromium sends a click for the lift), and a finger's tap that opened a text field (the
+  Sequence tool's name field, a new table's first cell) lost the focus to Chromium's mousedown for the tap, which
+  comes after the gate's press. Every right-click menu (ContextMenu) now leaves out a finger's click with no press in
+  the menu before it. The canvas cancels a finger's pointerdown, so Chromium sends no mousedown or mouseup for its tap
+  (click and double-click still come), and the gate's press moves the focus as the mouse's mousedown does. A finger's
+  leave as it lifts waits a frame, so its tap's release still has the point: the Sequence tool's structure lands where
+  the finger tapped. chrome-touch.mjs checks both (18 pass; 8 fail on 3430216), and
+  `OCTET_STRESS_URL=<url> node src/touch.check.ts` runs it.
 
 Results on f06d1b4 plus this branch:
 
@@ -123,7 +132,7 @@ rejection are Octet's own.
    placed on `body` are covered). Done: node pinch maths; WebKit view after a pinch, drawing after a late finger, and
    computed touch-action on the root, the canvas, an open menu and Home.
 6. **Long press.** A finger held still for HOLD_MS opens the Actions menu there, with the mouse's hold ring. Lifting
-   chooses nothing. Done: WebKit.
+   chooses nothing. Done: WebKit; Chrome for a lift over an option.
 7. **Palm rejection.** Touches on the canvas do nothing while a pen is down or was seen in the last 500 ms. A pen
    press cancels a finger's press under way. After a pen has been used in a window, one finger pans and two pan and
    zoom; a tap and a long press do nothing. Done: node gate checks; WebKit palm after pen hover.

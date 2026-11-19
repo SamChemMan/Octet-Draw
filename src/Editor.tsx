@@ -10059,7 +10059,13 @@ export default function Editor() {
   const gateTimers = useRef<Record<string, number>>({});
   function onDown(e: React.PointerEvent<SVGSVGElement>) {
     if (passOn.current) return onPointerDown(e);
-    if (gated(e.pointerType)) return follow(e, gate.down(read(e)));
+    if (gated(e.pointerType)) {
+      // A finger's press goes in when the gate says, often at the lift. Chromium sends its mousedown for a tap after
+      // that, where it would take the focus from a field the tap opened. So a finger sends no mousedown, and its press
+      // moves the focus as the mouse's mousedown does (follow). Click and double-click still come.
+      if (e.pointerType === "touch") e.preventDefault();
+      return follow(e, gate.down(read(e)));
+    }
     if (owner.current !== undefined) {
       // A pen or finger has the press. One silent for a second lost its pointerup: it stops, and the next click goes in.
       if (performance.now() - ownerSeen.current > 1000) follow(undefined, [...gate.reset(), { act: "cancel" }]);
@@ -10148,6 +10154,9 @@ export default function Editor() {
           if (!takePress(a.id, freed)) break;
           reach.current = REACH.touch;
           send("pointerdown", a.id, a.x, a.y, "touch");
+          // The focus leaves the field it is in (a caption being typed closes), as the mouse's mousedown takes it
+          // after its press has drawn: the canvas has nothing that takes the focus.
+          queueMicrotask(() => (document.activeElement as HTMLElement | null)?.blur?.());
           const { id, x, y } = a;
           if (a.tap) requestAnimationFrame(() => { if (owner.current !== id) return; owner.current = undefined; pressedFrom.current = undefined; send("pointerup", id, x, y, "touch"); });
           // The move that made it a press reaches the editor too, a frame later once the press has drawn, as the
@@ -11324,7 +11333,13 @@ export default function Editor() {
         // The canvas lost a pen or a finger the gate still follows (the system took it): its press stops. Chromium also
         // sends lostpointercapture after each pointerup, and to what a finger landed on when the canvas takes it over.
         onLostPointerCapture={(e) => { if (e.target === e.currentTarget && e.pointerId === owner.current && (gate.pen?.id === e.pointerId || gate.fingers.some((f) => f.id === e.pointerId))) follow(undefined, [...gate.reset(), { act: "cancel" }]); }}
-        onPointerLeave={() => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); }}
+        // A finger leaves the canvas as it lifts, before its tap's release goes in a frame later (follow): its leave waits
+        // that frame, so the release still has the point (a name field's structure lands where the finger tapped).
+        onPointerLeave={(e) => {
+          const leave = () => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); };
+          if (e.pointerType === "touch" && e.pointerId === owner.current) requestAnimationFrame(leave);
+          else leave();
+        }}
         onDoubleClick={(e) => {
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
