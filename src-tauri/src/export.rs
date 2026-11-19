@@ -503,7 +503,8 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // are V3000, and V2000 apart, with ChemDraw's names. The pictures are ChemDraw's Save As pictures. A template set saved
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file. CML and ChemDraw's connection table (CT) are for File > More Formats (Settings > Pro), with ChemDraw's names.
-pub const FORMATS: [(&str, &str, &[&str]); 31] = [
+// NMReDATA is an SD file with NMR assignments (src/nmredata.ts); its default name ends .nmredata.sdf, as Mnova's does.
+pub const FORMATS: [(&str, &str, &[&str]); 32] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -519,6 +520,7 @@ pub const FORMATS: [(&str, &str, &[&str]); 31] = [
     ("mol2000", "MDL Molfile V2000", &["mol"]),
     ("sdf", "MDL SDfile", &["sdf", "sd"]),
     ("sdf2000", "MDL SDfile V2000", &["sdf", "sd"]),
+    ("nmredata", "NMReDATA", &["sdf", "sd"]),
     ("rxn", "Reaction Molfile (RXN)", &["rxn"]),
     ("rxn2000", "Reaction Molfile V2000 (RXN)", &["rxn"]),
     ("rdf", "MDL RDfile", &["rdf", "rd"]),
@@ -598,7 +600,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     };
     let stem: String = e.name.trim_end_matches(".octet").chars().filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | ':')).take(100).collect();
     let stem = if stem.trim().is_empty() { "Untitled".into() } else { stem };
-    let mut dialog = app.dialog().file().set_file_name(format!("{stem}.{}", first.2[0]));
+    let mut dialog = app.dialog().file().set_file_name(format!("{stem}.{}", default_extension(first.0)));
     for f in &offered {
         dialog = dialog.add_filter(f.1, f.2);
     }
@@ -620,6 +622,14 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
     crate::stamp(&app, &path);
     exported.0.lock().unwrap().insert(path.clone());
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+// The extension a format's file is named with: its first, and .nmredata.sdf for NMReDATA (export_file, --convert).
+pub fn default_extension(id: &str) -> &'static str {
+    if id == "nmredata" {
+        return "nmredata.sdf";
+    }
+    FORMATS.iter().find(|f| f.0 == id).map_or("", |f| f.2[0])
 }
 
 // The file `format` names, as Export writes it, from what the page sent (export_file, export_bytes, and --convert).

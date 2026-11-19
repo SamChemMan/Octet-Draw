@@ -12,7 +12,7 @@ use base64::Engine;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use crate::export::{file_of, Export, FORMATS, PICTURES};
+use crate::export::{default_extension, file_of, Export, FORMATS, PICTURES};
 
 const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--into FILE] [--recursive] [--overwrite]";
 
@@ -207,7 +207,7 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
             return 1;
         }
     }
-    let ext = FORMATS.iter().find(|f| f.0 == job.to).map_or(job.to.as_str(), |f| f.2[0]);
+    let ext = Some(default_extension(&job.to)).filter(|e| !e.is_empty()).unwrap_or(job.to.as_str());
     // Every file to convert is kept until it is read. Then --overwrite may write over it (a.cdxml --to cdxml).
     let mut kept: HashSet<PathBuf> = found.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
     let (mut done, mut sdf) = (0, Vec::new());
@@ -366,6 +366,10 @@ mod tests {
         assert_eq!(job, Job { inputs: vec!["a.cdxml".into(), "figures".into()], to: "pdf".into(), out: Some("out".into()), width: Some(89.0), dpi: Some(600.0), style: Some("ACS".into()), each: false, into: None, recursive: true, overwrite: false });
         assert_eq!(parse(&args("a.cdx --to tiff --overwrite")).map(|j| (j.to, j.overwrite)), Ok(("tif".into(), true)));
         assert_eq!(parse(&args("a.cdx --to smiles")).map(|j| j.to), Ok("smi".into()));
+        // NMReDATA by its id; an SD file's extension is still SDF, and its file is named .nmredata.sdf.
+        assert_eq!(parse(&args("a.cdx --to nmredata")).map(|j| j.to), Ok("nmredata".into()));
+        assert_eq!(parse(&args("a.cdx --to sdf")).map(|j| j.to), Ok("sdf".into()));
+        assert_eq!((default_extension("nmredata"), default_extension("sdf"), default_extension("tif")), ("nmredata.sdf", "sdf", "tif"));
         assert_eq!(parse(&args("a.cdx --to .sdf --each")).map(|j| (j.to, j.each)), Ok(("sdf".into(), true)));
         assert_eq!(parse(&args("a.cdx --to width --width 89")).err().as_deref(), Some("Octet cannot convert to that format."));
         assert_eq!(parse(&args("figures --to sdf --into si.sdf")).map(|j| (j.into, j.each)), Ok((Some("si.sdf".into()), false)));

@@ -2,7 +2,7 @@ import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef
 import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Scan, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
-  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ChartPolar, ChartLineUp, GridNine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
+  GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ChartPolar, ChartLineUp, Waveform, GridNine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
   TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, Cards, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
@@ -58,7 +58,8 @@ import { chartAction, followCharts, followLeaders, followLevels, jablonskiPick, 
 import { figureBox, isChart, kindOf as transitionKind, NEW_ENERGY, NEW_JABLONSKI, NEW_RADAR, type Chart } from "./charts";
 import { ChartDialog, type ChartData } from "./ChartDialog";
 import type { Show } from "./Spectrum";
-import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, regroup, type Measured } from "./measured";
+import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, nucleusText, regroup, type Measured } from "./measured";
+import { isNmredata, nmredataDrawing, writeNmredata, type Written } from "./nmredata";
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
@@ -1548,6 +1549,13 @@ export default function Editor() {
   async function exportPart(part: "all" | "selection") {
     const v = exportView, svg = v?.[part], mol = v?.parts[part], f = filePrefs;
     if (!v || !mol) return;
+    // NMReDATA: the shifts once the tables are in, and the notice says which are predicted.
+    if (f.format === "nmredata") {
+      const w = await nmredataPart(mol);
+      if (!w) return setNotice("There is no structure to export.", "info");
+      if (await exportAs(() => ({ format: "nmredata", mdl: w.text }), (p) => nmredataNote(`Saved ${fileName(p)}.`, w))) setExportView(undefined);
+      return;
+    }
     const path = await exportAs(() => {
       // An experiment page's PDF is its pages, as Print gives them: the experiment, then its risk assessment.
       const sheets = f.format === "pdf" && part === "all" && expPage ? pagePictures(mol) : undefined;
@@ -1562,6 +1570,48 @@ export default function Editor() {
     const part = selectedPart() ?? doc, text = formatOf(part, f);
     if (!text) return setNotice(part.atoms.length ? `Octet cannot write this structure as ${f === "cml" ? "CML" : "a connection table"}.` : "There is no structure to export.", part.atoms.length ? "error" : "info");
     await exportAs(() => ({ format: f, mdl: text }));
+  }
+  // NMReDATA (issue 111): a part's structures with the drawing's measured assignments and, for the other nuclei, the
+  // Spectrum panel's prediction (its frequency, solvent and decoupling), once Indigo and the shift tables are in.
+  const nmredataOf = (part: Mol, spectra = now.current.spectra) => {
+    const mol = withCaptionAtoms(part, style.interpret).mol, solvent = spectra?.find((s) => s.kind === "nmr" && s.solvent)?.solvent ?? settings.nmrSolvent;
+    try { return writeNmredata(mol, { spectra, mhz: settings.nmrMhz, solvent, decouple: settings.nmrDecouple, version, predicting: true }); } catch { return undefined; }
+  };
+  async function nmredataPart(part: Mol): Promise<Written | undefined> {
+    await ready;
+    await nmrReady().catch(() => {});
+    return part.atoms.length ? nmredataOf(part) : undefined;
+  }
+  // What Export and Copy As say after an NMReDATA file: which nuclei's shifts are predicted, and the links left out.
+  const nmredataNote = (done: string, w: Written) => [
+    done, w.predicted.length ? `The ${w.predicted.map(nucleusText).join(" and ")} shifts are predicted.` : "", w.unplaced ? `Octet left out ${lostText({ "linked multiplet": w.unplaced })}.` : "",
+  ].filter(Boolean).join(" ");
+  // Edit > Copy As > NMReDATA: Export's text, as plain text.
+  async function copyNmredata() {
+    const w = await nmredataPart(selectedPart() ?? doc);
+    if (!w) return setNotice("There is no structure to copy.", "info");
+    copyPlain(w.text, nmredataNote("Copied.", w));
+  }
+  // An NMReDATA file into the drawing (File > Import, a drop, Paste): its structures land beside the drawing, selected,
+  // and each nucleus's peak list takes the place of the drawing's spectrum of that nucleus, with the atoms linked, as
+  // one undo step. The panel opens on the first.
+  async function insertNmredata(text: string, name: string, at?: P) {
+    try {
+      await ready;
+      const base0 = now.current, r = nmredataDrawing(text, importStructure, nextGroupId(base0.spectra), name);
+      const keys = new Set(r.spectra.map(spectrumKeyOf)), spectra = [...(base0.spectra ?? []).filter((x) => !keys.has(spectrumKeyOf(x))), ...r.spectra];
+      const base = { ...linksKept(base0, spectra), spectra: spectra.length ? spectra : undefined }, start = base.atoms.length;
+      const next = place(asOpened(r.mol, text, true), base, at), added = fragments(r.mol).sort((p, q) => q.length - p.length)[0]?.map((i) => start + i) ?? [];
+      if (r.spectra.length && next) {
+        openSpectrum(spectrumKeyOf(r.spectra[0]), added, next);
+        setSpectrumShow("measured");
+        setChosenGroup(undefined);
+        reselect(new Set(r.mol.atoms.map((_, i) => start + i)), new Set());
+      }
+      sayLost(r.lost);
+    } catch (e) {
+      setNotice(failure(`Octet cannot read ${name}.`, e));
+    }
   }
   // Quick export: the selection, or the whole drawing, straight to the Save dialog in the Quick export format (PNG
   // at first; SVG or EMF for Office, PDF for LaTeX), with the saved settings. A PDF, PNG or EMF carries the CDXML, as
@@ -2112,6 +2162,11 @@ export default function Editor() {
   // per pixel, as ChemDraw's does. A drawing's text keeps its proportion to this drawing's (fitSizes), as in a paste.
   async function dropFiles(files: OpenedFile[]) {
     const mols: Mol[] = [], lost: Record<string, number> = {};
+    // An NMReDATA file brings its peak lists and links too, each file as File > Import brings one.
+    const nmr = (f: OpenedFile) => !f.picture && f.text !== null && isNmredata(f.text);
+    for (const f of files.filter(nmr)) await insertNmredata(f.text!, f.name, f.at ? toDoc(...f.at) : undefined);
+    files = files.filter((f) => !nmr(f));
+    if (!files.length) return;
     for (const f of files) {
       if (f.picture) {
         const room = MAX_PICTURE - pictureBytes(now.current) - mols.reduce((n, x) => n + pictureBytes(x), 0);
@@ -2185,6 +2240,14 @@ export default function Editor() {
   function readFile(path: string | undefined, text: string | Mol): ReturnType<typeof readOct> {
     if (typeof text !== "string") return { mol: text, lost: {} };
     if (isDrawingText(text)) return readOct(text, /\.oct$/i.test(path ?? ""));
+    // An NMReDATA file: its structures with their peak lists, linked (the panel opens on the first).
+    if (isNmredata(text)) {
+      let r: ReturnType<typeof nmredataDrawing>;
+      try { r = nmredataDrawing(text, importStructure, 1, path ? fileName(path) : ""); } catch (e) { throw refusal(e) ? e : new Error("Octet cannot read the structures in this file."); }
+      const b = bounds(r.mol);
+      if (!b) throw new Error("There are no structures in this file.");
+      return { mol: { ...merge(EMPTY, r.mol, [-(b[0] + b[2]) / 2, -(b[1] + b[3]) / 2]), ...(r.spectra.length ? { spectra: r.spectra } : {}) }, lost: r.lost };
+    }
     let mol: Mol;
     // A reader's own reason (over a limit, or damaged) goes as it is; Indigo's words do not.
     try { mol = importStructure(text); } catch (e) { throw refusal(e) ? e : new Error("Octet cannot read the structures in this file."); }
@@ -2296,6 +2359,7 @@ export default function Editor() {
         landPart(r);
         return sayLost(lost);
       }
+      if (!ct && isNmredata(picked[1])) return void (await insertNmredata(picked[1], fileName(picked[0])));
       place(asOpened(importStructure(ct ? fromCt(picked[1]) : picked[1]), picked[1], true));
     } catch (e) {
       setNotice(failure("Octet cannot read this file.", e));
@@ -2362,12 +2426,15 @@ export default function Editor() {
     const drop = at ? "placed" : true, land = (f: Mol, p?: P) => scheme ?? landing(f, p);
     // A query file's R-group boxes and polymer brackets, and a reaction's arrows and plus signs, come with its atoms.
     if (frag.shapes?.length || frag.arrows?.length || frag.captions?.length) {
-      const r = insertMol(base, frag, land(frag, at));
-      set(frag.arrows?.length ? laidOut(r.mol, (frag.arrows ?? []).map((a) => r.ids.get(a.id)!)) : r.mol, false, undefined, drop);
-      return reselect(r.atoms, r.items);
+      const r = insertMol(base, frag, land(frag, at)), next = frag.arrows?.length ? laidOut(r.mol, (frag.arrows ?? []).map((a) => r.ids.get(a.id)!)) : r.mol;
+      set(next, false, undefined, drop);
+      reselect(r.atoms, r.items);
+      return next;
     }
-    set(merge(base, frag, land(frag, at)), false, undefined, drop);
+    const next = merge(base, frag, land(frag, at));
+    set(next, false, undefined, drop);
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
+    return next;
   }
   // A reaction that came in (a file or text with arrows) laid out as Clean Up Reaction lays it out, measured as it will
   // be drawn. arrowIds: its arrows.
@@ -3102,6 +3169,7 @@ export default function Editor() {
     settings: () => setSettingsOpen(moduleOf(settings.settingsModule)),
     structure_to_name: () => nameStructures(),
     ...Object.fromEntries(["smiles", "inchi", "inchikey", "cdxml", "mol", "mol_v2000", "helm", "fasta"].map((f) => [`copy_${f}`, () => copyAs(f)])),
+    copy_nmredata: () => void copyNmredata(),
     // File > Open Recent: the drawing at that place in the list (the menu lists them in the list's order).
     ...Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`recent_${k}`, () => {
       if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
@@ -8202,6 +8270,7 @@ export default function Editor() {
     fileText: async (format, part, o = {}) => {
       const mol = part ?? now.current;
       if (format === "chemfig") return chemfigOf(mol, o.compact).code || undefined;
+      if (format === "nmredata") return (await nmredataPart(mol))?.text;
       if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return formatOf(mol, format as PartFormat);
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
       // An experiment page's PDF is its pages, as Export gives them: the experiment, then its risk assessment.
@@ -8419,7 +8488,7 @@ export default function Editor() {
     save: ["Save", `${MOD}S`, <FloppyDisk size={18} />], save_as: ["Save as…", `⇧${MOD}S`, <FloppyDiskBack size={18} />],
     copy_smiles: ["Copy as SMILES", `⌥${MOD}C`, <CopySimple size={18} />], copy_inchi: ["Copy as InChI", "", <IdentificationBadge size={18} />], copy_inchikey: ["Copy as InChIKey", "", <Key size={18} />],
     copy_cdxml: ["Copy as CDXML text", `${MOD}D`, <FileCode size={18} />], copy_mol: ["Copy as MOL text", `⌥${MOD}O`, <FileTxt size={18} />], copy_mol_v2000: ["Copy as MOL V2000 text", `⇧⌥${MOD}O`, <Notepad size={18} />],
-    copy_helm: ["Copy as HELM", HELM_KEYS, <BracketsCurly size={18} />], copy_fasta: ["Copy as FASTA", "", <Barcode size={18} />],
+    copy_helm: ["Copy as HELM", HELM_KEYS, <BracketsCurly size={18} />], copy_fasta: ["Copy as FASTA", "", <Barcode size={18} />], copy_nmredata: ["Copy as NMReDATA", "", <Waveform size={18} />],
     export: ["Export…", EXPORT_KEYS, <ExportIcon size={18} />], print: ["Print…", `${MOD}P`, <Printer size={18} />], print_selection: ["Print selection…", "", <SelectionForeground size={18} />], apply_style_file: ["Apply settings from file…", "", <PaintRoller size={18} />], page_setup: ["Page setup…", `⇧${MOD}P`, <FileDashed size={18} />],
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
@@ -8699,6 +8768,7 @@ export default function Editor() {
     }
 
     if (["copy_smiles", "copy_inchi", "copy_inchikey", "copy_cdxml", "copy_mol", "copy_mol_v2000", "copy_helm", "copy_fasta"].includes(command)) return copyAs(command.slice(5));
+    if (command === "copy_nmredata") return void copyNmredata();
     if (command === "copy") return void document.execCommand("copy");
     if (command === "paste_hint") return setNotice(`Copy a name, SMILES string or MOL file. Then press ${MOD}V here.`, "info");
     if (command.startsWith("copy_text:")) return copyPlain(command.slice(10));
@@ -9717,6 +9787,7 @@ export default function Editor() {
           const text = given || clip.text || undefined;
           if (clip.spectrum) return openSpectrumText(clip.spectrum[1], clip.spectrum[0]);
           if (text && isJcamp(text)) return openSpectrumText(text, "the clipboard");
+          if (text && isNmredata(text)) return insertNmredata(text, "the clipboard");
           if (clip.octet) return pasteOwn(clip.octet);
           // An Octet Drawing copied out of Word: the whole drawing from its storage (decision 0023).
           if (clip.oct && pasteRead(() => { const read = readOct(clip.oct!, true); return { mol: read.mol, lost: read.lost }; })) return;
@@ -9755,6 +9826,7 @@ export default function Editor() {
       const jdx = [...(e.clipboardData?.files ?? [])].find((f) => /\.(jdx|dx|jcamp|spc)$/i.test(f.name));
       const spc = (f: File) => f.arrayBuffer().then((b) => `${SPC}${JSON.stringify({ name: f.name, data: toBase64(new Uint8Array(b)) })}`);
       if (jdx || (text && isJcamp(text))) { e.preventDefault(); void (jdx ? (/\.spc$/i.test(jdx.name) ? spc(jdx) : jdx.text()) : Promise.resolve(text!)).then((t) => openSpectrumText(t, jdx?.name ?? "the clipboard")); return; }
+      if (text && isNmredata(text)) { e.preventDefault(); return void insertNmredata(text, "the clipboard"); }
       if (text && CDXML_TEXT.test(text.slice(0, 65536)) && pasteCdxml(text)) return e.preventDefault();
       if (text && pasteSequence(text)) return e.preventDefault();
       if (!named && !file) return;
@@ -11742,7 +11814,7 @@ export default function Editor() {
             // The chosen format is made now, so the dialog says at once when it cannot be. The others are offered
             // when the part can have them, and made when they are chosen.
             const mol = exportView.parts[part], may = !!mol?.atoms.length && loaded, f = settings.files.format, steps = may && mol ? stepsIn(mol).length : 0;
-            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, smi: may, inchi: may, ...Object.fromEntries(MDL.map((x) => [x, x.startsWith("rxn") ? steps === 1 : x.startsWith("rdf") ? steps > 0 : may])) };
+            const has: Partial<Record<ExportFormat, boolean>> = { oct: true, cdxml: true, cdx: true, smi: may, inchi: may, nmredata: may, ...Object.fromEntries(MDL.map((x) => [x, x.startsWith("rxn") ? steps === 1 : x.startsWith("rdf") ? steps > 0 : may])) };
             const pf: PartFormat | undefined = f === "oct" || f === "cdxml" || f === "cdx" || f === "inchi" ? f : f === "smi" ? "smiles" : MDL.includes(f) ? (f as PartFormat) : undefined;
             if (pf && mol) has[f] = !!formatOf(mol, pf);
             return has;
