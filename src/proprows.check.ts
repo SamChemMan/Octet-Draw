@@ -19,12 +19,12 @@ const standard = propertyValues([aspirin]);
 assert.deepEqual(row(standard, "exact"), ["180.0423"]);
 assert.deepEqual(row(standard, "weight"), ["180.16"]);
 assert.match(row(standard, "mz")![0]!, /^180\.04 \(100\.0%\)/);
-// Decimals sets all three (ChemDraw: Exact Mass, Molecular Weight and m/z only); the rest keep their places.
+// Decimals sets every number (issue 77; ChemDraw's reaches Exact Mass, Molecular Weight and m/z only).
 const three = propertyValues([aspirin], undefined, 3);
 assert.deepEqual(row(three, "exact"), ["180.042"]);
 assert.deepEqual(row(three, "weight"), ["180.157"]);
 assert.match(row(three, "mz")![0]!, /^180\.042 \(100\.0%\)/);
-assert.deepEqual(row(three, "logp"), ["1.31"]);
+assert.deepEqual(row(three, "logp"), ["1.310"]);
 assert.deepEqual(row(propertyValues([aspirin], undefined, 0), "weight"), ["180"]);
 
 // Every row says how its value is found.

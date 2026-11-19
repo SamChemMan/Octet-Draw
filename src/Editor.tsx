@@ -44,7 +44,7 @@ import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelectio
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
-import { calculated as calc, liveValues, nameValues, namesShown, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, withNames, type PropertyValues } from "./proprows";
+import { calculated as calc, liveValues, nameValues, namesShown, placeValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, withNames, type PropertyValues } from "./proprows";
 import { ghsOf, type Ghs } from "./ghs";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
@@ -4509,12 +4509,12 @@ export default function Editor() {
     if (!doc.captions?.some((c) => picked.has(c.id) && markupCaption(c))) return;
     set({ ...doc, captions: doc.captions.map((c) => (picked.has(c.id) ? markupCaption(c) ?? c : c)) }, true);
   }
-  // Hide property names and Show property names (issue 77): every live value among these captions, its text worked out
-  // at once (not when the live update comes), as one change. A value whose structure Indigo cannot read yet keeps its
-  // text until it can, as a CAS row keeps its number until the dictionary is loaded. on: show (true) or hide (false);
-  // unset, hide while one of them shows its names. Returns m itself when nothing changes.
-  function namedValues(m: Mol, ids: Set<number>, on?: boolean): Mol {
-    const { mol, changed } = nameValues(m, ids, on), cas = changed.size > 0 && casLive(mol, changed);
+  // Hide property names, Show property names and Decimals (issue 77): every live value whose setting changed
+  // (nameValues, placeValues), its text worked out at once (not when the live update comes), as one change. A value
+  // whose structure Indigo cannot read yet keeps its text until it can, as a CAS row keeps its number until the
+  // dictionary is loaded. Returns the drawing set itself when nothing changes.
+  function reworked({ mol, changed }: { mol: Mol; changed: Set<number> }): Mol {
+    const cas = changed.size > 0 && casLive(mol, changed);
     return !changed.size || !loaded || (cas && !namesLoaded) ? mol : liveValues(mol, liveOf(mol, cas), changed);
   }
   // Applies a style change to the caption being typed, or to every picked caption.
@@ -6863,10 +6863,10 @@ export default function Editor() {
     return { ...c, chart: p.kind === "energy" ? { kind: "energy", whole, join: p.join, axis: p.axis, key: p.key, paths: p.paths.map((x) => ({ name: x.name, colour: x.colour ?? style.colour })) } : { kind: "radar", whole, zones: p.zones, min: p.min, max: p.max, step: p.step } } as Context;
   };
   // Live values among the picked text (issue 77): "shown" while one shows its names (Hide property names), else
-  // "hidden" (Show property names). ⌘A picks every one.
-  const valuesPicked = (): { values?: "shown" | "hidden" } => {
-    const live = (doc.captions ?? []).filter((c) => picked.has(c.id) && c.property?.attrs.rows);
-    return live.length ? { values: live.some((c) => namesShown(c.property!.attrs.rows!)) ? "shown" : "hidden" } : {};
+  // "hidden" (Show property names), and the first one's decimals (Decimals: standard, or 0 to 8). ⌘A picks every one.
+  const valuesPicked = (): { values?: "shown" | "hidden"; places?: string } => {
+    const live = (doc.captions ?? []).filter((c) => picked.has(c.id) && c.property?.attrs.rows), places = live[0]?.property!.attrs.places ?? "";
+    return live.length ? { values: live.some((c) => namesShown(c.property!.attrs.rows!)) ? "shown" : "hidden", places: /^[0-8]$/.test(places) ? places : "standard" } : {};
   };
   const contextBase = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
@@ -8690,7 +8690,10 @@ export default function Editor() {
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
-      if (what === "names") { const next = namedValues(doc, picked); return next === doc ? undefined : void set(next, true); }
+      if (what === "names" || (what === "places" && /^([0-8]|standard)$/.test(arg))) {
+        const next = reworked(what === "names" ? nameValues(doc, picked) : placeValues(doc, picked, arg === "standard" ? undefined : Number(arg)));
+        return next === doc ? undefined : void set(next, true);
+      }
       if (what === "detach" || what === "attach") {
         // Detach leaves the caption where it is, as free text. Attach centres it under the structure above it.
         const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, anchorOf(c)]));

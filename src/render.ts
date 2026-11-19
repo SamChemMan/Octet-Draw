@@ -287,6 +287,7 @@ const HEAD_NAMES = [["solid", "Solid"], ["hollow", "Hollow"], ["angled", "Angled
 const LINE_STYLES = [["plain", "Plain"], ["dashed", "Dashed"], ["bold", "Bold"], ["doubled", "Double"], ["wavy", "Wavy"], ["membrane", "Membrane"]] as const;
 const HEAD_SIZES = [["large", "Large"], ["medium", "Medium"], ["small", "Small"]] as const;
 const FILLS = [["none", "None"], ["solid", "Filled"], ["shaded", "Shaded"], ["faded", "Faded"]] as const;
+const PLACES = [["standard", "Standard"], ...Array.from({ length: 9 }, (_, n) => [String(n), `${n} decimal${n === 1 ? "" : "s"}`] as const)] as const;
 export function arrowPicks(context: { kind: string } | undefined): { label: string; picks: ArrowPick[] }[] {
   const groups: { label: string; picks: ArrowPick[] }[] = [];
   const c = context?.kind === "arrow" ? context as ArrowContext : undefined, y = context?.kind === "cycle" ? context as CycleContext : undefined;
@@ -311,6 +312,9 @@ export function arrowPicks(context: { kind: string } | undefined): { label: stri
   if (all) groups.push({ label: "Arrowheads", picks: [{ label: "Heads", command: "cycle.head", value: all.head, options: HEAD_NAMES }, { label: "Size", command: "cycle.size", value: all.size, options: HEAD_SIZES }] });
   // A reversible step's balance: which half is longer, as an unbalanced equilibrium's.
   if (y?.step && y.reversible) groups.push({ label: "Step", picks: [{ label: "Balance", command: "cycle.step.balance", value: y.balance, options: [["equal", "Equal"], ["forward", "Forward longer"], ["back", "Back longer"]] }] });
+  // Live values picked (issue 77): their decimals, as the Properties panel's Decimals sets them for new ones.
+  const places = (context as { places?: string } | undefined)?.places;
+  if (places !== undefined) groups.push({ label: "Live values", picks: [{ label: "Decimals", command: "caption.places", value: places, options: PLACES }] });
   return groups;
 }
 // The arrow kind picked arrows have, as the kind chips and the right-click menu's Kind tick it (an equilibrium with
