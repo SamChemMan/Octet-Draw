@@ -10,9 +10,11 @@ spreadsheet gets the amounts with the structures. File > More Formats > Export E
 
 1. **RDF is the record, SDF is the compounds.** Each reagent table is one RD record: its reaction is the table's
    structures (reactants, then the structures over and under the arrow, then products, in the table's order), then its
-   fields. A table of a whole scheme is one record of the scheme's first reactants, every agent and its last products. A
-   reaction with no table writes its steps as before, with no fields. In an SD file each compound in a table gets its
-   column's fields as data items.
+   fields. A table of a whole scheme of two or more steps comes after a record for each step, with no fields, as 1.1.2
+   wrote them, so every structure drawn is in the file. The table's own record is the scheme's first reactants, every
+   agent and its last products, and its fields count against that record. A reaction with no table writes its steps as
+   before, with no fields. In an SD file each compound in a table gets its column's fields as data items. A drawing
+   with an Author in Settings has it in every RD and SD file with a table, as in the PDF's document information.
 2. **Field names.** RD fields follow the CTfile specification's own RD file example: `RXN:VARIATION(1):` then a group,
    then the field. SD items use the field alone.
 
@@ -47,5 +49,7 @@ spreadsheet gets the amounts with the structures. File > More Formats > Export E
 8. **The ELN archive.** A zip of one folder named as the drawing, holding `ro-crate-metadata.json` (RO-Crate 1.2,
    `sdPublisher` Octet) and one dataset with the `.oct`, CDXML, RD and SD files. The dataset takes the Title, Author and
    Keywords, and every experiment detail as a `PropertyValue`. Rust checks every path the page sends (one root folder,
-   at most one folder below it, no `..`, backslash, colon or control character, at most 12 files and 64 MB).
+   at most one folder below it, no `..`, backslash, colon or control character, at most 12 files and 64 MB). A name
+   that is not ASCII sets the zip's UTF-8 flag (bit 11); 3MF and Office zips are as before. The folder name loses
+   `? * " < > |` and a trailing dot or space, so Windows can extract it. Each `@id` is percent-encoded, part by part.
 9. **No new format in Export.** RDF and SDF already were there. The archive is a File > More Formats item, as 3MF is.

@@ -34,6 +34,7 @@ const many = Array.from({ length: 15_000 }, (_, k) => `$DTYPE F${k}\n$DATUM ${k}
 let t = performance.now();
 assert.equal(readFields(many).length, MOST_FIELDS);
 assert.deepEqual(readFields(`$DTYPE A\n$DATUM ${"v".repeat(250_000)}\n$DTYPE B\n$DATUM b`), [["B", "b"]], "a value over its limit is left out");
+assert.deepEqual(readFields(`$DTYPE ${"n".repeat(1001)}\n$DATUM a\n$DTYPE B\n$DATUM b`), [["B", "b"]], "a name over its limit is left out");
 assert.deepEqual(readFields("$DATUM lost\n$DTYPE C\n$DTYPE D\n$DATUM d\u0000\u001b!\r\n$DTYPE E\r$DATUM e"), [["D", "d!"], ["E", "e"]]);
 assert.ok(performance.now() - t < 1000, "hostile field text reads in under a second");
 
@@ -98,18 +99,26 @@ assert.deepEqual(importStructure(text("rdf")).grids?.[0].hidden?.rows, ["mass"],
 // No table: the record has no fields and the SD file no items.
 d.host.set({ ...d.host.doc(), grids: [] });
 assert.ok(!/\$DTYPE/.test(text("rdf")) && !/^> </m.test(text("sdf")), "no table, no fields");
-// A scheme of two steps: one table for the scheme is one record (its first reactant, its last product); a table for
-// each step is a record for each step.
+// A scheme of two steps: one table for the scheme is a record for each step with no fields, then the table's record
+// (its first reactant, its last product); a table for each step is a record for each step. Every structure drawn is
+// in the RD file.
 d = drawing("experiment", "Scheme");
 await ok("set_brief", { destination: { kind: "notebook" } });
 await ok("draw", { kind: "reaction", start: [{ text: "benzaldehyde", number: "1" }], steps: [{ reagents: ["NaBH4"], products: [{ text: "benzyl alcohol", number: "2" }] }, { reagents: ["PBr3"], products: [{ text: "benzyl bromide", number: "3" }] }] });
+// A structure as its atoms, each with its bond orders.
+const kinds = (m: { atoms: { label: string }[]; bonds: { type: number; atoms: number[] }[] }) =>
+  fragments(m as never).map((g) => g.map((i) => `${m.atoms[i].label}${m.bonds.filter((b) => b.atoms.includes(i)).map((b) => b.type).sort().join("")}`).sort().join(" "));
+const drawn = () => { const all = new Set(kinds(importStructure(text("rdf")))); return kinds(d.host.doc()).filter((k) => !all.has(k)); };
+assert.deepEqual(drawn(), [], "every structure drawn is in the RD file");
 await ok("advanced", { tool: "fill_experiment", args: { amounts: [{ of: "benzaldehyde", mass: "1 g" }] } });
 let scheme = data(text("rdf"));
-assert.equal(scheme.length, 1, "one record for the scheme's table");
-assert.deepEqual([scheme[0].find(([k]) => k === `${RXN}REACTANT(1):Number`)?.[1], scheme[0].find(([k]) => k === `${RXN}PRODUCT(1):Number`)?.[1]], ["1", "3"]);
+assert.deepEqual(scheme.map((f) => f.length > 0), [false, false, true], "a record for each step, then one for the scheme's table");
+assert.deepEqual([scheme[2].find(([k]) => k === `${RXN}REACTANT(1):Number`)?.[1], scheme[2].find(([k]) => k === `${RXN}PRODUCT(1):Number`)?.[1]], ["1", "3"]);
+assert.deepEqual(drawn(), [], "every structure drawn is in the RD file with the scheme's table");
 await ok("advanced", { tool: "fill_experiment", args: { steps: true } });
 scheme = data(text("rdf"));
 assert.equal(scheme.length, 2, "a record for each step's table");
+assert.deepEqual(drawn(), [], "every structure drawn is in the RD file with a table for each step");
 assert.deepEqual(scheme.map((f) => f.find(([k]) => k === `${RXN}PRODUCT(1):Number`)?.[1]), ["2", "3"]);
 // The intermediate's SD record has the fields of the step that makes it.
 assert.ok(text("sdf").split("$$$$\n").some((r) => /> <Number>\n2\n/.test(r) && /> <Role>\nProduct\n/.test(r)));
@@ -139,14 +148,15 @@ assert.deepEqual(archive.map(([p]) => p), ["Reduction 1/ro-crate-metadata.json",
 const crate = JSON.parse(archive[0][1]), node = (id: string) => crate["@graph"].find((x: { "@id": string }) => x["@id"] === id);
 assert.equal(crate["@context"], "https://w3id.org/ro/crate/1.2/context");
 assert.deepEqual(node("ro-crate-metadata.json").conformsTo, { "@id": "https://w3id.org/ro/crate/1.2" });
-assert.deepEqual(node("./").hasPart, [{ "@id": "./Reduction 1/" }]);
-const experiment = node("./Reduction 1/");
+assert.deepEqual(node("./").hasPart, [{ "@id": "./Reduction%201/" }], "an @id is percent-encoded");
+const experiment = node("./Reduction%201/");
 assert.deepEqual([experiment["@type"], experiment.name, experiment.keywords, experiment.author], ["Dataset", "Reduction", "reduction, borohydride", { "@id": "#author" }]);
 assert.equal(experiment.hasPart.length, 3);
-assert.deepEqual([node("./Reduction 1/Reduction 1.rdf").encodingFormat, node("./Reduction 1/Reduction 1.rdf").contentSize], ["chemical/x-mdl-rdfile", "13"]);
+assert.deepEqual([node("./Reduction%201/Reduction%201.rdf").encodingFormat, node("./Reduction%201/Reduction%201.rdf").contentSize], ["chemical/x-mdl-rdfile", "13"]);
 assert.ok(crate["@graph"].some((x: { propertyID?: string; value?: string }) => x.propertyID === "Notebook" && x.value === "SE-12"));
 assert.deepEqual(elnArchive("../a/b:c\u0000", page, { oct: "x" }).map(([p]) => p), ["abc/ro-crate-metadata.json", "abc/abc/abc.oct"]);
 assert.equal(elnArchive("...", page, { oct: "x" })[1][0], "Untitled/Untitled/Untitled.oct");
+assert.equal(elnArchive('a?*"<>|b. .oct', page, { oct: "x" })[1][0], "ab/ab/ab.oct", "a name Windows cannot extract is cleaned");
 
 // --- The editor writes through the same records ----------------------------------------------------------------------
 

@@ -100,9 +100,10 @@ function tableFields(m: Mol, v: GridView, steps: RoleStep[]): DataField[] {
 
 // The records of an RD file and the items of an SD file for a drawing's reactions (reactions: each one's steps, as
 // interpret.ts reads them) and tables (gridview.ts, of the same drawing). A table is one record: its reaction is its
-// columns' structures (a table of a whole scheme: the scheme's first reactants, every agent, its last products), with
-// its fields. A step with no table is a record with no fields, as before. A step needs a reactant and a product
-// structure. at: for a part of the drawing, each atom's index in the part; a step or table with a structure outside the
+// columns' structures, with its fields. A step with no table is a record with no fields, as before. A table of a whole
+// scheme of two or more steps comes after a record for each step, with no fields, so that every structure drawn is in
+// the file; its own reaction is the scheme's first reactants, every agent and its last products. A step needs a
+// reactant and a product structure. at: for a part of the drawing, each atom's index in the part; a step or table with a structure outside the
 // part is left out (a table is then its steps, with no fields). items: the SD items of each atom of a compound in a
 // table (the product's when it is in two).
 export function elnRecords(m: Mol, reactions: RoleStep[][], views: GridView[], at?: Map<number, number>): { records: ElnRecord[]; items: Map<number, DataField[]> } {
@@ -125,13 +126,14 @@ export function elnRecords(m: Mol, reactions: RoleStep[][], views: GridView[], a
   for (const steps of reactions) {
     const own = views.filter((v) => steps.some((s) => s.arrow === v.arrow));
     const whole = own.length === 1 && !m.grids?.some((g) => g.arrow === own[0].arrow && g.step) ? own[0] : undefined;
-    if (whole && record(whole, steps)) continue;
+    if (whole && steps.length === 1 && record(whole, steps)) continue;
     for (const s of steps) {
       const v = whole ? undefined : own.find((x) => x.arrow === s.arrow);
       if (v && record(v, [s])) continue;
       const step = { reactants: map(atomsOf(s.reactants)), products: map(atomsOf(s.products)), agents: map(atomsOf([...s.above, ...s.below])) };
       if (step.reactants?.length && step.products?.length && step.agents) records.push({ step: step as RxnStep, fields: [] });
     }
+    if (whole && steps.length > 1) record(whole, steps);
   }
   return { records, items };
 }
@@ -162,13 +164,13 @@ export const sdData = (fields?: DataField[]) => (fields ?? []).map(([n, x]) => `
 
 // The fields of one RD record (its text from its first $DTYPE), as hostile input: a line that is not a $ line goes on
 // the line before; a $DATUM with no $DTYPE, and a $DTYPE with no $DATUM, are skipped; control characters are taken out;
-// past MOST_FIELDS fields, or a value past its limit, are left out.
+// past MOST_FIELDS fields, a name past 1000 characters, or a value past its limit, are left out.
 export function readFields(text: string): DataField[] {
   const out: DataField[] = [];
   let name: string | undefined, value: string | undefined, into: "name" | "value" | undefined;
   const flush = () => {
     const n = name?.replace(/[\u0000-\u001f\u007f]/g, "").trim(), most = n === RXN + TABLE_FIELD ? MOST_TABLE : MOST_VALUE;
-    if (n && value !== undefined && value.length <= most && out.length < MOST_FIELDS) out.push([n, value.replace(/[\u0000-\u001f\u007f]/g, "")]);
+    if (n && n.length <= 1000 && value !== undefined && value.length <= most && out.length < MOST_FIELDS) out.push([n, value.replace(/[\u0000-\u001f\u007f]/g, "")]);
     name = value = into = undefined;
   };
   for (const line of text.split(/\r\n?|\n/)) {
@@ -220,17 +222,19 @@ export function withRecord(part: Mol, fields: DataField[]): Mol {
 // Author and Keywords, and every detail as a value (variableMeasured). Each file is a path in the zip and its text.
 const TYPES: Record<string, string> = { oct: "application/xml", cdxml: "chemical/x-cdxml", rdf: "chemical/x-mdl-rdfile", sdf: "chemical/x-mdl-sdfile" };
 export function elnArchive(name: string, m: Mol, files: Partial<Record<"oct" | "cdxml" | "rdf" | "sdf", string>>, now = new Date()): [string, string][] {
-  const stem = Array.from(name.replace(/\.oct(et)?$/i, "").replace(/[\u0000-\u001f\u007f/\\:]/g, "").trim()).slice(0, 60).join("").replace(/^\.+/, "").trim() || "Untitled";
+  const stem = Array.from(name.replace(/\.oct(et)?$/i, "").replace(/[\u0000-\u001f\u007f/\\:?*"<>|]/g, "").trim()).slice(0, 60).join("").replace(/^\.+|[.\s]+$/g, "").trim() || "Untitled";
+  // An @id is a relative URI: each part of the path percent-encoded (a space is %20). The zip's paths stay as written.
+  const uri = encodeURIComponent(stem);
   const d: Record<string, string | undefined> = { ...detailsOf(m.annotations, PROPERTIES), ...detailsOf(m.annotations) }, date = now.toISOString();
   const kept = (Object.entries(files) as [string, string | undefined][]).filter((e): e is [string, string] => !!e[1]);
-  const parts = kept.map(([ext, text]) => ({ "@id": `./${stem}/${stem}.${ext}`, "@type": "File", name: `${stem}.${ext}`, encodingFormat: TYPES[ext], contentSize: String(new TextEncoder().encode(text).length), dateCreated: date }));
+  const parts = kept.map(([ext, text]) => ({ "@id": `./${uri}/${uri}.${ext}`, "@type": "File", name: `${stem}.${ext}`, encodingFormat: TYPES[ext], contentSize: String(new TextEncoder().encode(text).length), dateCreated: date }));
   const values = experimentFields(m).map(([k, v], i) => ({ "@id": `#detail-${i + 1}`, "@type": "PropertyValue", propertyID: k, value: v }));
   const author = d.author ? [{ "@id": "#author", "@type": "Person", name: d.author }] : [];
   const octet = { "@id": "https://octet.software", "@type": "Organization", name: "Octet", url: "https://octet.software" };
   const graph = [
     { "@id": "ro-crate-metadata.json", "@type": "CreativeWork", about: { "@id": "./" }, conformsTo: { "@id": "https://w3id.org/ro/crate/1.2" }, dateCreated: date, sdPublisher: { "@id": octet["@id"] } },
-    { "@id": "./", "@type": "Dataset", name: stem, datePublished: date, hasPart: [{ "@id": `./${stem}/` }] },
-    { "@id": `./${stem}/`, "@type": "Dataset", name: d.title ?? stem, dateCreated: date, hasPart: parts.map((p) => ({ "@id": p["@id"] })),
+    { "@id": "./", "@type": "Dataset", name: stem, datePublished: date, hasPart: [{ "@id": `./${uri}/` }] },
+    { "@id": `./${uri}/`, "@type": "Dataset", name: d.title ?? stem, dateCreated: date, hasPart: parts.map((p) => ({ "@id": p["@id"] })),
       ...(author.length ? { author: { "@id": "#author" } } : {}), ...(d.keywords ? { keywords: d.keywords } : {}), ...(values.length ? { variableMeasured: values.map((v) => ({ "@id": v["@id"] })) } : {}) },
     ...parts, ...values, ...author, octet,
   ];

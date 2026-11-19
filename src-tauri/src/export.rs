@@ -348,10 +348,12 @@ pub(crate) fn zip(parts: &[(&str, &[u8])], level: u8, stored_over: usize) -> Vec
             Some(d) => (8, d),
             None => (0, data),
         };
-        // The fields the local header and the central directory share: version 2.0, no flags, the method, 1 January
-        // 1980, the CRC-32, both sizes, the name's length and no extra field.
+        // The fields the local header and the central directory share: version 2.0, the flags (bit 11 when the name is
+        // not ASCII: its bytes are UTF-8, not CP437), the method, 1 January 1980, the CRC-32, both sizes, the name's
+        // length and no extra field.
+        let flags: u16 = if name.is_ascii() { 0 } else { 0x0800 };
         let mut common = Vec::new();
-        for v in [20u16, 0, method, 0, 0x21] {
+        for v in [20u16, flags, method, 0, 0x21] {
             common.extend(v.to_le_bytes());
         }
         for v in [crc32fast::hash(data), packed.len() as u32, data.len() as u32] {
@@ -1064,6 +1066,15 @@ mod tests {
         assert!(make_eln(&[file("R/x.rdf", "x"), file("R/y.rdf", "y")]).is_err(), "no metadata");
         assert!(make_eln(&[crate_file.clone()]).is_err(), "nothing but the metadata");
         assert!(make_eln(&vec![crate_file; 13]).is_err(), "too many files");
+        // A name that is not ASCII sets bit 11 (UTF-8) in the local header and the central directory; an ASCII one
+        // (every 3MF and Office part) leaves the flags 0.
+        let flags = |z: &[u8]| {
+            let dir = find(z, b"PK\x01\x02").unwrap();
+            (u16::from_le_bytes([z[6], z[7]]), u16::from_le_bytes([z[dir + 8], z[dir + 9]]))
+        };
+        assert_eq!(flags(&make_eln(&[file("Réduction/ro-crate-metadata.json", "{}"), file("Réduction/Réduction/Réduction.rdf", "x")]).unwrap()), (0x0800, 0x0800));
+        assert_eq!(flags(&zip), (0, 0));
+        assert_eq!(flags(&make_3mf("<model/>").unwrap()), (0, 0));
     }
 
     #[test]
