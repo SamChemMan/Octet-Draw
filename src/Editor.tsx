@@ -6016,7 +6016,10 @@ export default function Editor() {
         // Over a template set the selection stays where it is, as letting go there leaves it.
         const into = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-drop-set]") ?? undefined;
         markDrop(into);
-        if (into) return setDrag({ ...drag, working: drag.base ?? doc, moved: true, guides: [], point: undefined });
+        if (into) {
+          stopGlide();
+          return setDrag({ ...drag, working: drag.base ?? doc, moved: true, guides: [], point: undefined, d: undefined, to: undefined, held: undefined });
+        }
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
         // Shift keeps it to one axis, a copy too (snap.ts heldAxis), but for a bond tool's Shift-drag of an atom (alone).
         // The other axis is held at 0 before the snaps, which snap the free axis only.
@@ -9084,7 +9087,7 @@ export default function Editor() {
   function release() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
-    const over = dropOver.current, gliding = !!lockGlide.current;
+    const over = dropOver.current;
     stopGlide();
     markDrop(undefined);
     if (!drag) return;
@@ -9256,8 +9259,8 @@ export default function Editor() {
         if (!drag.moved) return click(drag.target, drag.from);
         saw("move");
         // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then. Let go
-        // during a glide, it lands where the glide was going.
-        const working = gliding && drag.to ? moveAll(drag.base ?? doc, drag.to, drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection) : drag.working;
+        // during a glide (d short of to), it lands where the glide was going.
+        const working = drag.to && drag.d !== drag.to ? moveAll(drag.base ?? doc, drag.to, drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection) : drag.working;
         const { mol, joined } = joinOverlaps(working, drag.atoms ?? selection);
         return set(mol, !joined, undefined, !drag.skip);
       }

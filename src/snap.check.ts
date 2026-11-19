@@ -189,7 +189,9 @@ console.log("snap.check: one axis ok");
   assert.match(editor, /case "grid": \{[^]*?if \(held !== drag\.held && drag\.moved\) glideFrom\(drag\.d\);\n\s+return setDrag\(\{ \.\.\.drag, d: glided\(to\), to, held,/);
   assert.match(editor, /case "move": \{[^]*?if \(held !== drag\.held && drag\.moved\) glideFrom\(drag\.d \?\? \[0, 0\]\);\n\s+const d = glided\(to\);[^]*?d, to, held \}\);/);
   // The frames stop when the drag ends, is cancelled (Escape) or another starts; a release lands at to.
-  assert.match(editor, /function release\(\) \{[^]*?gliding = !!lockGlide\.current;\n\s+stopGlide\(\);[^]*?case "grid": \{[^]*?movedAt\(doc, v, drag\.to \?\? drag\.d\)[^]*?case "move": \{[^]*?const working = gliding && drag\.to \? moveAll\(drag\.base \?\? doc, drag\.to,/);
+  assert.match(editor, /function release\(\) \{[^]*?const over = dropOver\.current;\n\s+stopGlide\(\);[^]*?case "grid": \{[^]*?movedAt\(doc, v, drag\.to \?\? drag\.d\)[^]*?case "move": \{[^]*?const working = drag\.to && drag\.d !== drag\.to \? moveAll\(drag\.base \?\? doc, drag\.to,/);
+  // Over a template set the glide stops and the lock and its line go, so nothing shows moved there.
+  assert.match(editor, /if \(into\) \{\n\s+stopGlide\(\);\n\s+return setDrag\(\{ \.\.\.drag, working: drag\.base \?\? doc, moved: true, guides: \[\], point: undefined, d: undefined, to: undefined, held: undefined \}\);/);
   assert.match(editor, /if \(e\.key === "Escape"\) \{[^]*?stopGlide\(\);\n\s+setDrag\(undefined\);/);
   assert.match(editor, /const startMove = [^]*?=> \{\n\s+stopGlide\(\);/);
   assert.match(editor, /const grabTable = \(arrow: number\) => \{\n\s+stopGlide\(\);/);
@@ -224,7 +226,7 @@ console.log("snap.check: one axis ok");
   for (let k = 0; k < 31; k++) { old.push(run(false)[0]); neu.push(run(true)[0]); }
   const median = (xs: number[]) => xs.sort((p, q) => p - q)[xs.length >> 1];
   const [o, n] = [median(old) * 1000, median(neu) * 1000];
-  assert.ok(n <= o * 1.25 + 0.5, `snap and lock step: ${n.toFixed(2)} µs a move now, ${o.toFixed(2)} µs at 2d16aac5`);
+  assert.ok(n <= o * 1.3 + 0.05, `snap and lock step: ${n.toFixed(2)} µs a move now, ${o.toFixed(2)} µs at 2d16aac5`);
   console.log(`snap.check: lock polish ok (snap and lock step ${n.toFixed(2)} µs a move, ${o.toFixed(2)} µs at 2d16aac5)`);
 }
 
