@@ -100,6 +100,8 @@
 "InChI=1S/C4H10O2/c1-4(2,3)6-5/h5H,1-3H3":"2-methylpropane-2-peroxol",
 "InChI=1S/C8H18O2/c1-7(2,3)9-10-8(4,5)6/h1-6H3":"di-tert-butyl peroxide",
 "InChI=1S/C18H22O2/c1-17(2,15-11-7-5-8-12-15)19-20-18(3,4)16-13-9-6-10-14-16/h5-14H,1-4H3":"bis(2-phenylpropan-2-yl) peroxide",
+"InChI=1S/C9H12O2/c1-9(2,11-10)8-6-4-3-5-7-8/h3-7,10H,1-2H3":"2-phenylpropane-2-peroxol",
+"InChI=1S/C10H12O2/c11-12-10-7-3-5-8-4-1-2-6-9(8)10/h1-2,4,6,10-11H,3,5,7H2":"1,2,3,4-tetrahydronaphthalene-1-peroxol",
 "InChI=1S/C15H24O/c1-10-8-11(14(2,3)4)13(16)12(9-10)15(5,6)7/h8-9,16H,1-7H3":"2,6-di-tert-butyl-4-methylphenol",
 "InChI=1S/C8H5NO3/c10-7-5-3-1-2-4-6(5)8(11)9(7)12/h1-4,12H":"2-hydroxy-1H-isoindole-1,3(2H)-dione",
 "InChI=1S/C4H9NO2/c1-4(2,3)7-5-6/h1-3H3":"tert-butyl nitrite",
