@@ -547,6 +547,16 @@ async fn open_link(app: tauri::AppHandle, name: String) -> Result<(), String> {
         ),
         // The Properties panel's PubChem CID: the compound's Safety and Hazards section.
         n if n.starts_with("pubchem:") => pubchem::safety_page(&n["pubchem:".len()..]).ok_or("Octet has no such link.")?,
+        // The suppliers list (issue 114): a supplier's page, only as Find suppliers gave it this session, and Open in
+        // PubChem, the compound's Chemical Vendors section. Both only while Online search is on.
+        n if n.starts_with("supplier:") => {
+            search::online(&app)?;
+            app.state::<pubchem::Links>().given(&n["supplier:".len()..]).ok_or("Octet has no such link.")?
+        }
+        n if n.starts_with("pubchem-vendors:") => {
+            search::online(&app)?;
+            pubchem::vendors_link(&n["pubchem-vendors:".len()..]).ok_or("Octet has no such link.")?
+        }
         _ => return Err("Octet has no such link.".into()),
     };
     open_external(url).map_err(|e| e.to_string())
@@ -1161,6 +1171,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("search_scholar", "Search Google Scholar", "")?,
         &item("search_patents", "Search Google Patents", "")?,
+        // The Properties panel's PubChem lookups (issue 114). No keys: ChemDraw has none.
+        &sep()?,
+        &item("find_suppliers", "Find Suppliers", "")?,
+        &item("find_hazards", "Find Hazards", "")?,
     ])?;
     // Window: Minimize and Full Screen where the system has them (GTK on Linux has neither, Windows has no full screen
     // item), then the open drawings. The Mac lists the windows itself (set_bar); Windows and Linux list them here.
@@ -1403,12 +1417,13 @@ fn main() {
         .manage(MenuList::default())
         .manage(Palette::default())
         .manage(search::Online(Mutex::new(true)))
+        .manage(pubchem::Links::default())
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, feedback_off, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, pubchem::pubchem_suppliers, pubchem::pubchem_stop, open_link, feedback_off, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1553,6 +1568,7 @@ fn main() {
                 windows::closed(_app, &label);
                 quit::closed(_app, &label);
                 mcp::closed(_app, &label);
+                pubchem::closed(&label);
             }
             // With no window, Octet ends when its work is done (app.exit, with a code), not when its last window closes.
             tauri::RunEvent::ExitRequested { api, code, .. } if quit::ending() || (code.is_none() && windows::HEADLESS.load(std::sync::atomic::Ordering::Relaxed)) => api.prevent_exit(),

@@ -7,8 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
+  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, Storefront, FirstAidKit, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -46,6 +45,7 @@ import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
 import { calculated as calc, liveValues, nameValues, namesShown, placeValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, withNames, type PropertyValues } from "./proprows";
 import { ghsOf, type Ghs } from "./ghs";
+import { askEach, failedNotice, NO_KEY, OFF, offNotice, STOPPED, suppliersOf, UNREACHED_NOTICE, wanted, withSuppliers, type Found, type Lookup, type Suppliers } from "./suppliers";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -3098,6 +3098,9 @@ export default function Editor() {
     revert: () => revertToSaved(),
     // The online searches (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
+    // Find Suppliers and Find Hazards (issue 114): always here, so a key the user gave them says when Online search is off.
+    find_suppliers: () => findFor("suppliers"),
+    find_hazards: () => findFor("hazards"),
     // Bring to Front (⌘[) and Send to Back (⌘]), as ChemDraw's: any selected structure (a picked atom or bond takes its
     // whole structure) and object goes over, or under, everything else; and the selected bonds go over (or under) the
     // bonds they cross, which then have the gap (render.ts).
@@ -6767,7 +6770,7 @@ export default function Editor() {
     if (!riskGroup(now.current)) return;
     if (!TAURI || !settings.onlineSearch) return setNotice("To find hazards, turn on Online search in Settings.", "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     const cas: Record<string, string> = {}, found: Record<string, Ghs | null> = {};
-    let failed = 0;
+    let failed = 0, why = "";
     for (const x of list) {
       // A reagent written as text that nothing offline reads (Na2S2O8 before 16 November 2026, a trade name) is read
       // by PubChem from its text, as Name to Structure's online step does: then its CAS and hazards are found too.
@@ -6781,15 +6784,16 @@ export default function Editor() {
         if (c) cas[x.key] = c;
       }
       if (!hazards) continue;
-      await askHazards(key);
+      // Its own kind ("risk"), so Stop in the Properties panel leaves it running; a window closing stops it, which is no failure.
+      const e = await askHazards(key, "risk");
       if (ghsFound.current.has(key)) found[x.key] = ghsFound.current.get(key)!;
-      else failed++;
+      else if (e !== STOPPED) { failed++; why ||= e ?? ""; }
     }
     const s = sheetOf(style), next = withRiskCas(withHazards(now.current, found, s), cas, s);
     // Found for substances the reaction just got: in the edit's own undo step, when nothing has changed since.
     if (next !== now.current && amend && lastSet.current === now.current) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
     else if (next !== now.current) set(next, true);
-    if (hazards && failed && !Object.keys(found).length) setNotice("Octet cannot reach PubChem. Check the network connection.", "info");
+    if (hazards && failed && !Object.keys(found).length) setNotice(failedNotice(why), "info");
   }
   // Opened or saved: an experiment page's details, with its first product's yield, go to Home's Experiments list, and
   // a drawing that is no longer one leaves it. The yield follows when the chemistry has loaded.
@@ -7210,7 +7214,13 @@ export default function Editor() {
   // that one's.
   const ghsFound = useRef(new Map<string, Ghs | null>()), ghsAsking = useRef(Promise.resolve());
   const [ghsKeys, setGhsKeys] = useState<{ structures: Structure[]; atoms: string[]; keys: (string | undefined)[] }>();
-  const lastProperties = useRef<{ atoms: number[][]; structures: Structure[]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[] }>(undefined);
+  // Find suppliers (issue 114): PubChem's suppliers for each key, kept while the window is open (null: PubChem has no
+  // compound for it), asked only on a press, as Find hazards. busy: the lookups running now (their buttons read Stop);
+  // askingKey: the key being asked for suppliers; runs: each kind's run, which Stop moves on so the rest are not asked.
+  const suppliersFound = useRef(new Map<string, Suppliers | null>());
+  const [busy, setBusy] = useState<Partial<Record<Lookup, boolean>>>({}), [askingKey, setAskingKey] = useState<string>();
+  const runs = useRef<Record<Lookup, number>>({ suppliers: 0, hazards: 0 }), pendingFind = useRef<Lookup>(undefined);
+  const lastProperties = useRef<{ atoms: number[][]; structures: Structure[]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[]; suppliers: Found[] }>(undefined);
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
@@ -7221,10 +7231,13 @@ export default function Editor() {
     if (!found) return undefined;
     const kept = groups.map((g, k) => ({ g, atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
     const shown = kept.map((x) => x.s!), atoms = kept.map((x) => x.atoms);
-    const ghs = shown.map((s, k) => (settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join() ? ghsFound.current.get(ghsKeys.keys[k] ?? "") : undefined));
+    // Each structure's key while it keeps the content and atoms it was worked out for, and what the lookups found for it.
+    const keyOf = (s: Structure, k: number) => (settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join() ? ghsKeys.keys[k] : undefined);
+    const ghs = shown.map((s, k) => ghsFound.current.get(keyOf(s, k) ?? ""));
+    const suppliers: Found[] = shown.map((s, k) => { const key = keyOf(s, k); return !key ? undefined : key === askingKey ? "busy" : suppliersFound.current.get(key); });
     // base and each structure's atoms in it, for the CAS row (a polymer has no CAS number).
-    return { atoms, structures: shown, values: propertyValues(shown, calc, settings.decimals, ghs), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)) };
-  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { atoms, structures: shown, values: withSuppliers(propertyValues(shown, calc, settings.decimals, ghs), suppliers), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)), suppliers };
+  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys, askingKey]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
   // The CAS row: each structure's number by its InChIKey, from the dictionary once the names engine has loaded it. It
   // is looked up after the panel has drawn, 8 ms at a time with the window free between (and not while a glide runs),
@@ -7287,17 +7300,95 @@ export default function Editor() {
   }, [doc, loaded, gliding, drag, writing, namesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
   const keysOf = (p: { atoms: number[][]; structures: Structure[] }) => ({ structures: p.structures, atoms: p.atoms.map((a) => a.join()),
     keys: p.atoms.map((a) => { try { return toInchiKey(subset(chem.mol, new Set(a))) || undefined; } catch { return undefined; } }) });
+  // Find hazards and Find suppliers in the Properties panel: the structures it shows. While one runs its button is Stop.
   function findHazards() {
     if (!properties || !TAURI) return;
+    if (busy.hazards) return stopLookup("hazards");
     const found = keysOf(properties);
     setGhsKeys(found);
-    for (const key of found.keys) if (key) void askHazards(key);
+    void lookUp("hazards", found.keys);
   }
-  // PubChem's hazards for an InChIKey, once a session (here and in a risk assessment).
-  const askHazards = (key: string) => (ghsAsking.current = ghsAsking.current.then(() => (ghsFound.current.has(key) ? undefined : invoke<string | null>("pubchem_hazards", { key }).then((json) => {
-    const g = json === null ? null : ghsOf(json);
-    if (g !== undefined) { ghsFound.current.set(key, g); setGhsKeys((x) => x && { ...x }); }
-  }).catch(() => undefined))));
+  // PubChem's hazards for an InChIKey, once a session (here and in a risk assessment), one at a time. Its error, if any.
+  // by: the Properties panel's lookup ("hazards"), which its Stop ends, or a risk assessment's ("risk").
+  const askHazards = (key: string, by: "hazards" | "risk" = "hazards") => {
+    const asked = ghsAsking.current.then(() => (ghsFound.current.has(key) ? undefined : invoke<string | null>("pubchem_hazards", { key, by }).then((json) => {
+      const g = json === null ? null : ghsOf(json);
+      if (g === undefined) return UNREACHED_NOTICE;
+      ghsFound.current.set(key, g);
+      setGhsKeys((x) => x && { ...x });
+    }, (e: unknown) => String(e))));
+    ghsAsking.current = asked.then(() => undefined);
+    return asked;
+  };
+  function findSuppliers() {
+    if (!properties || !TAURI) return;
+    if (busy.suppliers) return stopLookup("suppliers");
+    const found = keysOf(properties);
+    setGhsKeys(found);
+    void lookUp("suppliers", found.keys);
+  }
+  // PubChem's suppliers for an InChIKey (Rust reads PubChem's answer and checks the links). Its error, if any.
+  // A request Stop has moved past leaves the row to the run after it.
+  const askSuppliers = (key: string) => {
+    const run = runs.current.suppliers;
+    setAskingKey(key);
+    return invoke<unknown>("pubchem_suppliers", { key }).then((x) => {
+      const f = suppliersOf(x);
+      if (f === undefined) return UNREACHED_NOTICE;
+      suppliersFound.current.set(key, f);
+    }, (e: unknown) => String(e)).finally(() => { if (runs.current.suppliers === run) setAskingKey((k) => (k === key ? undefined : k)); });
+  };
+  // A lookup for the keys the panel shows: each key once a window, one at a time. Stop moves the run on and ends the
+  // request in flight. Online search off: a notice with Open Settings. No network: a notice, and nothing is kept, so
+  // the next press asks again.
+  // No structure with a key (an R group, a query atom, a polymer): a notice. Every key found before: their rows show.
+  async function lookUp(kind: Lookup, keys: (string | undefined)[]) {
+    if (!keys.some(Boolean)) return setNotice(NO_KEY, "info");
+    const run = ++runs.current[kind], live = () => runs.current[kind] === run, want = wanted(keys, kind === "suppliers" ? suppliersFound.current : ghsFound.current);
+    if (!want.length) return;
+    setBusy((b) => ({ ...b, [kind]: true }));
+    // A Stop just pressed reaches Rust first, so it cannot end this run's requests.
+    await stopping.current[kind];
+    const failed = live() ? await askEach(want, kind === "suppliers" ? askSuppliers : (key) => askHazards(key), live) : undefined;
+    if (!live()) return;
+    setBusy((b) => ({ ...b, [kind]: false }));
+    if (failed === OFF) setNotice(offNotice(kind), "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
+    else if (failed) setNotice(failedNotice(failed), "info");
+  }
+  const stopping = useRef<Partial<Record<Lookup, Promise<unknown>>>>({});
+  function stopLookup(kind: Lookup) {
+    runs.current[kind]++;
+    setBusy((b) => ({ ...b, [kind]: false }));
+    if (kind === "suppliers") setAskingKey(undefined);
+    stopping.current[kind] = invoke("pubchem_stop", { kind }).catch(() => {});
+  }
+  // Find Suppliers and Find Hazards from the Search menu, the Actions panel, the palette or a key: the Properties panel
+  // for the selection (or the drawing), opened when it is closed, then the lookup. A lookup that runs goes on.
+  function findFor(kind: Lookup) {
+    if (!TAURI) return setNotice("Search runs in the Octet app.", "info");
+    if (!settings.onlineSearch) return setNotice(offNotice(kind), "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
+    if (!doc.atoms.length) return setNotice("Draw a structure first.", "info");
+    if (busy[kind]) return;
+    if (!settings.properties || !properties) {
+      pendingFind.current = kind;
+      if (!settings.properties) setSettings((s) => ({ ...s, properties: true }));
+      return;
+    }
+    if (!properties.structures.length) return setNotice("Select a structure to search.", "info");
+    if (kind === "suppliers") findSuppliers(); else findHazards();
+  }
+  useEffect(() => {
+    const kind = pendingFind.current;
+    if (!kind || !properties) return;
+    pendingFind.current = undefined;
+    findFor(kind);
+  }, [properties]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The panel closing stops its lookups.
+  useEffect(() => {
+    if (settings.properties) return;
+    if (busy.suppliers) stopLookup("suppliers");
+    if (busy.hazards) stopLookup("hazards");
+  }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!ghsKeys || !properties || !settings.onlineSearch) return;
     const t = setTimeout(() => setGhsKeys(keysOf(properties)), 300);
@@ -8364,6 +8455,7 @@ export default function Editor() {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
       search_pubchem: ["Search PubChem", `⌥${MOD}U`, <SearchGlyph letter="P" />], search_pubchem_sub: ["Search PubChem for substructures", `⇧⌥${MOD}U`, <SearchGlyph letter="P" />],
       search_scifinder: ["Search SciFinder", "", <SearchGlyph letter="S" />], search_scholar: ["Search Google Scholar", "", <SearchGlyph letter="G" />], search_patents: ["Search Google Patents", "", <SearchGlyph letter="G" />],
+      find_suppliers: ["Find suppliers", "", <Storefront size={18} />], find_hazards: ["Find hazards", "", <FirstAidKit size={18} />],
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
@@ -11261,6 +11353,11 @@ export default function Editor() {
           onNames={(on) => setSettings((s) => ({ ...s, propertyNames: on ? undefined : false }))}
           online={settings.onlineSearch}
           onHazards={findHazards}
+          suppliers={properties.suppliers}
+          busy={busy}
+          onSuppliers={findSuppliers}
+          onSupplier={(url) => void invoke("open_link", { name: `supplier:${url}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
+          onVendors={(cid) => void invoke("open_link", { name: `pubchem-vendors:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
           onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
         />
       )}</Live>}</Exit>
