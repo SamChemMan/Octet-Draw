@@ -43,7 +43,7 @@ assert.deepEqual(["+", "-"].map((k) => actionFor(map, k, "caption")), ["charge.p
 for (const k of ["c", "n", "1", "="]) assert.equal(actionFor(map, k, "caption"), actionFor(map, k, "none"), `${k} over a caption does what it did`);
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /keyCaption\(\) \? "caption"/, "the keys look for such a caption under the pointer");
-assert.match(editor, /if \(kind === "charge"\) \{\s*const c = keyCaption\(\)[^\n]*makeElements\(\[c\], key, false\);\s*if \(made\) return set\(keyCharge\(made, doc\.atoms\.length, arg\), false, key\);/, "and make it the atom with the charge, as one step");
+assert.match(editor, /if \(kind === "charge"\) \{\s*const c = keyCaption\(\)[^\n]*makeElements\(\[c\], key, false\);\s*if \(made\) return set\(keyCharge\(made, doc\.atoms\.length, arg(, !!style\.circled)?\), false, key\);/, "and make it the atom with the charge, as one step");
 
 // A label's sign is a mark, as a skeletal carbon's and a circled one are: a drag with Select moves it round its atom
 // (Atom.angles charge), clear of the label, and it stays there.

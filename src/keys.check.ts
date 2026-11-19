@@ -245,15 +245,15 @@ import type { Mol } from "./render.ts";
 {
   const charges = ACTIONS.filter((a) => a.id.startsWith("charge."));
   assert.deepEqual(charges.map((a) => [a.id, a.place, map[a.id] ?? []]),
-    [["charge.plus", "atom", ["+"]], ["charge.minus", "atom", ["-"]], ["charge.circledPlus", "atom", []], ["charge.circledMinus", "atom", []]]);
+    [["charge.plus", "atom", ["+"]], ["charge.minus", "atom", ["-"]], ["charge.circledPlus", "atom", []], ["charge.circledMinus", "atom", []], ["charge.circled", "atom", []]]);
   assert.equal(actionFor(keymap({ "charge.circledPlus": ["("] }), "(", "atom"), "charge.circledPlus");
   assert.deepEqual(clashes(map, "charge.circledMinus", ")"), []);
   const n: Mol = { atoms: [{ label: "N", location: [0, 0, 0] }], bonds: [] }, mark = (m: Mol, arg: string) => keyCharge(m, 0, arg).atoms[0];
-  assert.deepEqual(charges.map((a) => { const x = mark(n, a.id.slice(7)); return [x.charge, x.circled]; }), [[1, undefined], [-1, undefined], [1, true], [-1, true]]);
+  assert.deepEqual(charges.map((a) => { const x = mark(n, a.id.slice(7)); return [x.charge, x.circled]; }), [[1, undefined], [-1, undefined], [1, true], [-1, true], [undefined, undefined]]);
   const circled = keyCharge(n, 0, "circledPlus");
   assert.deepEqual([mark(circled, "circledPlus").charge, mark(circled, "circledMinus").circled], [2, undefined], "a second circled key adds up, or takes the charge off");
   assert.equal(mark(circled, "plus").circled, true, "+ on a circled charge keeps the circle, as before");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.equal(editor.match(/if \(kind === "charge"[^\n]*keyCharge\(\w+, \w+, arg\)/g)?.length, 2, "a charge key on an atom and on a selection");
+  assert.equal(editor.match(/if \(kind === "charge"[^\n]*keyCharge\(\w+, \w+, arg, !!style\.circled\)/g)?.length, 2, "a charge key on an atom and on a selection, in the document's look");
 }
 console.log("keys.check: circled charges on a key ok");
