@@ -52,9 +52,10 @@ On Windows, Copy also puts an Octet Drawing object first ("Embed Source" and "Ob
 clipboard, so Word, PowerPoint and Excel paste an object that opens in Octet. It goes on only with the picture, only
 while Settings > Import and export > Copy > Office object is on (the default), and only when Octet's class is
 registered for the user. Every format in the table above stays, in its order, after the object. Paste reads Octet's
-own object after Octet's JSON. The Mac and Linux are not changed. With the object, the EMF also holds the picture as
-EMF+ records, which Word draws anti-aliased (issue 166, decision 0023); every other EMF Octet makes is unchanged,
-but for text in a right-to-left script, which is outlines in every EMF.
+own object after Octet's JSON. The Mac and Linux are not changed. Since 1.1.3 the EMF on Windows also holds the
+picture as EMF+ records, with the object or without it, and so does Export as EMF. Word draws EMF+ anti-aliased
+(issues 166 and 167, decision 0023). The Mac's EMF for Office is GDI only, as before. Text in a right-to-left script
+is outlines in every EMF.
 
 ## Office's copy of the picture on the Mac (12 November 2026, release 1.1.2)
 
@@ -88,7 +89,7 @@ draws Octet's Windows EMF today.
 - The PDF stays on the clipboard after Office's copy, for Keynote, Pages, ChemDraw and every other program.
 - Word's own copy of such a picture has the zip with Octet's EMF and the PDF from the comment. Paste reads the
   drawing from the PDF, or from the EMF's CDXML comment when the zip is there alone.
-- The EMF on Windows (the clipboard, the Office object, Export as EMF) has no PDF. Its bytes are the same as before.
+- The EMF on Windows (the clipboard, the Office object, Export as EMF) has no PDF. Since 1.1.3 it has EMF+ records (decision 0023).
 - The theme part is Octet's own, the smallest the format allows. A picture uses nothing from it.
 - A drawing that holds a picture (a photo, a pasted screenshot) gets Office's copy too. Its EMF holds the picture as
   raw pixels (300 dpi at most), the CDXML with the picture's file as hex, and the PDF: the pixels and about 4 times

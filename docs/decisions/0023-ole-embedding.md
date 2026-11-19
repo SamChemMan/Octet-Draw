@@ -118,18 +118,20 @@ Decision:
   in every EMF, the GDI records too (`right_to_left` in `pick_runs`). usvg gives those glyphs in the order they show,
   so GDI would order them again, and `EmfPlusDrawDriverString` would draw each Arabic letter on its own, not joined.
   Outlines draw what the page drew. Latin, Greek and Cyrillic labels stay text, to the byte.
-- The EMF+ picture goes where Word draws an object: Copy with the object (`CF_ENHMETAFILE`, made on a thread beside
-  the bitmap), and every picture the object window sends (at open, after each change, Update, Close and Return,
-  Word's Close, Quit). Every other EMF keeps its 1.1.2 bytes (but right-to-left text, above): Copy with Office object off or the class not registered
-  (a test checks the CRC-32 of 1.1.2's copy), Export as EMF, Quick export, `--convert`, the AI apps' `read` with
-  format emf, the Mac's copy for Office, and Linux. Paste reads the CDXML comment as before, in 1.2 and in 1.1.2.
+- The EMF+ picture goes on every EMF Octet makes on Windows and every EMF it exports (from 1.1.3, issues 166 and
+  167): Copy with the object or without it (`CF_ENHMETAFILE`, made on a thread beside the bitmap), every picture the
+  object window sends (at open, after each change, Update, Close and Return, Word's Close, Quit), and Export as EMF,
+  Quick export, `--convert` and the AI apps' `read` with format emf. Copy without the object was 1.1.2's GDI-only
+  EMF, and Word drew it aliased and dropped bond outlines thinner than a pixel (issue 167). The Mac's EMF for Office
+  keeps its GDI records (it carries the PDF, which Word draws). Paste reads the CDXML comment as before, in 1.2 and
+  in 1.1.2.
 - ChemDraw: the pictures of ChemDraw for Windows objects in Word documents are EMF+ dual EMFs with anti-aliasing on
   (190 of 192 objects in five documents; MestReNova's 179 of 179). ChemDraw has a switch, File > Preferences >
   General > "Use Antialiasing When Generating Windows Metafiles"; Revvity's support article 4408239935508 gives it as
   the cure for the same complaint. Octet has no switch: it is always on. The old reason to turn it off was printer
-  drivers, and Office object off gives the GDI-only picture.
+  drivers. GDI and every printer driver that reads no EMF+ skip the EMF+ records and draw the GDI ones.
 - No new switch. Settings > Import and export > Copy > Office object (Windows only, on by default; Settings' search
-  finds it for "word") off gives a plain picture: 1.1.2's plain copy to the byte, 1.1.1's formats in 1.1.1's order.
+  finds it for "word") off gives a plain picture: no object, 1.1.1's formats in 1.1.1's order, with the same EMF+ picture.
   After this fix the object's picture is as smooth as a plain picture, so the reason the reporter gave is gone. The
   reasons left for a plain picture (a journal that takes pictures only, a smaller document) are what that switch is
   for, and Word's Paste Special > Picture (Enhanced Metafile) gives one plain paste. A second switch in Settings >

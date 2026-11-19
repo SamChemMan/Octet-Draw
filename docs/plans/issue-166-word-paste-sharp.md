@@ -44,7 +44,7 @@ Built (9 commits on b30f413, the plan's J1 to J5):
   `src-tauri/src/wordpaste_stress_tests.rs` (14 stress tests). Windows tests with "ole" in their names: `ole_plus_*`
   (`vector_plus_tests.rs:774-999`), `ole_stress_gdiplus_draws_every_drawing` (`wordpaste_stress_tests.rs:745`),
   `ole_cache_keeps_the_plus_picture` (`ole_windows.rs:1707`).
-- CRC test of the Windows copy without the object (`clipboard.rs`, `windows_copy_with_and_without_the_object`).
+- CRC test of the Windows copy without the object (`clipboard.rs`, `windows_copy_types`).
 - Speed test `windows_copy_time` (release, ignored). Numbers in decision 0023: Copy within 1.1.2's time.
 - Decision 0023 ("The object's picture"), one line in decision 0011, `docs/testing/ole-manual.md` test 16, and the
   Windows CI step in `platforms.yml` (job "Office objects (Windows)").
@@ -391,7 +391,7 @@ Old ids (S and M, from the 46-case list) in brackets, so the tests that already 
 | S11 | Hostile pictures copied: deep nesting, 200,000 points, a scale of 1e-30, control characters, a broken image, 10,000 labels, a poster 2 m wide, a picture 10 km wide [M3, S25] | No panic; valid by the specs; GDI coordinates in range; size limits kept | `stress_hostile_pictures`, `plus_draws_each_case` |
 | S12 | A damaged EMF pasted: every truncation, bytes changed, record sizes 0, odd, huge and past the end; an EMF+ comment longer than the file [S17] | Paste reads nothing from a broken picture; never panics; quick | `stress_paste_reads_damaged_office_emfs_safely`, `paste_reads_the_plus_emf_and_refuses_a_hostile_one` |
 | S13 | Paste back: Word's copy into Octet 1.2 and 1.1.2; the EMF+ picture alone; a CDXML comment with odd padding, UTF-8, "EMF+" inside it, 6 MB [S16, M8, M14] | The whole drawing; Octet's own forms first; from the picture, 1.1.2's reader finds the CDXML | `stress_cdxml_comment_round_trips`, the check's reader hashes and paste order |
-| S14 | Plain copies: Office object off; class not registered; Export as EMF, Quick export, `--convert`, MCP `read` emf; the Mac's Office copy [S13, S14, S15, M17] | 1.1.2's bytes (D11 aside); CDX and CDXML unchanged | `windows_copy_with_and_without_the_object`, `mac_copy_puts_offices_copy_first`, the check |
+| S14 | Plain copies: Office object off; class not registered; Export as EMF, Quick export, `--convert`, MCP `read` emf; the Mac's Office copy [S13, S14, S15, M17] | 1.1.2's bytes (D11 aside); CDX and CDXML unchanged | `windows_copy_types`, `mac_copy_puts_offices_copy_first`, the check |
 | S15 | Ctrl+C 20 times fast, two selections in turn, from 4 threads; Undo and Redo in an object window with Update after each [S18, S21] | Each copy waits for its thread; the same input gives the same bytes | `windows_copies_in_a_row_give_the_same_bytes`, `stress_same_bytes_on_many_threads` |
 | S16 | An object pasted from 1.1.2 [S20] | Unchanged until File > Update; smooth after | The check (Update always sends); `ole-manual.md` test 16 |
 | S17 | Two objects from two documents open and changed, then Quit [S22] | Both documents get EMF+ pictures | `ole-manual.md` test 15 |

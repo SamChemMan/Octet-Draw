@@ -89,7 +89,7 @@ const cases: Case[] = [
   },
   {
     id: "S14", what: "plain copies: Office object off, the class not registered, Export as EMF, Quick export, --convert, the MCP's read emf, the Mac's Office copy [S13, S14, S15, M11, M17]; since 1.1.3 (issue 167) every Windows copy and Export as EMF are the EMF+ dual EMF too",
-    rust: ["windows_copy_with_and_without_the_object", "mac_copy_puts_offices_copy_first"],
+    rust: ["windows_copy_types", "mac_copy_puts_offices_copy_first"],
     here: () => {
       // The object goes on only with the picture and the switch (the page), and when Windows has the class (Rust).
       // The EMF is the EMF+ dual EMF with the object and without it (issue 167: Word dropped thin bond outlines of the
