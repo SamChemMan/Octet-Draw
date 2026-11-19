@@ -3019,14 +3019,14 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
   // A shown field too long to show is a value (longShown), and a structure has MAX_EACH fields at most (withinEach).
-  const shown = longShown(withinCounts(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), lose));
+  const read = withinCounts(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true), lose), shown = longShown(read);
   if (shown.off) lose(SHOWN_OFF, shown.off);
   if (shown.left) lose("data field", shown.left);
   if (shown.notes) lose("annotation", shown.notes);
   const each = withinEach(shown.mol);
   if (each.left) lose("data field", each.left);
-  // A group of one thing goes, and its annotations with it.
-  const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(each.mol);
+  // A group of one thing goes, and its annotations with it (longShown counts those of the groups it takes apart).
+  const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(read);
   if (gone > 0) lose("annotation", gone);
   // At most 64 MB, as Octet saves (limits.ts): the texts, notes and data fields past it are left out, counted.
   return { mol: withinSize(each.mol, lose), style, lost };

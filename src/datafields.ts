@@ -39,8 +39,8 @@ export const fieldOfCaption = (m: Pick<Mol, "data">, id: number) => m.data?.find
 // A shown field read from any file whose text is over MAX_SHOWN is not shown, as Attach Data turns its Show off: the
 // field keeps the whole text as its value (one over MAX_VALUE is left out whole, as any field's value is, and its text
 // stays on the page as plain text), and the text goes from the page (docs/plans/long-text.md). off: the fields no
-// longer shown, said when the drawing opens (SHOWN_OFF); left: the fields left out; notes: the notes that were on the
-// texts that went.
+// longer shown, said when the drawing opens (SHOWN_OFF); left: the fields left out; notes: the notes that went with the
+// texts (their own, and those of a group that held a text and is no longer a group).
 export function longShown(m: Mol): { mol: Mol; off: number; left: number; notes: number } {
   if (!m.data?.some((f) => f.caption !== undefined)) return { mol: m, off: 0, left: 0, notes: 0 };
   const byId = new Map((m.captions ?? []).map((c) => [c.id, c])), gone = new Set<number>();
@@ -55,8 +55,9 @@ export function longShown(m: Mol): { mol: Mol; off: number; left: number; notes:
     return [{ name: f.name, atoms: f.atoms, value }];
   });
   if (!gone.size && !left) return { mol: m, off: 0, left: 0, notes: 0 };
-  const mol = { ...m, data: data.length ? data : undefined };
-  return { mol: gone.size ? deleteGraphics(mol, gone) : mol, off: gone.size, left, notes };
+  const mol = { ...m, data: data.length ? data : undefined }, out = gone.size ? deleteGraphics(mol, gone) : mol;
+  const groupNotes = (x: Mol) => (x.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0);
+  return { mol: out, off: gone.size, left, notes: notes + groupNotes(m) - groupNotes(out) };
 }
 // What a reader gives in its count of what it left out (oct.ts lostNotice) for a field whose Show it turned off
 // (longShown): said when the drawing opens, but nothing is lost, so Save does not ask before it replaces the file.

@@ -432,15 +432,15 @@ const notesIn = (v: unknown) => { const notes = v === undefined ? [] : readAnnot
 // The annotations parse left out past MAX_ANNOTATIONS on one object (counted, then set to 0 by each parse).
 let notesCut = 0;
 // Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them. A list of more than
-// MAX_ANNOTATIONS (a file from before the editor kept that limit) keeps the document's properties and details and the
-// first notes that fit, in their order, and the rest are counted.
+// MAX_ANNOTATIONS (a file from before the editor kept that limit) keeps MAX_ANNOTATIONS: the document's properties and
+// details first, then the first notes that fit, in their order, and the rest are counted.
 function readAnnotations(v: unknown): Annotation[] {
   const ok = (s: unknown, most: number) => typeof s === "string" && s.length <= most && !/[\u0000-\u0009\u000b-\u001f\u007f]/.test(s);
   if (!Array.isArray(v) || v.length > 4 * MAX_ANNOTATIONS || !v.every((a) => ok(a?.keyword, MAX_KEYWORD) && ok(a?.content, MAX_CONTENT))) throw new Error("This drawing is damaged.");
   const all = v.map((a) => ({ keyword: a.keyword as string, content: a.content as string }));
   if (all.length <= MAX_ANNOTATIONS) return all;
-  let room = MAX_ANNOTATIONS - all.filter((a) => !isNote(a)).length;
-  const kept = all.filter((a) => !isNote(a) || room-- > 0);
+  let first = MAX_ANNOTATIONS, room = Math.max(0, MAX_ANNOTATIONS - all.filter((a) => !isNote(a)).length);
+  const kept = all.filter((a) => (isNote(a) ? room-- > 0 : first-- > 0));
   notesCut += all.length - kept.length;
   return kept;
 }

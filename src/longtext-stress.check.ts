@@ -14,6 +14,7 @@ import { runInNewContext } from "node:vm";
 const { overLimit, parse, serialize } = await import("./file.ts");
 const { fromCdxml, parseXml, toCdxml } = await import("./cdxml.ts");
 const { cdxToXml, xmlToCdx } = await import("./cdx.ts");
+const { fragments } = await import("./edit.ts");
 const { FALLBACK, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
 const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
@@ -25,10 +26,9 @@ const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
 const { COMMENT, MAX_COMMENT, MAX_VALUE, oneLine } = await import("./experiment.ts");
 const { readRisk } = await import("./riskassess.ts");
 const { MAX_DATA, MAX_EACH, MAX_SHOWN, MAX_VALUE: MAX_FIELD, SHOWN_OFF, leftOf, readSd, rowsOf, setRows } = await import("./datafields.ts");
-const { MAX_SIZE, sizeOf } = await import("./limits.ts");
+const { MAX_ATOMS, MAX_SIZE, sizeOf, withinSize } = await import("./limits.ts");
 const { stampedWithin, MAX_ANNOTATIONS } = await import("./annotate.ts");
 const { PROPERTIES, withDetails } = await import("./experiment.ts");
-const { fragments } = await import("./edit.ts");
 const { MAX_GRIDS } = await import("./experiment.ts");
 const { MAX_NOTES, noteCount } = await import("./annotate.ts");
 const { nicknameProblem } = await import("./labels.ts");
@@ -552,31 +552,88 @@ it("L18 a structure holds MAX_EACH data fields: a bond that joins two structures
   assert.deepEqual([sd.records[0].items.length, sd.left], [MAX_EACH, 1]);
 });
 
+// A drawing at bond lengths k apart, its coordinates of many digits (as a large drawing's are), and a chain of n atoms.
+const spot = (k: number): [number, number, number] => [(k % 300) * 1.2345678 + 1000.123456, -Math.floor(k / 300) * 1.2345678 - 1000.123456, 0];
+const chain = (n: number, label = "C", more: (k: number) => object = () => ({})): Mol => ({ atoms: Array.from({ length: n }, (_, k) => ({ label, location: spot(k), ...more(k) })), bonds: Array.from({ length: n - 1 }, (_, k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })) });
+// The most bytes Octet writes a drawing in: its .oct, its .cdx and its recovery copy.
+const written = (m: Mol) => Math.max(Buffer.byteLength(writeOct(m, style)), writeCdx(m, style).length, Buffer.byteLength(serialize({ ...m, style })));
+// Each property of an atom, a bond, an arrow, a text and a shape, with its costliest value.
+const ATOM_PROPS = { charge: -3, radical: 2, isotope: 235, pairs: 3, circled: true, partial: "+", hmark: "dash", attach: "star", bead: true, map: 999, enhanced: "or12", colour: "#123456", shade: 0.55555, font: "Times New Roman", size: 13.5,
+  bold: true, italic: true, underline: true, ignoreWarnings: true, cip: true, halo: "#654321", circle: true, number: "12345678", hiddenNumber: "12345678", peaks: [1, 2, 3], align: "above", labelAngle: 123.456, hidden: true,
+  angles: { charge: 123.4, partial: 45.6, radical0: 10.5, pair0: 33.3 }, sign: { at: [0.123456, 0.654321], colour: "#123456", size: 1.5 }, bars: true, chemical: false, shown: true, order: 1234,
+  query: { subst: { kind: "exactly", n: 3 }, noH: true, rings: "fusion", unsat: "present", change: true, stereo: "retention", translation: "broad", abundance: "nonnatural", valence: true }, scale: 1.2345, ox: 3, implicitHCount: 3 };
+const BOND_PROPS = { type: 2, stereo: 1, display: "Dash", position: "left", colour: "#123456", halo: "#654321", ignoreWarnings: true, query: "any", topology: "ring", rxn: "makechange", spacing: 12.3456, line: 1.23456, bold: 4.56789,
+  own: { BondSpacingAbs: "12.345", LineWidth: "1.2345", BoldWidth: "4.5678", HashSpacing: "2.7123", MarginWidth: "1.6123" }, peaks: [1, 2, 3], route: 0.5 };
+const ARROW_PROPS = { bend: 0.123456, style: "dashed", colour: "#123456", start: "left", end: "left", head: "hollow", headSize: { length: 1.23456, centre: 0.765432, width: 0.345678 }, ratio: 0.55555, shaft: 0.33333, point: true, order: 1234,
+  width: 1.2345, scale: 1.2345, fill: "faded", role: { role: "axis", at: [1.234567, 2.345678] }, orbital: { shape: "dz2", phase: "phased" }, fromOn: { atom: 0, pair: "pair0" }, toOn: { bond: [0, 1] } };
+const CAPTION_PROPS = { bold: true, italic: true, underline: true, size: 13.5, align: "justify", colour: "#123456", angle: 123.456, font: "Times New Roman", order: 1234, width: 12.3456, lineHeight: 13.5, chemical: false, auto: true,
+  field: "notebook", role: { role: "title", at: [1.234567, 2.345678] } };
+const SHAPE_PROPS = { dashed: true, colour: "#123456", fill: "faded", shadow: true, side: "left", mark: "123456789012", shade: { depth: 0.123456, blur: 0.234567, opacity: 0.345678 }, boldLine: true, order: 1234, angle: 123.456, width: 1.2345,
+  radius: 0.12345, font: "Times New Roman", size: 13.5, bold: true, italic: true, underline: true, ignoreWarnings: true, rgroup: { name: "R1", occur: "1-3", restH: true, then: "R2" }, bracketed: true, scale: 1.2345, count: 8 };
+const ARROWS = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"] as const;
+const SHAPES = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces", "symbol"] as const;
+// Each kind of thing, alone and with every property, and each property alone (each 50 of them, so a property's bytes
+// show), and the lists of atoms on 100,000 atoms (ids of six digits).
+function sizeParts(): [string, Mol][] {
+  const two = chain(2), xy = (k: number): [number, number] => [spot(k)[0], spot(k)[1]], end = (k: number): [number, number] => [xy(k)[0] + 3.3333333, xy(k)[1] + 1.1111111];
+  const arrows = (kind: string, more: object) => ({ ...two, arrows: Array.from({ length: 50 }, (_, k) => ({ id: k + 1, kind, from: xy(k), to: end(k), ...more })) }) as Mol;
+  const captions = (more: object) => ({ ...two, arrows: [{ id: 1000, kind: "reaction", from: [0, -5], to: [3, -5] }], captions: Array.from({ length: 50 }, (_, k) => ({ id: k + 1, text: "a", x: xy(k)[0], y: xy(k)[1], ...more })) }) as Mol;
+  const shapes = (kind: string, more: object) => ({ atoms: [], bonds: [], shapes: Array.from({ length: 50 }, (_, k) => ({ id: k + 1, kind, from: xy(k), to: end(k), ...(kind === "symbol" ? { symbol: "radicalCation" } : {}), ...more })) }) as Mol;
+  const bonds = (more: object) => ({ atoms: chain(51).atoms, bonds: Array.from({ length: 50 }, (_, k) => ({ atoms: [k, k + 1], type: 1, ...more })) }) as Mol;
+  const big = chain(100_000), tail = Array.from({ length: 2000 }, (_, j) => 98_000 + j);
+  const lists: Mol = { ...setRows(big, tail, Array.from({ length: 5 }, (_, k) => ({ name: `Shown${k}`, value: "v", show: true }))), groups: [{ id: 90_001, atoms: tail, items: [] }],
+    fills: Array.from({ length: 20 }, (_, k) => ({ atoms: [96_000 + 6 * k, 96_001 + 6 * k, 96_002 + 6 * k, 96_003 + 6 * k, 96_004 + 6 * k, 96_005 + 6 * k], colour: "#123456" })) };
+  lists.atoms = [...lists.atoms, ...Array.from({ length: 5 }, (_, k) => ({ label: "C", location: [0, k, 0] as [number, number, number], centre: { atoms: tail.slice(0, 100) } }))];
+  lists.captions = [...lists.captions!, ...Array.from({ length: 5 }, (_, k) => ({ id: 80_001 + k, text: "a", x: 0, y: 0, under: tail })), { id: 80_010, text: "C2H6", x: 0, y: 0, property: { attrs: { ChemicalPropertyType: "2", Name: "Formula" }, atoms: tail } },
+    ...Array.from({ length: 20 }, (_, k) => ({ id: 80_100 + k, text: "123.45°", x: 0, y: 0, measure: { atoms: [99_990 - k, 99_991, 99_992, 99_993], at: [1.2345678, 2.3456789] as [number, number] } }))];
+  lists.data = [...lists.data!, ...Array.from({ length: 5 }, (_, k) => ({ name: `Hidden${k}`, atoms: tail, value: "v" }))];
+  return [
+    ["carbons alone", { atoms: chain(500).atoms, bonds: [] }], ["Cl alone", { atoms: chain(500, "Cl").atoms, bonds: [] }], ["carbons in a chain", chain(500)],
+    ...(["C", "N"] as const).flatMap((label) => [[`${label} with every property`, chain(50, label, () => ATOM_PROPS)], ...Object.entries(ATOM_PROPS).map(([k, v]) => [`${label} ${k}`, chain(50, label, () => ({ [k]: v }))])] as [string, Mol][]),
+    ["kept stereo", chain(50, "C", (k) => ({ kept: { atoms: [Math.max(0, k - 1), Math.min(49, k + 1), -1, -1], marks: "1 2 0" } }))],
+    ["bonds with every property", bonds(BOND_PROPS)], ...Object.entries(BOND_PROPS).map(([k, v]): [string, Mol] => [`bond ${k}`, bonds({ [k]: v })]),
+    ...ARROWS.flatMap((kind): [string, Mol][] => [[`arrow ${kind}`, arrows(kind, {})], [`arrow ${kind} with every property`, arrows(kind, ARROW_PROPS)]]), ...Object.entries(ARROW_PROPS).map(([k, v]): [string, Mol] => [`arrow ${k}`, arrows("reaction", { [k]: v })]),
+    ...([["line", 3.5, 1], ["arc", 20, 1], ["line", 10, 0.3]] as const).map(([kind, len, scale]): [string, Mol] => [`membrane ${kind} ${len}`, { atoms: [], bonds: [], arrows: Array.from({ length: 5 }, (_, k) => ({ id: k + 1, kind, from: xy(k), to: [xy(k)[0] + len, xy(k)[1]], style: "membrane", width: 1.2345, ...(kind === "arc" ? { bend: 0.8 } : {}), ...(scale !== 1 ? { scale } : {}) })) }]),
+    ["texts with every property", captions(CAPTION_PROPS)], ...Object.entries(CAPTION_PROPS).map(([k, v]): [string, Mol] => [`text ${k}`, captions({ [k]: v })]),
+    ["texts on an arrow", captions({ on: { arrow: 1000, side: "above", gap: 0.123456 }, placed: { at: [1.234567, 2.345678], arrow: [3.456789, 4.567891] } })],
+    ...SHAPES.flatMap((kind): [string, Mol][] => [[`shape ${kind}`, shapes(kind, {})], [`shape ${kind} with every property`, shapes(kind, SHAPE_PROPS)]]), ...Object.entries(SHAPE_PROPS).map(([k, v]): [string, Mol] => [`shape ${k}`, shapes("brackets", { [k]: v })]),
+    ["shown fields", setRows(chain(3), [0, 1, 2], Array.from({ length: 50 }, (_, k) => ({ name: `Field${k}`, value: "v", show: true })))],
+    ["fields on many structures", { atoms: chain(500).atoms, bonds: [], data: Array.from({ length: 5 }, (_, k) => ({ name: `F${k}`, atoms: Array.from({ length: 500 }, (_, j) => j), value: "v" })) }],
+    ["lists of atoms on 100,000 atoms", lists],
+  ];
+}
+
 it("L19 a drawing holds what saves within 64 MB (MAX_SIZE): long texts past it are refused, a reader leaves them out, counted, and a drawing within it saves in every form", () => {
   const texts = (n: number, t: string): Mol => ({ atoms: [], bonds: [], captions: Array.from({ length: n }, (_, k) => ({ id: k + 1, text: t, x: k % 100, y: -Math.floor(k / 100) })) });
   // The fault: 1,400 texts of MAX_TEXT were within every count, and Save and the recovery copy refused the drawing.
   assert.equal(overLimit(texts(1400, prose(MAX_TEXT)), texts(0, "")), "A drawing holds up to 64 MB.");
-  // sizeOf is over what every writer makes of each kind of thing, with the costliest characters (", a style run each).
+  // sizeOf is over what every writer makes of each kind of thing, with each property and the costliest characters (",
+  // a style run each), past what an empty drawing takes.
   const q = '"'.repeat(1000), runs = (t: string) => [...t].map((ch, k) => ({ text: ch, bold: true, italic: true, underline: true, script: k % 2 ? "sub" as const : "super" as const, font: "Times New Roman", size: 13.5, colour: "#123456" }));
-  const at = (k: number): [number, number, number] => [(k % 300) * 1.2345678, -Math.floor(k / 300) * 1.2345678, 0];
   const three: Mol = { atoms: [0, 1, 2].map((k) => ({ label: "C", location: [3 * k, 0, 0] as [number, number, number] })), bonds: [] };
   const hex = (n: number) => Array.from({ length: 2 * n }, (_, k) => "0123456789ABCDEF"[(k * 7919) % 16]).join("");
   const parts: [string, Mol][] = [
     ["texts of \"", texts(50, q)], ["texts of €", texts(50, "€".repeat(1000))], ["a style run each", { ...texts(20, "ab".repeat(250)), captions: texts(20, "ab".repeat(250)).captions!.map((c) => ({ ...c, runs: runs(c.text) })) }],
-    ["atoms", { atoms: Array.from({ length: 1000 }, (_, k) => ({ label: "C", location: at(k) })), bonds: [] }],
-    ["charged atoms", { atoms: Array.from({ length: 300 }, (_, k) => ({ label: "N", location: at(k), charge: -3, isotope: 15, radical: 2, map: 99, colour: "#123456", enhanced: "or9", pairs: 2, circled: true, partial: "+" as const, hmark: "dot" as const, attach: "star" as const, shade: 0.5 })), bonds: [] }],
-    ["labels with runs", { atoms: Array.from({ length: 200 }, (_, k) => ({ label: "N", location: at(k), text: '"'.repeat(40), runs: Array.from({ length: 40 }, (_, j) => ({ text: '"', ...(j % 2 ? { bold: true as const } : { italic: true as const }), colour: "#123456" })) })), bonds: [] }],
-    ["bonds", { atoms: Array.from({ length: 300 }, (_, k) => ({ label: "C", location: at(k) })), bonds: Array.from({ length: 1200 }, (_, k) => ({ atoms: [k % 300, (k + 1 + Math.floor(k / 300) * 7) % 300] as [number, number], type: 2, stereo: 1, colour: "#123456" })) }],
+    ["labels with runs", { atoms: Array.from({ length: 200 }, (_, k) => ({ label: "N", location: spot(k), text: '"'.repeat(40), runs: Array.from({ length: 40 }, (_, j) => ({ text: '"', ...(j % 2 ? { bold: true as const } : { italic: true as const }), colour: "#123456" })) })), bonds: [] }],
     ["curves", { atoms: [], bonds: [], arrows: Array.from({ length: 5 }, (_, k) => ({ id: k + 1, kind: "curve" as const, from: [0, 0] as [number, number], to: [1, 1] as [number, number], curve: { points: Array.from({ length: 1000 }, (_, j) => ({ at: [j * 0.123456789, Math.sin(j) * 3.21] as [number, number], ...(j % 3 ? { c1: [j * 0.1234567, 1.234567] as [number, number], c2: [j * 0.17654321, -1.234567] as [number, number] } : {}) })) } })) }],
     ["table cells", { atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [40, -100], table: { cells: Array.from({ length: 50 }, () => Array.from({ length: 20 }, () => q.slice(0, 500))) } }] }],
     ["notes", withTexts(...Array.from({ length: 5 }, () => ({ text: "a", notes: Array.from({ length: 100 }, () => ({ keyword: NOTE, content: q })) })))],
     ["values on three structures", { ...three, data: Array.from({ length: 50 }, (_, k) => ({ name: `F${k}`, atoms: [0, 1, 2], value: q })) }],
     ["a picture", { atoms: [], bonds: [], shapes: [{ id: 1, kind: "picture", from: [0, 0], to: [10, 10], picture: { PNG: hex(1 << 19) } }] }],
+    ...sizeParts(),
   ];
-  for (const [name, m] of parts) {
-    const most = Math.max(Buffer.byteLength(writeOct(m, style)), writeCdx(m, style).length, Buffer.byteLength(serialize({ ...m, style })));
-    assert.ok(most <= sizeOf(m), `${name}: ${most} bytes written, ${sizeOf(m)} worked out`);
-  }
+  const none = written({ atoms: [], bonds: [] }), base = sizeOf({ atoms: [], bonds: [] });
+  const under = parts.flatMap(([name, m]) => { const w = written(m) - none, e = sizeOf(m) - base; return w > e ? [`${name}: ${w} bytes written, ${e} worked out`] : []; });
+  assert.deepEqual(under, []);
+  // What the independent check found under-counted (the writers measured in docs/plans/long-text.md): texts tied under
+  // a large structure, shown fields on one, and fields on many structures. Each is refused past 64 MB.
+  const big = chain(10_000), all = big.atoms.map((_, i) => i);
+  assert.equal(overLimit({ ...big, captions: Array.from({ length: 400 }, (_, k) => ({ id: k + 1, text: "a", x: 0, y: 0, under: all })) }, big), "A drawing holds up to 64 MB.");
+  const two = chain(2000), rows = Array.from({ length: 700 }, (_, k) => ({ name: `Field${k}`, value: "v", show: true }));
+  assert.equal(overLimit(setRows(two, two.atoms.map((_, i) => i), rows), two), "A drawing holds up to 64 MB.");
+  const fields: Mol = { ...two, data: Array.from({ length: 400 }, (_, k) => ({ name: `F${k}`, atoms: two.atoms.map((_, i) => i), value: "v" })) };
+  assert.equal(overLimit(fields), undefined);
+  assert.equal(overLimit({ ...fields, bonds: [] }, fields), "A drawing holds up to 64 MB.", "every bond deleted");
   // At the limit: texts of " (the costliest character) up to MAX_SIZE save as .oct, .cdx and the recovery copy, each
   // within the 64 MB Octet saves (main.rs MAX_BYTES). One more text is refused.
   const t = '"'.repeat(MAX_TEXT), one = sizeOf(texts(1, t)) - sizeOf(texts(0, t)), n = Math.floor((MAX_SIZE - sizeOf(texts(0, t))) / one), full = texts(n, t);
@@ -591,14 +648,84 @@ it("L19 a drawing holds what saves within 64 MB (MAX_SIZE): long texts past it a
   // Notes past it go first (the last first), then texts (H1), then data fields.
   const many = readOct(serialize({ ...withTexts(...Array.from({ length: 10 }, () => ({ text: "a", notes: Array.from({ length: 1000 }, () => ({ keyword: NOTE, content: prose(MAX_CONTENT) })) }))), style }));
   assert.ok(sizeOf(many.mol) <= MAX_SIZE && (many.lost.annotation ?? 0) > 0 && !many.lost.text && many.mol.captions!.length === 10, JSON.stringify(many.lost));
-  // overLimit keeps the editor fast: on a large drawing, an edit's count costs a small part of what fragments() does once.
-  const N = 20_000, big: Mol = { atoms: Array.from({ length: N }, (_, k) => ({ label: "C", location: at(k) })), bonds: Array.from({ length: N }, (_, k) => k).filter((k) => (k + 1) % 20).map((k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })),
-    captions: texts(2000, "The mixture was stirred at 25 °C for 2 h.").captions, data: Array.from({ length: 2000 }, (_, k) => ({ name: `F${k % 2}`, atoms: Array.from({ length: 20 }, (_, j) => (k >> 1) * 20 + j), value: "12345" })) };
-  overLimit(big);
-  const edits = Array.from({ length: 30 }, (_, k) => (k % 3 === 0 ? { ...big, atoms: big.atoms.map((a, i) => (i === k ? { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] } : a)) } : k % 3 === 1 ? { ...big, captions: big.captions!.map((c, i) => (i === k ? { ...c, text: `${c.text}x` } : c)) } : { ...big, bonds: [...big.bonds] }));
-  const counted = ms(() => { for (const m of edits) overLimit(m, big); }) / edits.length, frag = ms(() => { for (const m of edits) fragments(m); }) / edits.length;
-  assert.ok(counted < frag / 2 + 0.5, `overLimit ${counted.toFixed(2)} ms an edit, fragments ${frag.toFixed(2)} ms`);
-  console.log(`longtext-stress: L19 overLimit on ${N} atoms, 2,000 texts, 2,000 fields: ${counted.toFixed(2)} ms an edit (fragments: ${frag.toFixed(2)} ms)`);
+});
+
+it("L25 sizeOf counts what each property writes: 32,000 coloured atoms (a 10 MB file) open and take edits whole, and a drawing whose structures alone are over 64 MB keeps its texts", () => {
+  // An atom's property costs about what it writes: within twice, past what an empty drawing takes.
+  const none = written({ atoms: [], bonds: [] }), base = sizeOf({ atoms: [], bonds: [] });
+  for (const more of [{ colour: "#C00000" }, { cip: true }, { shade: true }, { charge: 1 }, { number: "1" }, { kept: { atoms: [0, 1, -1, -1], marks: "1 2 0" } }, { query: { rings: "spiro" } }]) {
+    const d = chain(2000, "C", () => more), w = written(d) - none, e = sizeOf(d) - base;
+    assert.ok(w <= e && e < 2 * w, `${JSON.stringify(more)}: ${e} worked out, ${w} written`);
+  }
+  // A drawing of 32,000 coloured atoms and 10 texts (a .oct of 10 MB) opens with its texts, from Octet's own copy and
+  // from ChemDraw's CDXML, and takes a new text and a new bond.
+  const d: Mol = { ...chain(32_000, "C", () => ({ colour: "#C00000" })), captions: Array.from({ length: 10 }, (_, k) => ({ id: k + 1, text: `t${k}`, x: k, y: 5 })) };
+  const own = readOct(writeOct(d, style), true), cd = fromCdxml(theirs(d));
+  assert.deepEqual([own.mol.captions?.length, own.lost, cd.mol.captions?.length, cd.lost], [10, {}, 10, {}]);
+  assert.equal(overLimit({ ...d, captions: [...d.captions!, { id: 99, text: "new", x: 0, y: 9 }] }, d), undefined, "a new text");
+  assert.equal(overLimit({ ...d, bonds: [...d.bonds, { atoms: [0, 5], type: 1 }] }, d), undefined, "a new bond");
+  // As many coloured atoms as a drawing holds take a new text too.
+  const most = chain(MAX_ATOMS, "C", () => ({ colour: "#C00000" }));
+  assert.equal(overLimit({ ...most, captions: [{ id: 1, text: "new", x: 0, y: 9 }] }, most), undefined);
+  // Structures alone over MAX_SIZE (another program's file): nothing is gained by leaving out notes, texts or fields,
+  // so the drawing is read whole.
+  const heavy: Mol = { ...chain(MAX_ATOMS, "C", () => ATOM_PROPS), annotations: [{ keyword: NOTE, content: "a" }], captions: [{ id: 1, text: "kept", x: 0, y: 9 }], data: [{ name: "F", atoms: [0], value: "v" }] };
+  const lost: Record<string, number> = {};
+  assert.ok(sizeOf({ ...heavy, annotations: undefined, captions: undefined, data: undefined }) > MAX_SIZE);
+  assert.equal(withinSize(heavy, (what, n) => { lost[what] = n; }), heavy);
+  assert.deepEqual(lost, {});
+});
+
+it("L26 overLimit costs an edit about what it changed: on 100,000 atoms (a third coloured), 2,000 texts and 5,000 data fields, a small part of what fragments() costs", () => {
+  const n = MAX_ATOMS, d: Mol = { atoms: chain(n, "C", (k) => (k % 3 ? {} : { colour: "#C00000" })).atoms, bonds: Array.from({ length: n }, (_, k) => k).filter((k) => (k + 1) % 20).map((k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })),
+    captions: Array.from({ length: 2000 }, (_, k) => ({ id: k + 1, text: "The mixture was stirred at 25 °C for 2 h.", x: k % 100, y: -Math.floor(k / 100) })),
+    data: Array.from({ length: 5000 }, (_, k) => ({ name: `F${k % 2}`, atoms: Array.from({ length: 20 }, (_, j) => (k >> 1) * 20 + j), value: "12345" })) };
+  const moveAll = (m: Mol) => ({ ...m, atoms: m.atoms.map((a) => ({ ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] })) });
+  const edits: Record<string, (m: Mol, k: number) => Mol> = {
+    "move every atom": moveAll,
+    "move one atom": (m, k) => ({ ...m, atoms: m.atoms.map((a, i) => (i === k ? { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] } : a)) }),
+    "add a bond": (m, k) => ({ ...m, bonds: [...m.bonds, { atoms: [k * 20 + 19, k * 20 + 20], type: 1 }] }),
+    "add an atom and its bond": (m) => ({ ...m, atoms: [...m.atoms, { label: "C", location: [0, 5, 0] }], bonds: [...m.bonds, { atoms: [0, m.atoms.length], type: 1 }] }),
+    "delete a bond": (m, k) => ({ ...m, bonds: m.bonds.filter((_, i) => i !== 1000 + k) }),
+  };
+  const med = (xs: number[]) => [...xs].sort((p, q) => p - q)[xs.length >> 1];
+  overLimit(d);
+  // What the editor does anyway on such a drawing (edit.ts fragments, as an edit's onTop and wholeGroups use it): the
+  // measure the cost is set against.
+  for (let k = 0; k < 5; k++) fragments(d);
+  const frag = Math.min(...Array.from({ length: 9 }, () => ms(() => fragments(d))));
+  const cost: Record<string, number> = {};
+  for (const [name, edit] of Object.entries(edits)) {
+    const times: number[] = [];
+    for (let r = 0; r < 6; r++) {
+      const steps = [d];
+      for (let k = 0; k < 10; k++) steps.push(edit(steps[k], k));
+      for (let k = 1; k < steps.length; k++) { const t = ms(() => overLimit(steps[k], steps[k - 1])); if (r >= 2) times.push(t); }
+    }
+    cost[name] = med(times);
+  }
+  console.log(`longtext-stress: L26 overLimit on ${n.toLocaleString("en-GB")} atoms, 2,000 texts, 5,000 fields, ms an edit: ${Object.entries(cost).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")} (fragments: ${frag.toFixed(2)})`);
+  for (const [name, t] of Object.entries(cost)) assert.ok(t <= frag / (name === "move every atom" ? 4 : 6), `${name}: ${t.toFixed(2)} ms, fragments ${frag.toFixed(2)} ms`);
+});
+
+it("L27 a text too long to show takes the notes of a group it was in with it, counted, so Save asks; and a list of annotations past MAX_ANNOTATIONS keeps MAX_ANNOTATIONS", () => {
+  // 1.1.2's form: ethanol with a shown value of 3,000 characters (its property on its text), in a group with a note.
+  const caption = { id: 1, x: 0, y: -2, text: prose(3000), under: [0, 1, 2], property: { attrs: { ChemicalPropertyType: "23", Name: "Procedure" }, atoms: [0, 1, 2] } };
+  const grouped = (more: Partial<Mol>): Mol => ({ ...ETHANOL, captions: [caption], groups: [{ id: 9, atoms: [0, 1, 2], items: [1], annotations: [{ keyword: NOTE, content: "Batch from Sam" }] }], ...more }) as Mol;
+  for (const [name, read] of [["json", (m: Mol) => ({ mol: parse(serialize(m)), lost: leftOf(parse(serialize(m))) })], ["oct", (m: Mol) => readOct(writeOct(m, style), true)], ["cdxml", (m: Mol) => fromCdxml(theirs(m))]] as const) {
+    const r = read(grouped({}));
+    assert.deepEqual([r.mol.groups ?? [], r.lost], [[], { [SHOWN_OFF]: 1, annotation: 1 }], name);
+    assert.equal(lostText(r.lost), "1 annotation", `${name}: Save asks`);
+  }
+  // With another text in the group, its notes and the text's own go, all counted.
+  const shared = grouped({ captions: [{ ...caption, notes: [{ keyword: NOTE, content: "own" }] }, { id: 2, x: 0, y: -5, text: "b" }], groups: [{ id: 9, atoms: [], items: [1, 2], annotations: [{ keyword: NOTE, content: "a" }, { keyword: NOTE, content: "b" }] }] });
+  for (const r of [readOct(serialize({ ...shared, style })), readOct(writeOct(shared, style), true), fromCdxml(theirs(shared))]) assert.equal(r.lost.annotation, 3);
+  // A hand-made .oct with 4,000 annotations on one text, each a document property's (Title): MAX_ANNOTATIONS kept, the
+  // rest counted, as its CDXML copy keeps them.
+  const titled = withTexts({ text: "a", notes: Array.from({ length: 4 * MAX_ANNOTATIONS }, (_, k) => ({ keyword: "Title", content: `${k}` })) });
+  const json = readOct(serialize({ ...titled, style })), cd = fromCdxml(theirs(titled));
+  assert.deepEqual([json.mol.captions![0].notes!.length, json.lost], [MAX_ANNOTATIONS, { annotation: 3 * MAX_ANNOTATIONS }]);
+  assert.equal(cd.mol.captions![0].notes!.length, MAX_ANNOTATIONS);
 });
 
 it("L20 each limit holds on its own: a drawing past one takes edits that add none of it, and the readers and Save keep the comment and Last changed by within the notes", () => {
@@ -649,6 +776,7 @@ it("L22 an insert set refuses selects nothing new: every caller that selects wha
   assert.match(editor, /\.\.\.\(copies \? \{ was: \[atoms0, picks0\] as \[Set<number>, Set<number>\] \} : \{\}\)/);
   assert.match(editor, /const made = set\(labelEnd\(mol, id\)\);\n\s+if \(refused\.current\) return;/, "a new text");
   assert.match(editor, /if \(r\.made && refused\.current\) return;/, "a measurement");
+  assert.match(editor, /set\(m, false, merge\);\n\s+if \(refused\.current\) return;\n\s+labelOpen\.current = true;/, "the > key's new label");
   assert.ok((editor.match(/refused\.current/g)?.length ?? 0) >= 22, "every caller");
 });
 
@@ -772,8 +900,9 @@ it("S1 the example drawings read and write as fast as release-1.1.3 (interleaved
 // ---------------------------------------------------------------------------------------------------------------------
 
 let failed = 0;
-// The speed case first, before the other cases have run the same code on other kinds of drawing.
-for (const [name, run] of [...cases].sort((p, q) => Number(!p[0].startsWith("S1")) - Number(!q[0].startsWith("S1")))) {
+// The speed cases first, before the other cases have run the same code on other kinds of drawing.
+const first = (name: string) => Number(!/^(S1|L26) /.test(name));
+for (const [name, run] of [...cases].sort((p, q) => first(p[0]) - first(q[0]))) {
   try { await run(); } catch (e) { failed++; console.error(`FAIL ${name}\n  ${e instanceof Error ? e.message.split("\n").slice(0, 6).join("\n  ") : e}`); }
 }
 console.log(`longtext-stress: ${cases.length - failed} of ${cases.length} cases pass`);

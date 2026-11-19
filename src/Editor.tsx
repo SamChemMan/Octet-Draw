@@ -6633,6 +6633,7 @@ export default function Editor() {
     const ends = atoms.map((i) => { let end: number; [m, end] = addGroupAt(m, i, "chain"); return end; });
     const merge = `sprout-label ${++sprouts.current}`;
     set(m, false, merge);
+    if (refused.current) return;
     labelOpen.current = true;
     setEditing({ atom: ends[0], value: "", ...(ends.length > 1 ? { all: ends } : {}), merge, blank: true });
   }
