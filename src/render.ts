@@ -400,6 +400,7 @@ export type Shape = {
   rgroup?: { name: string; occur?: string; restH?: true; then?: string };
   scale?: number; // the shape's size against the document style (decision 0007); unset is 1
   symbol?: FreeSymbol; // a free symbol's kind (kind "symbol")
+  count?: number; // a free charge's number (issue 60): 2 to 8 on the four charge kinds, unset is 1
 };
 // A free symbol: a charge, radical or lone pair that is on the page by itself, as ChemDraw's unattached chemical symbol
 // (a Symbols tool click away from an atom). It is not chemistry: no formula, mass, name or SMILES counts it. Its box
@@ -418,12 +419,63 @@ export const SYMBOL_BOX: Record<FreeSymbol, [number, number]> = {
 // A free partial charge is text, as an atom's is (δ+, δ–): the font size is the symbol's size, and its baseline runs
 // along the foot of its box from the left.
 export const partialText = (sh: Pick<Shape, "symbol">) => (sh.symbol === "partialPlus" ? "δ+" : sh.symbol === "partialMinus" ? "δ–" : undefined);
+// A free charge (issue 60): a free symbol of one of the four charge kinds, with a number (Shape.count, 2 to 8; unset is
+// 1). Its signed charge, or undefined for a radical or lone pair.
+export const isChargeKind = (k?: FreeSymbol) => k === "plus" || k === "minus" || k === "circledPlus" || k === "circledMinus";
+export const symbolCharge = (sh: Pick<Shape, "kind" | "symbol" | "count">) =>
+  sh.kind === "symbol" && isChargeKind(sh.symbol) ? (sh.symbol === "plus" || sh.symbol === "circledPlus" ? 1 : -1) * (sh.count ?? 1) : undefined;
+// The kind and number of a free charge q (−8 to 8, not 0), plain or circled.
+export const chargeKind = (q: number, circled: boolean): { symbol: FreeSymbol; count?: number } =>
+  ({ symbol: circled ? (q > 0 ? "circledPlus" : "circledMinus") : q > 0 ? "plus" : "minus", ...(Math.abs(q) > 1 ? { count: Math.abs(q) } : {}) });
+// A plain charge's number goes before its sign, in a cell a digit wide (Arial's figure width, units of its size); a
+// circled charge's goes inside its ring, as an atom's does.
+export const DIGIT = 0.556;
+const digitBefore = (sh: Pick<Shape, "symbol" | "count">) => (sh.count ?? 1) > 1 && (sh.symbol === "plus" || sh.symbol === "minus");
+// A free symbol's box in units of its size: its kind's, wider to the left by the digit's cell when a plain charge has a
+// number.
+export const symbolBox = (sh: Pick<Shape, "symbol" | "count">): [number, number] => {
+  const [w, h] = SYMBOL_BOX[sh.symbol ?? "plus"];
+  return digitBefore(sh) ? [w + DIGIT, h] : [w, h];
+};
 // A free symbol's size (bond lengths): its box's height over the height of its kind's box.
 export const symbolSize = (sh: Pick<Shape, "from" | "to" | "symbol">) => Math.abs(sh.to[1] - sh.from[1]) / SYMBOL_BOX[sh.symbol ?? "plus"][1];
-// A free symbol of this kind and size (bond lengths), its middle at c, upright.
-export function freeSymbol(symbol: FreeSymbol, c: [number, number], size: number): Omit<Shape, "id"> {
-  const [w, h] = SYMBOL_BOX[symbol];
-  return { kind: "symbol", symbol, from: [c[0] - (w * size) / 2, c[1] + (h * size) / 2], to: [c[0] + (w * size) / 2, c[1] - (h * size) / 2] };
+// A free symbol of this kind and size (bond lengths), its sign's middle at c, upright. A plain charge's number (count)
+// widens its box to the left. A turn (degrees) keeps the sign at c: the box turns about its own middle.
+export function freeSymbol(symbol: FreeSymbol, c: [number, number], size: number, count?: number, angle = 0): Omit<Shape, "id"> {
+  const n = isChargeKind(symbol) && count && count > 1 ? count : undefined, [w, h] = symbolBox({ symbol, count: n }), d = ((w - SYMBOL_BOX[symbol][0]) * size) / 2;
+  const m = d ? turnPoint([c[0] - d, c[1]], c, angle) : c;
+  return { kind: "symbol", symbol, ...(n ? { count: n } : {}), from: [m[0] - (w * size) / 2, m[1] + (h * size) / 2], to: [m[0] + (w * size) / 2, m[1] - (h * size) / 2] };
+}
+// A plain free charge's digit cell (drawing units, or px with k): its share of the box's width.
+const digitCell = (sh: Pick<Shape, "from" | "to" | "symbol" | "count">, k = 1) => (digitBefore(sh) ? (Math.abs(sh.to[0] - sh.from[0]) * k * DIGIT) / symbolBox(sh)[0] : 0);
+// Where a free symbol's sign is (its middle, drawing units): its box's middle, or right of it by half the digit's cell.
+export function signOf(sh: Pick<Shape, "from" | "to" | "symbol" | "count" | "angle">): [number, number] {
+  const c = middleOf(sh), d = digitCell(sh) / 2;
+  return d ? turnPoint([c[0] + d, c[1]], c, sh.angle ?? 0) : c;
+}
+// A free symbol given a new kind and number at its size and turn, its sign where it was (a free charge stepped from 1+
+// to 2+ grows to the left).
+export const reKind = (sh: Shape, symbol: FreeSymbol, count?: number): Pick<Shape, "symbol" | "count" | "from" | "to"> =>
+  (({ from, to }) => ({ symbol, count: isChargeKind(symbol) && count && count > 1 ? count : undefined, from, to }))(freeSymbol(symbol, signOf(sh), symbolSize(sh), count, sh.angle ?? 0));
+// A circled free charge's ring: its middle line's radius, in units of its size. At the default size (0.75 of the label
+// size) it is an atom's ring (CHARGE_RING of the label size).
+export const CHARGE_RING = 0.34, RING = CHARGE_RING / 0.75;
+// A free charge's number as text (issue 60), px (y down) at k px per bond length, upright about at and then turned by
+// angle (degrees, as the box turns): inside a circled charge's ring with its sign (2+, 3−), fitted as an atom's is
+// (chargeText), or before a plain charge's sign, in the label font at the symbol's size. m: the label font's ink at a
+// font size of z px. undefined: no number.
+export function symbolNumber(sh: Shape, k: number, m: (t: string) => Ink, z: number): { text: string; x: number; y: number; size: number; at: [number, number]; angle: number } | undefined {
+  const q = symbolCharge(sh);
+  if (!q || Math.abs(q) < 2) return undefined;
+  const c = middleOf(sh), at: [number, number] = [c[0] * k, -c[1] * k], size = symbolSize(sh) * k, angle = sh.angle ?? 0;
+  // Only the width and ascent are used, so the outline is not scaled.
+  const scaled = (r: number) => (t: string): Ink => { const i = m(t); return { width: i.width * r, ascent: i.ascent * r, outline: [] }; };
+  if (sh.symbol === "circledPlus" || sh.symbol === "circledMinus") {
+    const R = RING * size, zr = R / CHARGE_RING, t = chargeText(at, q, true, R, zr, scaled(zr / z));
+    return t && { ...t, at, angle };
+  }
+  const text = `${Math.abs(q)}`, ink = scaled(size / z)(text), x0 = Math.min(sh.from[0], sh.to[0]) * k;
+  return { text, x: x0 + (digitCell(sh, k) - ink.width) / 2, y: at[1] + ink.ascent / 2, size, at, angle };
 }
 // A free symbol at a new size (bond lengths) about its middle, keeping its proportions.
 export function resizeSymbol(sh: Shape, size: number): Pick<Shape, "from" | "to"> {
@@ -774,6 +826,39 @@ type Plan = {
 // double-bond spacing, hash spacing, label margin and label size.
 type Z = { L: number; hw: number; wide: number; tip: number; bold: number; spacing: number; hash: number; margin: number; size: number };
 
+// A charge mark (issue 60). An atom's circled charge and a free circled charge are drawn with these two, so the two
+// look the same at the same size.
+// Its ink that is not text, round c (px, y down): for a circled charge, a ring of radius R the line width (2 hw) thick,
+// with a + or − of bars inside it when the charge is one. The ring has enough sides to stay round at 8× zoom.
+export function chargeRing(c: P, charge: number, R: number, hw: number): P[][] {
+  const out: P[][] = [], n = Math.max(40, Math.ceil(Math.PI * Math.sqrt(8 * R))), ro = R + hw, ri = R - hw;
+  const wind = (poly: P[]) => (poly.reduce((sum, q, j) => sum + cross(q, poly[(j + 1) % poly.length]), 0) > 0 ? poly.reverse() : poly);
+  for (let j = 0; j < n; j++) {
+    const a0 = (2 * Math.PI * j) / n, a1 = (2 * Math.PI * (j + 1)) / n;
+    out.push(wind([add(c, [ri * Math.cos(a0), ri * Math.sin(a0)]), add(c, [ro * Math.cos(a0), ro * Math.sin(a0)]), add(c, [ro * Math.cos(a1), ro * Math.sin(a1)]), add(c, [ri * Math.cos(a1), ri * Math.sin(a1)])]));
+  }
+  if (Math.abs(charge) <= 1) {
+    const arm = 0.58 * R, bar = (u: P) => out.push(wind([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
+    bar([1, 0]);
+    if (charge > 0) bar([0, 1]);
+  }
+  return out;
+}
+// Its text: in a ring (circled), a charge of 2 or more as its number and sign (2−, 3+) fitted inside; plain (a free
+// charge), its sign, or number and sign, in a font of SUB of z, made smaller to be no wider than fit, its ink centred on
+// c. m: the label font's ink at a font size of z px. undefined: none (a circled charge of one is all bars).
+export function chargeText(c: P, charge: number, circled: boolean, R: number, z: number, m: (t: string) => Ink, fit = 2 * R): { text: string; x: number; y: number; size: number } | undefined {
+  const q = Math.abs(charge);
+  if (circled) {
+    if (q <= 1) return undefined;
+    const sign = `${q}${charge > 0 ? '+' : '−'}`, ink = m(sign), f = Math.min(SUB, (1.35 * R) / ink.width, (1.1 * R) / ink.ascent);
+    return { text: sign, x: c[0] - (ink.width * f) / 2, y: c[1] + (ink.ascent * f) / 2, size: z * f };
+  }
+  const sign = `${q > 1 ? q : ''}${charge > 0 ? '+' : '–'}`, ink = m(sign), f = Math.min(SUB, fit / Math.max(ink.width, 1e-9));
+  if (!ink.outline.length) return { text: sign, x: c[0] - (ink.width * f) / 2, y: c[1] + (ink.ascent * f) / 2, size: z * f };
+  const [x0, y0, x1, y1] = outlineBox(ink.outline);
+  return { text: sign, x: c[0] - ((x0 + x1) / 2) * f, y: c[1] - ((y0 + y1) / 2) * f, size: z * f };
+}
 // A label's glyph outline where it is drawn: the measured outline (shared, not copied), placed at x, y and scaled by f.
 type Piece = { pts: P[]; x: number; y: number; f: number };
 // An outline's box, found once per outline.
@@ -1286,7 +1371,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     kinds.forEach((kind, k) => {
       const t = at.get(k)!, d: P = [Math.cos(t), Math.sin(t)], n = perp(d);
       // The mark as discs (centre offset across, radius); how far out it goes is found by search.
-      const R = kind === 'charge' ? 0.34 * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
+      const R = kind === 'charge' ? CHARGE_RING * z : kind === 'radical' ? 0.1 * z : kind === 'pair' ? 0.09 * z : 0;
       const text = kind === 'partial' ? (a.partial === '+' ? 'δ+' : 'δ–') : kind === 'query' ? indicator : '', ink = text ? grown(measure(text), ratio[i]) : undefined;
       const parts: [number, number][] = kind === 'pair' ? [[0.19 * z, R], [-0.19 * z, R]] : ink ? [[0, (Math.max(ink.width, ink.ascent) * SUB) / 2]] : [[0, R]];
       const gap = 0.14 * z;
@@ -1306,22 +1391,11 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
       } else if (kind === 'radical' || kind === 'pair') { for (const [o, pr] of parts) symbols[i].push(disc(add(c, mul(n, o)), pr)); electrons.push({ atom: i, at: c, key: keys[k] }); }
       else electrons.push({ atom: i, at: c, key: keys[k] });
       if (kind === 'charge') {
-        // A ring the line width thick, with the sign inside it.
-        for (let j = 0; j < 40; j++) {
-          const a0 = (TAU * j) / 40, a1 = (TAU * (j + 1)) / 40, ro = R + hw, ri = R - hw;
-          symbols[i].push(wound([add(c, [ri * Math.cos(a0), ri * Math.sin(a0)]), add(c, [ro * Math.cos(a0), ro * Math.sin(a0)]), add(c, [ro * Math.cos(a1), ro * Math.sin(a1)]), add(c, [ri * Math.cos(a1), ri * Math.sin(a1)])]));
-        }
-        // A charge of 2 or more (Circled negative clicked again) shows its number and sign inside the ring: 2−, 3+.
-        const q = Math.abs(a.charge ?? 0);
-        if (q > 1) {
-          const sign = `${q}${a.charge! > 0 ? '+' : '−'}`, m = grown(measure(sign), ratio[i]), size = Math.min(SUB, (1.35 * R) / m.width, (1.1 * R) / m.ascent);
-          const x = c[0] - (m.width * size) / 2, y = c[1] + (m.ascent * size) / 2;
-          say({ text: sign, x, y, size: z * size, colour: a.colour }, i);
-        } else {
-          const arm = 0.58 * R, bar = (u: P) => symbols[i].push(wound([add(c, add(mul(u, -arm), mul(perp(u), -hw))), add(c, add(mul(u, -arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), hw))), add(c, add(mul(u, arm), mul(perp(u), -hw)))]));
-          bar([1, 0]);
-          if ((a.charge ?? 0) > 0) bar([0, 1]);
-        }
+        // A ring the line width thick, with the sign inside it; a charge of 2 or more (Circled negative clicked again)
+        // shows its number and sign inside the ring: 2−, 3+ (chargeRing, chargeText, as a free charge is drawn).
+        symbols[i].push(...chargeRing(c, a.charge ?? 0, R, hw));
+        const t = chargeText(c, a.charge ?? 0, true, R, z, (x) => grown(measure(x), ratio[i]));
+        if (t) say({ ...t, colour: a.colour }, i);
       }
       if (ink) {
         const x = c[0] - (ink.width * SUB) / 2, y = c[1] + (ink.ascent * SUB) / 2;
@@ -2480,10 +2554,10 @@ export function polymerLabelsAt(sh: Shape, k: number): { label: { x: number; y: 
 }
 
 // A free symbol's ink as filled polygons (px, y down, at k px per bond length), one winding as the bonds': its kind
-// drawn in its own box (SYMBOL_BOX, units of its size, y down), stretched to the shape's box and turned with it. Signs
+// drawn in its own box (symbolBox, units of its size, y down), stretched to the shape's box and turned with it. Signs
 // have the weight of an Arial sign; a ring, a bar and the dots have the weight of an atom's marks.
 export function symbolInk(sh: Shape, k: number): P[][] {
-  const kind = sh.symbol ?? "plus", [W, H] = SYMBOL_BOX[kind], out: P[][] = [];
+  const kind = sh.symbol ?? "plus", [W, H] = symbolBox(sh), out: P[][] = [];
   const rect = (x0: number, y0: number, x1: number, y1: number) => out.push([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
   const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 24) => out.push(Array.from({ length: n }, (_, j): P => [cx + rx * Math.cos((2 * Math.PI * j) / n), cy + ry * Math.sin((2 * Math.PI * j) / n)]));
   // A sign of width w at x, across the box's middle: a minus, and a plus's upright bar too. Stroke 0.07 of the size.
@@ -2493,15 +2567,12 @@ export function symbolInk(sh: Shape, k: number): P[][] {
     if (plus) rect(cx - t / 2, cy - arm, cx + t / 2, cy + arm);
   };
   switch (kind) {
-    case "plus": case "minus": sign(0, W, kind === "plus"); break;
+    case "plus": case "minus": sign(W - SYMBOL_BOX[kind][0], SYMBOL_BOX[kind][0], kind === "plus"); break; // after its number, if any
     case "circledPlus": case "circledMinus": {
-      // A ring the weight of a line (0.08), its middle 0.455 out, with the sign inside at 0.58 of that, as an atom's.
-      const R = 0.455, t = 0.08, n = 48;
-      for (let j = 0; j < n; j++) {
-        const a0 = (2 * Math.PI * j) / n, a1 = (2 * Math.PI * (j + 1)) / n, ro = R + t / 2, ri = R - t / 2;
-        out.push([[W / 2 + ri * Math.cos(a0), H / 2 + ri * Math.sin(a0)], [W / 2 + ro * Math.cos(a0), H / 2 + ro * Math.sin(a0)], [W / 2 + ro * Math.cos(a1), H / 2 + ro * Math.sin(a1)], [W / 2 + ri * Math.cos(a1), H / 2 + ri * Math.sin(a1)]]);
-      }
-      sign(W / 2 - R, 2 * R, kind === "circledPlus", t, 0.58 * R);
+      // A ring the weight of a line (0.08), its middle RING out, with the sign inside at 0.58 of that, or nothing inside
+      // for a number (symbolNumber), as an atom's: chargeRing, worked out at its size in px so it has an atom's sides.
+      const px = (Math.abs(sh.to[1] - sh.from[1]) * k) / H || 1;
+      for (const poly of chargeRing([(W / 2) * px, (H / 2) * px], symbolCharge(sh) ?? 1, RING * px, 0.04 * px)) out.push(poly.map(([u, v]): P => [u / px, v / px]));
       break;
     }
     case "radical": ellipse(W / 2, H / 2, W / 2, H / 2); break;

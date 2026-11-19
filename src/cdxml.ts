@@ -12,7 +12,7 @@ import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
-  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
+  ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, symbolCharge, signOf, isChargeKind, reKind, DIGIT, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
@@ -205,6 +205,7 @@ const atomicNumber = (el: string) => (el === "D" || el === "T" ? 1 : SYMBOLS.ind
 // A free symbol's SymbolType, and the free symbol a SymbolType is.
 const SYMBOL_TYPE: Record<Exclude<FreeSymbol, "partialPlus" | "partialMinus">, string> = { plus: "Plus", minus: "Minus", circledPlus: "CirclePlus", circledMinus: "CircleMinus", radical: "Electron", pair: "LonePair", bar: "LonePairBar", radicalCation: "RadicalCation", radicalAnion: "RadicalAnion" };
 const FREE_OF = new Map(Object.entries(SYMBOL_TYPE).map(([k, v]) => [v, k as FreeSymbol]));
+const FREE_CHARGES = new Set(["Plus", "Minus", "CirclePlus", "CircleMinus"]);
 const SYMBOL_TEXT: Record<string, string> = { Dagger: "†", DoubleDagger: "‡", Racemic: "Rac", Absolute: "Abs", Relative: "Rel" };
 
 // Arial's ink, left and right (1/1000 em from the start of the advance), from the font's glyph boxes.
@@ -451,9 +452,26 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // chemistry). Its first point is its middle and its second is its size from there, back along its turn; a radical
       // ion's two points are half its size apart about its middle. So marks() writes an atom's. Octet's data keeps its
       // box as drawn.
-      const kind = sh.symbol ?? "plus", size = symbolSize(sh) * B, t = ((sh.angle ?? 0) * Math.PI) / 180, d: P = [Math.cos(t), -Math.sin(t)];
-      const ends: P[] = kind === "radicalCation" || kind === "radicalAnion" ? [[c[0] - (d[0] * size) / 4, c[1] - (d[1] * size) / 4], [c[0] + (d[0] * size) / 4, c[1] + (d[1] * size) / 4]] : [c, [c[0] - d[0] * size, c[1] - d[1] * size]];
-      put(el("graphic", { id, BoundingBox: ends.map(pt).join(" "), Z: Z(), color: ink, GraphicType: "Symbol", SymbolType: SYMBOL_TYPE[kind as keyof typeof SYMBOL_TYPE], Octet: priv({ box: [...sh.from, ...sh.to], angle: sh.angle }) }), 3, box, sh.id);
+      const kind = sh.symbol ?? "plus", size = symbolSize(sh) * B, t = ((sh.angle ?? 0) * Math.PI) / 180, d: P = [Math.cos(t), -Math.sin(t)], q = symbolCharge(sh);
+      // (A free charge's sign is right of its box's middle when its number is before it.)
+      const o = q !== undefined && sh.count ? at(signOf(sh)) : c;
+      const ends: P[] = kind === "radicalCation" || kind === "radicalAnion" ? [[c[0] - (d[0] * size) / 4, c[1] - (d[1] * size) / 4], [c[0] + (d[0] * size) / 4, c[1] + (d[1] * size) / 4]] : [o, [o[0] - d[0] * size, o[1] - d[1] * size]];
+      const graphic = (text?: number) => el("graphic", { id, BoundingBox: ends.map(pt).join(" "), Z: Z(), color: ink, GraphicType: "Symbol", SymbolType: SYMBOL_TYPE[kind as keyof typeof SYMBOL_TYPE], Octet: priv({ box: [...sh.from, ...sh.to], angle: sh.angle, count: sh.count }) },
+        text === undefined ? "" : `<represent attribute="Charge" object="${text}"/>`);
+      if (q === undefined) put(graphic(), 3, box, sh.id);
+      else {
+        // A free charge (issue 60) goes in an integral group of its own: ChemDraw 22.2 gives a lone charge symbol near an
+        // atom to that atom when it opens the file (the atom's Charge changes), and in a group it stays free. A charge of
+        // 2 to 8 has its number as plain text in the group, just left of the sign (outside a ring), the symbol standing
+        // for it (as ChemDraw 22.2 links the two when it saves), so ChemDraw shows 2⊕ and moves the two as one, and
+        // Octet 1.1.2 shows it as a caption. Such a group reads back as one free charge (readChargeGroup). The digit is
+        // plain text (InterpretChemically no), so ChemDraw gives it no chemical warning.
+        const n = String(Math.abs(q)), w = widthOf(n, size), gap = (kind === "plus" || kind === "minus" ? 0.25 + DIGIT / 2 : 0.6) * size + (kind === "plus" || kind === "minus" ? 0 : w / 2);
+        const mid: P = [o[0] - d[0] * gap, o[1] - d[1] * gap], tid = sh.count ? fresh() : undefined, base = mid[1] + 0.358 * size, left = mid[0] - w / 2;
+        const digit = tid === undefined ? "" : el("t", { id: tid, p: pt([left, base]), BoundingBox: boxText([left, base - 0.716 * size, left + w, base]), Z: Z(), color: ink, LineHeight: "auto", InterpretChemically: "no" }, run(n, { font: style.labelFont, size, colour: sh.colour, face: 0 }));
+        const all: Box = tid === undefined ? box : [Math.min(box[0], left), Math.min(box[1], base - 0.716 * size), Math.max(box[2], left + w), Math.max(box[3], base)];
+        put(el("group", { id: fresh(), BoundingBox: boxText(all), Z: Z(), Integral: "yes" }, digit + graphic(tid)), 3, all, sh.id);
+      }
     } else if (isBracket(sh)) {
       // Each bracket runs so its lips point inward: the left one upward, the right one downward (spec 9.9), turned
       // with the shape.
@@ -1225,7 +1243,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ChemPropGibbs: "Gibbs Energy: ", ChemPropLogP: "Log P: ", ChemPropMR: "MR: ", ChemPropHenry: "Henry's Law: ", ChemPropEForm: "Heat of Form: ", ChemProptPSA: "tPSA: ", ChemPropID: "", ChemPropFragmentLabel: "",
     color: doc, bgcolor: bg, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
     Octet: priv({ v: 1, app: pkg.version, xyz: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid === "bond" ? undefined : style.grid, scale: style.scale !== 1 ? style.scale : undefined, purpose: style.purpose,
-      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined }),
+      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined, circled: style.circled ? 1 : undefined }),
   }, tables + pageXml);
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n${root}\n`;
 }
@@ -1460,7 +1478,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
   const style = readStyle({
     page: paper?.[0] ?? "Custom", landscape: !!paper && mm[0] > mm[1] + 1, custom: mm.map((v) => Math.round(Math.min(2000, Math.max(10, v)) * 100) / 100),
-    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose, palette: top!.palette } : {}),
+    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose, palette: top!.palette, circled: top!.circled === 1 } : {}),
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
@@ -1516,7 +1534,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // characters differ.
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number | undefined>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G; count?: number; free?: true }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
   // Formula runs read back as plain text (issue 31), kept in case the text is not drawn as a formula after all.
   const asFormula = new Map<Caption, TextRun[]>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -1548,6 +1566,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       case "group":
         if (p?.kind === "table" || p?.kind === "gel" || p?.kind === "plasmid") return readOwnGroup(x, p, group);
         if (p?.kind === "membrane") return readMembrane(x, p, group);
+        if (!p && readChargeGroup(x, group, atoms)) return;
         { const g = newGroup(x, group); for (const k of x.kids) visit(k, g); }
         return;
       case "fragment": return readFragment(x, group);
@@ -2514,16 +2533,35 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     return p;
   }
 
+  // A group that is one free charge (issue 60), as toCdxml writes it and ChemDraw 22.2 saves it again: exactly one
+  // Plus, Minus, CirclePlus or CircleMinus symbol, linked to nothing or to the group's text, and at most one text that
+  // is a single digit 2 to 8 (its number). It is read as that free charge, with no group round it. Any other group is a
+  // group, read as before.
+  function readChargeGroup(x: Xml, group?: G, atoms?: number[]): boolean {
+    const kids = x.kids.filter((k) => k.name !== "objecttag"), sym = kids.filter((k) => k.name === "graphic" && k.attrs.GraphicType === "Symbol"), t = kids.filter((k) => k.name === "t");
+    if (sym.length !== 1 || t.length > 1 || kids.length !== 1 + t.length || !FREE_CHARGES.has(sym[0].attrs.SymbolType ?? "")) return false;
+    const digit = t[0] ? cleanText(t[0].kids.filter((r) => r.name === "s").map((r) => r.text).join("") || t[0].text || "").trim() : "";
+    if (t[0] && !/^[2-8]$/.test(digit)) return false;
+    if (!sym[0].kids.every((k) => k.name !== "represent" || (t[0] !== undefined && k.attrs.object === t[0].attrs.id))) return false;
+    symbols.push({ x: sym[0], atoms: atoms ?? [], group, free: true, ...(digit ? { count: Number(digit) } : {}) });
+    return true;
+  }
+
   // Symbols: a charge or radical they represent belongs to that node; a lone pair that represents nothing to the
   // nearest atom (in its own fragment first). A sign or electron that represents nothing, and a lone pair with no
   // atom near, is a free symbol, on the page by itself; so is every free symbol Octet wrote (its data has its box).
   // Other signs (a dagger) become text.
   function readSymbols() {
-    const free = (x: Xml, kind: FreeSymbol, group?: G) => {
+    // count: a free charge's number from its group's text (readChargeGroup), which wins over Octet's data, as ChemDraw
+    // may have changed the text.
+    const free = (x: Xml, kind: FreeSymbol, group?: G, count?: number) => {
       const p = priv(x), own = Array.isArray(p?.box) && p.box.length === 4 && p.box.every((v: unknown) => isNum(v, -1000, 1000)) ? (p.box as number[]) : undefined;
+      const charge = isChargeKind(kind), mine = charge && Number.isInteger(p?.count) && (p!.count as number) >= 2 && (p!.count as number) <= 8 ? (p!.count as number) : undefined;
       let sh: Omit<Shape, "id">;
-      if (own) sh = { kind: "symbol", symbol: kind, from: [own[0], own[1]], to: [own[2], own[3]], ...(isNum(p?.angle, -360, 360) && p!.angle ? { angle: p!.angle as number } : {}) };
-      else {
+      if (own) {
+        sh = { kind: "symbol", symbol: kind, ...(mine ? { count: mine } : {}), from: [own[0], own[1]], to: [own[2], own[3]], ...(isNum(p?.angle, -360, 360) && p!.angle ? { angle: p!.angle as number } : {}) };
+        if (charge && (count ?? 1) !== (mine ?? 1)) sh = { ...sh, ...reKind(sh as Shape, kind, count) };
+      } else {
         // ChemDraw's two points. The first is the middle, or a radical ion's ends are half its size apart about it, as
         // ChemDraw writes an atom's charge signs. Their distance is the size of a charge sign or a radical ion. A
         // radical's or lone pair's distance is not its size in ChemDraw's own files, and the way the points lie is not
@@ -2531,8 +2569,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         // every symbol stands upright. A size out of reason, or one point only, is an atom's mark's too.
         const e = reals(x.attrs.BoundingBox, 4), p1 = toOctet(...(e ?? reals(x.attrs.BoundingBox, 2)!) as [number, number]), p2 = e ? toOctet(e[2], e[3]) : p1;
         const ion = kind === "radicalCation" || kind === "radicalAnion", d = len(sub(p2, p1)) * (ion ? 2 : 1), sized = kind !== "radical" && kind !== "pair" && kind !== "bar";
-        sh = freeSymbol(kind, ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1, sized && d > 0.02 && d < 40 ? d : (0.75 * style.labelSize) / B);
+        sh = freeSymbol(kind, ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1, sized && d > 0.02 && d < 40 ? d : (0.75 * style.labelSize) / B, charge ? count : undefined);
       }
+      if (!sh.count) delete sh.count;
       const colour = colourOf(x.attrs.color);
       addShape({ ...sh, id: newId(x), ...(colour ? { colour } : {}), z: zOf(x) }, x, group);
     };
@@ -2541,9 +2580,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       return d < 1 && (best === undefined || d < len(sub(mol.atoms[best].location as unknown as P, c))) ? i : best;
     }, undefined);
     const everyAtom = mol.atoms.map((_, i) => i), electrons = new Map<number, number>(); // linked electrons read per atom
-    for (const { x, atoms, group } of symbols) {
+    for (const { x, atoms, group, count, free: alone } of symbols) {
       const type = x.attrs.SymbolType ?? "LonePair", box = reals(x.attrs.BoundingBox, 2);
       if (!box) { lose("symbol"); continue; }
+      if (alone) { free(x, FREE_OF.get(type)!, group, count); continue; }
       const c = toOctet(box[0], box[1]), linked = x.kids.filter((k) => k.name === "represent").map((k) => atomOf.get(int(k.attrs.object) ?? -1)).find((i) => i !== undefined);
       const sign = ({ Plus: 1, CirclePlus: 1, RadicalCation: 1, Minus: -1, CircleMinus: -1, RadicalAnion: -1 } as Record<string, number>)[type], unpaired = type === "Electron" || type.startsWith("Radical");
       // Where a ChemDraw file puts a mark round its atom is its angle (Atom.angles), by the renderer's key.

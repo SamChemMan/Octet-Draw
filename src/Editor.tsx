@@ -27,7 +27,7 @@ import {
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
-  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
+  labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
@@ -97,7 +97,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, type FreeSymbol } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -5947,7 +5947,9 @@ export default function Editor() {
   };
   // The caption under the pointer that an atom tool makes an atom (Rh, Nu, E), for a charge key (keys.ts actionFor).
   const keyCaption = () => { const id = hovers.get().caption; return id === undefined ? undefined : doc.captions?.find((c) => c.id === id && atomCaption(c, style.interpret)); };
-  const keyPlace = (t: { atom?: number; bond?: number }) => (t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : keyCaption() ? "caption" : "none");
+  // The free charge under the pointer (issue 60): a charge key steps it, as on an atom.
+  const keyFree = () => { const id = hovers.get().arrow; return id === undefined ? undefined : doc.shapes?.find((x) => x.id === id && symbolCharge(x) !== undefined); };
+  const keyPlace = (t: { atom?: number; bond?: number }) => (t.atom !== undefined ? "atom" : t.bond !== undefined ? "bond" : keyCaption() ? "caption" : keyFree() ? "caption" : "none");
   // Puts the keyboard hotspot on an atom or bond of mol, and keeps it with mol for undo.
   const keyHot = (hot: Hot, mol = doc) => {
     lastHot.current = hot.atom ?? (hot.bond !== undefined ? mol.bonds[hot.bond]?.atoms[0] : undefined);
@@ -5975,6 +5977,14 @@ export default function Editor() {
     const atoms = [...selection].filter((i) => i < doc.atoms.length), bonds = doc.bonds.flatMap((b, k) => (selection.has(b.atoms[0]) && selection.has(b.atoms[1]) ? [k] : []));
     return { atoms, bonds, onBond: hover.bond !== undefined || (atoms.length === 2 && bonds.length === 1) };
   };
+  // A selection that holds free charges (issue 60), with the pointer away from the drawing or on the selection: a charge
+  // key steps its atoms and free charges together, as one step.
+  const freesTarget = () => {
+    const hover = hovers.get();
+    if (!doc.shapes?.some((x) => picked.has(x.id) && symbolCharge(x) !== undefined)) return false;
+    return (hover.atom === undefined || selection.has(hover.atom)) && (hover.bond === undefined || !!doc.bonds[hover.bond]?.atoms.every((i) => selection.has(i)))
+      && (hover.arrow === undefined || picked.has(hover.arrow)) && (hover.caption === undefined || picked.has(hover.caption));
+  };
   // The action a key runs on such a selection: its atom or bond action, else one that works anywhere.
   const manyAction = (pressed: string, many: { onBond: boolean }) => {
     const map = keymap(settings.keys);
@@ -5990,7 +6000,8 @@ export default function Editor() {
     const [kind, arg] = id.split("."), { atoms, bonds } = many, each = (f: (m: Mol, i: number) => Mol, ids: number[]) => set(ids.reduce(f, doc), true);
     if (kind === "element") return each((m, i) => keyElement(m, i, arg), atoms), true;
     if (kind === "label") return each((m, i) => setLabel(m, i, arg), atoms), true;
-    if (kind === "charge") return each((m, i) => keyCharge(m, i, arg), atoms), true;
+    if (id === "charge.circled") return set(circleCharges(doc, atoms), true), true;
+    if (kind === "charge") return each((m, i) => keyCharge(m, i, arg, !!style.circled), atoms), true;
     if (kind === "group") return each((m, i) => addGroupAt(m, i, arg as Group)[0], atoms), true;
     if (id === "atom.attach") { const on = atoms.some((i) => !doc.atoms[i].attach); return each((m, i) => setAtomMarks(m, i, { attach: on || undefined }), atoms), true; }
     if (id === "atom.number") return numberAtoms(atoms), true;
@@ -6054,12 +6065,14 @@ export default function Editor() {
     // ! asks for a new label for the atom; > adds a bond and asks for the label of its new end (ChemDraw's ? hotkeys).
     if (id === "atom.newlabel" && atom !== undefined) { labelOpen.current = true; return setEditing({ atom, value: "", blank: true, pending: ownStyle(doc.atoms[atom]) }); }
     if (id === "atom.sproutlabel" && atom !== undefined) return sproutLabel([atom]);
-    if (kind === "charge" && atom !== undefined) return set(keyCharge(doc, atom, arg));
+    if (kind === "charge" && atom !== undefined) return set(keyCharge(doc, atom, arg, !!style.circled));
     // Over a caption such as Nu or Rh, a charge key makes it its atom with the charge, as one undo step, as the Symbols
-    // tool's click does.
+    // tool's click does. The new charge takes the document's look (issue 60).
     if (kind === "charge") {
       const c = keyCaption(), key = c && `element ${++elementSteps}`, made = c && key && makeElements([c], key, false);
-      if (made) return set(keyCharge(made, doc.atoms.length, arg), false, key);
+      if (made) return set(keyCharge(made, doc.atoms.length, arg, !!style.circled), false, key);
+      const f = keyFree();
+      if (f) return set(keyCharges(doc, [], [f.id], arg));
     }
     if (kind === "subst" && atom !== undefined) return set(stepSubstituents(doc, atom, arg as "free" | "upto" | "exactly" | "lower"));
     if (kind === "menu") return commands.current[id.slice(5)]?.(); // a menu command on a key (Settings)
@@ -6869,7 +6882,7 @@ export default function Editor() {
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
     const lined = mix.lines ? lineOf([...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => picked.has(x.id))) : undefined;
-    if (mix.kinds > 1) return { kind: "selection", ...valuesPicked(), count: mix.count, ...(mix.lone ? { name: groupTitle(doc, mix.lone), risk: !!mix.lone.risk } : {}), atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}) };
+    if (mix.kinds > 1) return { kind: "selection", ...valuesPicked(), count: mix.count, ...(mix.lone ? { name: groupTitle(doc, mix.lone), risk: !!mix.lone.risk } : {}), atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}), charges: chargesOf(doc, selection, picked) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
@@ -6892,7 +6905,7 @@ export default function Editor() {
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
       const first = pickedShapes[0];
       return {
-        kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
+        kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), charges: chargesOf(doc, [], picked), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
         ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
@@ -6948,7 +6961,7 @@ export default function Editor() {
       const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
       // A 3D structure (Structure Perspective): depth shading on or off.
       const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-      return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection), ...valuesPicked(),
+      return { kind: "structure", charges: chargesOf(doc, ids), text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection), ...valuesPicked(),
         ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), opacity: opacityOf(doc, selection), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
         // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
         circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
@@ -6962,7 +6975,7 @@ export default function Editor() {
       // Its structure's and and or groups, and the lowest new one of each, for the stereo flag buttons.
       const centre = stereocentres(doc).includes(ids[0]), structure = centre ? fragments(doc).find((g) => g.includes(ids[0])) ?? [] : [];
       const groups = (kind: "&" | "or") => [...new Set([...structure.flatMap((i) => { const g = /^(&|or)(\d+)$/.exec(doc.atoms[i].enhanced ?? ""); return g && g[1] === kind ? [Number(g[2])] : []; }), nextGroup(doc, structure, kind)])].sort((p, q) => p - q);
-      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current, opacity: opacityOf(doc, selection), molecule };
+      return { kind: "atom", text: labelText([ids[0]]), label: a.text ?? a.label, charge: a.charge ?? 0, circled: a.charge ? !!a.circled : undefined, terminal: neighbours(doc, ids[0]).length === 1, carbon: a.label === "C" && !a.text, centre, enhanced: a.enhanced, groups: centre ? { and: groups("&"), or: groups("or") } : undefined, halo: a.halo, fill: fillOf(doc, selection), numbered: !!a.number, repeat: lastLabel.current, opacity: opacityOf(doc, selection), molecule };
     }
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
@@ -8235,6 +8248,10 @@ export default function Editor() {
     const used = /^(?:colour|halo|ringfill)\.(#[0-9a-f]{6})(\.drag)?$/i.exec(command);
     if (used?.[2]) passing.current.add(used[1].toLowerCase());
     else if (used) rememberColour(used[1]);
+    // Charges on what is picked (issue 60), as one step: the Actions panel's charge items and run_command. + and − and
+    // the circled pair go on the selected atoms (a new charge in the document's look) and step the picked free charges;
+    // Circle the charge puts a circle round every charge picked, or takes them all off.
+    if (/^charge\.(plus|minus|circledPlus|circledMinus|circled)$/.test(command)) return set(keyCharges(doc, ids, picked, command.slice(7), !!style.circled), true);
     // The Actions panel's Scale field: the selection takes that scale (scaledTo).
     if (command.startsWith("scale.")) {
       const m = scaledTo(Number(command.slice(6)) / 100);
@@ -8442,9 +8459,11 @@ export default function Editor() {
         // map, table, picture or free symbol picked with the shape keeps its kind: its data is no box's or oval's.
         return each((x) => (turns(x) && x.kind !== "symbol" ? { kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) } : {}));
       }
-      if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
-      // A free symbol's kind: the new one at the same size, in the same place.
-      if (what === "symbol" && (FREE_SYMBOLS as string[]).includes(arg)) return each((x) => (x.kind === "symbol" ? (({ from, to }) => ({ symbol: arg as FreeSymbol, from, to }))(freeSymbol(arg as FreeSymbol, [(x.from[0] + x.to[0]) / 2, (x.from[1] + x.to[1]) / 2], symbolSize(x))) : {}));
+      // (A free symbol is its ink: no line style, side or mark of a box or brackets goes on it.)
+      if (what === "dashed") return each((x) => (x.kind === "symbol" ? {} : { dashed: !x.dashed || undefined }));
+      // A free symbol's kind: the new one at the same size, in the same place. A free charge keeps its number (2+ to
+      // Negative charge gives 2−); a radical or lone pair has none.
+      if (what === "symbol" && (FREE_SYMBOLS as string[]).includes(arg)) return each((x) => (x.kind === "symbol" ? reKind(x, arg as FreeSymbol, x.count) : {}));
       // A shadow's depth, softness and opacity (in hundredths), from the Actions sliders: a drag is one undo step.
       if (what === "depth" || what === "blur" || what === "opacity") {
         const value = Number(arg) / 100;
@@ -8494,9 +8513,9 @@ export default function Editor() {
       if (what === "fit") return each((x) => fitTable(x, cellWidth(x), style.captionSize));
       // One style at a time: plain, dashed, shaded, filled or with a shadow (not on a free symbol, which is its ink).
       if (what === "style") return each((x) => (x.kind === "symbol" ? {} : { dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
-      if (what === "boldline") return each((x) => ({ boldLine: !x.boldLine || undefined }));
-      if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
-      if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
+      if (what === "boldline") return each((x) => (x.kind === "symbol" ? {} : { boldLine: !x.boldLine || undefined }));
+      if (what === "side") return each((x) => (x.kind === "symbol" ? {} : { side: arg === "both" ? undefined : (arg as "left" | "right") }));
+      if (what === "mark") return each((x) => (x.kind === "symbol" ? {} : { mark: x.mark === arg ? undefined : arg }));
       if (what === "colour") return each(() => ({ colour: arg.toLowerCase() === "#000000" ? undefined : arg }));
       if (what === "front" || what === "back") return restack(what === "front");
     }
@@ -8681,7 +8700,6 @@ export default function Editor() {
       if (command === "atom.label") return editLabel(i);
       // ChemDraw's Repeat Last Label: the last label typed, on this atom.
       if (command === "repeat_label" && lastLabel.current) return set(setLabel(doc, i, lastLabel.current), true);
-      if (command === "charge.plus" || command === "charge.minus") return set(addCharge(doc, i, command === "charge.plus" ? 1 : -1), true);
     }
     if (context.kind === "bond") {
       const bi = doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])), arg = command.split(".")[1];
@@ -8842,9 +8860,16 @@ export default function Editor() {
       const free = symbolKind === "pair" && (pressAlt.current || settings.pairBars) ? "bar" : (FREE_SYMBOLS as string[]).includes(symbolKind) ? (symbolKind as FreeSymbol) : undefined;
       if (!free || t.bond !== undefined) return;
       const on = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && x.kind === "symbol") : undefined;
-      if (on) { const { from, to } = freeSymbol(free, [(on.from[0] + on.to[0]) / 2, (on.from[1] + on.to[1]) / 2], symbolSize(on)); return set(updateShape(doc, on.id, { symbol: free, from, to })); }
+      // A charge on a free charge adds to it as on an atom (issue 60): Positive charge on 2+ gives 3+, in the tool's
+      // look, skipping 0. At ±8 only the look can change.
+      if (on && symbolCharge(on) !== undefined && symbolCharge({ kind: "symbol", symbol: free }) !== undefined) { const c = stepFree(on, free === "plus" || free === "circledPlus" ? 1 : -1, free.startsWith("circled")); return c && set(updateShape(doc, on.id, c)); }
+      if (on) return set(updateShape(doc, on.id, reKind(on, free, on.count)));
       // A click on other text, an arrow or a shape only picks it (the press did), as before.
       if (t.caption !== undefined || t.arrow !== undefined) return;
+      // A charge clicked on an atom's charge sign adds to that atom, as a click on the atom does: a free charge on top of
+      // the sign would look the same and count in nothing (issue 60).
+      const sign = /^(plus|minus|circledPlus|circledMinus)$/.test(symbolKind) ? markNear(drawing.electrons, doc, at, L) : undefined;
+      if (sign?.mark === "charge") return set(addSymbol(doc, sign.atom, symbolKind));
       // It is not picked, as ChemDraw leaves it, so the next click places another.
       return set(addShape(doc, freeSymbol(free, at, (0.75 * style.labelSize) / style.bond))[0]);
     }
@@ -9294,6 +9319,11 @@ export default function Editor() {
       if (e.key === "Tab" && !e.altKey && stepAccess(e.shiftKey)) { e.preventDefault(); return; }
       // Everything else goes through the shortcut table (keys.ts), so every key can be changed.
       const pressed = keyOf(e), many = pressed ? manyTarget() : undefined;
+      const charge = pressed && !many && freesTarget() ? actionFor(keymap(settings.keys), pressed, "caption") : undefined;
+      if (charge?.startsWith("charge.")) {
+        e.preventDefault();
+        return set(keyCharges(doc, [...selection].filter((i) => i < doc.atoms.length), picked, charge.slice(7), !!style.circled), true);
+      }
       if (pressed && many) {
         const id = manyAction(pressed, many);
         if (!id) return;
@@ -9892,6 +9922,11 @@ export default function Editor() {
     <Fragment key={`sl${sh.id}`}>
       {sh.kind !== "highlight" && sh.kind !== "table" && !sh.fill && !(isPlate(sh) && sh.tlc?.hide?.includes("border")) && <path key={`sh${sh.id}`} d={kept(shapeInks, sh, lined(sh.width), () => toPath(shapeInk(sh, lined(sh.width), L)))} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} />}
       {isPlate(sh) && tlcInk(sh)}
+      {/* A free charge's number (issue 60): in its ring with its sign, or before its sign. */}
+      {sh.kind === "symbol" && sh.count && (() => {
+        const n = symbolNumber(sh, L, measure, frame.size);
+        return n && <text key={`n${sh.id}`} x={n.x} y={n.y} transform={n.angle ? `rotate(${-n.angle} ${n.at[0]} ${n.at[1]})` : undefined} fill={sh.colour ? textInk(sh.colour) : "var(--ink)"} style={{ font: `${n.size}px ${fontStack(style.labelFont)}` }}>{n.text}</text>;
+      })()}
       {sh.kind === "plasmid" && plasmidInk(sh)}
       {sh.kind === "table" && tableInk(sh)}
       {sh.kind === "symbol" && partialText(sh) && (() => {
@@ -11362,7 +11397,7 @@ export default function Editor() {
             // ChemDraw's ranges: charge −8 to +8, an enhanced stereo group from 1 to 99.
             const charge = Math.max(-8, Math.min(8, Math.round(Number(d.charge) || 0))), isotope = Math.round(Number(d.isotope));
             const group = Math.max(1, Math.min(99, Math.round(Number(d.group)) || 1)), enhanced = d.stereo === "abs" ? "abs" : d.stereo ? `${d.stereo}${group}` : undefined;
-            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, charge: charge || undefined, isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
+            m = { ...m, atoms: m.atoms.map((x, k) => (k === d.atom ? { ...x, ...chargeLook(x, charge, !!style.circled), isotope: isotope >= 1 && isotope <= 300 ? isotope : undefined, radical: Number(d.radical) || undefined, enhanced } : x)) };
             // The query properties changed in the dialog, on every selected atom. After Use Defaults, every selected
             // atom starts from none.
             const changed = (Object.keys({ ...d.q, ...d.q0 }) as (keyof AtomQuery)[]).filter((k) => JSON.stringify(d.q[k]) !== JSON.stringify(d.q0[k]));

@@ -77,8 +77,8 @@ export type Context =
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   // risk: the lone group is the page's risk assessment.
-  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; values?: "shown" | "hidden" } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values: as a caption's
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden" } // values: live values among the text picked with it (⌘A), as a caption's
+  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden" } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values: as a caption's
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden" } // values: live values among the text picked with it (⌘A), as a caption's
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
@@ -94,7 +94,7 @@ export type Context =
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   // symbol and symbolPt: a free symbol's kind and size (pt).
-  | { kind: "shape"; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
+  | { kind: "shape"; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; charges?: { circled: boolean }; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
       ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean; unit?: string } // a TLC plate's side ticks and transparency, whether a lane is picked, and a gel's unit
   // step: one step of the cycle is picked; reversible, balance, shaped and hidden are that step's (shaped: it has a lead,
@@ -112,7 +112,7 @@ export type Context =
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
-  | { kind: "atom"; text?: LabelText; label: string; charge: number; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
+  | { kind: "atom"; text?: LabelText; label: string; charge: number; circled?: boolean; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string } // unit: a gel's band, its sizes' unit
   | { kind: "part"; region: boolean }; // a plasmid map's region (or marker) picked on it
@@ -416,6 +416,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     ["frame_box", "Rectangle", <ElementGlyph v="box-plain" />], ["frame_rounded", "Rounded rectangle", <ElementGlyph v="rounded-plain" />], ["frame_box_shadow", "Rectangle with shadow", <ElementGlyph v="box-shadow" />],
     ["frame_rounded_shadow", "Rounded with shadow", <ElementGlyph v="rounded-shadow" />]] as const).map(([command, name, icon]) => small(it(icon, name, command)));
   const objects = [rotate, scale, centre, inWindow];
+  // Circle the charges on what is picked, or remove their circles (issue 60): charged atoms and free charges.
+  const circles = () => ((context.kind === "structure" || context.kind === "selection") && context.charges ? [small(it(<span className="glyph-text">⊕</span>, context.charges.circled ? "Remove the circles" : "Circle the charges", "charge.circled"))] : []);
   const join = (context.kind === "structure" || context.kind === "selection") && context.joinable ? [it(<ArrowsMerge size={18} />, "Join", "join")] : [];
   // Any selection as a template, with its text, arrows and shapes (CD-33); on an atom or a bond, its whole structure.
   const keep = small(it(<BookmarkSimple size={18} />, "Add to templates", "template.add"));
@@ -444,13 +446,14 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "selection":
       if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"), it(<ShieldSlash size={18} />, "Remove risk assessment", "risk.remove"));
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
       // what is shown on it, the clipboard and library, and Delete in another.
       items.push(...join, clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), ...flips, ...order);
       if (context.pairs) items.push(small(it(<span className="glyph-text">N:</span>, context.pairs === "shown" ? "Hide lone pairs" : "Show lone pairs", "pairs")));
+      items.push(...circles());
       items.push(small({ ...it(<ListNumbers size={18} />, context.structures > 1 ? "Number these compounds" : "Number this compound", "number"), short: context.structures > 1 ? "Number compounds" : undefined }), ...numerals(context.roman),
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
@@ -468,6 +471,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "atom":
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+        ...(context.circled !== undefined ? [it(<span className="glyph-text">⊕</span>, context.circled ? "Remove the circle" : "Circle the charge", "charge.circled")] : []),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
         ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, del);
       break;
@@ -582,6 +586,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           small(it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed")), scale, centre, inWindow, ...order, keep, del);
         break;
       }
+      // Free charges (issue 60): an atom's charge items.
+      if (context.charges) items.push(it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+        it(<span className="glyph-text">⊕</span>, context.charges.circled ? (context.count > 1 ? "Remove the circles" : "Remove the circle") : context.count > 1 ? "Circle the charges" : "Circle the charge", "charge.circled"));
       if (isBracket({ kind: context.shape })) items.push(it(<BracketsRound size={18} />, "Bracket properties…", "bracket_properties"), it(<LineSegments size={18} />, context.dashed ? "Solid lines" : "Dashed lines", "shape.dashed"), ...warnings());
       if (context.rgroup) items.push(it(<TreeStructure size={18} />, "R-Logic…", "rlogic"));
       // A picture: its structures as atoms and bonds (decision 0027). A small button, only while a picture is picked.

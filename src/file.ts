@@ -3,10 +3,10 @@ import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
-import { oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
+import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
-import { ALL_ARROW_KINDS, FREE_SYMBOLS, HBOND, isBracket, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize, type FreeSymbol } from "./render.ts";
+import { ALL_ARROW_KINDS, FREE_SYMBOLS, HBOND, isBracket, isChargeKind, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize, type FreeSymbol } from "./render.ts";
 import { readGrid } from "./stoich.ts";
 import { keyOf, readMeasured, writeMeasured } from "./measured.ts";
 import { readPart, readPlot, type PlotPart } from "./pageplot.ts";
@@ -68,7 +68,7 @@ export function serialize(mol: Mol): string {
     ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.plasmid ? { plasmid: x.plasmid } : {}), ...(x.shade ? { shade: x.shade } : {}), ...(x.order ? { order: x.order } : {}),
     ...(x.boldLine ? { boldLine: true } : {}), ...(x.angle ? { angle: round(x.angle) } : {}), ...(x.width ? { width: x.width } : {}), ...(x.radius !== undefined ? { radius: x.radius } : {}),
     ...(x.font ? { font: x.font } : {}), ...(x.size ? { size: x.size } : {}), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}), ...(x.ignoreWarnings ? { ignoreWarnings: true } : {}), ...scaled(x),
-    ...(x.picture ? { picture: x.picture } : {}), ...(x.polymer ? { polymer: x.polymer } : {}), ...(x.bracketed ? { bracketed: true } : {}), ...(x.rgroup ? { rgroup: x.rgroup } : {}), ...(x.symbol ? { symbol: x.symbol } : {}) }));
+    ...(x.picture ? { picture: x.picture } : {}), ...(x.polymer ? { polymer: x.polymer } : {}), ...(x.bracketed ? { bracketed: true } : {}), ...(x.rgroup ? { rgroup: x.rgroup } : {}), ...(x.symbol ? { symbol: x.symbol } : {}), ...(x.count ? { count: x.count } : {}) }));
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
@@ -333,6 +333,7 @@ export function parse(text: string): Mol {
         || (x.tlc !== undefined && !readPlate(x.tlc, x.kind === "gel")) || (x.table !== undefined && !readTable(x.table)) || (x.plasmid !== undefined && !readPlasmid(x.plasmid)) || ((x.kind === "plasmid") !== (x.plasmid !== undefined)) || (x.shade !== undefined && !readShade(x.shade))
         || (x.picture !== undefined && !readPictureData(x.picture)) || ((x.kind === "picture") !== (x.picture !== undefined))
         || ((x.kind === "symbol") !== (x.symbol !== undefined)) || (x.symbol !== undefined && !FREE_SYMBOLS.includes(x.symbol as FreeSymbol))
+        || (x.count !== undefined && !(Number.isInteger(x.count) && (x.count as number) >= 2 && (x.count as number) <= MAX_CHARGE && isChargeKind(x.symbol as FreeSymbol))) // a free charge's number (issue 60)
         || (x.angle !== undefined && !(num(x.angle) && Math.abs(x.angle as number) <= 360)) || badWidth(x.width) || (x.radius !== undefined && !(num(x.radius) && (x.radius as number) >= 0 && (x.radius as number) <= 10))
         || (x.font !== undefined && !fontName(x.font)) || (x.size !== undefined && !isSize(x.size))
         || [x.bold, x.italic, x.underline].some((v) => v !== undefined && typeof v !== "boolean") || !isScale(x.scale)) throw new Error("This drawing is damaged.");
@@ -342,7 +343,7 @@ export function parse(text: string): Mol {
         ...(x.boldLine ? { boldLine: true as const } : {}), ...(x.angle ? { angle: x.angle as number } : {}), ...(x.width ? { width: x.width as number } : {}), ...(x.radius !== undefined ? { radius: x.radius as number } : {}),
         ...(x.font ? { font: x.font as string } : {}), ...(x.size ? { size: x.size as number } : {}), ...(x.bold ? { bold: true as const } : {}), ...(x.italic ? { italic: true as const } : {}), ...(x.underline ? { underline: true as const } : {}),
         ...(x.ignoreWarnings === true ? { ignoreWarnings: true as const } : {}),
-        ...(x.picture ? { picture: readPictureData(x.picture)! } : {}), ...(x.symbol ? { symbol: x.symbol as FreeSymbol } : {}),
+        ...(x.picture ? { picture: readPictureData(x.picture)! } : {}), ...(x.symbol ? { symbol: x.symbol as FreeSymbol } : {}), ...(x.count ? { count: x.count as number } : {}),
         ...(readPolymer(x.polymer) && isBracket({ kind: x.kind as ShapeKind }) ? { polymer: readPolymer(x.polymer) } : {}), ...(x.bracketed === true && isBracket({ kind: x.kind as ShapeKind }) ? { bracketed: true as const } : {}), ...(readRgroup(x.rgroup) ? { rgroup: readRgroup(x.rgroup) } : {}), ...scaled(x as { scale?: number }) };
     });
   }

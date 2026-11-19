@@ -532,6 +532,7 @@ export function SettingsWindow(p: Props) {
       d("document", "Style", "Label terminal carbons", "terminal carbon labels ch3 methyl show", <Switch on={style.terminalLabels} label="Label terminal carbons" onChange={(on) => change({ terminalLabels: on })} />),
       d("document", "Style", "Label every carbon", "non-terminal carbon labels all carbons show", <Switch on={style.carbonLabels} label="Label every carbon" onChange={(on) => change({ carbonLabels: on })} />),
       d("document", "Style", "Hide implicit hydrogens", "implicit hydrogens hide labels h", <Switch on={style.hideH} label="Hide implicit hydrogens" onChange={(on) => change({ hideH: on })} />),
+      d("document", "Style", "Circle new charges", "circle circled charge charges plus minus ring oplus ominus", <Switch on={!!style.circled} label="Circle new charges" onChange={(on) => change({ circled: on || undefined })} />),
       num("chainAngle", "Chain angle", "°", "chain angle zig-zag bond angle 120"),
       d("drawing", "Bonds", "Fixed lengths", "fixed length bond drag one bond length option", <Switch on={p.drawing.fixedLengths} label="Fixed lengths" onChange={(on) => p.onDrawing({ fixedLengths: on })} />),
       d("drawing", "Bonds", "Fixed angles", "fixed angle bond drag 15 degrees steps option", <Switch on={p.drawing.fixedAngles} label="Fixed angles" onChange={(on) => p.onDrawing({ fixedAngles: on })} />),
