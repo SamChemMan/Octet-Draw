@@ -15,7 +15,7 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { parseHelm, toHelm, withSequences } = await import("./helm.ts");
+const { parseHelm, toHelm, withSequences, linkResidues } = await import("./helm.ts");
 const { buildAtoms } = await import("./seqbuild.ts");
 const { fragments, insertMol } = await import("./edit.ts");
 const { serialize, parse } = await import("./file.ts");
@@ -51,6 +51,39 @@ assert.equal(chem.toInchi(back), inchi, "as atoms again: the same compounds");
 assert.equal(toHelm(back), helm);
 assert.equal(withSequences(back, "atoms"), back, "already atoms: the same drawing");
 assert.equal(withSequences(labels, "labels"), labels, "already labels: the same drawing");
+// A chain's compound number and name stay under it both ways, and it stays in its group, whatever else is on the page;
+// a colour on the whole chain stays on it, and one on a residue stays on that residue.
+{
+  const ox = atoms(OXYTOCIN), n = ox.atoms.length;
+  let m = insertMol(chem.parseStructure("c1ccccc1"), ox, [0, 20]).mol;
+  const own = ox.atoms.map((_, i) => 6 + i), cys = (x: Mol) => x.atoms.flatMap((a, i) => (a.text === "Cys" ? [i] : []));
+  m = { ...m, atoms: m.atoms.map((a, i) => (i >= 6 ? { ...a, halo: "#ffd400" } : a)),
+    captions: [{ id: 1, text: "1", x: 0, y: 25, bold: true, under: own, auto: true }, { id: 2, text: "oxytocin", x: 0, y: 26, under: own }, { id: 3, text: "2", x: 0, y: 2, bold: true, under: [0, 1, 2, 3, 4, 5], auto: true }],
+    groups: [{ id: 4, atoms: own, items: [1, 2] }] };
+  const under = (x: Mol) => (x.captions ?? []).map((c) => [c.text, c.under?.length ?? 0]), chain = (x: Mol) => fragments(x).find((f) => f.length > 6)!;
+  const l = withSequences(m, "labels");
+  assert.deepEqual(under(l), [["1", chain(l).length], ["oxytocin", chain(l).length], ["2", 6]], "as labels: each caption under its structure");
+  assert.deepEqual(new Set(l.captions!.slice(0, 2).flatMap((c) => c.under!)), new Set(chain(l)), "under the chain's new atoms");
+  assert.deepEqual(l.groups?.map((g) => [g.atoms.length, g.items]), [[chain(l).length, [1, 2]]], "the chain stays in its group");
+  assert.ok(chain(l).every((i) => l.atoms[i].halo === "#ffd400") && l.atoms.slice(0, 6).every((a) => !a.halo), "its highlight stays on it");
+  // Back to atoms with the first Cys red: the same captions and group, and that residue's atoms red.
+  const red = { ...l, atoms: l.atoms.map((a, i) => (i === cys(l)[0] ? { ...a, colour: "#e0201b" } : a)) }, b = withSequences(red, "atoms");
+  assert.deepEqual(under(b), [["1", n], ["oxytocin", n], ["2", 6]], "as atoms again: each caption under its structure");
+  assert.deepEqual(b.groups?.map((g) => [g.atoms.length, g.items]), [[n, [1, 2]]]);
+  assert.equal(chem.toInchi(b), chem.toInchi(m), "the same compounds");
+  const reds = b.atoms.filter((a) => a.colour === "#e0201b").map((a) => a.label).sort().join("");
+  assert.equal(reds, "CCCNOS", "the Cys residue's atoms red, no others");
+  assert.equal(withSequences(b, "labels").atoms[cys(withSequences(b, "labels"))[0]].colour, "#e0201b", "and its label red again");
+}
+// The Bond tool's link between two residue labels keeps the chain's compound number.
+{
+  const l = withSequences(atoms("PEPTIDE1{C.Y.I.Q.N.C.P.L.G.[am]}$$$$V2.0"), "labels"), cys = l.atoms.flatMap((a, i) => (a.text === "Cys" ? [i] : []));
+  const m: Mol = { ...l, captions: [{ id: 1, text: "2", x: 0, y: 5, bold: true, under: l.atoms.map((_, i) => i), auto: true }], groups: [{ id: 2, atoms: l.atoms.map((_, i) => i), items: [1] }] };
+  const linked = linkResidues(m, cys[0], cys[1]) as Mol;
+  assert.equal(toHelm(linked), OXYTOCIN);
+  assert.deepEqual(linked.captions?.map((c) => [c.text, c.under?.length]), [["2", linked.atoms.length]], "the number stays under it");
+  assert.deepEqual(linked.groups?.map((g) => [g.atoms.length, g.items]), [[linked.atoms.length, [1]]], "and it stays in its group");
+}
 // The style keeps the choice, in the file too; a file without it opens as it was drawn.
 assert.equal(readStyle({ ...DEFAULT_STYLE, sequences: "labels" }).sequences, "labels");
 assert.equal(readStyle({ ...DEFAULT_STYLE, sequences: "other" }).sequences, undefined, "a damaged value is dropped");
@@ -67,7 +100,7 @@ assert.equal(parse(serialize({ ...labels, style: { ...DEFAULT_STYLE, sequences: 
 // The editor: Settings > Document > Style > Sequences and the Residue labels choice are one setting, changed in one
 // set() with the style (one undo step), and new documents start with the last choice.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), settings = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
-assert.match(editor, /function setSequences\(to: "atoms" \| "labels", next: DocStyle = style\) \{\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, sequenceLabels: to === "labels" \}\)\);\n\s+const drawn = withSequences\(doc, to\);\n\s+if \(drawn === doc && next === style && style\.sequences === undefined\) return;\n\s+set\(\{ \.\.\.drawn, style: \{ \.\.\.next, sequences: to \} \}, true\);/);
+assert.match(editor, /function setSequences\(to: "atoms" \| "labels", next: DocStyle = style\) \{\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, sequenceLabels: to === "labels" \}\)\);\n\s+const drawn = withSequences\(doc, to\);\n\s+if \(drawn === doc && next === style && style\.sequences === undefined\) return;\n\s+set\(\{ \.\.\.drawn, style: \{ \.\.\.next, sequences: to \} \}, drawn === doc\);/, "a chain drawn again clears the selection");
 assert.match(editor, /aria-pressed=\{seqLabels\} onClick=\{\(\) => setSequences\(seqLabels \? "atoms" : "labels"\)\}>Residue labels<\/button>/);
 assert.match(editor, /const seqLabels = \(doc\.style\?\.sequences \?\? \(settings\.sequenceLabels \? "labels" : "atoms"\)\) === "labels";/);
 assert.match(settings, /<Segmented label="Sequences" value=\{style\.sequences \?\? \(p\.drawing\.sequenceLabels \? "labels" : "atoms"\)\} options=\{\[\["atoms", "Atoms"\], \["labels", "Residue labels"\]\]\}/);

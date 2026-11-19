@@ -2505,12 +2505,13 @@ export default function Editor() {
   // Settings > Document > Style > Sequences, and Residue labels under the name field: every chain in the document drawn
   // again as atoms or as residue labels (helm.ts withSequences), with the style, in one undo step. New documents start
   // with the last choice. The chip in a drawing with no sequence to draw again, whose style does not say how they show,
-  // changes only the choice for the next one: the drawing is not edited.
+  // changes only the choice for the next one: the drawing is not edited. A chain drawn again has new atoms, so the
+  // selection goes.
   function setSequences(to: "atoms" | "labels", next: DocStyle = style) {
     setSettings((st) => ({ ...st, sequenceLabels: to === "labels" }));
     const drawn = withSequences(doc, to);
     if (drawn === doc && next === style && style.sequences === undefined) return;
-    set({ ...drawn, style: { ...next, sequences: to } }, true);
+    set({ ...drawn, style: { ...next, sequences: to } }, drawn === doc);
   }
   // The sequence choices under the name field (sequence.ts): the text is rewritten, the caret goes after the codes, and
   // with the Sequence tool in hand the kind chosen is the tool's choice from now on.

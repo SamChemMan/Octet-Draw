@@ -4,7 +4,7 @@
 // the sequence) and laid out along a straight backbone (chain.ts); each stereocentre keeps the hand its monomer gives
 // it. As residue labels, each monomer is a label that keeps its atoms, bonded to the next by its links (Bond.ports),
 // in rows. A 60-residue peptide takes milliseconds, where laying out its SMILES took Indigo about a second.
-import type { Mol } from "./render.ts";
+import type { Atom, Mol } from "./render.ts";
 import { fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
 import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
@@ -136,7 +136,9 @@ export function tooManyAtoms(seq: Seq): boolean {
   }));
   return count > MOST_BUILT_ATOMS;
 }
-export function buildAtoms(seq: Seq): { mol: Mol } | { problem: string } {
+// look: what each unit's atoms are drawn with (a colour, a highlight), by chain and unit, when it is drawn again.
+type Look = (chain: number, unit: number) => Partial<Atom> | undefined;
+export function buildAtoms(seq: Seq, look?: Look): { mol: Mol } | { problem: string } {
   const read = unitsOf(seq);
   if ("problem" in read) return read;
   const { units, partner } = read;
@@ -150,7 +152,7 @@ export function buildAtoms(seq: Seq): { mol: Mol } | { problem: string } {
       if (n > 0 && (partner.has(`${c} ${k} ${n}`) || x.prep.cap[n] === "H")) return;
       map[i] = atoms.length;
       const { charge, ...rest } = a;
-      atoms.push({ ...rest, label: n > 0 ? "O" : a.label, location: [a.location[0] + ox, a.location[1] + oy, 0], ...(charge ? { charge } : {}) });
+      atoms.push({ ...rest, label: n > 0 ? "O" : a.label, location: [a.location[0] + ox, a.location[1] + oy, 0], ...(charge ? { charge } : {}), ...look?.(c, k) });
     });
     for (const b of x.prep.mol.bonds) if (map[b.atoms[0]] >= 0 && map[b.atoms[1]] >= 0) bonds.push({ type: b.type, atoms: [map[b.atoms[0]], map[b.atoms[1]]] });
     index[c].push(map);
@@ -215,7 +217,7 @@ function laidOut(m: Mol, hands: Map<number, number>): Mol {
 // A residue label for each monomer, in rows (labelLayout). A peptide's ends are labels of their own (H, Ac, OH, NH2)
 // with no atoms kept; every other cap is kept with its residue's atoms. A bond says which kept atom it joins at each
 // labelled end (Bond.ports): a residue's N and C=O for its neighbours, its R3 atom for a link.
-export function buildLabels(seq: Seq): { mol: Mol } | { problem: string } {
+export function buildLabels(seq: Seq, look?: Look): { mol: Mol } | { problem: string } {
   const read = unitsOf(seq);
   if ("problem" in read) return read;
   const { units, partner } = read;
@@ -233,10 +235,10 @@ export function buildLabels(seq: Seq): { mol: Mol } | { problem: string } {
     const peptide = row[0].kind === "peptide", joins: number[][] = [], ports: number[][] = [], nodes: number[] = [];
     // A peptide's free N end is H (first, so the labels read H–Ala–…–OH in order), its free C=O end OH.
     const first = row[0], last = row[row.length - 1], free = (k: number, n: number) => !partner.has(`${c} ${k} ${n}`);
-    const h = peptide && first.unit.code !== "ac" && first.prep.r[1] !== undefined && free(0, 1) ? add({ label: "H", location: [0, 0, 0] }) : undefined;
+    const h = peptide && first.unit.code !== "ac" && first.prep.r[1] !== undefined && free(0, 1) ? add({ label: "H", location: [0, 0, 0], ...look?.(c, 0) }) : undefined;
     row.forEach((x, k) => {
       if (peptide && (x.unit.code === "ac" || x.unit.code === "am") && !x.unit.smiles) {
-        const i = add(x.unit.code === "ac" ? { label: "C", location: [0, 0, 0], text: "Ac" } : { label: "N", location: [0, 0, 0], text: "NH2" });
+        const ac = x.unit.code === "ac", i = add({ label: ac ? "C" : "N", location: [0, 0, 0], text: ac ? "Ac" : "NH2", ...look?.(c, k) });
         nodes.push(i); joins.push([i, i, i, i]); ports.push([-1, -1, -1, -1]);
         return;
       }
@@ -255,14 +257,14 @@ export function buildLabels(seq: Seq): { mol: Mol } | { problem: string } {
       if (x.unit.smiles) {
         // A residue Octet has no label for: drawn in full in its place in the row (placed after the layout).
         const base = atoms.length;
-        kept.atoms.forEach((a) => add(a));
+        kept.atoms.forEach((a) => add({ ...a, ...look?.(c, k) }));
         kept.bonds.forEach((b) => bond({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] }));
         const first = at[1] >= 0 ? base + at[1] : base;
         full.push({ first, atoms: kept.atoms.map((_, n) => base + n), local: kept.atoms.map((a): P => [a.location[0], a.location[1]]), a: at[1] >= 0 ? at[1] : 0, b: at[2] >= 0 ? at[2] : at[1] >= 0 ? at[1] : 0 });
         nodes.push(first); joins.push(at.map((n) => (n >= 0 ? base + n : first))); ports.push([-1, -1, -1, -1]);
         return;
       }
-      const i = add({ label: x.kind !== "peptide" && x.label === "P" ? "P" : "C", location: [0, 0, 0], text: x.label || x.unit.code, inner: kept, align: "centre" });
+      const i = add({ label: x.kind !== "peptide" && x.label === "P" ? "P" : "C", location: [0, 0, 0], text: x.label || x.unit.code, inner: kept, align: "centre", ...look?.(c, k) });
       nodes.push(i); joins.push([i, i, i, i]); ports.push(at);
     });
     joinAt.push(joins);
@@ -274,7 +276,7 @@ export function buildLabels(seq: Seq): { mol: Mol } | { problem: string } {
       ordered.unshift(h);
     }
     if (peptide && last.unit.code !== "am" && last.prep.r[2] !== undefined && free(row.length - 1, 2)) {
-      const oh = add({ label: "O", location: [0, 0, 0], text: "OH" });
+      const oh = add({ label: "O", location: [0, 0, 0], text: "OH", ...look?.(c, row.length - 1) });
       bond({ type: 1, atoms: [joins[row.length - 1][2], oh], ports: [ports[row.length - 1][2], -1] }, true);
       ordered.push(oh);
     }

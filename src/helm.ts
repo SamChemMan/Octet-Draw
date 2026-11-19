@@ -4,7 +4,7 @@
 // out or as residue labels. ChemDraw's Copy As FASTA gives the letters alone, with X for a residue it does not know (N
 // for a nucleotide), and so does Octet's. HELM writes such a residue as SMILES with its two links ([*:1] to the N side
 // or 5' side, [*:2] to the other), as HELM does for a monomer outside its library, so it reads back in other programs.
-import type { Mol } from "./render.ts";
+import type { Atom, Caption, Mol } from "./render.ts";
 import { erase, fragments, insertMol, pickAtoms } from "./edit.ts";
 import { chainRead, type ChainEnd } from "./chain.ts";
 import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts";
@@ -417,9 +417,10 @@ function linked(m: Mol, atoms: number[], r: (outside: number) => number, smiles:
 // Residue labels choice under the name field): each structure that is wholly one or more chains is read (seqOf) and
 // built again (seqbuild.ts), centred where it was. As residue labels, a residue Octet has no label for stays in full in
 // its row. A structure that is anything more than chains (a drug on a peptide) is left as it is, as is one already
-// drawn the way asked.
+// drawn the way asked. What each residue's atoms all share (a colour, a highlight) goes on it as drawn again, and what
+// the whole structure shares on all of it.
 export function withSequences(m: Mol, to: "atoms" | "labels"): Mol {
-  const gone = new Set<number>(), made: Mol[] = [];
+  const made: { gone: number[]; mol: Mol }[] = [];
   for (const frag of fragments(m).map((f) => [...f].sort((p, q) => p - q))) {
     const residueLabels = frag.filter((i) => m.atoms[i].inner?.atoms.length && m.atoms[i].text).length;
     const ends = frag.filter((i) => !m.atoms[i].inner && ((m.atoms[i].label === "H" && !m.atoms[i].text) || ["OH", "Ac", "NH2"].includes(m.atoms[i].text ?? ""))).length;
@@ -428,17 +429,35 @@ export function withSequences(m: Mol, to: "atoms" | "labels"): Mol {
     if (!read || read.drawn.flat().length !== part.atoms.length) continue;
     // Already as asked: every residue with a label drawn as one (a residue in full stays so).
     if (to === "labels" && read.seq.chains.every((c, k) => c.units.every((u, n) => u.smiles || read.units[k][n].every((i) => part.atoms[i].inner || part.atoms[i].text || part.atoms[i].label === "H")))) continue;
-    const built = to === "labels" ? buildLabels(read.seq) : buildAtoms(read.seq);
+    // A peptide's H and OH ends are read with its first and last residues, and do not count.
+    const shared = (atoms: number[]) => {
+      const out: Partial<Atom> = {}, end = (a: Atom) => !a.inner && ((a.label === "H" && !a.text) || a.text === "OH"), own = atoms.filter((i) => !end(part.atoms[i]));
+      for (const k of ["colour", "halo"] as const) { const v = part.atoms[own[0]]?.[k]; if (v && own.every((i) => part.atoms[i][k] === v)) out[k] = v; }
+      return out;
+    };
+    const look = (c: number, k: number) => shared(read.units[c][k]), all = shared(part.atoms.map((_, i) => i));
+    const built = to === "labels" ? buildLabels(read.seq, look) : buildAtoms(read.seq, look);
     if ("problem" in built) continue;
     const mid = (x: Mol) => [0, 1].map((k) => { const v = x.atoms.map((a) => a.location[k]); return (Math.min(...v) + Math.max(...v)) / 2; });
     const [ox, oy] = mid(part), [nx, ny] = mid(built.mol), scale = frag.map((i) => m.atoms[i].scale ?? 1).sort((p, q) => p - q)[frag.length >> 1];
-    made.push({ ...built.mol, atoms: built.mol.atoms.map((a) => ({ ...a, location: [ox + (a.location[0] - nx) * scale, oy + (a.location[1] - ny) * scale, 0] as [number, number, number], ...(scale !== 1 ? { scale } : {}) })) });
-    frag.forEach((i) => gone.add(i));
+    made.push({ gone: frag, mol: { ...built.mol, atoms: built.mol.atoms.map((a) => ({ ...all, ...a, location: [ox + (a.location[0] - nx) * scale, oy + (a.location[1] - ny) * scale, 0] as [number, number, number], ...(scale !== 1 ? { scale } : {}) })) } });
   }
-  if (!made.length) return m;
-  let out = erase(m, new Set(), gone);
-  for (const x of made) out = insertMol(out, x).mol;
-  return out;
+  return made.length ? redrawn(m, made) : m;
+}
+// Structures drawn again in place of others: each part's atoms (gone) give way to its new structure (mol). The text
+// under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on and kept
+// ChemDraw data on its atoms go with it to the new atoms: each takes them before the old atoms go.
+function redrawn(m: Mol, parts: { gone: number[]; mol: Mol }[]): Mol {
+  let out = m;
+  for (const { gone, mol } of parts) {
+    const old = new Set(gone), fresh = mol.atoms.map((_, k) => out.atoms.length + k);
+    const plus = (atoms: number[]) => (atoms.some((i) => old.has(i)) ? [...atoms, ...fresh] : atoms);
+    const kept = (x: Caption): Caption => (x.property?.atoms.some((i) => old.has(i)) ? { ...x, property: { ...x.property, atoms: plus(x.property.atoms) } } : x);
+    out = insertMol(out, mol).mol;
+    out = { ...out, captions: out.captions?.map((c) => kept(c.under?.some((i) => old.has(i)) ? { ...c, under: plus(c.under) } : c)),
+      groups: out.groups?.map((g) => ({ ...g, atoms: plus(g.atoms) })), cycles: out.cycles?.map((c) => ({ ...c, nodes: c.nodes.map(plus) })) };
+  }
+  return erase(out, new Set(), new Set(parts.flatMap((p) => p.gone)));
 }
 
 // ——— The Bond tool between residue labels (J7) ———
@@ -500,5 +519,5 @@ export function linkResidues(m: Mol, i: number, j: number): Mol | { problem: str
   const oldOf = new Map([...fromOld].map(([k, o]) => [o, k])), key = (p: number, q: number) => (p < q ? `${p} ${q}` : `${q} ${p}`);
   const kept = new Map(part.bonds.flatMap((x) => (oldOf.has(x.atoms[0]) && oldOf.has(x.atoms[1]) ? [[key(oldOf.get(x.atoms[0])!, oldOf.get(x.atoms[1])!), x] as const] : [])));
   const bonds = built.mol.bonds.map((x) => { const o = kept.get(key(x.atoms[0], x.atoms[1])); return o ? { ...x, ...(o.colour ? { colour: o.colour } : {}), ...(o.halo ? { halo: o.halo } : {}), ...(o.line ? { line: o.line } : {}) } : x; });
-  return insertMol(erase(m, new Set(), new Set(all)), { ...built.mol, atoms, bonds }).mol;
+  return redrawn(m, [{ gone: all, mol: { ...built.mol, atoms, bonds } }]);
 }
