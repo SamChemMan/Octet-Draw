@@ -18,7 +18,8 @@ import { conformers, cube, fischerWays, FRUCTOSES, hexose, HEXOSES, paddlewheel,
 import { clashes } from "./clashes.mjs";
 import { CP_RINGS, DPPF, METALLOCENES } from "./organometallics.mjs";
 import { CARBON, POLYHEDRA } from "./polyhedra.mjs";
-import { HOSTS, hostLengths } from "./hosts.mjs";
+import { cucurbituril, cucurbiturilGraph, cyclodextrin, cyclodextrinSmiles, HAWORTH, HOSTS, hostLengths } from "./hosts.mjs";
+import { messy } from "../../src/check.ts";
 import { GLASSWARE } from "./glassware.mjs";
 import { EQUIPMENT } from "./equipment.mjs";
 import { BIOMOLECULES, CELLS } from "./bio.mjs";
@@ -98,8 +99,8 @@ const NAMED = {
     ["ADP", "adenosine 5'-diphosphate", "adenosine diphosphate, nucleotide"], ["ATP", "adenosine 5'-triphosphate", "adenosine triphosphate, nucleotide"],
     ["cAMP", "smiles:Nc1ncnc2n(cnc12)[C@@H]1O[C@@H]2COP(=O)(O)O[C@H]2[C@H]1O", "cyclic AMP, adenosine 3',5'-cyclic phosphate, nucleotide"],
   ],
-  // Macrocycles and hosts. Calixarenes, pillar[5]arene and [2.2]paracyclophane are drawn in hosts.mjs, as Indigo's
-  // flat layout draws them badly (rings over their own OH groups).
+  // Macrocycles and hosts. Calixarenes, pillar[5]arene, [2.2]paracyclophane, the cyclodextrins and the cucurbiturils
+  // are drawn in hosts.mjs, as Indigo's flat layout draws them badly (rings over their own OH groups, crossing bonds).
   "Supramolecules": [
     ["12-Crown-4", "1,4,7,10-tetraoxacyclododecane", "crown ether"], ["15-Crown-5", "1,4,7,10,13-pentaoxacyclopentadecane", "crown ether"],
     ["18-Crown-6", "1,4,7,10,13,16-hexaoxacyclooctadecane", "crown ether"], ["Benzo-15-crown-5", "smiles:C1COCCOc2ccccc2OCCOCCO1", "crown ether"],
@@ -301,6 +302,36 @@ function basePairs(bases) {
   });
 }
 
+// α-, β- and γ-cyclodextrin (issue 97), drawn in hosts.mjs, their wedges picked by the reference made from first
+// principles there (cyclodextrinSmiles).
+const CYCLODEXTRINS = [
+  [6, "α-Cyclodextrin", "alpha-cyclodextrin, α-CD, alpha-CD, cyclomaltohexaose, cyclohexaamylose"],
+  [7, "β-Cyclodextrin", "cyclodextrin, beta-cyclodextrin, β-CD, beta-CD, cyclomaltoheptaose, cycloheptaamylose"],
+  [8, "γ-Cyclodextrin", "gamma-cyclodextrin, γ-CD, gamma-CD, cyclomaltooctaose, cyclooctaamylose"],
+];
+const cyclodextrins = () => CYCLODEXTRINS.map(([n, name, also]) => {
+  const ring = cyclodextrinSmiles(n, smilesOf), formula = ring && inchiOf(ring)?.split("/")[1];
+  if (formula !== `C${6 * n}H${10 * n}O${5 * n}`) fail(`${name}: the reference is ${formula}`);
+  const found = cyclodextrin(n, picker(`smiles:${ring}`), clashes, messy) ?? fail(`${name}: no drawing is it`);
+  // Each glucose as its Haworth projection reads (hosts.mjs).
+  if (found.way !== HAWORTH) fail(`${name}: its wedges are not the Haworth projection's`);
+  return entry(name, also, { mol: found.mol });
+});
+
+// Cucurbit[5]uril to cucurbit[8]uril (issue 97), drawn in hosts.mjs, each the structure written there atom by atom
+// (cucurbiturilGraph).
+// "cucurbituril" alone is cucurbit[6]uril (the first made, and what the word meant before its homologues); the others
+// are found by "cucurbiturils", which the library's search also finds for "cucurbituril".
+const CUCURBITURILS = [[5, "Cucurbit[5]uril", "CB[5], CB5, cucurbiturils"], [6, "Cucurbit[6]uril", "cucurbituril, CB[6], CB6"], [7, "Cucurbit[7]uril", "CB[7], CB7, cucurbiturils"],
+  [8, "Cucurbit[8]uril", "CB[8], CB8, cucurbiturils"]];
+const cucurbiturils = () => CUCURBITURILS.map(([n, name, also]) => {
+  const found = cucurbituril(n, clashes, messy) ?? fail(`${name}: no drawing keeps the limits`);
+  const want = inchiOf(cucurbiturilGraph(n));
+  if (!want || inchiOf(found.mol) !== want) fail(`${name}: the drawing is not CB[${n}]`);
+  if (want.split("/")[1] !== `C${6 * n}H${6 * n}N${4 * n}O${2 * n}`) fail(`${name}: ${want.split("/")[1]}`);
+  return entry(name, also, { mol: found.mol });
+});
+
 // Amino acid side chains: [name, three-letter code, SMILES with R first (where it joins the α carbon)]. Glycine's is H.
 // Proline's closes a ring on the backbone N: its ring is drawn whole, with R on the α carbon (to the C=O) and on the
 // N (to the residue before), its last atom.
@@ -385,7 +416,7 @@ out.push({ name: "Functional groups", items: GROUPS.map(([name, smiles, also]) =
 }) });
 out.push({ name: "Ligands", items: [...named("Ligands"), DPPF] });
 if (hostLengths().some((l) => Math.abs(l - 1) > 0.02)) fail("[2.2]paracyclophane: a bond is not one bond length");
-out.push({ name: "Supramolecules", items: [...named("Supramolecules"), ...HOSTS] });
+out.push({ name: "Supramolecules", items: [...named("Supramolecules"), ...HOSTS, ...cyclodextrins(), ...cucurbiturils()] });
 out.push({ name: "Polyhedra", items: POLYHEDRA });
 out.push({ name: "Carbon", items: CARBON });
 out.push({ name: "Cp and arene rings", items: CP_RINGS });

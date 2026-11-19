@@ -46,6 +46,14 @@ export function legible(whole: Mol): boolean {
 export const templateKind = (id: string) => `custom:${id}`;
 // The id of one of the user's templates from its kind, or undefined for a built-in one.
 export const ownId = (kind: string) => (kind.startsWith("custom:") ? kind.slice(7) : undefined);
+// The Ring strip's kept templates (built-in, named and the user's own, one list): those that still exist, in order.
+export const ringStrip = (kept: string[], exists: (kind: string) => unknown) => kept.filter((k) => !!exists(k));
+// Settings from before the Ring menu pin for the user's own templates (1.1.3) showed every own template in the Ring
+// strip, before the kept built-in ones: they stay there, in that order.
+export const keepOwnRings = (kept: string[], saved: unknown[]) => {
+  const own = saved.flatMap((t) => (typeof (t as SavedTemplate)?.id === "string" ? [templateKind((t as SavedTemplate).id)] : []));
+  return [...new Set([...own, ...kept])];
+};
 // A structure the library's search found by name or abbreviation (TREN, a name OPSIN reads), as a template: its kind,
 // and the name from a kind (undefined for any other kind).
 export const namedKind = (name: string) => `name:${name}`;
@@ -143,6 +151,14 @@ export const duplicateTemplate = <S extends Kept>(s: S, id: string): S => {
   return { ...s, templates: [...s.templates.slice(0, k + 1), copy, ...s.templates.slice(k + 1)] };
 };
 export const removeTemplate = <S extends Kept>(s: S, id: string): S => ({ ...s, templates: s.templates.filter((t) => t.id !== id) });
+// The Ring strip after the user's templates change (next is s changed): a template that is gone leaves the strip, and
+// a new one (added, duplicated, saved as a copy) joins its end when ring (saved from the Ring tool or with it in hand).
+export const ringed = <S extends Kept & { libraryRings: string[] }>(s: S, next: S, ring = false): S => {
+  if (next === s) return s;
+  const had = new Set(s.templates.map((t) => t.id)), has = new Set(next.templates.map((t) => t.id));
+  const added = ring ? next.templates.filter((t) => !had.has(t.id)).map((t) => templateKind(t.id)) : [];
+  return { ...next, libraryRings: [...next.libraryRings.filter((k) => { const id = ownId(k); return !id || has.has(id); }), ...added] };
+};
 // A name a new set can take: not empty, not My templates, not one the user has.
 export const freeSetName = (s: Kept, name: string) => { const n = setName(name); return !!n && n !== MY_SET && !s.templateSets.includes(n); };
 export const addSet = <S extends Kept>(s: S, name: string): S => (freeSetName(s, name) && s.templateSets.length < 50 ? { ...s, templateSets: [...s.templateSets, setName(name)] } : s);

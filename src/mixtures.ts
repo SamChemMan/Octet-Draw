@@ -9,8 +9,9 @@ import { DEFAULT_STYLE } from "./docstyle.ts";
 import type { Mol } from "./render.ts";
 
 type Box = [number, number, number, number];
-// Text that is a charge: a sign, with its number before or after it (+, −, 2+, 3−, +2).
-export const isChargeText = (text: string) => /^(\d*[+\-−–]|[+\-−–]\d+)$/.test(text.trim());
+// Text that is a charge: a sign, with its number before or after it (+, −, 2+, 3−, +2). ⊕ and ⊖ (\oplus, \ominus)
+// are signs too, as a free circled charge is.
+export const isChargeText = (text: string) => /^(\d*[+\-−–⊕⊖]|[+\-−–⊕⊖]\d+)$/.test(text.trim());
 // A free symbol (a sign placed with the Symbols tool, on no atom) within 0.3 bond lengths of a structure's ink, or of
 // brackets round a structure, is that structure's own: its charge, or a complex's total charge by its brackets, as
 // text that close is. So is a charge typed as text there (isChargeText; text tied to a structure, an arrow or a cycle

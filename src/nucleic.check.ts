@@ -1,6 +1,6 @@
 // Run: node src/nucleic.check.ts. RNA and DNA typed as one-letter codes (src/nucleic.ts): "rna: AACGUU" and
 // "dna: ATGC" in Name to Structure give the oligonucleotide, 5'-OH to 3'-OH, with D-ribose (or 2-deoxy-D-ribose) β on
-// each base. Bad letters are named, more than 30 nucleotides are refused, and Structure > Insert RNA… and Insert DNA…
+// each base. Bad letters are named, more than 1,000 nucleotides are refused, and Structure > Insert RNA… and Insert DNA…
 // open the name field ready for codes, as Insert Peptide… does.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -24,8 +24,9 @@ assert.deepEqual(nucleicSmiles("AXCZN", true), { problem: "Not nucleotides: X, Z
 assert.deepEqual(nucleicSmiles("AC-GU", false), { problem: "Not a nucleotide: -" });
 assert.deepEqual(nucleicSmiles("5'-", false), { problem: "Type the bases, for example AACGUU." });
 assert.deepEqual(nucleicSmiles("p", true), { problem: "Type the bases, for example ATGC." });
-assert.ok("smiles" in nucleicSmiles("A".repeat(MAX_NUCLEOTIDES), false)!, "30 nucleotides");
-assert.deepEqual(nucleicSmiles("A".repeat(MAX_NUCLEOTIDES + 1), false), { problem: "Up to 30 nucleotides." });
+assert.equal(MAX_NUCLEOTIDES, 1000, "as many as the Sequence tool reads: the builder says how many draw in full");
+assert.ok("smiles" in nucleicSmiles("A".repeat(MAX_NUCLEOTIDES), false)!, "1,000 nucleotides");
+assert.deepEqual(nucleicSmiles("A".repeat(MAX_NUCLEOTIDES + 1), false), { problem: "Up to 1,000 nucleotides." });
 // Only after "rna:" or "dna:", so a word of capitals (CAT, ACG) is never a sequence.
 assert.equal(nucleicText("CAT"), undefined);
 assert.deepEqual(nucleicText("RNA:ACGU"), { smiles: smiles("ACGU") });
@@ -38,9 +39,9 @@ assert.equal(nucleicProblem("aspirin"), undefined);
 // says why codes are refused. Codes never go to PubChem and are never corrected to a name.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
-assert.match(editor, /peptideProblem\(naming\) \?\? nucleicProblem\(naming\)/);
+assert.match(editor, /casProblem\(naming\) \?\? seqNote/);
 assert.match(editor, /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| looksLikeSmiles\(s\)\) return false;/);
-assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
+assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| HELM\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);
 const menu = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
 assert.match(menu, /item\("insert_peptide", "Insert Peptide…", ""\)\?,\n\s+&item\("insert_rna", "Insert RNA…", ""\)\?,\n\s+&item\("insert_dna", "Insert DNA…", ""\)\?,/);
 
@@ -64,10 +65,10 @@ assert.equal(inchi("rna: AACGUU"), "InChI=1S/C57H71N22O40P5/c58-24-1-4-74(55(91)
 assert.equal(formula("dna: ATGC"), "C39H50N15O22P3");
 assert.equal(inchi("dna: ATGC"), "InChI=1S/C39H50N15O22P3/c1-16-8-52(39(60)50-35(16)57)27-6-19(23(72-27)11-68-78(63,64)74-18-5-28(70-21(18)9-55)53-14-45-30-32(41)43-13-44-33(30)53)75-79(65,66)69-12-24-20(7-29(73-24)54-15-46-31-34(54)48-37(42)49-36(31)58)76-77(61,62)67-10-22-17(56)4-26(71-22)51-3-2-25(40)47-38(51)59/h2-3,8,13-15,17-24,26-29,55-56H,4-7,9-12H2,1H3,(H,61,62)(H,63,64)(H,65,66)(H2,40,47,59)(H2,41,43,44)(H,50,57,60)(H3,42,48,49,58)/t17-,18-,19-,20-,21+,22+,23+,24+,26+,27+,28+,29+/m0/s1");
 assert.equal(nameToSmiles("rna: ABC"), undefined, "bad letters draw nothing");
-assert.equal(nameToSmiles(`dna: ${"A".repeat(31)}`), undefined, "31 nucleotides draw nothing");
-// The longest drawn as the editor draws it, timed.
-const t = performance.now(), longest = drawn(`rna: ${"ACGU".repeat(8).slice(0, MAX_NUCLEOTIDES)}`);
-console.log(`nucleic: a ${MAX_NUCLEOTIDES}-mer of RNA (${longest.atoms.length} atoms) drawn in ${Math.round(performance.now() - t)} ms`);
+assert.ok(nameToSmiles(`dna: ${"A".repeat(31)}`), "31 nucleotides read: how many draw in full is up to the builder");
+// A 30-mer laid out from its SMILES, timed (the editor builds sequences from monomers: seqbuild.ts).
+const t = performance.now(), longest = drawn(`rna: ${"ACGU".repeat(8).slice(0, 30)}`);
+console.log(`nucleic: a 30-mer of RNA (${longest.atoms.length} atoms) laid out from SMILES in ${Math.round(performance.now() - t)} ms`);
 
 // Against OPSIN, with OPSIN built: every nucleoside, the 5'- and 3'-phosphates, and the two sequences by name.
 needOpsin("nucleic: ok (OPSIN comparison skipped, no OPSIN build)");

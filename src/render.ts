@@ -132,7 +132,22 @@ export type Bond = {
   // At each end that is a label keeping its atoms (inner), the atom of that group the bond joins; -1 is none. A residue
   // label (Ala) bonds on both sides, to its N and to its C=O (ChemDraw's BeginExternalNum and EndExternalNum).
   ports?: [number, number];
+  // A bracket (issue 27): the bond drawn out from each atom, along and back, this far (bond lengths) to the left of its
+  // first atom looking at its second (below zero, to the right), with round corners. A link in a chain (a disulfide,
+  // a lactam, the bond that closes a cyclic peptide) is drawn so, clear of the residues between its ends. Only a plain
+  // single bond has one.
+  route?: number;
 };
+// A bond's bracket as drawn (Bond.route): only a plain single bond has one; 0 for none.
+export const bracketOf = (b: Pick<Bond, "route" | "type" | "stereo" | "display">) => (b.route && b.type === 1 && !b.stereo && !b.display && Number.isFinite(b.route) ? b.route : 0);
+// A bond's bracket in drawing units: its route at the bond's own scale (as its length), so it follows a structure
+// scaled down or up.
+export const routeOf = (m: Pick<Mol, "atoms">, b: Bond) => { const r = bracketOf(b); return r && (r * (scaleOf(m.atoms[b.atoms[0]]) + scaleOf(m.atoms[b.atoms[1]]))) / 2; };
+// A bracket's path from p to q (drawing units, y up): out from p, along and back to q, route to the left of p→q.
+export function bracketPath(p: readonly number[], q: readonly number[], route: number): [number, number][] {
+  const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1, ox = (-dy / l) * route, oy = (dx / l) * route;
+  return [[p[0], p[1]], [p[0] + ox, p[1] + oy], [q[0] + ox, q[1] + oy], [q[0], q[1]]];
+}
 // Bond types: 1 to 3 by order, 4 aromatic and 10 a hydrogen bond (KET's numbers), and 14 a quadruple bond (KET has
 // none; 14 keeps clear of KET's types). A hydrogen bond is drawn dotted and adds nothing to an atom's valence.
 export const AROMATIC = 4, HBOND = 10, QUADRUPLE = 14;
@@ -826,6 +841,7 @@ type Plan = {
   hidden?: boolean;
   side?: number; // a double bond's second line: -1 left, 1 right, 0 centred
   z: Z; // the bond's lengths at its scale
+  route?: number; // a bracket (Bond.route) in px: how far it stands off to the left of a→b in the drawing (y up)
 };
 // The lengths an object draws at one scale (px): bond, half line width, wedge half-width at each end, bold width,
 // double-bond spacing, hash spacing, label margin and label size.
@@ -1456,6 +1472,8 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     const z = ownZ(bond, zOf((scaleOf(mol.atoms[a]) + scaleOf(mol.atoms[b])) / 2)), { L, hw } = z;
     const plan: Plan = { a, b, u, n, length, kind: 'line', lines: [], cut: [0, 0], z, ...(mol.atoms[a].hidden || mol.atoms[b].hidden ? { hidden: true } : {}) };
     if (endOn.has(bond)) return { ...plan, u: [1, 0] as P, n: [0, 1] as P, hidden: true };
+    const bracket = routeOf(mol, bond);
+    if (bracket && length > 1e-9) { plan.route = bracket * k; return plan; }
     const side = (j: number) => Math.sign(dot(sub(pts[j], p), n));
     // Angles at x from the bond to x's other neighbours on one side, smallest first.
     const near = (x: number, y: number, sd: number) =>
@@ -1617,7 +1635,14 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   // A bond between two labels stays readable: where it would show less than a third of its length, the margin at both
   // ends (a dative bond's tail only) narrows, to no less than 0.3 of it (0.5 pt in ACS 1996), until it shows that much.
   // Every line keeps the bond's cut.
+  // A bracket's legs leave its atoms at a right angle to the bond (on screen, -n for a route to the left).
+  const legOf = (pl: Plan): P => mul(pl.n, -Math.sign(pl.route!));
   for (const pl of plans) {
+    if (pl.route) {
+      const leg = legOf(pl), h = Math.abs(pl.route), m = pl.z.margin;
+      pl.cut = [cutAt({ ...pl, u: leg, n: perp(leg), length: h }, 0, m), cutAt({ ...pl, a: pl.b, b: pl.a, u: leg, n: perp(leg), length: h }, 0, m)];
+      continue;
+    }
     let cut = cutsOf(pl, pl.z.margin);
     const shows = (c: [number, number]) => pl.length - c[0] - c[1] >= pl.length / 3;
     if (labelled[pl.a] && labelled[pl.b] && !shows(cut)) {
@@ -1640,7 +1665,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
     if (labelled[x] || shapes[x].length) return; // a label, or an attachment point's diamond or star, cuts its bonds
     const X = pts[x];
     const members = atAtom[x]
-      .filter(({ pl }) => !pl.hidden && (pl.kind === 'line' || pl.kind === 'wedge'))
+      .filter(({ pl }) => !pl.hidden && !pl.route && (pl.kind === 'line' || pl.kind === 'wedge'))
       .map(({ pl, i }) => {
         const f = drawnEnd(pl, x === pl.a ? pl.b : pl.a), u = unit(sub(f, X)), [w0, w1] = widths(pl, x);
         return { i, u, n: perp(u), w0, w1, f, ang: Math.atan2(u[1], u[0]) };
@@ -1672,6 +1697,16 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const bar = (S: P, E: P, n: P, w: number) => polygons.push([add(S, mul(n, -w)), add(S, mul(n, w)), add(E, mul(n, w)), add(E, mul(n, -w))]);
   const drawPlan = (pl: Plan, i: number) => {
     if (pl.hidden) return;
+    if (pl.route) {
+      // A bracket: out from each atom (from its label's cut), along, and back, with round corners.
+      const leg = legOf(pl), h = Math.abs(pl.route), A = pts[pl.a], B = pts[pl.b], A1 = add(A, mul(leg, h)), B1 = add(B, mul(leg, h));
+      const r = Math.max(0, Math.min(0.25 * pl.z.L, h / 2, len(sub(B1, A1)) / 2)), c0 = Math.min(pl.cut[0], h - r), c1 = Math.min(pl.cut[1], h - r);
+      const corner = (p0: P, c: P, p2: P): P[] => Array.from({ length: 7 }, (_, j) => { const t = j / 6; return add(add(mul(p0, (1 - t) * (1 - t)), mul(c, 2 * (1 - t) * t)), mul(p2, t * t)); });
+      const along = unit(sub(B1, A1));
+      polygons.push(...strokeOutline([add(A, mul(leg, c0)), ...corner(sub(A1, mul(leg, r)), A1, add(A1, mul(along, r))), ...corner(sub(B1, mul(along, r)), B1, sub(B1, mul(leg, r))), add(B, mul(leg, c1))], pl.z.hw).map(wound));
+      for (const x of [pl.a, pl.b]) if (!labelled[x] && !shapes[x].length) polygons.push(disc(pts[x], pl.z.hw));
+      return;
+    }
     const { L, hw, wide, tip } = pl.z, hash = pl.z.hash;
     if (pl.kind === 'line' || pl.kind === 'wedge') polygons.push([...endOf(pl, i, pl.a), ...endOf(pl, i, pl.b)]);
     const S = drawnEnd(pl, pl.a), D = pl.length - pl.cut[0] - pl.cut[1];
@@ -1787,7 +1822,7 @@ function drawn(mol: Mol, s: Style, measure: (text: string, face?: Face) => Ink, 
   const axis = new Set([...endOn.keys()].map((b) => key(b.atoms[0], b.atoms[1])));
   for (const [r, f] of crossingBonds(mol.bonds, (i) => pts[i], s.bond, s)) {
     const R = plans[r], F = plans[f];
-    if (R.hidden || F.hidden || (axis.size && mol.bonds[r].atoms.some((x) => mol.bonds[f].atoms.some((y) => axis.has(key(x, y)))))) continue;
+    if (R.hidden || F.hidden || R.route || F.route || (axis.size && mol.bonds[r].atoms.some((x) => mol.bonds[f].atoms.some((y) => axis.has(key(x, y)))))) continue;
     if (mid(r) - mid(f) > 1e-6) fronts[f].push(r); else fronts[r].push(f);
   }
   const cutFronts = (i: number, from: number) => {

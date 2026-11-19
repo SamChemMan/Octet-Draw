@@ -6,12 +6,13 @@ import { gunzipSync } from "node:zlib";
 import { browser } from "../scripts/checkkit.ts";
 
 browser();
-const { analyse, cleanUp, expandWithOrigins, ready, structures, toInchi, toInchiKey, toSmiles } = await import("./chem.ts");
+const { analyse, cleanUp, expandWithOrigins, parseStructure, ready, structures, toInchi, toInchiKey, toSmiles } = await import("./chem.ts");
 const { wholeMolecule } = await import("./edit.ts");
 const { graphOf } = await import("./naming.ts");
 const { iupacName } = await import("./namer.ts");
 const { predict, readTables } = await import("./nmr.ts");
 const { properties } = await import("./props.ts");
+const { calculated, propertyReport, propertyValues } = await import("./proprows.ts");
 const { searchQuery } = await import("./search.ts");
 const { isotopePattern } = await import("./mass.ts");
 type Mol = import("./render.ts").Mol;
@@ -60,6 +61,22 @@ assert.deepEqual(searchQuery(ethane), { smiles: "CC" });
 const graph = graphOf(expandWithOrigins(ethane, true).mol)!;
 assert.equal(iupacName(graph), "ethane");
 assert.ok(properties(graph));
+// The Properties panel's H-bond donors, H-bond acceptors and Rings, from SMILES as Indigo reads them (RDKit's NumHBD
+// and NumHBA; rings in the smallest set). One value per structure, as every row: two structures, and a reaction.
+const counts = (smiles: string) => {
+  const values = propertyValues(structures(parseStructure(smiles))!.filter((s) => !!s), calculated).flat();
+  return ["hbd", "hba", "rings"].map((k) => values.find((r) => r.key === k)!.values.join("; "));
+};
+for (const [name, smiles, want] of [
+  ["aspirin", "CC(=O)Oc1ccccc1C(=O)O", "1 3 1"], ["caffeine", "Cn1cnc2c1c(=O)n(C)c(=O)n2C", "0 3 2"],
+  ["paracetamol", "CC(=O)Nc1ccc(O)cc1", "2 2 1"], ["glucose", "OC[C@H]1O[C@@H](O)[C@H](O)[C@@H](O)[C@@H]1O", "5 6 1"],
+  ["morpholine", "C1COCCN1", "1 2 1"], ["pyridine", "c1ccncc1", "0 1 1"], ["indole", "c1ccc2[nH]ccc2c1", "1 0 2"],
+  ["urea", "NC(N)=O", "2 1 0"], ["ethanol", "CCO", "1 1 0"], ["benzoic acid", "OC(=O)c1ccccc1", "1 1 1"],
+]) assert.deepEqual(counts(smiles), want.split(" "), name);
+assert.deepEqual(counts("CC(=O)Oc1ccccc1C(=O)O.Cn1cnc2c1c(=O)n(C)c(=O)n2C"), ["1; 0", "3; 3", "1; 2"]);
+assert.deepEqual(counts("CC(=O)O.OCC>>CC(=O)OCC"), ["1; 1; 0", "1; 1; 2", "0; 0; 0"]);
+const report = propertyReport(propertyValues(structures(parseStructure("NC(N)=O"))!.filter((s) => !!s), calculated)).split("\n");
+assert.ok(report.includes("H-bond donors\t2") && report.includes("H-bond acceptors\t1") && report.includes("Rings\t0"));
 // Predict ¹H-NMR and ¹³C-NMR shifts: one signal for the six H, and one for the two C.
 readTables(gunzipSync(readFileSync(new URL("../data/nmr/shifts.bin.gz", import.meta.url))));
 const h = predict(graph, "1H")!, c = predict(graph, "13C")!;

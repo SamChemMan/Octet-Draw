@@ -1,7 +1,7 @@
 // Stress cases for the Office object's EMF (issue 166, make_office_emf). src/wordpaste-stress.check.ts lists every case
 // and names the test here that runs it. Each EMF is read back by a reader of its own, written from MS-EMF and
 // MS-EMFPLUS apart from the plus tests' reader (plus_ops), so a misreading the writer and that reader share shows up.
-// Drawings: the plus tests' own, Octet's starter drawings as the page exports them, a messy page of 200 structures,
+// Drawings: the plus tests' own, Octet 1.1.2's starters as the page exported them, a messy page of 200 structures,
 // text, dashes, photos, and hostile SVGs. OCTET_STRESS_SVGS=<folder> adds every .svg in that folder (pictures
 // exported from the dev server) to the cases that take any drawing.
 // The tests with "ole" in their names need Windows (GDI+ draws each drawing), and run in the Office objects job.
@@ -301,13 +301,13 @@ fn page(w: f32, h: f32, body: &str) -> String {
     format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}pt" height="{h}pt" viewBox="0 0 {w} {h}">{body}</svg>"##)
 }
 
-// The page's Export pictures of Octet's starter drawings (src/starters), and the object window's blank picture
+// The page's Export pictures of Octet 1.1.2's starter drawings (tests/pictures), and the object window's blank picture
 // (Editor.tsx BLANK_SVG).
 fn real_drawings() -> Vec<(String, String)> {
     let mut out = vec![
-        ("the structure starter".to_string(), include_str!("../../src/starters/structure.svg").to_string()),
-        ("the reaction starter".to_string(), include_str!("../../src/starters/reaction.svg").to_string()),
-        ("the cycle starter".to_string(), include_str!("../../src/starters/cycle.svg").to_string()),
+        ("the structure starter".to_string(), include_str!("../tests/pictures/starter-structure.svg").to_string()),
+        ("the reaction starter".to_string(), include_str!("../tests/pictures/starter-reaction.svg").to_string()),
+        ("the cycle starter".to_string(), include_str!("../tests/pictures/starter-cycle.svg").to_string()),
         ("the blank object".to_string(), r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="72pt" viewBox="0 0 72 72"></svg>"#.to_string()),
         // A chemist's messy page: 200 structures of 40 bonds, wedges, double bonds and labels.
         ("200 structures".to_string(), octet_drawing(200, 40, 12, 10)),
@@ -615,7 +615,7 @@ fn stress_cdxml_comment_round_trips() {
 // windows copying, Undo and Update in an object window).
 #[test]
 fn stress_same_bytes_on_many_threads() {
-    let svgs = [PROLINE.to_string(), picture_svg(), octet_drawing(20, 40, 12, 10), include_str!("../../src/starters/reaction.svg").to_string()];
+    let svgs = [PROLINE.to_string(), picture_svg(), octet_drawing(20, 40, 12, 10), include_str!("../tests/pictures/starter-reaction.svg").to_string()];
     let first: Vec<Vec<u8>> = svgs.iter().map(|s| make_office_emf(&crate::export::tree(s).unwrap(), Some(X))).collect();
     std::thread::scope(|t| {
         let runs: Vec<_> = (0..16).map(|k| t.spawn({

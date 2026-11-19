@@ -15,7 +15,9 @@ const SIDES: Record<string, string> = {
   I: "[C@@H](C)CC", L: "CC(C)C", K: "CCCCN", M: "CCSC", F: "CC1=CC=CC=C1", S: "CO", T: "[C@@H](C)O",
   W: "CC1=CNC2=CC=CC=C12", Y: "CC1=CC=C(O)C=C1", V: "C(C)C",
 };
-export const MAX_RESIDUES = 60;
+// As many as the Sequence tool reads (helm.ts MOST_UNITS). How many draw in full is up to the builder: 1,000 atoms
+// (seqbuild.ts), so 71 residues of any kind, up to 249 glycines; as residue labels, all 1,000.
+export const MAX_RESIDUES = 1000;
 export const PEPTIDE = /^\s*peptide\s*:\s*/i;
 
 // The three-letter sequence for one-letter codes, with the ends as typed: "H-" or "Ac-" before, "-OH" or "-NH2"
@@ -29,7 +31,7 @@ export function threeLetter(text: string): { sequence: string } | { problem: str
   if (/[a-z]/.test(letters)) return { problem: "Type the amino acids in capitals, for example ACDEFG." };
   const bad = [...new Set([...letters].filter((ch) => !CODES[ch]))];
   if (bad.length) return { problem: `${bad.length === 1 ? "Not an amino acid" : "Not amino acids"}: ${bad.join(", ")}` };
-  if (letters.length > MAX_RESIDUES) return { problem: `Up to ${MAX_RESIDUES} amino acids.` };
+  if (letters.length > MAX_RESIDUES) return { problem: `Up to ${MAX_RESIDUES.toLocaleString("en-GB")} amino acids.` };
   const body = [...letters].map((ch) => CODES[ch]).join("-");
   const lone = letters.length === 1 && !start && !end;
   return { sequence: `${lone ? "H-" : start.replace(/^ac/i, "Ac").replace(/^h/, "H")}${body}${lone ? "-OH" : end.replace(/^-oh$/i, "-OH").replace(/^-nh2$/i, "-NH2")}` };

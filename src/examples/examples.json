@@ -1,0 +1,12 @@
+[
+ { "id": "oseltamivir", "name": "Oseltamivir", "kind": "Structure" },
+ { "id": "suzuki", "name": "Suzuki coupling", "kind": "Reaction" },
+ { "id": "epoxidation", "name": "Sharpless epoxidation", "kind": "Reaction scheme" },
+ { "id": "hydrolysis", "name": "Ester hydrolysis", "kind": "Mechanism" },
+ { "id": "threonine", "name": "Threonine stereoisomers", "kind": "Stereochemistry" },
+ { "id": "cycle", "name": "Suzuki cycle", "kind": "Catalytic cycle" },
+ { "id": "ibuprofen", "name": "Ibuprofen routes", "kind": "Synthesis" },
+ { "id": "photooxygenation", "name": "Photo-oxygenation", "kind": "Photochemistry" },
+ { "id": "aspirin", "name": "Aspirin", "kind": "Experiment" },
+ { "id": "lactams", "name": "β-Lactam antibiotics", "kind": "Poster" }
+]

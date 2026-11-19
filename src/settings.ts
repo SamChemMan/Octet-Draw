@@ -10,7 +10,7 @@
 // curvedArrows: the curved arrows kept in the Arrow strip, as "kind-sweep".
 // folded: the Actions panel's titled sections folded to their title, by set ("turn", "colour"), for every kind of
 // selection. A new user has every section open.
-import { readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
+import { keepOwnRings, readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
 import type { OwnName } from "./names";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
@@ -62,7 +62,8 @@ export type Settings = {
   files: FilePrefs; // export, copy and import preferences
   settingsModule: string; // the Settings module last open
   curvedArrows: string[];
-  libraryRings: string[]; // library templates kept in the Ring strip, as "lib:name"
+  libraryRings: string[]; // templates kept in the Ring strip: built-in ("lib:name"), named ("name:…") and own ("custom:id")
+  ringOwnKept: boolean; // the user's own templates from before the Ring menu pin (1.1.3) are in libraryRings
   palettes: FloatingPalette[]; // template sets open as floating palettes, each where it was left (the last on top)
   librarySize: TemplateSize; // the size of the templates in the template library (each floating palette has its own)
   dictionary: OwnName[]; // the user's own names for structures (Structure > Add Structure to Dictionary), in the order added
@@ -83,6 +84,7 @@ export type Settings = {
   scaleLabels: boolean; // Scale…'s Labels and lines: label sizes and line widths scale with the positions (decision 0007)
   onlineSearch: boolean; // The online searches are offered (decision 0008); off hides them everywhere
   moreFormats: boolean; // Settings > Pro: File > More Formats, the rare formats, is in the File menu (off by default)
+  feedbackButton: boolean; // Settings > Pro: the round Feedback button shows beside the palette (on by default)
   chemfigCompact: boolean; // Settings > Pro: chemfig code on one line (off: an atom on each line, branches indented)
   interpretation: boolean; // View > Show Reaction Interpretation: pointing at a reaction shows what each part of it is
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
@@ -98,12 +100,12 @@ export type Settings = {
   massUnit: "g" | "mg"; // Settings > Typing > Mass without a unit: a number typed with no unit in a stoichiometry table's mass cell
   cursor: CursorInk; // Settings > General > Cursor: Octet's cursors black, white, or the one that shows on the page
   selectColour: string; // Settings > General > Selection: the selection's colour, #RRGGBB (selectcolour.ts)
-  sequenceLabels: boolean; // the name field's Residue labels: a sequence drawn as H–Ala–Cys–OH (sequence.ts residues)
+  sequenceLabels: boolean; // how sequences show in a new document (its style's Sequences): as residue labels, H–Ala–Cys–OH
 };
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -116,7 +118,9 @@ export function loadSettings(): Settings {
       ...DEFAULTS, ...saved, variants: { ...DEFAULTS.variants, ...saved.variants, ...(["in", "out"].includes(saved.variants?.cycle) ? { cycle: "circle" } : {}) },
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
       pinned: list<string>(saved.pinned, (k) => typeof k === "string"),
-      libraryRings: list<string>(saved.libraryRings, (k) => typeof k === "string"),
+      // Once: the user's own templates, all in the Ring strip before its pin (1.1.3), stay there.
+      libraryRings: ((kept: string[]) => (saved.ringOwnKept === true ? kept : keepOwnRings(kept, Array.isArray(saved.templates) ? saved.templates : [])))(list<string>(saved.libraryRings, (k) => typeof k === "string")),
+      ringOwnKept: true,
       templateSets: list<string>(saved.templateSets, (k) => typeof k === "string" && !!k.trim() && k.length <= 40).slice(0, 50),
       palettes: readPalettes(saved.palettes),
       librarySize: readSize(saved.librarySize),
@@ -158,6 +162,7 @@ export function loadSettings(): Settings {
       scaleLabels: saved.scaleLabels !== false,
       onlineSearch: saved.onlineSearch !== false,
       moreFormats: saved.moreFormats === true,
+      feedbackButton: saved.feedbackButton !== false,
       chemfigCompact: saved.chemfigCompact === true,
       interpretation: saved.interpretation === true,
       decimals: Number.isInteger(saved.decimals) && saved.decimals >= 0 && saved.decimals <= 8 ? saved.decimals : undefined,

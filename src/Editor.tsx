@@ -3,18 +3,18 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Scan, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ChartPolar, ChartLineUp, GridNine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
-  TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
+  TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, Cards, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS } from "./labels";
-import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, toInchiAux, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -29,7 +29,7 @@ import {
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, cleanedFor, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
-import { snapBoxes, snapMove, type Guide } from "./snap";
+import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
 import { arcPoints, kindOf as measureKind, measureInk, measureText, measureValue, passAtom, settleMeasures, structuresOf } from "./measurement";
@@ -41,7 +41,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -70,6 +70,7 @@ import { WhatsNew } from "./WhatsNew";
 import { notesFor } from "./releases";
 import { version } from "../package.json";
 import { Home, NameBox, type RecentEntry, type RecoveredEntry, type OpenWindow } from "./Home";
+import { EXAMPLES, exampleAsked, exampleOf, exampleText } from "./examples";
 import { useHomeLibrary } from "./homeLibrary";
 import { call as homeCall, HOME_API } from "./homeApi";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
@@ -78,7 +79,7 @@ import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog"
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
 import { chemfig } from "./chemfig";
-import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
+import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
@@ -95,20 +96,21 @@ import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branc
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
-  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
+  ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, dashes, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, nameToAtoms, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, setPseudoReader, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
 import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
-import { PEPTIDE, peptideProblem } from "./peptide";
-import { relabel, residueName, residuesOf, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
-import { readSequence, toFasta, toHelm } from "./helm";
-import { NUCLEIC, nucleicProblem } from "./nucleic";
-import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, warmLayout } from "./namepreview";
+import { PEPTIDE } from "./peptide";
+import { relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
+import { fieldSeq, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
+import { monomerRefs } from "./seqbuild";
+import { NUCLEIC } from "./nucleic";
+import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, seqLayout, warmLayout } from "./namepreview";
 import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation, namerName, setCageCheck } from "./naming";
 import { pseudoReader } from "./pseudo";
@@ -120,7 +122,7 @@ import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
-import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
@@ -183,8 +185,12 @@ const mcpTaken = new Set<number>();
 // never shown) can wait a second.
 const tick = () => new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
-// A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel).
-labelHooks.relabel = (m, i, text) => relabel(m, i, text, parseStructure);
+// A bond from a residue label joins at its free link (helm.ts linkResidues); a residue with none says so (linkNotice).
+const linkNotice: { show?: (problem: string) => void } = {};
+// A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel); one joined
+// by its side chain keeps its name, and says why.
+labelHooks.relabel = (m, i, text) => { const r = relabel(m, i, text, parseStructure); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
+labelHooks.link = (m, i, j) => { const r = linkResidues(m, i, j); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
 const HOME_WINDOW = TAURI && !DRAW_WINDOW && !new URLSearchParams(location.search).has("editor");
 // The computer user's name, a new drawing's author (Settings > Document > Properties). Asked for once as the window
 // loads, before the window asks what it opens, so a new window's first drawing has it.
@@ -270,7 +276,7 @@ type Drag =
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P }
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; alone?: true }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
@@ -466,8 +472,8 @@ const OCTET_CLIP = "application/x-octet+json";
 // write over it. at: where it was dropped, in CSS pixels from the window's top left.
 type OpenedFile = { name: string; path: string | null; text: string | null; picture: string | null; error: string | null; at: [number, number] | null };
 // What a new drawing window opens: a new drawing for a purpose, the tutorial, a recent or recovered drawing, an example
-// drawing's text, a file picked in Open, or files Octet was asked to open.
-type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
+// (its id), a file's text, a file picked in Open, or files Octet was asked to open.
+type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { example: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
 // An Octet Drawing object in an Office document, opened from Word (decision 0023, src-tauri/src/ole_windows.rs): its
 // drawing as a .oct file (empty for a new object), the document's name and the window's title.
 type ObjectStart = { object: number; oct: string; host: string; title: string; app?: string };
@@ -632,10 +638,15 @@ export default function Editor() {
   const [notice, showNotice] = useState<Notice>();
   const setNotice = (text?: string, kind: NoticeKind = "error", action?: Notice["action"], stays?: boolean) =>
     showNotice(text ? (was) => ({ text, kind, action, n: (was?.n ?? 0) + 1, stays }) : undefined);
+  linkNotice.show = (problem) => setNotice(problem, "info");
   // Feedback (for testers, not in the public release: vite.config.ts): ⌘ held with 1, 2 and 3 pressed together (Ctrl
   // on Windows and Linux; keys.ts feedbackChord) takes a picture of the window, then opens the feedback box
   // (Feedback.tsx). The picture is taken first, so it shows the window as it was.
   const [feedback, setFeedback] = useState<{ picture?: string }>();
+  // Octet started with OCTET_FEEDBACK=0 (a cluster's module file or a launcher script): no Feedback button, whatever
+  // Settings > Pro > Feedback button says (main.rs feedback_off).
+  const [feedbackOff, setFeedbackOff] = useState(false);
+  useEffect(() => { if (TAURI) invoke<boolean>("feedback_off").then(setFeedbackOff, () => {}); }, []);
   useEffect(() => {
     if (!__FEEDBACK__) return;
     const mac = navigator.platform.startsWith("Mac"), pressed = new Map<string, number>();
@@ -654,9 +665,9 @@ export default function Editor() {
   const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
-  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
+  const drawingPrefs = useMemo(() => ({ sequenceLabels: settings.sequenceLabels, fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
     autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit, riskNew: settings.riskNew }),
-  [settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
+  [settings.sequenceLabels, settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -670,17 +681,18 @@ export default function Editor() {
   const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
   const showLibrary = (tool: TemplateTool, set: string, id?: string) => setReveal((r) => ({ tool, set, id, n: (r?.n ?? 0) + 1 }));
   // A template of the user's own, at the end of a set (My templates unless one is named). It is the Ring tool's (or the
-  // Template tool's, from its library) in hand now.
-  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring") {
+  // Template tool's, from its library) in hand now. ring: it goes in the Ring menu too (saved from the Ring tool, its
+  // strip or its library, or with the Ring tool in hand); the user pins any other there.
+  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring", ring = tool === "ring") {
     const t = newTemplate(name, mol);
-    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
+    setSettings((s) => ({ ...ringed(s, addTo(s, t, set), ring), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
     setTool(tool);
     return t;
   }
   function removeRingTemplate(id: string) {
     const kind = templateKind(id);
     setSettings((s) => ({
-      ...removeTemplate(s, id),
+      ...ringed(s, removeTemplate(s, id)),
       pinned: s.pinned.filter((k) => k !== `ring:${kind}` && k !== `template:${kind}`),
       variants: { ...s.variants, ...(s.variants.ring === kind ? { ring: "benzene" } : {}), ...(s.variants.template === kind ? { template: "lib:Alanine" } : {}) },
     }));
@@ -688,11 +700,11 @@ export default function Editor() {
   // A drawing (a selection, a structure picked, a built-in template) becomes a template of the user's own, with
   // everything in it (its text, arrows, shapes and look, as ChemDraw's templates keep them). The library opens on its
   // set with its name ready to type: Return keeps the name.
-  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string) => {
+  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string, ring = tool === "ring") => {
     if (!part) return;
     let n = templates.length + 1;
     while (templates.some((t) => t.name === `Template ${n}`)) n++;
-    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool);
+    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool, ring);
     showLibrary(tool, set, t.id);
   };
   // What Add to templates keeps: the selection, or with one atom or bond chosen (its Actions), its whole structure.
@@ -760,7 +772,7 @@ export default function Editor() {
     // A template removed meanwhile (from a palette) is kept as a new one, so nothing drawn is lost.
     const kept = !!e.id && templates.some((t) => t.id === e.id);
     if (kept) setSettings((s) => updateTemplate(s, e.id!, mol));
-    else { const t = newTemplate(e.name, mol); setSettings((s) => addTo(s, t)); }
+    else { const t = newTemplate(e.name, mol); setSettings((s) => ringed(s, addTo(s, t), e.tool === "ring")); }
     endTemplateEdit();
     setNotice(kept ? `${e.name} is saved.` : `${e.name} is saved in My templates.`, "done");
   }
@@ -1082,6 +1094,12 @@ export default function Editor() {
   // joins a cycle as a structure dragged there does.
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
+  // How this document shows sequences (issue 27): its style's Sequences, else as Residue labels was last chosen.
+  const seqLabels = (doc.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels";
+  // A sequence an AI app gives (mcp.ts draw), built on the spot as the drawing m shows sequences; undefined when not.
+  const builtSeq = (text: string, m: Mol): Mol | undefined => {
+    try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels" }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
+  };
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
     // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
@@ -1281,6 +1299,8 @@ export default function Editor() {
   useEffect(() => setRecent({ all: false, at: -1 }), [naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   // Each name is kept with its structure (as SMILES), so it draws again whatever happens to the name lists.
   const rememberName = (name: string, frag: Mol) => {
+    // A long HELM or sequence is not kept in the name history.
+    if (name.length > 200) return;
     let smiles = "";
     try { smiles = toSmiles(frag); } catch { /* kept by name alone */ }
     setSettings((s) => ({ ...s, nameHistory: [{ name, smiles }, ...s.nameHistory.filter((n) => n.name.toLowerCase() !== name.toLowerCase())].slice(0, 50) }));
@@ -1314,6 +1334,14 @@ export default function Editor() {
     const s = text.trim(), lines = /[\r\n]/.test(s);
     const why = (err: unknown) => { const r = refusal(err); if (r) refused?.(r); return undefined; };
     if (lines && isOwnFormat(s)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); } }
+    // A sequence in the Sequence tool's words or HELM (issue 27): built as the field builds it, as the drawing shows
+    // sequences, so a paste or a text made a structure is the same drawing as Return gives.
+    if (isSequence(s)) {
+      let r: ReturnType<typeof seqBuilt>;
+      try { r = seqBuilt({ build: s, labels: seqLabels }); } catch { r = undefined; }
+      if (r && "problem" in r) refused?.(r.problem);
+      return r && !("problem" in r) ? r : undefined;
+    }
     const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s, smiles);
     if (named || !loaded || !(lines || looksLikeSmiles(s))) return named;
     // A MOL file keeps its first line, which is often blank (the name).
@@ -1371,6 +1399,8 @@ export default function Editor() {
       flushSync(() => setExporting(undefined));
     }
   }
+  // The picture Copy puts on the clipboard, and Word and the Office object get: pictureOf on whole points (issue 171).
+  const copyPicture = (part: Mol) => ((s) => s && onWholePoints(s))(pictureOf(part));
   // What other programs read: CDXML, CDX (ChemDraw's binary form of the same drawing, as base64), a .oct file (the same
   // CDXML with Octet's drawing), and the molecules as a molfile, SMILES and InChI; undefined where Octet or Indigo cannot
   // write them. Each is made when it is first asked for and kept with the part (the drawing itself, or the selection's
@@ -1399,8 +1429,8 @@ export default function Editor() {
     if (f === "cml") return toCml(part);
     if (f === "ct") return toCt(part, name);
     if (f === "sln") return toSln(part);
-    if (f === "helm") return toHelm(part, toInchi, toSmiles);
-    if (f === "fasta") return toFasta(part, toInchi);
+    if (f === "helm") return toHelm(part);
+    if (f === "fasta") return toFasta(part);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
     if (kind === "sdf") return toSdf(part, v2000);
     const steps = stepsIn(part);
@@ -1662,7 +1692,7 @@ export default function Editor() {
     if (o.gone) { setNotice(`${o.host} is closed. Save a copy to keep this drawing.`); return false; }
     try {
       const sent = doc, oct = writeOct({ ...sent, guides }, savedStyle(), cdxmlOptions());
-      await invoke("ole_update", { oct, svg: pictureOf(sent) ?? BLANK_SVG, cdxml: formatOf(sent, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
+      await invoke("ole_update", { oct, svg: copyPicture(sent) ?? BLANK_SVG, cdxml: formatOf(sent, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
       setFile({ saved: sent, name: o.title });
       return true;
     } catch (e) {
@@ -1908,7 +1938,7 @@ export default function Editor() {
     if (!dirty) return setNotice("There are no changes since the last save.", "info");
     setDialog({ kind: "revert" });
   };
-  const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
+  const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text, undefined, undefined, true)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
   // Back in front: a drawing with no unsaved changes whose file another app changed opens again, as Mac apps do. One
   // step to undo. With unsaved changes, Save asks before it writes over the file (issue 2). An edit made meanwhile (the
   // click that brought the window to the front can draw) stays, and Save asks.
@@ -1923,6 +1953,28 @@ export default function Editor() {
   // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
   const openRecovered = (r: RecoveredEntry) => elsewhere ? inNew({ recovered: r.id }) : keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
     .catch((e) => { keepFailed()(e); setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
+  // An example drawing (issue 94: File > Open Example, Home's examples, an AI app's drawings new): a copy, named after
+  // the example and in its own style. It has no changes until the user makes one, and goes on Recent only once saved;
+  // Save asks where. The drawing in Octet is never written. It opens as a recent drawing does: in a window of its own
+  // when this one holds a drawing. It is fetched before anything changes, so one that cannot load changes nothing, and
+  // can be asked for again at once. The same example asked for again less than 800 ms after the last request (a
+  // double-click, or a held key's repeats, in this window or the new one it opened) opens once. Of two examples asked
+  // for close together, the one asked for last opens.
+  const exampleShow = useRef<(text: string, name: string) => void>(undefined), exampleAsks = useRef(0), examplesShown = useRef(0);
+  const showExample = (text: string, name: string) => { const r = load(undefined, text); if (!r.failed) { setFile((f) => ({ ...f, name })); examplesShown.current++; } return r; };
+  exampleShow.current = (text, name) => keepWork(() => void showExample(text, name));
+  const openExample = (id: string) => {
+    const x = exampleOf(id), last = exampleAsked(), at = Date.now();
+    exampleAsked({ id, at });
+    if (!x || (last.id === id && at - last.at >= 0 && at - last.at < 800)) return;
+    if (elsewhere) return inNew({ example: id });
+    const ask = ++exampleAsks.current;
+    void exampleText(id).then((text) => { if (ask === exampleAsks.current) exampleShow.current?.(text, x.name); },
+      (e) => { exampleAsked({ id: "", at: Date.now() }); setNotice(failure("Octet cannot open this example.", e)); });
+  };
+  // In development only (never in a build): scripts/gallery/pictures.mjs opens each example and takes its picture as
+  // the window draws it, for Home's tiles; the stress check counts the examples this window has shown.
+  if (import.meta.env.DEV) (window as { octetGallery?: unknown }).octetGallery = { open: openExample, picture: () => pictureOf(doc), name: () => name, edited: () => dirty, shown: () => examplesShown.current };
   // Remove from Home: one at a time, as each changes the list file, then Home reads the list again.
   const removeRecents = (list: RecentEntry[]) => void list.reduce((done, r) => done.then(() => homeCall("recent_remove", { path: r.path })).then(() => void library.forget(r.path)), Promise.resolve())
     .catch(() => {}).finally(refreshRecents);
@@ -2062,9 +2114,10 @@ export default function Editor() {
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
   // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
   // SDF or SMILES file opens as a new drawing of its structures, in the middle. A drawing made already (of a picture)
-  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). Gives why it did not open, or
-  // what it left out.
-  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): { failed?: string; lost?: string } {
+  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). keepSteps: Revert to Saved, after
+  // which Undo brings the changes back; any other drawing opened starts with nothing to undo. Gives why it did not open,
+  // or what it left out.
+  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string, keepSteps = false): { failed?: string; lost?: string } {
     drawingColours.current = [];
     passing.current.clear();
     try {
@@ -2084,6 +2137,8 @@ export default function Editor() {
       // As ChemDraw does, a drawing with a structure turned in 3D opens with Select as Structure Perspective, to turn it.
       if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
+      // Undo cannot take the drawing back to the one it replaced (a blank one, or another file under this one's name).
+      if (!keepSteps) dispatch({ type: "reset", h: { stack: [lastSet.current ?? mol], at: 0 } });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       // A drawing with a measured spectrum opens with it in the Spectrum panel.
       setSessions([]); setShownId(undefined);
@@ -2478,16 +2533,25 @@ export default function Editor() {
   }
   // Pasted HELM or FASTA (helm.ts): the field with the sequence in it, as Insert Peptide… opens it (or, pasted into the
   // field, in place of its text), so its kind and ends can be chosen before Return draws it. HELM that Octet cannot read
-  // says why. False for any other text.
-  function pasteSequence(text: string, field = false): boolean {
-    const read = readSequence(text);
+  // says why. False for any other text. bare: FASTA with no ">" line too (helm.ts bareFasta), for a paste nothing else
+  // reads.
+  function pasteSequence(text: string, field = false, bare = false): boolean {
+    const read = readSequence(text, bare);
     if (read && "problem" in read) setNotice(read.problem);
-    else if (read) (field ? setNaming : insertSequence)(read.text);
+    else if (read) { (field ? setNaming : insertSequence)(read.text); if (read.notes) setNotice(read.notes.join(" "), "info"); }
     return !!read;
   }
-  // A sequence with Residue labels on is drawn as its residues' labels (sequence.ts residues); anything else, and a
-  // sequence whose atoms are not in the order of its SMILES, as it is.
-  const asResidues = (text: string, frag: Mol) => (settings.sequenceLabels && isSequence(text) ? residuesOf(text, frag, parseStructure) ?? frag : frag);
+  // Settings > Document > Style > Sequences, and Residue labels under the name field: every chain in the document drawn
+  // again as atoms or as residue labels (helm.ts withSequences), with the style, in one undo step. New documents start
+  // with the last choice. The chip in a drawing with no sequence to draw again, whose style does not say how they show,
+  // changes only the choice for the next one: the drawing is not edited. A chain drawn again has new atoms, so the
+  // selection goes.
+  function setSequences(to: "atoms" | "labels", next: DocStyle = style) {
+    setSettings((st) => ({ ...st, sequenceLabels: to === "labels" }));
+    const drawn = withSequences(doc, to);
+    if (drawn === doc && next === style && style.sequences === undefined) return;
+    set({ ...drawn, style: { ...next, sequences: to } }, drawn === doc);
+  }
   // The sequence choices under the name field (sequence.ts): the text is rewritten, the caret goes after the codes, and
   // with the Sequence tool in hand the kind chosen is the tool's choice from now on.
   function chooseSequence(next: SeqParts) {
@@ -2503,7 +2567,20 @@ export default function Editor() {
   function drawNamed(): boolean {
     if (naming === undefined) return false;
     if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
-    // A sequence or large structure, previewed with Indigo's layout alone, is drawn tidied: laid out in the worker
+    // A sequence (issue 27) is built in the worker from its monomers, as its preview was (namepreview.ts seqLayout), as
+    // the document shows sequences. The field is busy until it comes (landLater). One with a problem is not drawn.
+    if (seqText !== undefined) {
+      if (seqNote || !seqRead) return false;
+      if (placing === naming) return true;
+      placingJob.current?.cancel();
+      const built = seqLayout(seqText, seqLabels);
+      const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
+      placingJob.current = job;
+      setPlacing(naming);
+      void job.result.then((mols) => landLater.current?.(naming, mols, job));
+      return true;
+    }
+    // A large structure, previewed with Indigo's layout alone, is drawn tidied: laid out in the worker
     // (namepreview.ts fullLayout), so the window never waits. The field is busy until it comes (landLater).
     if (later) {
       if (placing === naming) return true;
@@ -2518,7 +2595,7 @@ export default function Editor() {
     }
     const frag = named;
     if (!frag) return askPubChem(naming) || offerPubChem(naming);
-    landName(withOwnCaption(naming.trim(), asResidues(naming.trim(), frag)));
+    landName(withOwnCaption(naming.trim(), frag));
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), frag); } else if (suggestion) rememberName(suggestion, frag);
     return true;
   }
@@ -2542,7 +2619,7 @@ export default function Editor() {
     let frag = mols && (mols.length > 1 ? inRow(mols) : mols[0]);
     if (frag && !name) frag = asOpened(frag, text);
     if (!frag?.atoms.length) { if (nameField.current) shake(nameField.current); return; }
-    landName(withOwnCaption(s, asResidues(s, frag)));
+    landName(withOwnCaption(s, frag));
     if (name) rememberName(s, frag);
   };
   // Name to Structure's last step (decision 0015): with Settings > Online search on, a name or InChIKey nothing offline
@@ -2621,6 +2698,9 @@ export default function Editor() {
     quit: () => (officeRef.current ? void officeClose() : closeWindow()),
     // File > Close Window on Windows and Linux, where there is no Close Window of the system's (REL-18).
     close: () => (officeRef.current ? void officeClose() : closeDrawing()),
+    // Window > Cascade, Tile Top to Bottom and Tile Side by Side (Windows, and Linux under X11): Octet moves the
+    // drawing windows (src-tauri/src/arrange.rs).
+    ...Object.fromEntries(ARRANGE.map((how) => [how, () => void invoke("arrange_windows", { how }).catch(() => {})])),
     tutorial: () => startTutorial(),
     shortcuts: () => setSettingsOpen("keys"),
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
@@ -2894,15 +2974,17 @@ export default function Editor() {
       let m = doc;
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
+      const residues = new Set<number>();
       for (const i of labelled) {
         // An abbreviation Octet knows, else the group Contract Label kept with the label (or a ChemDraw file's).
         // A residue label (its bonds say which kept atom each joins) is its kept group, even when its text is P.
         const inner = m.atoms[i].inner, ported = !!inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
         const smiles = ported ? undefined : labelSmiles(chemicalText(doc.atoms[i].text, doc.atoms[i].runs)!);
         if (!smiles && !inner?.atoms.length) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
-        try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
+        try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); if (ported) residues.add(i); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
-      set(m);
+      // A chain of residue labels drawn out whole lies along a straight backbone (chem.ts chainsDrawnOut).
+      set(chainsDrawnOut(m, residues));
     },
     // Interpret Chemically, as ChemDraw's (on labels and captions): the selected labels become text, not chemistry, and
     // a label with no bonds becomes a caption where it was; or they are chemistry again. The picked captions turn
@@ -2945,7 +3027,7 @@ export default function Editor() {
       // phosphate, with each outside bond capped as the free compound has it (OH on C or P, H on N or O).
       if (links.length > 1) {
         const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1];
-        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
+        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi, monomerRefs()) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
       }
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
@@ -3006,6 +3088,8 @@ export default function Editor() {
       if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
     }])),
     recent_clear: () => refreshRecents(),
+    // File > Open Example: a copy of that example (openExample).
+    ...Object.fromEntries(EXAMPLES.map((x) => [`example_${x.id}`, () => openExample(x.id)])),
     revert: () => revertToSaved(),
     // The online searches (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
@@ -3247,6 +3331,13 @@ export default function Editor() {
       else if ("tutorial" in s) startTutorial();
       else if ("recent" in s) openRecent({ path: s.recent });
       else if ("recovered" in s) openRecovered({ id: s.recovered, name: "", at: 0 });
+      else if ("example" in s) {
+        const x = exampleOf(s.example), text = x && await exampleText(x.id).catch(() => undefined);
+        if (x && text !== undefined) return showExample(text, x.name);
+        const failed = "Octet cannot open this example.";
+        setNotice(failed);
+        return { failed };
+      }
       // (A structure file's text needs Indigo, as a file opened does.)
       else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }
       else if ("picked" in s) openPicked(s.picked);
@@ -3268,7 +3359,7 @@ export default function Editor() {
   useEffect(() => {
     if (!officePrime.current || !office) return;
     officePrime.current = false;
-    const svg = pictureOf(doc);
+    const svg = copyPicture(doc);
     if (svg) invoke("ole_update", { oct: "", svg, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   }, [office, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Then, while the user draws, the newest drawing goes to Octet's side too (still not to Word), half a second after
@@ -3283,7 +3374,7 @@ export default function Editor() {
     if (!o || o.gone || templateEdit || officeKept.current.doc === doc) return;
     officeKept.current.doc = doc;
     const oct = mainDirty ? writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) : "";
-    invoke("ole_update", { oct, svg: pictureOf(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
+    invoke("ole_update", { oct, svg: copyPicture(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   };
   // Word closed the document. sent: Word has the drawing Octet last kept. If that is this drawing, the window closes
   // with no question. If not (a change too new, or Word asked for nothing to be saved), the window stays, says the
@@ -3730,7 +3821,11 @@ export default function Editor() {
   const suggestion = quick ?? (thorough && thorough.typed === naming ? thorough.name : undefined);
   // In place of a suggestion: why a CAS number is refused, or the wait for PubChem.
   const seqParts = naming === undefined ? undefined : sequenceParts(naming);
-  const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming) ?? peptideProblem(naming) ?? nucleicProblem(naming);
+  // A sequence (issue 27): read on each keystroke (a long HELM in well under a frame), its problem shown under the field.
+  const seqText = naming !== undefined && isSequence(naming.trim()) ? naming.trim() : undefined;
+  const seqRead = useMemo(() => (seqText === undefined ? undefined : fieldSeq(seqText)), [seqText]);
+  const seqNote = !seqRead ? undefined : "problem" in seqRead ? seqRead.problem : seqProblem(seqRead.seq, seqLabels);
+  const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming) ?? seqNote;
   // The text read as a name, once a keystroke (a sequence is never read here: OPSIN takes up to 0.3 s over a peptide).
   const typedSmiles = useMemo(() => (naming === undefined || !loaded || isSequence(naming.trim()) ? undefined : nameToSmiles(naming)), [naming, namesLoaded, loaded]);
   // A sequence or a large structure: laid out away from the page once typing pauses (namepreview.ts), with the last
@@ -3745,10 +3840,21 @@ export default function Editor() {
     return () => { gone = true; clearTimeout(t); };
   }, [later, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   const named = useMemo(
-    () => (naming === undefined || later ? undefined : structureFromText(naming, undefined, typedSmiles ?? null) ?? (suggestion ? structureFor(suggestion) : undefined)),
-    [naming, suggestion, namesLoaded, loaded, later, typedSmiles],
+    () => (naming === undefined || later || seqText !== undefined ? undefined : structureFromText(naming, undefined, typedSmiles ?? null) ?? (suggestion ? structureFor(suggestion) : undefined)),
+    [naming, suggestion, namesLoaded, loaded, later, typedSmiles, seqText],
   );
-  const shownFull = later ? quickPreview?.mol : named, shownNamed = useMemo(() => (shownFull && naming !== undefined ? asResidues(naming.trim(), shownFull) : shownFull), [shownFull, settings.sequenceLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A sequence is built in the layout worker once typing pauses, as the document shows sequences; the last one shows
+  // meanwhile. Return draws the same structure (seqLayout keeps it).
+  const [seqPreview, setSeqPreview] = useState<{ key: string; mol?: Mol }>();
+  const seqKey = seqText !== undefined && seqRead && !("problem" in seqRead) && !seqNote ? `${seqLabels}\n${seqText}` : undefined;
+  useEffect(() => {
+    if (naming === undefined) setSeqPreview(undefined);
+    if (!seqKey || seqPreview?.key === seqKey) return;
+    let gone = false;
+    const t = setTimeout(() => void seqLayout(seqText!, seqLabels).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
+    return () => { gone = true; clearTimeout(t); };
+  }, [seqKey, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownNamed = seqText !== undefined ? (seqKey ? seqPreview?.mol : undefined) : later ? quickPreview?.mol : named;
   // Captions as laid out, with the caption being typed in place of its saved text (or added, if it is new).
   // Arrows grow to fit their conditions, including conditions being typed. The arrow lists stay the same lists while
   // their arrows do not change (most typing), so nothing drawn from them is made again.
@@ -5066,7 +5172,7 @@ export default function Editor() {
     // They are worked out at the first move and kept for the rest of the drag.
     let boxes: ReturnType<Extract<Drag, { kind: "move" }>["snap"]> | null = null;
     const snap = () => (boxes !== null ? boxes : (boxes = objectBoxes(atoms0, picks0, !!copies)));
-    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}) });
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}), ...(alone ? { alone: true as const } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its parts (cycleParts, and the rest of an integral group it is
   // in), and grabs them.
@@ -5103,6 +5209,8 @@ export default function Editor() {
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
+  // The reagent table whose span is under a point.
+  const gridAt = (q: P) => gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return q[0] >= x0 && q[0] <= x1 && q[1] >= y0 && q[1] <= y1; });
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t), its = itemsOf(t);
     // A risk assessment (riskassess.ts): a press on one of its parts picks that part, so Delete removes it, and a drag
@@ -5133,7 +5241,8 @@ export default function Editor() {
     }
     if (t.cycle !== undefined) return pressCycle(p, t, screen, copy);
     if (t.caption !== undefined || t.arrow !== undefined) return pressCaption(p, t, shift, screen, copy);
-    if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
+    // The copy key with Shift copies the selection on one axis (onPointerMove "move").
+    if ((!shift || copy) && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
     if (ids.length) {
       const atoms = new Set(shift ? [...selection, ...ids] : ids), picks = shift ? picked : new Set<number>();
       reselect(atoms, picks);
@@ -5141,7 +5250,7 @@ export default function Editor() {
     }
     // A press anywhere inside the frame of a selected group moves the whole group.
     const f = frameBox(views.get().zoom);
-    if (!shift && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
+    if ((!shift || copy) && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
       const [ga, gi] = withGroups(selection, picked);
       reselect(ga, gi);
       return startMove(p, screen, t, gi, ga, copy);
@@ -5149,7 +5258,7 @@ export default function Editor() {
     // A press on a reagent table picks the line or the cell under it and grabs the table, which moves on its own
     // (Grid.at, Grid.free). It snaps as any object does.
     const empty = Object.values(t).every((v) => v === undefined), gl = empty && !shift ? gridLineAt(p) : undefined, gc = empty && !shift && !gl ? gridCellAt(p) : undefined;
-    const table = empty ? gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; }) : undefined;
+    const table = empty ? gridAt(p) : undefined;
     // A table in a wider selection (Select All, an area) moves the whole selection.
     if (table && !shift && picked.has(TABLE(table.arrow)) && (selection.size || picked.size > 1)) return startMove(p, screen, t);
     const grabTable = (arrow: number) => {
@@ -5161,9 +5270,14 @@ export default function Editor() {
       setGridPick(gl ? { arrow: gl.arrow, key: "", row: "", line: gl.line } : { arrow: gc!.arrow, key: gc!.key, row: gc!.row });
       return grabTable((gl ?? gc)!.arrow);
     }
-    // A press on the rest of a reagent table (a gap, its conditions) picks the table whole, as an object (Shift adds it
-    // to the selection or takes it out), and grabs it.
-    if (table && shift) { const id = TABLE(table.arrow), next = new Set(picked); if (!next.delete(id)) next.add(id); return setPicked(next); }
+    // A press on the rest of a reagent table (a gap, its conditions) picks the table whole, as an object, and grabs it.
+    // Shift adds it to the selection and grabs it, as Shift on any object does: with more picked it moves the whole
+    // selection. A Shift-click (no move) takes it out again if it was picked before (click).
+    if (table && shift) {
+      const picks = new Set([...picked, TABLE(table.arrow)]);
+      setPicked(picks);
+      return selection.size || picks.size > 1 ? startMove(p, screen, t, picks) : grabTable(table.arrow);
+    }
     if (table) {
       choose([], [TABLE(table.arrow)]);
       setGridPick(undefined);
@@ -5201,9 +5315,10 @@ export default function Editor() {
     const tables = gridViews.filter((v) => { const [x0, y0, x1, y1] = tableSpan(v); return ([[x0, y0], [x1, y0], [x1, y1], [x0, y1]] as P[]).every(inside); }).map((v) => TABLE(v.arrow));
     choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1]), ...tables], keep);
   };
-  // A selection area: a box, or a lasso, as the Select tool is set.
+  // A selection area: a box, or a lasso, as the Select tool is set. Alt (Option) at the press gives the other one, as
+  // in ChemDraw. Structure perspective keeps the box.
   function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
-    if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
+    if (selectKind === "lasso" ? !pressAlt.current : selectKind === "box" && pressAlt.current) setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
     else setDrag({ kind: "box", from: p, to: p, base, picks, target: t, moved: false });
   }
   // The captions and arrows whose middle is inside a selection area (drawing coordinates). Shapes are containers:
@@ -5945,8 +6060,9 @@ export default function Editor() {
       }
       case "grid": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
-        const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L)) : { d: raw, guides: [] as Guide[] };
+        // Shift keeps it to one axis (snap.ts heldAxis): the other is held at 0 before the snaps, which snap the free axis only.
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey), raw = oneAxis(d0, held), boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
+        const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L), held) : { d: raw, guides: [] as Guide[] };
         // Snap to Grid, on each axis an object snap left free: the nearest corner or middle of the table.
         const b = snapGrid && !e.metaKey ? drag.snap()?.moving : undefined;
         if (b) {
@@ -5954,7 +6070,7 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        return setDrag({ ...drag, d: snapped.d, guides: snapped.guides, moved: true });
+        return setDrag({ ...drag, d: oneAxis(snapped.d, held), guides: snapped.guides, moved: true });
       }
       case "box": {
         // As ChemDraw's Marquee: only the atoms inside the box (atomsInArea). The highlight shows what stays selected on release.
@@ -5975,13 +6091,15 @@ export default function Editor() {
         markDrop(into);
         if (into) return setDrag({ ...drag, working: drag.base ?? doc, moved: true, guides: [], point: undefined });
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
-        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
+        // Shift keeps it to one axis, a copy too (snap.ts heldAxis), but for a bond tool's Shift-drag of an atom (alone).
+        // The other axis is held at 0 before the snaps, which snap the free axis only.
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey && !drag.alone), raw = oneAxis(d0, held), base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text, arrows and shapes moving without atoms snap the same way.
         const tol = 6 / (views.get().zoom * L);
         const boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
         const snapped = !settings.snap || e.metaKey ? { d: raw, guides: [] as Guide[], point: undefined }
-          : moving.size ? snapMove(base, moving, raw, tol, boxes)
-          : boxes ? { ...snapBoxes(boxes.moving, boxes.targets, raw, tol), point: undefined }
+          : moving.size ? snapMove(base, moving, raw, tol, boxes, held)
+          : boxes ? { ...snapBoxes(boxes.moving, boxes.targets, raw, tol, held), point: undefined }
           : { d: raw, guides: [] as Guide[], point: undefined };
         // Snap to Grid, on each axis an atom or object snap left free: the atom grabbed (a bond's nearer atom), or else
         // the nearest corner or middle of the moving box, lands on a grid line.
@@ -5994,8 +6112,10 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
+        // Snap to Grid may have moved the held axis.
+        const d = oneAxis(snapped.d, held);
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d: snapped.d });
+        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d });
       }
     }
   }
@@ -6165,12 +6285,10 @@ export default function Editor() {
       if (ring) return fuse(addRing(doc, ring.n, ring.aromatic, { bond }));
     }
     if (kind === "tool") {
-      const ringTools: Record<string, RingKind> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
-      if (ringTools[arg]) {
-        setSettings((s) => ({ ...s, variants: { ...s.variants, ring: ringTools[arg] } }));
-        return setTool("ring");
-      }
-      return setTool(arg as Tool);
+      // A ring key picks its ring; a specialist tool's key leaves it in its slot, as its menu does.
+      const ring = RING_TOOLS[arg], slot = ring ? "ring" : SPECIAL.includes(arg as Tool) ? "more" : undefined;
+      if (slot) setSettings((s) => ({ ...s, variants: { ...s.variants, [slot]: ring ?? arg } }));
+      return setTool(ring ? "ring" : (arg as Tool));
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
     // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
@@ -6996,7 +7114,7 @@ export default function Editor() {
       const cs = (doc.captions ?? []).filter((c) => picked.has(c.id)), c = cs[0];
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
+        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           ...valuesPicked(),
@@ -7464,7 +7582,8 @@ export default function Editor() {
       added.push(m);
     }
     const next = { ...linksKept(base, spectra), spectra };
-    if (home) load(undefined, next); else set(next, true);
+    // On Home over a drawing with unsaved changes, Octet asks first, as File > Open does: load starts a fresh history.
+    if (home) keepWork(() => load(undefined, next)); else set(next, true);
     const first = added[0], key = spectrumKeyOf(first);
     if (first.kind === "nmr" && first.mhz && isNucleus(key)) {
       const mhz = first.mhz / NUCLEI[key].ratio, near = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800].reduce((b, f) => (Math.abs(f - mhz) < Math.abs(b - mhz) ? f : b));
@@ -7947,9 +8066,10 @@ export default function Editor() {
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
     // A file needs Indigo alone (names false): a window that has just opened (--convert) loads no names engine for it.
     ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
-    newWindow: (purpose, session, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    newWindow: (purpose, session, text, example) => (TAURI ? invoke<string>("open_window", { start: example ? { example } : text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
     loaded: loaded && namesLoaded, indigo: loaded,
-    structure: (text) => structureFromText(text),
+    // A sequence (Octet's words or HELM, issue 27) is built from its monomers, as the drawing shows sequences.
+    structure: (text) => (isSequence(text.trim()) ? builtSeq(text, now.current) : structureFromText(text)),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
     named: (text) => { try { return !!nameToSmiles(text); } catch { return false; } },
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
@@ -8117,7 +8237,7 @@ export default function Editor() {
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
     mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], sln: ["SLN", (m) => toSln(m) ?? ""],
-    helm: ["HELM", (m) => toHelm(m, toInchi, toSmiles) ?? ""], fasta: ["FASTA", (m) => toFasta(m, toInchi) ?? ""],
+    helm: ["HELM", (m) => toHelm(m) ?? ""], fasta: ["FASTA", (m) => toFasta(m) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;
@@ -8160,7 +8280,9 @@ export default function Editor() {
   // The names drawn before that match what is typed (all of them when nothing is), five at a time until opened.
   const historyMatches = naming === undefined ? [] : settings.nameHistory.filter(({ name: n }) => { const q = naming.trim().toLowerCase(); return !q || (n.toLowerCase().includes(q) && n.toLowerCase() !== q); });
   const historyRows = recent.all ? historyMatches : historyMatches.slice(0, 5), historyMore = !recent.all && historyMatches.length > 5;
+  // A sequence has no picture here: it is built only as the field builds one (pickHistory), in the worker.
   const historyMol = ({ name, smiles }: { name: string; smiles: string }) => {
+    if (isSequence(name)) return undefined;
     if (!historyMols.current.has(name) && loaded && (smiles || namesLoaded)) {
       let m: Mol | undefined;
       try { m = smiles ? parseStructure(smiles) : structureFor(name); } catch { m = undefined; }
@@ -8169,6 +8291,18 @@ export default function Editor() {
     return historyMols.current.get(name);
   };
   const pickHistory = (entry: { name: string; smiles: string }) => {
+    // A sequence is drawn as the field draws it (drawNamed): built from its monomers in the worker, as the document
+    // shows sequences, and landed when it comes.
+    if (isSequence(entry.name)) {
+      placingJob.current?.cancel();
+      const text = entry.name, built = seqLayout(text, seqLabels);
+      const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
+      placingJob.current = job;
+      setNaming(text);
+      setPlacing(text);
+      void job.result.then((mols) => landLater.current?.(text, mols, job));
+      return;
+    }
     const frag = historyMol(entry) ?? structureFor(entry.name);
     if (!frag) return;
     place(frag, doc, namingAt.current);
@@ -8231,6 +8365,10 @@ export default function Editor() {
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
     colour_pick: ["Pick colour from screen", "", <Eyedropper size={18} />],
+    // Window > Cascade and the Tiles, where the Window menu has them (Windows, and Linux under X11).
+    ...(menuReady && ACTIONS.some((a) => a.id === "menu.cascade") ? {
+      cascade: ["Cascade", "", <Browsers size={18} />], tile_top_bottom: ["Tile top to bottom", "", <SquareHalfBottom size={18} />], tile_side_by_side: ["Tile side by side", "", <SquareHalf size={18} />],
+    } as Record<string, [string, string, React.ReactNode]> : {}),
     ...Object.fromEntries(moreFormats.map(([id, name, icon]): [string, [string, string, React.ReactNode]] => [id, [name, "", icon]])),
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
@@ -8239,12 +8377,13 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", "caption.names": "labels quantity live values properties", chart_jablonski: "add chart photophysics photochemistry excited state singlet triplet fluorescence phosphorescence intersystem crossing internal conversion energy level" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", "caption.names": "labels quantity live values properties", chart_jablonski: "add chart photophysics photochemistry excited state singlet triplet fluorescence phosphorescence intersystem crossing internal conversion energy level",
+    cascade: "arrange windows stack", tile_top_bottom: "tile horizontal arrange windows above below", tile_side_by_side: "tile vertical arrange windows compare" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
-      list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
+      list.map(([kind, name, icon]) => { const c = optionCommand(slot, kind); return { id: `${t}:${kind}`, name, group, icon, words, keys: c && toolKey(c), run: pick(t, [slot, kind]) }; });
     // A menu command that is also one of the selection's actions shows once, as the action.
     const acts = actionItems(contextOf(), untidy, hiddenHere(), selectedOf(found).length, settings.onlineSearch, settings.moreFormats), acted = new Set(acts.map((i) => i.command));
     return [
@@ -8255,6 +8394,8 @@ export default function Editor() {
       ...(TAURI && file.path && (selection.size || picked.size) ? [{ id: "home-thumb", name: "Use selection as thumbnail", group: "Commands", words: "home picture preview", icon: <ImageSquare size={18} />,
         run: () => { const path = file.path, part = selectedPart(), svg = part && pictureOf(part); if (path && svg) library.ownSvg(path, svg); } }] : []),
       ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing template", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
+      // File > Open Example's items. A name that began with the example's ("Aspirin…") would come before Draw aspirin.
+      ...EXAMPLES.map((x) => ({ id: `menu:example_${x.id}`, name: `Open ${x.name} example`, group: "Examples", keys: hint(`example_${x.id}`), words: "sample", icon: <Cards size={18} />, run: () => openExample(x.id) })),
       ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "template size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
@@ -8273,7 +8414,7 @@ export default function Editor() {
       ...variants("bracket", "bracket", Object.entries(BRACKETS).map(([k, n]) => [k, n, <BracketGlyph v={k} />]), "Brackets"),
       ...variants("orbital", "orbital", ORBITAL_GRID.flat().map((k) => [k, orbitalName(k)!, <OrbitalGlyph v={k} />]), "Orbitals"),
       { id: "tool:text", name: "Text", group: "Tools", keys: toolKey("tool.text"), icon: <TextT size={18} />, run: pick("text") },
-      { id: "tool:erase", name: "Eraser", group: "Tools", icon: <Eraser size={18} />, run: pick("erase") },
+      { id: "tool:erase", name: "Eraser", group: "Tools", keys: toolKey("tool.erase"), icon: <Eraser size={18} />, run: pick("erase") },
       ...([["document", "Document settings", <FileText size={18} />], ["keys", "Keyboard shortcuts", <Keyboard size={18} />], ["appearance", "Appearance settings", <Swatches size={18} />], ["files", "Import and export settings", <Files size={18} />], ["warnings", "Warnings settings", <WarningDiamond size={18} />]] as [ModuleId, string, React.ReactNode][])
         .map(([id, name, icon]) => ({ id: `settings:${id}`, name, group: "Settings", icon, run: () => setSettingsOpen(id) })),
       { id: "settings:open", name: "Settings", group: "Settings", keys: `${MOD},`, icon: <GearSix size={18} />, run: () => commands.current.settings() },
@@ -8668,8 +8809,9 @@ export default function Editor() {
       }
     }
     // Add to templates: into My templates (the Actions panel), into a set (the right-click menu), or into a new set.
-    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
-    if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
+    // It goes in the Ring menu too only with the Ring tool in hand.
+    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET, "ring", undefined, tool === "ring");
+    if (command === "template.add.new") { const part = templatePart(), ring = tool === "ring"; return part && askSet((set) => addPart(part, set, "ring", undefined, ring)); }
     if (command === "dictionary.add") return addToDictionary();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
@@ -8840,7 +8982,8 @@ export default function Editor() {
     // An integral group goes in or out whole, and a cycle with all its parts (as a click picks them).
     if (tool === "select" && mods && (mods.shift || mods.alt)) {
       const cycle = doc.cycles?.find((c) => c.id === t.cycle), [own, text] = cycle ? cycleParts(cycle) : [[], []];
-      const [ids, items] = wholeIntegral(doc, new Set([...atomsOf(doc, t), ...own]), new Set([...itemsOf(t), ...text]));
+      const table = Object.values(t).every((v) => v === undefined) ? gridAt(at) : undefined;
+      const [ids, items] = wholeIntegral(doc, new Set([...atomsOf(doc, t), ...own]), new Set([...itemsOf(t), ...text, ...(table ? [TABLE(table.arrow)] : [])]));
       const all = [...ids].every((i) => mods.atoms.has(i)) && [...items].every((x) => mods.picks.has(x)), out = mods.alt || all;
       const atoms = new Set(mods.atoms), picks = new Set(mods.picks);
       for (const i of ids) if (out) atoms.delete(i); else atoms.add(i);
@@ -9131,6 +9274,8 @@ export default function Editor() {
       case "tableedge":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "grid": {
+        // A Shift-click on a table adds it to the selection or takes it out (click).
+        if (!drag.moved && pressMods.current?.shift) return click({}, drag.from);
         // Moved by hand, the table keeps its place on the page from now on (Grid.free), until Attach to reaction.
         const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.d);
         return at && changeGrid(drag.arrow, () => ({ at, free: true }));
@@ -9481,6 +9626,7 @@ export default function Editor() {
             await loadNames().then(() => setNamesLoaded(true), () => {});
             const frag = structureFromText(text, refused);
             if (frag) return place(frag);
+            if (pasteSequence(text, false, true)) return;
           }
           const picture = clip.picture ? fromBase64(clip.picture) : file && new Uint8Array(await file.arrayBuffer());
           if (picture) return pastePicture(picture);
@@ -9506,6 +9652,7 @@ export default function Editor() {
         let why = "Paste a name, a SMILES string or a MOL file.";
         const frag = named ? structureFromText(text!, (reason) => { why = reason; }) : undefined;
         if (frag) place(frag);
+        else if (named && pasteSequence(text!, false, true)) return;
         else if (file) await pastePicture(new Uint8Array(await file.arrayBuffer()));
         else setNotice(`Octet cannot read this structure. ${why}`);
       });
@@ -9548,7 +9695,7 @@ export default function Editor() {
         // Windows: an Octet Drawing object first, for Word, PowerPoint and Excel (decision 0023). It needs the picture,
         // which Office shows for it, so it goes on only with the picture.
         const object = WINDOWS && on.office !== false && on.pdf;
-        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
+        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? copyPicture(part) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
           .then(() => { ackCopy(page); return true; }, (err) => { setNotice(failure("Octet cannot copy this.", err)); return false; });
       }
       // A browser (dev only): its own clipboard, with Octet's form and SMILES (or the text) as text. After Check Structure
@@ -9606,9 +9753,15 @@ export default function Editor() {
     const e = drawing.electrons.find((x) => x.atom === i && x.key === key);
     return e ? <circle key="h" className="mark" cx={e.at[0]} cy={e.at[1]} r={0.22 * L} /> : null;
   };
+  // A bond's line on screen (px, y down): a bracket (Bond.route) goes out, along and back, as render.ts draws it.
+  const bondLine = (i: number): number[][] => {
+    const b = shown.bonds[i], p = pos(shown, b.atoms[0]), q = pos(shown, b.atoms[1]), r = routeOf(shown, b);
+    return (r ? bracketPath(p, q, r) : [p, q]).map(([x, y]) => [x * L, -y * L]);
+  };
   const bondMark = (i: number, key: string, cls: string) => {
-    const [a, b] = shown.bonds[i].atoms.map((k) => pos(shown, k));
-    return <line key={key} className={cls} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeWidth={0.36 * L} />;
+    const l = bondLine(i);
+    if (l.length > 2) return <polyline key={key} className={cls} points={l.join(" ")} strokeWidth={0.36 * L} />;
+    return <line key={key} className={cls} x1={l[0][0]} y1={l[0][1]} x2={l[1][0]} y2={l[1][1]} strokeWidth={0.36 * L} />;
   };
   const captionMark = (id: number, key: string, cls: string) => {
     const c = placed.find((x) => x.id === id);
@@ -9660,8 +9813,7 @@ export default function Editor() {
     const n = (x: number) => Math.round(x * 100) / 100;
     shown.bonds.forEach((b, i) => {
       if (!selection.has(b.atoms[0]) || !selection.has(b.atoms[1]) || shown.atoms[b.atoms[0]].hidden || shown.atoms[b.atoms[1]].hidden) return;
-      const [p, q] = shown.bonds[i].atoms.map((k) => pos(shown, k));
-      bonds += `M${n(p[0] * L)} ${n(-p[1] * L)}L${n(q[0] * L)} ${n(-q[1] * L)}`;
+      bonds += bondLine(i).map(([x, y], k) => `${k ? "L" : "M"}${n(x)} ${n(y)}`).join("");
     });
     for (const i of selection) {
       if (i >= shown.atoms.length || shown.atoms[i].hidden) continue;
@@ -10098,7 +10250,7 @@ export default function Editor() {
         const band = frame.line + 3 * frame.spacing, own = new Set(shown.bonds.flatMap((b) => (b.halo === c ? b.atoms : [])));
         return (
           <g key={`halo${c}`} className="atom-halo" opacity={0.4} fill={c} stroke={c} strokeLinecap="round">
-            {shown.bonds.map((b, k) => b.halo === c && <line key={`b${k}`} x1={pos(shown, b.atoms[0])[0] * L} y1={-pos(shown, b.atoms[0])[1] * L} x2={pos(shown, b.atoms[1])[0] * L} y2={-pos(shown, b.atoms[1])[1] * L} strokeWidth={band} />)}
+            {shown.bonds.map((b, k) => b.halo === c && <polyline key={`b${k}`} points={bondLine(k).join(" ")} fill="none" strokeLinejoin="round" strokeWidth={band} />)}
             {shown.atoms.map((at, i) => {
               if (at.halo !== c) return null;
               const box = drawing.label[i];
@@ -10787,25 +10939,26 @@ export default function Editor() {
         );
       }}</Live>}
       <Exit>{charMap && <CharMap focus={charFocus.current} onClose={() => setCharMap(false)} />}</Exit>
-      <Exit>{naming !== undefined && seqParts && (
+      <Exit>{naming !== undefined && (seqParts || seqText !== undefined) && (
         // A sequence's kind and ends, under the field. The field keeps the focus, so the codes go on being typed. Another
-        // kind starts with the usual ends: an N-acetyl is not a 5'-phosphate.
+        // kind starts with the usual ends: an N-acetyl is not a 5'-phosphate. HELM says its own kind and ends.
         <div className="name-options" role="toolbar" aria-label="Sequence" onPointerDown={(e) => e.preventDefault()}>
-          <span className="name-kinds" role="radiogroup" aria-label="Kind">
+          {seqParts && <span className="name-kinds" role="radiogroup" aria-label="Kind">
             {(Object.keys(SEQUENCES) as SeqKind[]).map((k) => (
               <button key={k} type="button" role="radio" tabIndex={-1} aria-checked={seqParts.kind === k} onClick={() => chooseSequence({ ...seqParts, kind: k, start: false, end: false })}>{SEQUENCES[k].name}</button>
             ))}
-          </span>
-          {(["start", "end"] as const).map((end, i) => (
+          </span>}
+          {seqParts && (["start", "end"] as const).map((end, i) => (
             <button key={end} type="button" tabIndex={-1} aria-pressed={seqParts[end]} onClick={() => chooseSequence({ ...seqParts, [end]: !seqParts[end] })}>{SEQ_ENDS[seqParts.kind][i]}</button>
           ))}
-          {/* Off: every atom (issue 27). On: one label for each residue, as ChemDraw draws a sequence. Kept for next time. */}
-          <button type="button" tabIndex={-1} aria-pressed={settings.sequenceLabels} onClick={() => setSettings((s) => ({ ...s, sequenceLabels: !s.sequenceLabels }))}>Residue labels</button>
+          {/* The document's Sequences (issue 27): off, every atom; on, one label for each residue, as ChemDraw draws a
+              sequence. It draws the document's sequences again, and new documents start with the last choice. */}
+          <button type="button" tabIndex={-1} aria-pressed={seqLabels} onClick={() => setSequences(seqLabels ? "atoms" : "labels")}>Residue labels</button>
         </div>
       )}</Exit>
       <Exit>{naming !== undefined && nameNote && (
         // A wrong CAS check digit, or the wait for PubChem, under the field where a suggestion shows.
-        <p className={seqParts ? "name-suggestion lower" : "name-suggestion"} aria-live="polite"><span>{nameNote}</span></p>
+        <p className={seqParts || seqText !== undefined ? "name-suggestion lower" : "name-suggestion"} aria-live="polite"><span>{nameNote}</span></p>
       )}</Exit>
       <Exit>{naming !== undefined && !nameNote && suggestion && !nameToSmiles(naming) && (() => {
         // The suggested name under the field, with the letters it adds or changes marked. Tab takes it.
@@ -10886,7 +11039,7 @@ export default function Editor() {
           style={madeTemplate?.style ?? style}
           isDefault={isDefault()}
           preview={preview}
-          onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
+          onStyle={(next) => (madeTemplate ? changeTemplate(madeTemplate.id, { style: next }) : next.sequences && next.sequences !== (seqLabels ? "labels" : "atoms") ? setSequences(next.sequences, next) : set({ ...scaleSizes(doc, next.scale / style.scale), style: next }, true))}
           onDefault={() => keepForNew(style)}
           purposes={purposeList}
           onPurpose={(id) => (!madeTemplate ? applyPurpose(id)
@@ -10920,6 +11073,9 @@ export default function Editor() {
           onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
           moreFormats={settings.moreFormats}
           onMoreFormats={(moreFormats) => setSettings((s) => ({ ...s, moreFormats }))}
+          feedbackButton={settings.feedbackButton}
+          onFeedbackButton={(feedbackButton) => setSettings((s) => ({ ...s, feedbackButton }))}
+          feedbackOff={feedbackOff}
           chemfigCompact={settings.chemfigCompact}
           onChemfigCompact={(chemfigCompact) => setSettings((s) => ({ ...s, chemfigCompact }))}
           selection={!madeTemplate && (selection.size || picked.size) ? { settings: objectSettings(doc, style, selection, picked), onChange: settingsTo,
@@ -10994,7 +11150,7 @@ export default function Editor() {
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         onEditTemplate={editTemplate}
-        onDuplicate={(id) => setSettings((s) => duplicateTemplate(s, id))}
+        onDuplicate={(id, tool) => setSettings((s) => ringed(s, duplicateTemplate(s, id), tool === "ring"))}
         onPlace={(id, before) => setSettings((s) => placeTemplate(s, id, before))}
         onToStart={(id) => setSettings((s) => templateToStart(s, id))}
         onToEnd={(id) => setSettings((s) => templateToEnd(s, id))}
@@ -11313,7 +11469,7 @@ export default function Editor() {
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             back={overDrawing ? { name, key: keyLabel("escape"), go: () => setHome(false) } : undefined}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entries, recents = []) => setDialog({ kind: "discard", entries, recents })} selectAll={homeSelectAll}
-            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => (elsewhere ? inNew({ text }) : keepWork(() => load(undefined, text)))}
+            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onExample={openExample}
             windows={homeWindow ? openWindows : undefined} onWindow={(w: OpenWindow) => void invoke("window_show", { label: w.label }).catch(() => {})}
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
@@ -11476,7 +11632,7 @@ export default function Editor() {
       <Exit>{notes && ownNotes && <WhatsNew release={ownNotes} onClose={() => setNotes(false)} />}</Exit>
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
-      <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
+      {settings.feedbackButton && !feedbackOff && <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />}
       <ExportButton quick={filePrefs.quick} selected={!!(selection.size || picked.size)} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)}
         lead={office && !office.gone && (
         // An object window's Update, named for the program that has the drawing (Update in Word), as ⌘S and File >

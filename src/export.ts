@@ -169,11 +169,19 @@ export const MDL: ExportFormat[] = ["mol", "mol2000", "sdf", "sdf2000", "rxn", "
 export const EXPORT_FORMATS: [ExportFormat, string][] = [["oct", "Octet drawing (.oct)"], ["pdf", "PDF"], ["png", "PNG"], ["svg", "SVG"], ["emf", "EMF (Windows Office)"], ["eps", "EPS"],
   ["tif", "TIFF"], ["jpg", "JPEG"], ["gif", "GIF"], ["cdxml", "CDXML (ChemDraw)"], ["cdx", "CDX (ChemDraw)"], ["mol", "MOL"], ["mol2000", "MOL V2000"],
   ["sdf", "SDF"], ["sdf2000", "SDF V2000"], ["rxn", "RXN"], ["rxn2000", "RXN V2000"], ["rdf", "RDF"], ["rdf2000", "RDF V2000"], ["smi", "SMILES"], ["inchi", "InChI"]];
-// A picture from standaloneSvg with a margin of `pt` all round: its size and view box grow by that much.
-export function withMargin(svg: string, pt: number): string {
-  const m = Math.max(0, Math.min(72, pt)), n = (v: number) => +v.toFixed(4);
+// A picture from standaloneSvg with a margin of `pt` all round (`ptY` above and below when given): its size and view
+// box grow by that much.
+export function withMargin(svg: string, pt: number, ptY = pt): string {
+  const [m, my] = [pt, ptY].map((v) => Math.max(0, Math.min(72, v))), n = (v: number) => +v.toFixed(4);
   return svg.replace(/^(<svg[^>]*?)\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"\sviewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/, (_, head, w, h, x, y, vw, vh) =>
-    `${head} width="${n(+w + 2 * m)}pt" height="${n(+h + 2 * m)}pt" viewBox="${n(+x - m)} ${n(+y - m)} ${n(+vw + 2 * m)} ${n(+vh + 2 * m)}"`);
+    `${head} width="${n(+w + 2 * m)}pt" height="${n(+h + 2 * my)}pt" viewBox="${n(+x - m)} ${n(+y - my)} ${n(+vw + 2 * m)} ${n(+vh + 2 * my)}"`);
+}
+// Copy's picture (and the Office object's): a picture from standaloneSvg made whole points wide and high, the spare
+// split equally between the two sides. Issue 171: Word for Mac cut the fraction of a point off the top and right of a
+// pasted picture. ChemDraw's clipboard PDF on the Mac is whole points too.
+export function onWholePoints(svg: string): string {
+  const size = /^<svg[^>]*?\swidth="([\d.]+)pt"\sheight="([\d.]+)pt"/.exec(svg), spare = (v: number) => (Math.ceil(v - 1e-6) - v) / 2;
+  return size ? withMargin(svg, spare(+size[1]), spare(+size[2])) : svg;
 }
 // Raster resolution: any dpi from 36 to 2400 (Rust clamps to the same), with these as quick picks (1440 is ChemDraw's
 // highest). A picture has at most 100 million pixels and 20,000 on a side (draw in src-tauri/src/export.rs).

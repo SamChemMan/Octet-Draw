@@ -10,6 +10,7 @@ import { OCENES } from "./metals.ts";
 import { keepHands } from "./cip.ts";
 import { chainOrder, flatAtoms, remapCaption, sameAtoms, settleMeasures, structuresOf } from "./measurement.ts";
 import { clean3d, MOST_3D } from "./clean3d.ts";
+import { bracketPath, routeOf } from "./render.ts";
 
 export type P = [number, number];
 export const EMPTY: Mol = { atoms: [], bonds: [] };
@@ -51,13 +52,28 @@ function nearest(ds: (number | undefined)[], front: (i: number) => number): numb
 export function atomAt(m: Mol, p: P, r = 0.3): number | undefined {
   return nearest(m.atoms.map((x, i) => { const d = len(sub(pos(m, i), p)); return d < r && !x.hidden ? d : undefined; }), (i) => m.atoms[i].location[2] ?? 0);
 }
+// How far p is from the segment a–b.
+function segmentDistance(p: P, a: P, b: P): number {
+  const ab = sub(b, a), t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
+  return len(sub(p, add(a, mul(ab, t))));
+}
+// Whether any bond of a drawing is a bracket, kept by the bonds (the hit test runs at every pointer move).
+const routedBonds = new WeakMap<object, boolean>();
+const anyRoute = (bonds: Mol["bonds"]) => { let r = routedBonds.get(bonds); if (r === undefined) routedBonds.set(bonds, (r = bonds.some((b) => !!b.route))); return r; };
 export function bondAt(m: Mol, p: P, r = 0.2): number | undefined {
-  const z = (i: number) => m.atoms[i].location[2] ?? 0;
+  const z = (i: number) => m.atoms[i].location[2] ?? 0, routed = anyRoute(m.bonds);
   return nearest(m.bonds.map((b) => {
     if (m.atoms[b.atoms[0]].hidden || m.atoms[b.atoms[1]].hidden) return undefined;
-    const a = pos(m, b.atoms[0]), ab = sub(pos(m, b.atoms[1]), a);
-    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
-    const d = len(sub(p, add(a, mul(ab, t))));
+    const route = routed && b.route ? routeOf(m, b) : 0;
+    if (!route) {
+      const a = pos(m, b.atoms[0]), ab = sub(pos(m, b.atoms[1]), a);
+      const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1)));
+      const d = len(sub(p, add(a, mul(ab, t))));
+      return d < r ? d : undefined;
+    }
+    // A bracket (Bond.route) is hit on each of its three lines.
+    const path = bracketPath(pos(m, b.atoms[0]), pos(m, b.atoms[1]), route) as P[];
+    const d = Math.min(segmentDistance(p, path[0], path[1]), segmentDistance(p, path[1], path[2]), segmentDistance(p, path[2], path[3]));
     return d < r ? d : undefined;
   }), (k) => z(m.bonds[k].atoms[0]) + z(m.bonds[k].atoms[1]) + k * 1e-6);
 }
@@ -314,7 +330,9 @@ export function withValence(a: Atom, valence: number, used: number): Atom {
 // A residue label (its bonds say which kept atom each joins) given another name: the new residue's atoms when the
 // name is one (sequence.ts relabel, set up by the editor, which has the chemistry); else its kept atoms and the bonds'
 // links go, and the label is read from its text as any other.
-export const labelHooks: { relabel?: (m: Mol, i: number, text: string) => Mol | undefined } = {};
+// link: a bond from a residue label to another label or an atom (issue 27), joined where the residue has a free link
+// (helm.ts linkResidues); the editor's hook says why not, and gives the drawing back unchanged.
+export const labelHooks: { relabel?: (m: Mol, i: number, text: string) => Mol | undefined; link?: (m: Mol, i: number, j: number) => Mol | undefined } = {};
 const portedAt = (m: Mol, i: number) => !!m.atoms[i]?.inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
 export function setLabel(m: Mol, i: number, text: string): Mol {
   // A label of more than one line (Option-Return as it is typed) keeps its lines, each trimmed, empty ones left out.
@@ -697,8 +715,11 @@ export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0, tr
 // ChemDraw's does: single to double, double to triple, triple to quadruple, and quadruple back to the tool's single
 // bond, a wedge narrow at the atom dragged from. A single bond becomes a double of the tool's style: Bold a bold
 // double, Dashed a dashed double (an aromatic double over a dashed bond), and Solid over a dashed bond a dashed double.
+// A bond that joins a residue label at a kept atom (a peptide bond between two labels, a link) has no order to raise:
+// it would make a C=O carbon or an N take one bond too many.
 export function overBond(m: Mol, k: number, spec: BondSpec, from = m.bonds[k].atoms[0]): Mol {
   const b = m.bonds[k];
+  if (b.ports?.some((p) => p >= 0)) return m;
   if (b.type === 2) return setBondSpec(m, k, { type: 3 });
   if (b.type === 3) return setBondSpec(m, k, { type: QUADRUPLE });
   if (b.type !== 1) {
@@ -716,6 +737,11 @@ export function overBond(m: Mol, k: number, spec: BondSpec, from = m.bonds[k].at
 // changes nothing: such a bond has no order to raise.
 export function dragBond(m: Mol, from: number | P, q: P, spec: BondSpec = SINGLE): Mol {
   const j = typeof from === "number" ? atomAt(m, q, 0.1) : undefined, k = j === undefined ? -1 : bondIndex(m, from as number, j);
+  // A single bond from a residue label to another label or atom joins at a free link (labelHooks.link).
+  if (typeof from === "number" && j !== undefined && k < 0 && spec.type === 1 && !spec.stereo && !spec.display && labelHooks.link && [from, j].some((x) => m.atoms[x]?.inner?.atoms.length && m.atoms[x].text)) {
+    const linked = labelHooks.link(m, from, j);
+    if (linked) return linked;
+  }
   if (k >= 0) return m.bonds[k].atoms.some((x) => m.atoms[x].centre) ? m : overBond(m, k, spec, from as number);
   const metal = typeof from === "number" ? from : atomAt(m, q, 0.1), ring = metal === undefined ? undefined : etaRing(m, metal, typeof from === "number" ? q : from);
   if (metal !== undefined && ring) {
@@ -2050,6 +2076,8 @@ export function flipAtoms(m: Mol, ids: Set<number>, axis: "horizontal" | "vertic
       if (!mirror && b.stereo === 1) out.stereo = 6;
       else if (!mirror && b.stereo === 6) out.stereo = 1;
       if (b.position) out.position = swap[b.position];
+      // A bracket is to one side of its bond: a flip mirrors the picture, so it goes to the other side.
+      if (b.route) out.route = -b.route;
       return out;
     }),
   };

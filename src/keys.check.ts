@@ -179,6 +179,13 @@ assert.equal(tileTo("ArrowDown", -1, []), undefined);
 const onHome = { home: true, modal: false, typing: false };
 for (const id of ["flip_h", "mirror_v", "clean_up", "zoom_in", "export", "save", "import", "command_palette", "colour_0"]) assert.equal(menuRuns(id, onHome), false, id);
 for (const id of ["new", "new_quick", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home", "recent_0", "recent_clear", "check_updates", "quit", "select_all"]) assert.equal(menuRuns(id, onHome), true, id);
+// File > Open Example opens a copy of an example from Home and over a drawing, but not over a dialog or an AI app's call.
+for (const id of ["example_oseltamivir", "example_hydrolysis", "example_lactams"]) {
+  assert.equal(menuRuns(id, onHome), true, id);
+  assert.equal(menuRuns(id, { home: false, modal: false, typing: false }), true, id);
+  assert.equal(menuRuns(id, { home: false, modal: true, typing: false }), false, id);
+  assert.equal(menuRuns(id, { home: true, modal: false, typing: false, calling: true }), false, id);
+}
 // Quit and Close Window ask about unsaved changes over any dialog (the Dock's Quit too).
 for (const id of ["quit", "close"]) assert.equal(menuRuns(id, { home: false, modal: true, typing: false }), true, id);
 // Cut, Copy and Paste (Octet's own on Linux) run everywhere: on a field's text, or on the drawing, which takes them only
@@ -257,3 +264,45 @@ import type { Mol } from "./render.ts";
   assert.equal(editor.match(/if \(kind === "charge"[^\n]*keyCharge\(\w+, \w+, arg, !!style\.circled\)/g)?.length, 2, "a charge key on an atom and on a selection, in the document's look");
 }
 console.log("keys.check: circled charges on a key ok");
+
+// Every tool can be given a key (PR #58). The tools are read from their own union, so a tool added later needs an action.
+{
+  const { DEFAULT_KEYS, RING_TOOLS, optionCommand } = await import("./keys.ts");
+  const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  const ids = tools.match(/^export type Tool = (.+);$/m)![1].split("|").map((t) => t.trim().replace(/"/g, ""));
+  assert.ok(ids.length > 20 && ids.includes("gel") && ids.includes("sequence"), `read the tools: ${ids.join(" ")}`);
+  assert.deepEqual(ids.filter((id) => !ACTIONS.some((a) => a.id === `tool.${id}` && a.place === "any" && a.group === "Tools")), [], "every tool has a tool.<id> action");
+  assert.deepEqual(ids.filter((id) => !(`tool.${id}` in DEFAULT_KEYS)), [], "every tool has a DEFAULT_KEYS entry");
+  // No new default key: ChemDraw 22.2 has none for these.
+  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
+  assert.deepEqual(added.flatMap((id) => DEFAULT_KEYS[`tool.${id}`]), []);
+  assert.deepEqual(added.map((id) => ACTIONS.find((a) => a.id === `tool.${id}`)!.name), ["Sequence tool", "Catalytic cycle tool", "Gel tool", "Plasmid map tool", "Table tool",
+    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool"]);
+  // A key the user sets picks the tool, over nothing and over an atom with no action for it; it clashes with a tool
+  // that has it; Reset to ChemDraw keys (no changes) takes it off.
+  const mine = keymap({ "tool.gel": ["shift+v"], "tool.sequence": ["g"] });
+  assert.equal(actionFor(mine, "shift+v", "none"), "tool.gel");
+  assert.equal(actionFor(mine, "shift+v", "atom"), "tool.gel");
+  assert.deepEqual(clashes(keymap(), "tool.gel", "g"), ["tool.tlc"]);
+  assert.deepEqual(clashes(mine, "tool.map", "g").sort(), ["tool.sequence", "tool.tlc"]);
+  assert.deepEqual(keymap({})["tool.gel"], []);
+  assert.equal(actionFor(keymap({}), "g", "none"), "tool.tlc");
+  // The Ring slot, its menu and a pinned ring name the ring's key; the More tools menu names each tool's.
+  assert.deepEqual([optionCommand("ring", "benzene"), optionCommand("ring", "cyclopentadiene"), optionCommand("ring", "6"), optionCommand("ring", "5")],
+    ["tool.benzene", "tool.cyclopentadiene", "tool.cyclohexane", "tool.cyclopentane"]);
+  assert.deepEqual([optionCommand("ring", "3"), optionCommand("ring", "chair1"), optionCommand("bond", "single"), optionCommand("more", "gel")], [undefined, undefined, undefined, "tool.gel"]);
+  assert.deepEqual([keymap()[optionCommand("ring", "benzene")!], keymap()[optionCommand("ring", "cyclopentadiene")!]], [["j"], ["shift+j"]]);
+  assert.ok(Object.values(RING_TOOLS).every((k) => new RegExp(`^  "?${k}"?: \\{ name:`, "m").test(tools)), "each ring command picks a ring in RINGS");
+  assert.match(tools, /data-key=\{p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key");
+  assert.match(tools, /hint: optionKey\("more", id\)/, "the More tools menu names each tool's key");
+  assert.match(tools, /arrived: arrived === kind, hint: optionKey\(tool, kind\)/, "a strip's options name their keys");
+  assert.match(tools, /aria-label=\{nameOf\(tool, kind\)\}\s+data-key=\{optionKey\(tool, kind\)\}/, "a pinned option names its key");
+  // The clash note keeps TLC and Me as they are written; Reset to ChemDraw keys clears it, so its Undo cannot undo the reset.
+  const settings = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
+  assert.match(settings, /Taken from \$\{taken\.map\(\(t\) => ACTIONS\.find\(\(a\) => a\.id === t\)!\.name\.replace\(\/\^\[A-Z\]\(\?=\[a-z\]\)\/, \(c\) => c\.toLowerCase\(\)\)\)/);
+  assert.deepEqual(["TLC plate tool", "Gel tool", "Set atom to Me"].map((n) => n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())), ["TLC plate tool", "gel tool", "set atom to Me"]);
+  assert.match(settings, /onClick=\{\(\) => \{ p\.onKeys\(\{\}\); setNote\(undefined\); \}\}/);
+  // A specialist tool's key leaves it in its slot, as its menu does.
+  assert.match(editor, /slot = ring \? "ring" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings/);
+}
+console.log("keys.check: every tool can be given a key, and the Ring slot names its ring's ok");
