@@ -16,6 +16,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
+import { exactFirst } from "./library";
 import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { Segmented } from "./Fields";
@@ -330,7 +331,7 @@ export function LibraryPanel(p: TemplateActions & {
   const named = read?.typed === typed ? read.items : quick;
   // The library's templates whose name, category or other words have what is typed in them, then the structures found by
   // name (the library's own template where it has one by that name, as P(t-Bu)3 for P(tBu)3); the one named exactly as
-  // typed first, or with one of its other words exactly as typed (EnT, IC, CB7), as place_template takes it (mcp.ts).
+  // typed first, then one with an other word exactly as typed (exactFirst).
   const shown = useMemo(() => {
     const q = typed.toLowerCase();
     if (!q) return open.items;
@@ -340,8 +341,7 @@ export function LibraryPanel(p: TemplateActions & {
       const item = all.find((x) => commonKey(x.name) === commonKey(t.name)) ?? t;
       if (!found.some((x) => x.kind === item.kind || commonKey(x.name) === commonKey(item.name))) found.push(item);
     }
-    const exact = (t: LibraryItem) => commonKey(t.name) === commonKey(typed) || !!t.also?.split(",").some((w) => w.trim().toLowerCase() === q.trim());
-    return [...found.filter(exact), ...found.filter((t) => !exact(t))];
+    return exactFirst(found, typed);
   }, [open, typed, categories, named]);
   // A set of the user's is in the order the user gives it: by drag, or Move to start and Move to end.
   const ordering = !query && open.own;
