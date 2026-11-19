@@ -8,7 +8,7 @@ import type { Atom, Mol } from "./render.ts";
 import { canonicalSmiles, fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
 import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
-import { byLabel, endMonomers, extraCodes, isEnd, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { byLabel, endMonomers, extraCodes, isEnd, isLinker, modifiedNucleic, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 import { labelLayout } from "./sequence.ts";
 import type { End, Seq, SeqUnit } from "./helm.ts";
 
@@ -69,6 +69,9 @@ export function monomerRefs(own: Own = []): Ref[] {
 // A peptide's ends Octet has (monomers.ts N_ENDS, C_ENDS), each by its code, for reading a drawn chain's ends.
 const endsKept = new Map<string, Ref[]>();
 export const endRefs = (side: "N" | "C"): Ref[] => endsKept.get(side) ?? endsKept.set(side, endMonomers(side).map((e) => refOf(e.code, e.smiles))).get(side)!;
+// The modified nucleotides and the phosphorothioate (monomers.ts), each by its label, for reading a drawn chain.
+let nRefs: Ref[] | undefined;
+export const nucleicRefs = (): Ref[] => (nRefs ??= modifiedNucleic().map((m) => refOf(m.label, m.smiles)));
 // The signed volume of four points: a centre's hand from its neighbours in order.
 function volume([a, b, d, e]: number[][]): number {
   const [u, v, w] = [b, d, e].map((p) => [p[0] - a[0], p[1] - a[1], p[2] - a[2]]);
@@ -125,7 +128,7 @@ function unitsOf(seq: Seq, own: Own): { units: Units; partner: Map<string, End> 
 // The atoms Octet draws in full at most, and the residues (amino acids and nucleotides) as residue labels.
 export const MOST_BUILT_ATOMS = 1000, MOST_LABELS = 1000;
 // A sequence's residues: its units but a nucleic acid's phosphates and a peptide's Ac and NH2 ends.
-export const residueCount = (seq: Seq) => seq.chains.reduce((t, c) => t + c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : u.code !== "P")).length, 0);
+export const residueCount = (seq: Seq) => seq.chains.reduce((t, c) => t + c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : !isLinker(u.code))).length, 0);
 
 // ——— As atoms ———
 // The atoms a sequence has drawn in full: each monomer's, less each R atom linked or capped H (an OH cap stays an O).
@@ -283,7 +286,7 @@ export function buildLabels(seq: Seq, look?: Look, own: Own = []): { mol: Mol } 
         nodes.push(first); joins.push(at.map((n) => (n >= 0 ? base + n : first))); ports.push([-1, -1, -1, -1]);
         return;
       }
-      const i = add({ label: x.kind !== "peptide" && x.label === "P" ? "P" : "C", location: [0, 0, 0], text: x.label || x.unit.code, inner: kept, align: "centre", ...look?.(c, k) });
+      const i = add({ label: x.kind !== "peptide" && isLinker(x.unit.code) ? "P" : "C", location: [0, 0, 0], text: x.label || x.unit.code, inner: kept, align: "centre", ...look?.(c, k) });
       nodes.push(i); joins.push([i, i, i, i]); ports.push(at);
     });
     joinAt.push(joins);

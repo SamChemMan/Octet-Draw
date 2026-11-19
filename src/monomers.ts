@@ -6,7 +6,7 @@
 // centre is inverted), the ends [ac] and [am], the nucleosides and the phosphate are built in. The user's own peptide
 // monomers (Structure > Define Monomer…) and a document's copies of them come after.
 import { CODES, residueSmiles } from "./peptide.ts";
-import { PHOSPHATE, unit } from "./nucleic.ts";
+import { NUCLEOBASES, nucleoside, PHOSPHATE, SUGARS, THIOPHOSPHATE } from "./nucleic.ts";
 
 export type PolymerKind = "peptide" | "rna" | "dna";
 // A monomer: its code (A, dF, ac, rA, P, or the user's), the text of its residue label (Ala, D-Phe, Ac, rA, P, or the
@@ -75,17 +75,43 @@ const PEPTIDES = new Map<string, Monomer>([
 ]);
 // Octet's own non-natural amino acids (Aib, Nle, …), for the field's [code] and Contract Label.
 export const extraCodes = () => Object.keys(EXTRA);
+// A nucleotide's code from its sugar and base: rA and dA for the natural ones, else the HELM library's sugar and base
+// (mR(A), LR(5meC), dR(5meC)). Ribothymidine and deoxyuridine are not drawn (no code). Its residue label: the sugar's
+// letter before the base, as rA and dA (m 2'-O-methyl, f 2'-fluoro, moe 2'-O-methoxyethyl, L LNA), 5mC for
+// 5-methylcytosine (mA, LT, d5mC).
+export function nucleotideCode(sugar: string, base: string): string | undefined {
+  if (!(SUGARS as readonly string[]).includes(sugar) || !(NUCLEOBASES as readonly string[]).includes(base) || (sugar === "R" && base === "T") || (sugar === "dR" && base === "U")) return undefined;
+  if ((sugar === "R" || sugar === "dR") && base.length === 1) return `${sugar === "R" ? "r" : "d"}${base}`;
+  return `${sugar}(${base})`;
+}
+export function nucleotideParts(code: string): { sugar: string; base: string } | undefined {
+  const n = /^([rd])([ACGTU])$/.exec(code);
+  if (n) return { sugar: n[1] === "r" ? "R" : "dR", base: n[2] };
+  const m = /^(R|dR|mR|fR|MOE|LR)\((A|C|G|T|U|5meC)\)$/.exec(code);
+  return m ? { sugar: m[1], base: m[2] } : undefined;
+}
+const SUGAR_LABEL: Record<string, string> = { R: "r", dR: "d", mR: "m", fR: "f", MOE: "moe", LR: "L" };
+// A nucleotide's base as FASTA writes it: its natural analogue (5-methylcytosine C).
+export const baseLetter = (code: string) => { const b = nucleotideParts(code)?.base; return b === "5meC" ? "C" : b; };
 const NUCLEIC = new Map<string, Monomer>([
-  ...[..."ACGU"].map((b): [string, Monomer] => [`r${b}`, { code: `r${b}`, label: `r${b}`, smiles: `[*:1]${unit(b, false)}[*:2]` }]),
-  ...[..."ACGT"].map((b): [string, Monomer] => [`d${b}`, { code: `d${b}`, label: `d${b}`, smiles: `[*:1]${unit(b, true)}[*:2]` }]),
+  ...SUGARS.flatMap((sugar) => NUCLEOBASES.flatMap((base): [string, Monomer][] => {
+    const code = nucleotideCode(sugar, base);
+    return code ? [[code, { code, label: `${SUGAR_LABEL[sugar]}${base === "5meC" ? "5mC" : base}`, smiles: `[*:1]${nucleoside(sugar, base)}[*:2]` }]] : [];
+  })),
   ["P", { code: "P", label: "P", smiles: `[*:1]${PHOSPHATE}[*:2]` }],
+  ["sP", { code: "sP", label: "sP", smiles: `[*:1]${THIOPHOSPHATE}[*:2]` }],
 ]);
+// Whether a code is a phosphate or a phosphorothioate (a link between nucleotides).
+export const isLinker = (code: string | undefined) => code === "P" || code === "sP";
+// The modified nucleotides and the phosphorothioate, for reading a drawn chain (the natural ones are sequence.ts's).
+export const modifiedNucleic = () => [...NUCLEIC.values()].filter((m) => !/^([rd][ACGTU]|P)$/.test(m.code));
 // The monomer a code names in a chain of a kind: Octet's own first, then own (a document's before the user's), so a
 // code of Octet's means the same in every drawing.
 export function monomer(kind: PolymerKind, code: string, own: Own = []): Monomer | undefined {
   if (kind !== "peptide") {
-    const m = NUCLEIC.get(code);
-    return m && (code === "P" || (code[0] === "d") === (kind === "dna")) ? m : undefined;
+    // Ribose only in RNA and 2-deoxyribose only in DNA; the modified sugars in either.
+    const m = NUCLEIC.get(code), sugar = nucleotideParts(code)?.sugar;
+    return m && (isLinker(code) || (sugar !== "R" && sugar !== "dR") || (sugar === "dR") === (kind === "dna")) ? m : undefined;
   }
   const m = PEPTIDES.get(code);
   if (m) return m;

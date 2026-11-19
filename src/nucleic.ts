@@ -12,8 +12,22 @@ const BASES: Record<string, string> = {
 };
 // The nucleoside from 5'-O to 3'-O: O5' C5' C4' (ring) O4' C1' (base) C2' (2'-OH in RNA) C3' O3'. Every unit's atoms
 // come in the same order, so each stereocentre is written the same way in every unit (D sugar, β base).
-export const unit = (base: string, dna: boolean) => `OC[C@H]1O[C@@H](${BASES[base]})${dna ? "C" : "[C@H](O)"}[C@@H]1O`;
+export const unit = (base: string, dna: boolean) => nucleoside(dna ? "dR" : "R", base)!;
 export const PHOSPHATE = "P(=O)(O)";
+// Modified nucleotides (issue 27), as the HELM library has them: the sugars ribose (R), 2-deoxyribose (dR),
+// 2'-O-methylribose (mR), 2'-fluororibose (fR), 2'-O-methoxyethylribose (MOE) and LNA, a 2'-O,4'-C-methylene ribose
+// (LR, ring closure 4); the bases and 5-methylcytosine (5meC); a phosphorothioate (sP) for a phosphate.
+export const SUGARS = ["R", "dR", "mR", "fR", "MOE", "LR"] as const;
+export const NUCLEOBASES = ["A", "C", "G", "T", "U", "5meC"] as const;
+const TWO: Record<string, string> = { R: "[C@H](O)", dR: "C", mR: "[C@H](OC)", fR: "[C@H](F)", MOE: "[C@H](OCCOC)" };
+const BASE_OF: Record<string, string> = { ...BASES, "5meC": "N2C=C(C)C(N)=NC2=O" };
+export function nucleoside(sugar: string, base: string): string | undefined {
+  const b = BASE_OF[base];
+  if (!b) return undefined;
+  if (sugar === "LR") return `OC[C@@]14O[C@@H](${b})[C@H](OC4)[C@@H]1O`;
+  return TWO[sugar] ? `OC[C@H]1O[C@@H](${b})${TWO[sugar]}[C@@H]1O` : undefined;
+}
+export const THIOPHOSPHATE = "P(=O)(S)";
 
 // As many as the Sequence tool reads (helm.ts MOST_UNITS). How many draw in full is up to the builder: 1,000 atoms
 // (seqbuild.ts), so 45 DNA or 43 RNA nucleotides of any kind, up to 52 and 50; as residue labels, all 1,000.

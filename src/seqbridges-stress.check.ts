@@ -1157,6 +1157,27 @@ await check("N38", "Octet's non-natural amino acids and a peptide's ends (Aib, N
   assert.equal(inchi(back), inchi(l), "1.1.2 opens the labels, the same compound");
 });
 
+await check("N39", "Modified nucleotides (2'-OMe, 2'-F, MOE, LNA, 5-methyl-C) and phosphorothioates: a gapmer by words and HELM, atoms and labels, Clean Up's straight backbone, files and 1.1.2, hostile words refused quickly", () => {
+  const words = "dna: [LA]*[LT]*[L5mC]*G*C*A*T*T*G*C*[LG]*[LA]*[LT]", read = fieldSeq(words);
+  assert.ok(read && "seq" in read, JSON.stringify(read));
+  const a = (buildAtoms(read.seq) as { mol: Mol }).mol, l = (buildLabels(read.seq) as { mol: Mol }).mol, helm = toHelm(a)!;
+  assert.ok(helm.startsWith("RNA1{[LR](A)[sP].[LR](T)[sP].[LR]([5meC])[sP].[dR](G)[sP]"), helm);
+  assert.equal(toHelm(l), helm);
+  assert.deepEqual(readSequence(helm), { text: words });
+  assert.equal(inchi(a), inchi(l));
+  apart(a, "as atoms");
+  noNaN(a, "as atoms");
+  assert.ok(chainLayout(a, a.atoms.map((_, k) => k)), "a straight backbone, LNA's bridge and all");
+  const style = DEFAULT_STYLE;
+  for (const [how, back] of [[".oct", readOct(writeOct(l, style), true).mol], ["CDXML", fromCdxml(toCdxml(l, style)).mol], ["CDX", readCdx(writeCdx(l, style)).mol]] as const) assert.equal(toHelm(back), helm, how);
+  // Hostile words: a long label in brackets, 20,000 stars, an unclosed bracket, every one answered quickly.
+  const t = performance.now();
+  for (const bad of [`dna: [${"L".repeat(5000)}]`, `dna: A${"*".repeat(20_000)}`, `rna: [mA${"C".repeat(19_000)}`, `dna: ${"[LT]*".repeat(4000)}A`]) assert.ok("problem" in (fieldSeq(bad) ?? {}), bad.slice(0, 30));
+  assert.ok(performance.now() - t < 200, `${Math.round(performance.now() - t)} ms`);
+  if (typeof old === "string") return old;
+  assert.equal(inchi(old.readOct(writeOct(l, style), true).mol), inchi(l), "1.1.2 opens the labels, the same compound");
+});
+
 // ==================================================================================================================
 // ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8)
 // ==================================================================================================================

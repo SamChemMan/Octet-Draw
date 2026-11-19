@@ -85,7 +85,14 @@ function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: 
     for (const [c1, c4] of [at[o4], [...at[o4]].reverse()]) for (const c2 of at[c1]) for (const c3 of at[c2]) {
       const ring = [o4, c1, c2, c3, c4];
       if (new Set(ring).size !== 5 || !ring.slice(1).every((i) => el(i) === "C") || !at[c3].includes(c4) || out(c1, ring, "N") === undefined) continue;
-      const c5 = out(c4, ring, "C"), o5 = c5 === undefined ? undefined : at[c5].find((j) => j !== c4 && el(j) === "O"), o3 = out(c3, ring, "O");
+      // C5' and its O5', which bonds to no ring atom (an LNA's 2'-O,4'-C bridge is a CH2 on C4' too).
+      let c5: number | undefined, o5: number | undefined;
+      for (const c of at[c4]) {
+        if (ring.includes(c) || el(c) !== "C" || order(c4, c) !== 1) continue;
+        const o = at[c].find((j) => j !== c4 && el(j) === "O" && !at[j].some((x) => ring.includes(x)));
+        if (o !== undefined) { c5 = c; o5 = o; break; }
+      }
+      const o3 = out(c3, ring, "O");
       if (c5 !== undefined && o5 !== undefined && o3 !== undefined) units.push({ o5, c5, c4, c3, o3, c1, n: out(c1, ring, "N")! });
     }
   }

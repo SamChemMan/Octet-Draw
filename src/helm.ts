@@ -8,10 +8,10 @@ import type { Atom, Caption, Mol } from "./render.ts";
 import { erase, fragments, insertMol, pickAtoms } from "./edit.ts";
 import { chainRead, type ChainEnd } from "./chain.ts";
 import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts";
-import { buildAtoms, buildLabels, endRefs, monomerRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
+import { buildAtoms, buildLabels, endRefs, monomerRefs, nucleicRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
-import { byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isNEnd, monomer, N_ENDS, naturalLetter, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { baseLetter, byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isLinker, isNEnd, monomer, N_ENDS, naturalLetter, nucleotideCode, nucleotideParts, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 // What a peptide's ends can be, in the field's words.
 const ENDS_PROBLEM = `Ends can be ${[["H", ...N_ENDS.map((e) => e.word)].map((w) => `${w}-`), ["OH", ...C_ENDS.map((e) => e.word)].map((w) => `-${w}`)].flat().join(", ").replace(/, ([^,]*)$/, " or $1")}.`;
 
@@ -145,23 +145,26 @@ export function inlineSmiles(smiles: string): string | { problem: string } {
   if (links.r[1] === undefined && links.r[2] === undefined) return unknown(`[${smiles}]`);
   return smiles;
 }
-// RNA or DNA: an optional 5' phosphate (P), then nucleotides, R(A) or [dR](A) with a phosphate after each but maybe the
-// last (R(A)P), as units rA (dA) and P. Ribothymidine R(T) and deoxyuridine [dR](U) are other nucleosides, which the
-// Sequence tool does not draw.
+// RNA or DNA: an optional 5' phosphate (P, or [sP] a phosphorothioate), then nucleotides, each a sugar and its base
+// (R(A), [dR](A), [mR](C), [LR]([5meC])) with a phosphate or phosphorothioate after each but maybe the last (R(A)P,
+// [mR](A)[sP]), as units (monomers.ts nucleotideCode: rA, dA, mR(C)) and P or sP. Ribothymidine R(T) and deoxyuridine
+// [dR](U) are other nucleosides, which the Sequence tool does not draw. Ribose and 2-deoxyribose are not in one chain;
+// a modified sugar goes with either.
 function nucleicUnits(units: string[]): SeqChain | { problem: string } {
   const out: SeqUnit[] = [];
   let rna = false, dna = false;
   for (const raw of units) {
-    const u = raw.trim(), m = u.length <= 12 ? /^(R|\[dR\])\(([ACGTU])\)(P?)$/.exec(u) : null;
-    if (u === "P") { if (out.length && out[out.length - 1].code === "P") return unknown(u); out.push({ code: "P" }); continue; }
-    if (!m || m[2] === (m[1] === "R" ? "T" : "U")) return unknown(u);
-    if (out.length && out[out.length - 1].code !== "P") return unknown(u);
-    if (m[1] === "R") rna = true; else dna = true;
-    out.push({ code: `${m[1] === "R" ? "r" : "d"}${m[2]}` });
-    if (m[3]) out.push({ code: "P" });
+    const u = raw.trim(), m = u.length <= 24 ? /^(R|\[(dR|mR|fR|MOE|LR)\])\(([ACGTU]|\[5meC\])\)(P|\[sP\])?$/.exec(u) : null;
+    if (u === "P" || u === "[sP]") { if (out.length && isLinker(out[out.length - 1].code)) return unknown(u); out.push({ code: u === "P" ? "P" : "sP" }); continue; }
+    const sugar = m?.[2] ?? "R", code = m ? nucleotideCode(sugar, m[3].replace(/^\[|\]$/g, "")) : undefined;
+    if (!m || !code) return unknown(u);
+    if (out.length && !isLinker(out[out.length - 1].code)) return unknown(u);
+    if (sugar === "R") rna = true; else if (sugar === "dR") dna = true;
+    out.push({ code });
+    if (m[4]) out.push({ code: m[4] === "P" ? "P" : "sP" });
   }
   if (rna && dna) return { problem: "Octet reads HELM of RNA or DNA, not both in one chain." };
-  if (!rna && !dna) return { problem: "This HELM RNA has no nucleotides." };
+  if (!out.some((u) => !isLinker(u.code))) return { problem: "This HELM RNA has no nucleotides." };
   return { kind: dna ? "dna" : "rna", units: out };
 }
 
@@ -189,8 +192,13 @@ export function seqWords(seq: Seq): string | undefined {
     if (!body.length || body.some((u) => u.smiles || isEnd(u.code))) return undefined;
     return sequenceText({ kind: "peptide", codes: body.map((u) => (u.code.length === 1 ? u.code : `[${u.code}]`)).join(""), start, end }).text;
   }
-  const start = units[0].code === "P" ? "p" : "", end = units.length > 1 && units[units.length - 1].code === "P" ? "p" : "", body = units.filter((u) => u.code !== "P");
-  return sequenceText({ kind: c.kind, codes: body.map((u) => u.code[1]).join(""), start, end }).text;
+  // RNA and DNA: a natural nucleotide by its letter, another by its label in brackets ([mA], [L5mC]), * for a
+  // phosphorothioate between two; a phosphate at an end is p (a phosphorothioate there has no word: HELM it is).
+  const first = units[0].code, last = units[units.length - 1].code;
+  if (first === "sP" || (units.length > 1 && last === "sP")) return undefined;
+  const start = first === "P" ? "p" : "", end = units.length > 1 && last === "P" ? "p" : "";
+  const codes = units.slice(start ? 1 : 0, end ? -1 : undefined).map((u) => (u.code === "P" ? "" : u.code === "sP" ? "*" : /^[rd][ACGTU]$/.test(u.code) ? u.code[1] : `[${monomer(c.kind, u.code)!.label}]`)).join("");
+  return sequenceText({ kind: c.kind, codes, start, end }).text;
 }
 
 // ——— The Sequence tool's field (J8) ———
@@ -230,14 +238,33 @@ export function fieldSeq(text: string, own: Own = []): { seq: Seq; notes?: strin
     if (parts.end) units.push({ code: endOfWord(C_ENDS, parts.end)!.code });
     return { seq: { chains: [{ kind: "peptide", units }], links: [] } };
   }
+  // A base's letter in either case (T in RNA is read as U, U in DNA as T), a modified nucleotide by its label in
+  // brackets ([mA], [LT], [d5mC]), and * between two for a phosphorothioate in place of the phosphate.
   const dna = parts.kind === "dna", example = dna ? "ATGC" : "AACGUU";
   if (!body) return parts.start || parts.end ? { problem: `Type the bases, for example ${example}.` } : undefined;
-  const letters = [...body.toUpperCase()].map((ch) => (ch === (dna ? "U" : "T") ? (dna ? "T" : "U") : ch));
-  const bad = [...new Set([...body].filter((_, k) => !"ACGTU".includes(letters[k])))];
-  if (bad.length) return { problem: `${bad.length === 1 ? "Not a nucleotide" : "Not nucleotides"}: ${bad.map(quoted).join(", ")}` };
-  if (letters.length > MOST_UNITS) return { problem: `Up to ${MOST_UNITS.toLocaleString("en-GB")} residues.` };
+  const codes: string[] = [], thio = new Set<number>(), bad = new Set<string>();
+  for (let k = 0; k < body.length; k++) {
+    const ch = body[k];
+    if (ch === "[") {
+      const end = body.indexOf("]", k);
+      if (end < 0) return { problem: "Type ] after the code." };
+      const label = body.slice(k + 1, end), m = label.length <= 12 ? byLabel(parts.kind, label) : undefined;
+      if (!m || isLinker(m.code)) return { problem: `Not a nucleotide: [${quoted(label)}]` };
+      codes.push(m.code);
+      k = end;
+    } else if (ch === "*") {
+      if (!codes.length || thio.has(codes.length)) return { problem: "Type * between two nucleotides." };
+      thio.add(codes.length);
+    } else {
+      const b = ch.toUpperCase() === (dna ? "U" : "T") ? (dna ? "T" : "U") : ch.toUpperCase();
+      if ("ACGTU".includes(b)) codes.push(`${dna ? "d" : "r"}${b}`); else bad.add(ch);
+    }
+    if (codes.length > MOST_UNITS) return { problem: `Up to ${MOST_UNITS.toLocaleString("en-GB")} residues.` };
+  }
+  if (bad.size) return { problem: `${bad.size === 1 ? "Not a nucleotide" : "Not nucleotides"}: ${[...bad].map(quoted).join(", ")}` };
+  if (thio.has(codes.length)) return { problem: "Type * between two nucleotides." };
   const units: SeqUnit[] = parts.start ? [{ code: "P" }] : [];
-  letters.forEach((b, k) => { if (k) units.push({ code: "P" }); units.push({ code: `${dna ? "d" : "r"}${b}` }); });
+  codes.forEach((code, k) => { if (k) units.push({ code: thio.has(k) ? "sP" : "P" }); units.push({ code }); });
   if (parts.end) units.push({ code: "P" });
   return { seq: { chains: [{ kind: parts.kind, units }], links: [] } };
 }
@@ -307,13 +334,13 @@ function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own):
       if (ch.start.length && !start) residues[0].push(...ch.start);
       if (ch.end.length && !end && !free) residues[residues.length - 1].push(...ch.end);
       const units: Unit[] = residues.map((atoms) => ({ code: codeOf(mol, atoms, c.nucleic, inchi, own), atoms }));
-      const kind: PolymerKind = !c.nucleic ? "peptide" : units.some((u) => /^d[ACGT]$/.test(u.code ?? "")) ? "dna" : "rna";
+      const kind: PolymerKind = !c.nucleic ? "peptide" : units.some((u) => nucleotideParts(u.code ?? "")?.sugar === "dR") ? "dna" : "rna";
       found.push({ kind, units: [...(start ? [{ code: start, atoms: ch.start }] : []), ...units, ...(end ? [{ code: end, atoms: ch.end }] : [])], first: Math.min(...residues.flat()), free: free ? ch.end : [] });
     });
     // A structure drawn wholly as atoms is a sequence from three residues (two nucleotides), as in Octet 1.1.2, or two
     // residues Octet has codes for (Ac-Ala-Cys-NH2): a free amino acid, N-acetylcysteine, aspartame, enalapril or
     // lidocaine (an N–C–C(=O) too) stays a small molecule. One with a residue label is a sequence whatever its length.
-    const units = found.flatMap((ch) => ch.units.filter((u) => (c.nucleic ? u.code !== "P" : !isEnd(u.code))));
+    const units = found.flatMap((ch) => ch.units.filter((u) => (c.nucleic ? !isLinker(u.code) : !isEnd(u.code))));
     // An end beyond Ac and NH2 (aspartame's OMe) counts as unknown here, as it did before Octet had them.
     const plainEnds = found.every((ch) => ch.units.every((u) => !isEnd(u.code) || u.code === "ac" || u.code === "am"));
     const small = c.nucleic ? units.length < 2 : units.length < 2 || (units.length === 2 && (units.some((u) => !u.code) || !plainEnds));
@@ -333,14 +360,14 @@ function endOf(mol: Mol, atoms: number[], side: "N" | "C", inchi: (x: Mol | stri
 // A residue's code: the monomer whose InChI it has. A residue label is read by its kept atoms, so a label typed over
 // other atoms (Lys over an acetyl-Lys) is not taken for what it says.
 function codeOf(mol: Mol, atoms: number[], nucleic: boolean, inchi: (x: Mol | string) => string | undefined, own: Own): string | undefined {
-  const name = residueName(mol, new Set(atoms), inchi, nucleic ? [] : monomerRefs(own));
+  const name = residueName(mol, new Set(atoms), inchi, nucleic ? nucleicRefs() : monomerRefs(own));
   return name ? byLabel(nucleic ? undefined : "peptide", name, own)?.code : undefined;
 }
 
 // Edit > Copy As > FASTA: each chain's one-letter codes, a line each: a D monomer as its natural letter, X for any other
 // peptide monomer Octet does not know a letter for, N for such a nucleotide. Undefined when there is none.
 export function toFasta(m: Mol, inchi: (x: Mol | string) => string | undefined = toInchi, own: Own = []): string | undefined {
-  const lines = read(m, inchi, own).chains.map((c) => c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : u.code !== "P")).map((u) => (c.kind !== "peptide" ? /^[rd]([ACGTU])$/.exec(u.code ?? "")?.[1] ?? "N" : naturalLetter(u.code ?? "") ?? "X")).join(""));
+  const lines = read(m, inchi, own).chains.map((c) => c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : !isLinker(u.code))).map((u) => (c.kind !== "peptide" ? baseLetter(u.code ?? "") ?? "N" : naturalLetter(u.code ?? "") ?? "X")).join(""));
   return lines.length ? lines.join("\n") : undefined;
 }
 
@@ -399,9 +426,16 @@ export function helmOf(seq: Seq): string | undefined {
   for (const c of seq.chains) {
     const helmKind = c.kind === "peptide" ? "PEPTIDE" : "RNA", units: string[] = [];
     names.push(`${helmKind}${++count[helmKind]}`);
-    if (c.kind !== "peptide") for (const u of c.units) {
-      const n = /^([rd])([ACGTU])$/.exec(u.code);
-      if (u.code === "P") { if (units.length && units[units.length - 1] !== "P") units[units.length - 1] += "P"; else units.push("P"); } else if (n) units.push(`${n[1] === "d" ? "[dR]" : "R"}(${n[2]})`); else return undefined;
+    // A nucleotide is its sugar and base (R(A), [dR](A), [mR]([5meC])); a phosphate (P) or phosphorothioate ([sP]) goes
+    // after the nucleotide before it, or alone at the 5' end.
+    if (c.kind !== "peptide") {
+      let open = false;
+      for (const u of c.units) {
+        const n = nucleotideParts(u.code), br = (x: string) => (x.length > 1 ? `[${x}]` : x);
+        if (isLinker(u.code)) { const t = u.code === "P" ? "P" : "[sP]"; if (open) units[units.length - 1] += t; else units.push(t); open = false; }
+        else if (n) { units.push(`${n.sugar === "R" ? "R" : `[${n.sugar}]`}(${br(n.base)})`); open = true; }
+        else return undefined;
+      }
     }
     else units.push(...c.units.map((u) => {
       // An end with no HELM library code (Biotin) goes as its SMILES, which other programs read.

@@ -212,12 +212,14 @@ export function portRole(inner: Mol, k: number): 0 | 1 | 2 | 3 {
   }
   return 3;
 }
+const START_LABELS = new Set(["H", ...N_ENDS.map((e) => e.label)]), END_LABELS = new Set([...START_LABELS, "OH", ...C_ENDS.map((e) => e.label)]);
 // The chains of residue labels in a structure (frag), each in order from its N or 5' end, or undefined when it is not
 // one: every atom a label, each bond between two of them along a chain (a residue's C=O to the next one's N, an end
 // label) or a link. A ring of residues is cut at its bracket, else before its label with the lowest number.
 export function labelChains(m: Mol, frag: number[]): number[][] | undefined {
   if (frag.length < 2) return undefined;
-  const isEnd = (i: number) => !m.atoms[i].inner && ((m.atoms[i].label === "H" && !m.atoms[i].text) || ["OH", "Ac", "NH2"].includes(m.atoms[i].text ?? ""));
+  // A peptide's ends: H, OH, Ac and NH2 with no atoms kept, and the others (Boc, OMe) as labels that keep theirs.
+  const isEnd = (i: number) => (!m.atoms[i].inner && ((m.atoms[i].label === "H" && !m.atoms[i].text) || ["OH", "Ac", "NH2"].includes(m.atoms[i].text ?? ""))) || (!!m.atoms[i].inner?.atoms.length && END_LABELS.has(m.atoms[i].text ?? ""));
   if (frag.some((i) => !isEnd(i) && !(m.atoms[i].text && m.atoms[i].inner?.atoms.length))) return undefined;
   const inside = new Set(frag), next = new Map<number, number>(), prev = new Map<number, number>(), bonds: number[] = [];
   const role = (i: number, port: number | undefined): number => (isEnd(i) ? -1 : port === undefined || port < 0 ? 3 : portRole(m.atoms[i].inner!, port));
@@ -227,7 +229,7 @@ export function labelChains(m: Mol, frag: number[]): number[][] | undefined {
     const [p, q] = b.atoms, rp = role(p, b.ports?.[0]), rq = role(q, b.ports?.[1]);
     // Along the chain: from a C=O side (2, or an end label or a P) to an N side (1, or an end label or a P).
     const out = (r: number) => r === 2 || r === 0 || r === -1, into = (r: number) => r === 1 || r === 0 || r === -1;
-    const [from, to] = out(rp) && into(rq) && !(rp === -1 && rq === -1) && !(rp === 0 && rq === 0) ? (rq === -1 && rp !== -1 && isEnd(q) && ["H", "Ac"].includes(m.atoms[q].text ?? "H") ? [q, p] : [p, q]) : out(rq) && into(rp) ? [q, p] : [undefined, undefined];
+    const [from, to] = out(rp) && into(rq) && !(rp === -1 && rq === -1) && !(rp === 0 && rq === 0) ? (rq === -1 && rp !== -1 && isEnd(q) && START_LABELS.has(m.atoms[q].text ?? "H") ? [q, p] : [p, q]) : out(rq) && into(rp) ? [q, p] : [undefined, undefined];
     if (from === undefined || to === undefined || next.has(from) || prev.has(to)) continue;
     next.set(from, to);
     prev.set(to, from);

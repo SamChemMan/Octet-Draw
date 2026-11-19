@@ -22,6 +22,7 @@ const { codeProblem } = await import("./monomers.ts");
 const { readOct, writeOct, readCdx, writeCdx } = await import("./oct.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
 const { fragments } = await import("./edit.ts");
+const { unit } = await import("./nucleic.ts");
 
 type Seq = NonNullable<Extract<ReturnType<typeof fieldSeq>, { seq: unknown }>>["seq"];
 const seqOfText = (t: string): Seq => { const r = fieldSeq(t); assert.ok(r && "seq" in r, `${t}: ${JSON.stringify(r)}`); return (r as { seq: Seq }).seq; };
@@ -158,5 +159,50 @@ for (const code of ["Cha", "Aib", "Sar"]) {
   const text = `peptide: Fmoc-${"[Aib][Nle]K[Orn][Hyp]".repeat(100)}-OtBu`, t = performance.now(), m = built(text, true);
   assert.ok(performance.now() - t < 1500, `500 residues as labels: ${Math.round(performance.now() - t)} ms`);
   assert.equal(fragments(m).length, 1);
+}
+// ——— Modified nucleotides ———
+// The HELM library's sugars (2'-O-methyl, 2'-fluoro, 2'-O-methoxyethyl, LNA) with every base and 5-methylcytosine, and the
+// phosphorothioate, in RNA and DNA: in the words by label in brackets and * for a phosphorothioate, in HELM, as atoms and
+// labels, read back from a drawn chain.
+{
+  const cases: [words: string, helm: string, fasta: string, labels: string][] = [
+    ["dna: [LA]*[LT]*G*C*A*T*[LG]*[L5mC]", "RNA1{[LR](A)[sP].[LR](T)[sP].[dR](G)[sP].[dR](C)[sP].[dR](A)[sP].[dR](T)[sP].[LR](G)[sP].[LR]([5meC])}$$$$V2.0", "ATGCATGC", "LA sP LT sP dG sP dC sP dA sP dT sP LG sP L5mC"],
+    ["rna: [mA][mC]*[fU][moeG]p", "RNA1{[mR](A)P.[mR](C)[sP].[fR](U)P.[MOE](G)P}$$$$V2.0", "ACUG", "mA P mC sP fU P moeG P"],
+    ["dna: AC[d5mC]G", "RNA1{[dR](A)P.[dR](C)P.[dR]([5meC])P.[dR](G)}$$$$V2.0", "ACCG", "dA P dC P d5mC P dG"],
+    ["rna: p[mA]*[mU]", "RNA1{P.[mR](A)[sP].[mR](U)}$$$$V2.0", "AU", "P mA sP mU"],
+    ["rna: A[r5mC]G", "RNA1{R(A)P.R([5meC])P.R(G)}$$$$V2.0", "ACG", "rA P r5mC P rG"],
+  ];
+  for (const [words, helm, fasta, labelText] of cases) {
+    const atoms = built(words), labels = built(words, true);
+    assert.equal(chem.toInchi(atoms), chem.toInchi(labels), `${words}: as labels, the same compound`);
+    assert.equal(labels.atoms.filter((a) => a.text).map((a) => a.text).join(" "), labelText, words);
+    assert.equal(toHelm(atoms), helm, `${words}: HELM from atoms`);
+    assert.equal(toHelm(labels), helm, `${words}: HELM from labels`);
+    assert.deepEqual(readSequence(helm), { text: words }, `${words}: HELM back in words`);
+    assert.equal(toFasta(atoms), fasta, `${words}: FASTA, the natural bases`);
+    assert.equal(chem.toInchi(withSequences(atoms, "labels")), chem.toInchi(atoms));
+    for (const back of [readOct(writeOct(labels, DEFAULT_STYLE), true).mol, readCdx(writeCdx(labels, DEFAULT_STYLE)).mol]) assert.equal(toHelm(back), helm, `${words}: files`);
+  }
+  // Each sugar's structure, written another way: the nucleosides of adenine as the free compounds.
+  const NUCLEOSIDE: Record<string, string> = {
+    mA: "CO[C@@H]1[C@H](O)[C@@H](CO)O[C@H]1n1cnc2c(N)ncnc12", fA: "F[C@@H]1[C@H](O)[C@@H](CO)O[C@H]1n1cnc2c(N)ncnc12",
+    moeA: "COCCO[C@@H]1[C@H](O)[C@@H](CO)O[C@H]1n1cnc2c(N)ncnc12", LA: "OC[C@@]12CO[C@@H]([C@H](n3cnc4c(N)ncnc34)O1)[C@@H]2O",
+  };
+  for (const [label, free] of Object.entries(NUCLEOSIDE)) assert.equal(chem.toInchi(built(`rna: [${label}]`)), chem.toInchi(free), `${label}: the nucleoside`);
+  // A phosphorothioate is the same compound however its S and O are drawn (P=S or P–SH).
+  assert.equal(chem.toInchi(built("rna: A*A")), chem.toInchi(`${unit("A", false)}P(=S)(O)${unit("A", false)}`));
+  // Refused: ribose and 2-deoxyribose together, a label of the other kind, * not between two, a code it does not know.
+  assert.deepEqual(fieldSeq("RNA1{R(A)P.[dR](T)}$$$$V2.0"), { problem: "Octet reads HELM of RNA or DNA, not both in one chain." });
+  assert.deepEqual(fieldSeq("rna: [d5mC]"), { problem: "Not a nucleotide: [d5mC]" });
+  assert.deepEqual(fieldSeq("dna: [mX]"), { problem: "Not a nucleotide: [mX]" });
+  assert.deepEqual(fieldSeq("dna: [P]"), { problem: "Not a nucleotide: [P]" });
+  for (const bad of ["dna: A*", "dna: *A", "dna: A**C"]) assert.deepEqual(fieldSeq(bad), { problem: "Type * between two nucleotides." }, bad);
+  for (const bad of ["RNA1{[xR](A)}$$$$V2.0", "RNA1{[mR](X)}$$$$V2.0", "RNA1{R(T)}$$$$V2.0", "RNA1{[sP].[sP]}$$$$V2.0", "RNA1{[mR](A)[sP][sP]}$$$$V2.0"]) assert.ok("problem" in (fieldSeq(bad) ?? {}), bad);
+  // A gapmer (LNA, DNA with phosphorothioates) as long as draws in full, and one more says why; as labels it draws.
+  let n = 2;
+  while (!seqProblem(seqOfText(`dna: ${"[LT]*".repeat(n)}[LT]`), false)) n++;
+  assert.ok("mol" in buildAtoms(seqOfText(`dna: ${"[LT]*".repeat(n - 1)}[LT]`)), `${n} LNA T draw`);
+  assert.deepEqual(buildAtoms(seqOfText(`dna: ${"[LT]*".repeat(n)}[LT]`)), { problem: TOO_MANY_ATOMS });
+  assert.equal(seqProblem(seqOfText(`dna: ${"[LT]*".repeat(n)}[LT]`), true), undefined);
 }
 console.log("seqextras: ok");
