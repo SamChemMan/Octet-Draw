@@ -9571,8 +9571,11 @@ export default function Editor() {
     return <circle key={key} className={cls} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={0.32 * L} />;
   };
   // A charge, radical or lone pair under the pointer with Select: a ring round it.
-  // Atom i's charge's middle as drawn (drawing units).
-  const chargeMid = (i: number): P | undefined => { const b = drawing.charges?.[i]; return b && [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L]; };
+  // Atom i's charge's middle (drawing units): its own place, else the middle of its ink as drawn.
+  const chargeMid = (i: number): P | undefined => {
+    const a = doc.atoms[i], at = a?.sign?.at, b = drawing.charges?.[i];
+    return at ? [a.location[0] + at[0] * scaleOf(a), a.location[1] + at[1] * scaleOf(a)] : b && [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L];
+  };
   const markRing = (i: number, key: string) => {
     const e = drawing.electrons.find((x) => x.atom === i && x.key === key);
     return e ? <circle key="h" className="mark" cx={e.at[0]} cy={e.at[1]} r={0.22 * L} /> : null;

@@ -61,7 +61,7 @@ console.log("circledcharges.check: ±8 and the circle cleared at 0 ok");
   assert.deepEqual(chargeLook({}, 3, true), { charge: 3, circled: true });
   assert.deepEqual(chargeLook({ charge: 1 }, 3, true), { charge: 3, circled: undefined });
   assert.deepEqual(chargeLook({ charge: 1, circled: true }, 2, false), { charge: 2, circled: true });
-  assert.deepEqual(chargeLook({ charge: 2, circled: true }, 0, true), { charge: undefined, circled: undefined });
+  assert.deepEqual(chargeLook({ charge: 2, circled: true }, 0, true), { charge: undefined, circled: undefined, sign: undefined });
 }
 console.log("circledcharges.check: new charges take the document's look ok");
 

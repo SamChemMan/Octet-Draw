@@ -22,7 +22,7 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, sub } from "./render.ts";
+import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -981,8 +981,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // circled charge or a skeletal carbon's charge, radical electrons and lone pairs, each in the widest gap between the
   // atom's bonds and label.
   function marks(i: number): string {
-    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length, moved = signs.get(i) ?? (charge && a.sign?.at ? ownSign(i, X) : undefined);
+    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length;
     const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
+    // A charge at its own place that the label's text does not hold (labelOf keeps a 2+ there): its symbol there.
+    const moved = signs.get(i) ?? (charge && a.sign?.at && (a.circled || !shown) ? ownSign(i, X) : undefined);
     const size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
     // A radical ion's symbol is level, its two points half a symbol's size apart about its middle, as ChemDraw draws
     // one with a click. A charge's symbol takes the charge's own size (the length of its box) and colour (Atom.sign).
@@ -2026,11 +2028,16 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
       // A label of more than one line keeps its lines (each trimmed, empty ones left out); an element's label is read
       // without them (ChemDraw's stacked NH can be typed N, Option-Return, H).
-      // The node's charge sign after the label (after its first or last line) is not text.
+      // The node's charge sign after the label (after its first or last line) is not text. Its run in a colour of its own
+      // (one the label's other text does not have) is the charge's own colour (Atom.sign, issue 164).
+      const signRun = () => {
+        const r = [...(l.runs ?? [])].reverse().find((r) => /[+\-−–]$/.test(cleanText(r.text).trim()));
+        if (!octet && r?.colour) a.sign = readSign({ ...a.sign, colour: r.colour.toLowerCase() });
+      };
       const rows = cleanText(raw).split("\n").map((t) => t.trim()).filter(Boolean);
       for (const k of new Set([0, rows.length - 1])) {
         const sign = /(\d*)([+\-−–])$/.exec(rows[k] ?? "");
-        if (charge && sign && (sign[2] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1)).trim(); break; }
+        if (charge && sign && (sign[2] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1)).trim(); signRun(); break; }
       }
       const lined = rows.filter(Boolean).join("\n");
       let text = lined.replace(/\n/g, "");
@@ -2596,8 +2603,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         const p1 = toOctet(e[0], e[1]), p2 = toOctet(e[2], e[3]), mid = ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1;
         const k = (len(sub(p2, p1)) * (ion ? 2 : 1)) / ((0.75 * (a.size ?? style.labelSize) * f) / B);
         if (Math.abs(k - 1) >= 0.05) out.size = Math.round(Math.min(SIGN_SIZES[1], Math.max(SIGN_SIZES[0], k)) * 1e3) / 1e3;
-        const d = [(mid[0] - a.location[0]) / f, (mid[1] - a.location[1]) / f], r = Math.hypot(d[0], d[1]), in3 = Math.min(1, SIGN_REACH / r);
-        if (r > 0.8) out.at = [Math.round(d[0] * in3 * 1e4) / 1e4, Math.round(d[1] * in3 * 1e4) / 1e4];
+        const d = [(mid[0] - a.location[0]) / f, (mid[1] - a.location[1]) / f], r = Math.hypot(d[0], d[1]);
+        if (r > 0.8) out.at = signPoint(Math.min(r, SIGN_REACH), Math.atan2(d[1], d[0]));
       }
       const own = readSign(out);
       if (own) a.sign = own;

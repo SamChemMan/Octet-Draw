@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { render, SIGN_REACH, type Atom, type Ink, type Mol } from "./render.ts";
-import { dropCharge, flipAtoms, keyCharges, moveSign, rotateAtoms, setSign, setSignKind, signKind } from "./edit.ts";
+import { addSymbol, dropCharge, flipAtoms, keyCharges, markNear, moveSign, rotateAtoms, setSign, setSignKind, signKind } from "./edit.ts";
 import { fromCdxml, toCdxml } from "./cdxml.ts";
 import { parse, serialize } from "./file.ts";
 import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
@@ -94,6 +94,41 @@ console.log("chargesign.check: drawing ok");
   assert.ok(near(fh[0], -1, 1e-3) && near(fh[1], 1, 1e-3), `a horizontal flip (${fh})`);
   assert.ok(near(fv[0], 1, 1e-3) && near(fv[1], -1, 1e-3), `a vertical flip (${fv})`);
   assert.equal(rotateAtoms(c, new Set([0, 1]), 90).atoms[2].sign, c.atoms[2].sign, "an atom not turned keeps it");
+  // On a coloured atom, black is a colour of its own; the atom's colour still clears it.
+  const green = setSign(chain("N", { charge: 1, colour: "#00ff00" }), 2, { colour: "#000000" });
+  assert.equal(green.atoms[2].sign?.colour, "#000000", "a green atom's charge can be black");
+  const dg = render(green, S, ink);
+  assert.ok(dg.labels.some((l) => l.colour === "#000000" && /^[+]$/.test(l.text)) && !dg.labels.some((l) => l.colour === "#00ff00" && /\+/.test(l.text)), "and draws black");
+  assert.equal(setSign(green, 2, { colour: "#00ff00" }).atoms[2].sign, undefined, "the atom's colour clears it");
+  // A charge taken to 0 another way loses its look too, so a new charge starts at the usual place.
+  assert.equal(keyCharges(chain("N", { charge: 1, sign: { at: [1, 1] } }), [2], [], "minus").atoms[2].sign, undefined, "− to 0");
+  assert.equal(addSymbol(chain("C", { charge: 1, radical: 1, sign: { at: [1, 1] } }), 2, "radicalCation").atoms[2].sign, undefined, "the radical cation taken off");
+  // A radical moved off its charge is drawn as a dot and a sign: the kind buttons show a plain charge.
+  assert.equal(signKind(chain("C", { charge: 1, radical: 1, angles: { radical0: 90 } }).atoms[2]), "plus");
+  // A large charge is taken at its edge.
+  const bigSign = chain("C", { charge: 1, sign: { at: [1, 0], size: 5 } }), edge: P = [1.732 + 1 + 0.6, 0];
+  assert.equal(markNear(render(bigSign, S, ink).electrons, bigSign, edge, L)?.mark, "charge", "a size 5 charge at its edge");
+  const usual = chain("C", { charge: 1, sign: { at: [1, 0] } });
+  assert.equal(markNear(render(usual, S, ink).electrons, usual, edge, L), undefined, "a usual one not so far out");
+}
+// E2. A charge dragged to the limit, every degree round: its place is kept by every file and by turns (it is never
+// stored past the limit).
+{
+  const lost: string[] = [];
+  for (let d = 0; d < 360; d++) {
+    const t = (d * Math.PI) / 180, m = moveSign(chain("C", { charge: 1 }), 2, [1.732 + 10 * Math.cos(t), 10 * Math.sin(t)], false), at = m.atoms[2].sign!.at!;
+    if (Math.hypot(...at) > SIGN_REACH) lost.push(`${d}°: stored past the limit`);
+    if (!parse(serialize(m)).atoms[2].sign?.at) lost.push(`${d}°: .oct JSON`);
+    if (!fromCdxml(toCdxml(m, DEFAULT_STYLE)).mol.atoms[2].sign?.at) lost.push(`${d}°: CDXML`);
+    if (!readCdx(writeCdx(m, DEFAULT_STYLE)).mol.atoms[2].sign?.at) lost.push(`${d}°: CDX`);
+    if (d % 10 === 0 && !fromCdxml(toCdxml(m, DEFAULT_STYLE).replace(/\sOctet="[^"]*"/g, "")).mol.atoms[2].sign?.at) lost.push(`${d}°: ChemDraw's file`);
+    const turned = rotateAtoms(m, new Set([0, 1, 2]), d + 0.37).atoms[2].sign?.at;
+    if (!turned || Math.hypot(...turned) > SIGN_REACH || !parse(serialize(rotateAtoms(m, new Set([0, 1, 2]), d + 0.37))).atoms[2].sign?.at) lost.push(`${d}°: turned`);
+  }
+  assert.deepEqual(lost, [], "a charge at the limit keeps its place");
+  // Just past the limit (a coordinate written to fewer places) comes back to it; clearly past is refused.
+  const just = parse(serialize(chain("N", { charge: 1, sign: { at: [3.00002, 0.00003] } }))).atoms[2].sign?.at;
+  assert.ok(just && Math.hypot(...just) <= SIGN_REACH && near(just[0], 3, 1e-3), `just past the limit (${just})`);
 }
 console.log("chargesign.check: edits ok");
 
@@ -123,6 +158,17 @@ console.log("chargesign.check: edits ok");
   const n2 = toCdxml(chain("N", { charge: 2, sign: { colour: "#cc0000" } }), DEFAULT_STYLE);
   assert.match(n2, /<s\s[^>]*color="(\d+)"[^>]*>2\+<\/s>/, "the 2+ run has its own colour");
   assert.deepEqual(fromCdxml(n2).mol.atoms[2].sign, { colour: "#cc0000" });
+  // A label's 2+ at its own place stays in the text too, with no second sign as a symbol.
+  const n2at = toCdxml(chain("N", { charge: 2, sign: { at: [0, 1.5], colour: "#cc0000" } }), DEFAULT_STYLE);
+  assert.match(n2at, />2\+<\/s>/, "the 2+ is in the label");
+  assert.doesNotMatch(n2at, /SymbolType="(Plus|Minus)"/, "and is not a symbol as well");
+  // A label's sign in a colour of its own, from a file ChemDraw saved (no Octet data): the colour comes back.
+  for (const charge of [1, -1, 2, -2]) {
+    const x = toCdxml(chain("N", { charge, sign: { colour: "#cc0000" } }), DEFAULT_STYLE).replace(/\sOctet="[^"]*"/g, ""), back = fromCdxml(x).mol.atoms[2];
+    assert.deepEqual([back.charge, back.sign, back.colour], [charge, { colour: "#cc0000" }, undefined], `N ${charge}: the label's sign keeps its colour`);
+  }
+  const gx = toCdxml(chain("N", { charge: 1, colour: "#00ff00", sign: { colour: "#000000" } }), DEFAULT_STYLE).replace(/\sOctet="[^"]*"/g, ""), gb = fromCdxml(gx).mol.atoms[2];
+  assert.deepEqual([gb.colour?.toLowerCase(), gb.sign], ["#00ff00", { colour: "#000000" }], "a green N's black sign");
   // No charge: nothing of the look is written.
   const none = chain("N", { sign: look });
   assert.equal(parse(serialize(none)).atoms[2].sign, undefined);

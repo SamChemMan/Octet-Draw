@@ -102,11 +102,16 @@ export type Atom = {
 export type Sign = { at?: [number, number]; colour?: string; size?: number };
 // How far a charge can go from its atom (bond lengths at its scale), and its size factor's limits.
 export const SIGN_REACH = 3, SIGN_SIZES: [number, number] = [0.2, 5];
+// A charge's place r bond lengths out at angle t (radians), each coordinate cut to 4 places towards the atom, so it is
+// never further out than r.
+export const signPoint = (r: number, t: number): [number, number] => [Math.trunc(r * Math.cos(t) * 1e4) / 1e4, Math.trunc(r * Math.sin(t) * 1e4) / 1e4];
 // A charge's own place, colour and size from a file or the clipboard: each value checked, anything else left out.
 export function readSign(v: unknown): Sign | undefined {
   if (!v || typeof v !== "object") return undefined;
   const o = v as Record<string, unknown>, out: Sign = {}, at = o.at;
-  if (Array.isArray(at) && at.length === 2 && at.every((x) => typeof x === "number" && Number.isFinite(x)) && Math.hypot(at[0], at[1]) <= SIGN_REACH + 1e-6) out.at = [at[0], at[1]];
+  // A place a rounding past the limit (a coordinate written to fewer places) comes back to it; one clearly beyond is left out.
+  const xy = Array.isArray(at) && at.length === 2 && at.every((x) => typeof x === "number" && Number.isFinite(x)) ? (at as [number, number]) : undefined, r = xy ? Math.hypot(...xy) : Infinity;
+  if (xy && r <= SIGN_REACH + 1e-3) out.at = r <= SIGN_REACH ? [xy[0], xy[1]] : signPoint(SIGN_REACH, Math.atan2(xy[1], xy[0]));
   if (typeof o.colour === "string" && /^#[0-9a-f]{6}$/i.test(o.colour)) out.colour = o.colour;
   if (typeof o.size === "number" && o.size >= SIGN_SIZES[0] && o.size <= SIGN_SIZES[1] && o.size !== 1) out.size = o.size;
   return Object.keys(out).length ? out : undefined;
