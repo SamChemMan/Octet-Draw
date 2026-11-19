@@ -39,7 +39,7 @@ assert.doesNotMatch(grids, /exporting === doc|\bdoc\.(grids|captions|arrows)|\((
 // The export paths keep to the selection, and the Export button says Quick export saves it.
 const body = (name: string) => editor.slice(editor.indexOf(`function ${name}(`), editor.indexOf("\n  }\n", editor.indexOf(`function ${name}(`)));
 assert.match(body("quickExport"), /selectedPart\(\) \?\? doc/, "Quick export takes the selection when there is one");
-assert.match(body("openExport"), /selection: sel && pictureOf\(sel\)/, "Export… offers the selection's picture");
+assert.match(body("openExport"), /selection: sel && pictureOf\(sel, undefined, over\("selection"\)\)/, "Export… offers the selection's picture");
 const dialog = readFileSync(new URL("ExportDialog.tsx", import.meta.url), "utf8");
 assert.match(dialog, /useState<"all" \| "selection">\(pictures\.selection \? "selection" : "all"\)/, "Export… starts on the selection");
 assert.match(dialog, /Quick export \$\{selected \? "selection " : ""\}as/, "Quick export's item names the selection");
@@ -90,7 +90,7 @@ for (const [name, src] of [["Export…", dialog], ["Settings", settingsWindow]])
 assert.match(settingsWindow, /<Select label="Background" value=\{files\.background\} options=\{BACKDROPS\}/);
 assert.match(settingsWindow, /label="JPEG quality"/);
 assert.match(dialog, /label="Width" unit="px"/);
-assert.match(dialog, /disabled=\{!ok \|\| big\}/, "Export… is off for a picture too large");
+assert.match(dialog, /disabled=\{!ok \|\| big \|\| many\}/, "Export… is off for a picture too large, or too many pages");
 assert.match(editor, /copyToClipboard\(\{ dpi: settings\.files\.dpi,/, "Copy's picture takes the export dpi");
 assert.match(editor, /page=\{pageColour\(style\)\}/);
 // (Export…, Quick export and read with a format make one request, exportRequest, checked below.)
@@ -221,5 +221,38 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.deepEqual(shapes.map(([key, polys]) => [key, polys.length]), [["|1.00|0|0", 1], ["|1.00|0|1", 1], ["|1.00|-1|3", 2]], "each line apart, the hole with its circle");
   assert.match(editor, /const structureInk = useMemo\([^\n]*structurePaths\(d, !!exporting\)[^\n]*\[drawing, exporting\]\)/, "structures apart when exporting");
   assert.match(editor, /if \(exporting\) each\.push\(\[key, path\]\);/, "arrows apart when exporting");
+}
+// Export… > PDF > Pages (ported from PR #156): One page, cropped to the drawing, or All pages, a page for each page
+// of the document's paper the part covers, as Print lays them out (pagePictures). The choice is kept; only "document"
+// turns it on. Quick export and the clipboard PDF stay one cropped page.
+{
+  const { MAX_PRINT_PAGES, pagesOver } = await import("./docstyle.ts");
+  const dialog = readFileSync(new URL("ExportDialog.tsx", import.meta.url), "utf8"), settingsTs = readFileSync(new URL("settings.ts", import.meta.url), "utf8");
+  const settingsWindow = readFileSync(new URL("SettingsWindow.tsx", import.meta.url), "utf8");
+  // A4 in px at 4/3 px a point: two structures 236 mm apart cover two pages; the page alone, one; past 64, none.
+  const [w, h] = [((210 * 72) / 25.4) * (4 / 3), ((297 * 72) / 25.4) * (4 / 3)];
+  assert.equal(pagesOver([-100, -50, 100, 50], w, h).count, 1);
+  assert.deepEqual(pagesOver([-100, -50, -100 + (236 * 72 * 4) / (25.4 * 3), 50], w, h).pages, [[0, 0], [1, 0]]);
+  const many = pagesOver([0, 0, 20 * w, 20 * h], w, h);
+  assert.ok(many.count > MAX_PRINT_PAGES && !many.pages.length);
+  assert.equal(MAX_PRINT_PAGES, 64, "Rust's MAX_PAGES");
+  assert.ok(readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8").includes("pub const MAX_PAGES: usize = 64;"));
+  // The dialog: the row only for PDF, its two choices, the count and paper under the preview, Export off past 64.
+  assert.ok(dialog.includes('export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "All pages"]];'));
+  assert.match(dialog, /\{format === "pdf" && \(\n\s*<div className="dialog-row"><span>Pages<\/span>/);
+  assert.ok(dialog.includes('disabled={!ok || big || many}'), "Export is off past the limit");
+  assert.ok(dialog.includes('{`Too many pages. Octet exports ${MAX_PRINT_PAGES} at most.`}'));
+  assert.ok(dialog.includes('{sheet.count === 1 ? "1 page" : `${sheet.count.toLocaleString()} pages`} · {paperName}'));
+  assert.ok(dialog.includes("{isPicture && !sheet && ("), "no margin on document pages");
+  // The Editor: each part's pages are counted from the ink its picture is cut to, and Export sends the pages.
+  assert.ok(editor.includes('const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { sheets[k] = pagesOver(ink ?? [0, 0, 0, 0], w * mm * L, h * mm * L); };'));
+  assert.ok(editor.includes('const paged = f.format === "pdf" && ((part === "all" && expPage) || f.pdfPages === "document"), sheets = paged ? pagePictures(mol) : undefined;'));
+  assert.match(editor, /const \{ count, cols, pages: sheets \} = pagesOver\(canvasInk\(canvas\) \?\? \[0, 0, 0, 0\], pw, ph\);/, "the same count as Print's");
+  const quick = editor.slice(editor.indexOf("async function quickExport("), editor.indexOf("\n  }\n", editor.indexOf("async function quickExport(")));
+  assert.ok(quick && !quick.includes("pdfPages") && !/function exportRequest|const exportRequest[^\n]*pdfPages/.test(editor), "Quick export stays one page");
+  assert.ok(!/copyToClipboard\([^\n]*pdfPages/.test(editor), "the clipboard PDF stays one page");
+  // Kept: a saved "document" stays, anything else is One page; Settings > Export has the same row.
+  assert.ok(settingsTs.includes('pdfPages: saved.files?.pdfPages === "document" ? "document" : "one"'));
+  assert.ok(settingsWindow.includes('<Select label="PDF pages" value={files.pdfPages} options={PDF_PAGES}'));
 }
 console.log("export.check: ok");

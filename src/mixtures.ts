@@ -24,7 +24,8 @@ export const isChargeText = (text: string) => /^(\d*[+\-−–⊕⊖]|[+\-−–
 // symbol's and text's structure, by its index in boxes (the nearest).
 export function symbolOwners(doc: Mol, boxes: Box[], captionBox?: (id: number) => Box | undefined): Map<number, number> {
   const out = new Map<number, number>(), shapes = doc.shapes ?? [];
-  const signs = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && isChargeText(c.text));
+  // (A measurement is not a charge: its "–" is a value it cannot work out.)
+  const signs = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && !c.measure && isChargeText(c.text));
   if (!signs.length && !shapes.some((s) => s.kind === "symbol")) return out; // most drawings
   const boxOf = (s: { from: number[]; to: number[] }): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
   const gap = (p: Box, q: Box) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]);

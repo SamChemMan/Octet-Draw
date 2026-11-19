@@ -1,5 +1,5 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
+// drawing, the Structure panel, Export… with document pages, the spectrum panel with two tabs, the template library, a caption with the paste
 // offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
@@ -58,6 +58,18 @@ await measure("the Properties panel", !!(await until(() => document.querySelecto
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
 await wait(600);
 
+// Export…: PDF with Pages > Document pages, the pages as the preview, then One page again.
+document.querySelector(".export-button")?.click();
+await wait(400);
+(await until(() => document.querySelector('.export-menu [data-item="export"]'), 2000))?.click();
+const pagesRow = await until(() => labelled("Pages"), 4000);
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Document pages")?.click();
+await measure("Export… with document pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "One page")?.click();
+await wait(300);
+key({ key: "Escape" });
+await wait(600);
+
 // The spectrum panel: one tab, then two (each with its X, and the + after them).
 labelled("Predict ¹³C-NMR shifts")?.click();
 await measure("the spectrum panel", !!(await until(() => document.querySelector(".spectrum-controls"), 6000)));
@@ -77,6 +89,12 @@ const templates = await until(() => document.querySelector('.variant[aria-haspop
 await measure("a tool's menu", !!templates);
 templates?.click();
 await measure("the template library", !!(await until(() => document.querySelector(".segmented.library-kind"), 4000)));
+key({ key: "Escape" });
+await wait(600);
+// The Template tool's library, with the template in hand drawn large to choose where it attaches.
+const template = [...document.querySelectorAll(".tool")].find((t) => /templates$/i.test(t.getAttribute("aria-label") ?? ""));
+template?.click(); await wait(500); template?.click();
+await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
 key({ key: "Escape" });
 await wait(600);
 

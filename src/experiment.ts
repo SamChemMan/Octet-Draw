@@ -122,7 +122,7 @@ export function newExperiment(s: Sheet, template?: Mol, date = today(), author?:
 // other page, or a template without them).
 const spanOf = (x: Shape): [number, number, number, number] => [Math.min(x.from[0], x.to[0]), Math.min(x.from[1], x.to[1]), Math.max(x.from[0], x.to[0]), Math.max(x.from[1], x.to[1])];
 function schemeShape(m: Mol, heading = /^reaction scheme$/i): Shape | undefined {
-  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && heading.test(c.text.trim()));
+  const h = (m.captions ?? []).find((c) => !c.under && !c.on && !c.cycle && !c.measure && heading.test(c.text.trim()));
   if (!h) return undefined;
   const near = (m.shapes ?? []).filter((x) => (x.kind === "box" || x.kind === "rounded") && !x.angle).filter((x) => { const b = spanOf(x); return b[3] <= h.y + 1e-6 && b[0] <= h.x + 1e-6 && b[2] > h.x; });
   return near.sort((p, q) => spanOf(q)[3] - spanOf(p)[3])[0];
@@ -161,7 +161,7 @@ export function growScheme(m: Mol, bottom: number, pad = 1, heading?: RegExp): M
     const [, lo, , hi] = spanOf(x), keep = d - Math.max(0, Math.min(d, hi - lo - PROCEDURE_MIN));
     return { ...x, ...(x.from[1] > x.to[1] ? { from: move(x.from, d), to: move(x.to, keep) } : { to: move(x.to, d), from: move(x.from, keep) }) };
   });
-  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && c.y < b[1] && !risk.has(c.id) ? { ...c, y: c.y - d } : c));
+  const captions = m.captions?.map((c) => (!c.under && !c.on && !c.cycle && !c.measure && c.y < b[1] && !risk.has(c.id) ? { ...c, y: c.y - d } : c));
   return { ...m, shapes, ...(captions ? { captions } : {}) };
 }
 // The least the Procedure box keeps when the scheme above it grows (bond lengths: twice ROOM, about eight lines).
@@ -192,7 +192,7 @@ export const growProcedure = (m: Mol, bottom: number) => growScheme(m, bottom, R
 const TITLE = 1.4, GAP = 0.8; // the title's size, and the space between a name and its value, in text sizes
 const titleSize = (s: Sheet) => Math.round(TITLE * s.size * 100) / 100;
 export const titleSizeOf = titleSize;
-const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role;
+const free = (c: Caption) => !c.under && !c.on && !c.cycle && !c.property && !c.role && !c.measure;
 const NAMES = new Map<string, Field>(FIELDS.map(([key, name]) => [name.toLowerCase(), key]));
 const nameOf = (c: Caption) => (free(c) && !c.field ? NAMES.get(c.text.trim().replace(/:$/, "").toLowerCase()) : undefined);
 const valueOf = (m: Mol, key: Field) => m.captions?.find((c) => c.field === key && free(c));

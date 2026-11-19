@@ -1,13 +1,14 @@
 // The user's own templates for the Ring and Template tools, added by name or from the drawing. Each is kept as an
 // .octet file in the settings (Octet's clipboard format), so it keeps everything that was selected (text, arrows,
 // shapes, curves, groups, colours) and loading one goes through the same checks as opening a file. set: the named
-// set it is in (the library's own category); unset is My templates.
-import { normalise } from "./edit.ts";
+// set it is in (the library's own category); unset is My templates. anchor: the atom or bond it attaches by
+// (addTemplate), as the user last chose it in the library.
+import { normalise, validAnchor, type TemplateAnchor } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
 import type { Mol } from "./render.ts";
 
-export type Template = { id: string; name: string; mol: Mol; set?: string };
-export type SavedTemplate = { id: string; name: string; file: string; set?: string };
+export type Template = { id: string; name: string; mol: Mol; set?: string; anchor?: TemplateAnchor };
+export type SavedTemplate = { id: string; name: string; file: string; set?: string; anchor?: TemplateAnchor };
 export const MY_SET = "My templates";
 // The tool a template is used with: the Ring tool (its Templates row) or the Template tool.
 export type TemplateTool = "ring" | "template";
@@ -83,7 +84,8 @@ export function loadTemplates(saved: unknown): Template[] {
     try {
       if (typeof t?.id !== "string" || typeof t.name !== "string" || typeof t.file !== "string") return [];
       const mol = readKept(t.file), set = typeof t.set === "string" && setName(t.set) && setName(t.set) !== MY_SET ? setName(t.set) : undefined;
-      return hasContent(mol) ? [{ id: t.id, name: t.name.slice(0, 80), mol, ...(set ? { set } : {}) }] : [];
+      const anchor = validAnchor(mol, t.anchor);
+      return hasContent(mol) ? [{ id: t.id, name: t.name.slice(0, 80), mol, ...(set ? { set } : {}), ...(anchor ? { anchor } : {}) }] : [];
     } catch {
       return [];
     }
@@ -141,8 +143,12 @@ export const templateToEnd = <S extends Kept>(s: S, id: string): S => placeTempl
 export const updateTemplate = <S extends Kept>(s: S, id: string, mol: Mol): S => {
   if (!hasContent(mol) || !s.templates.some((t) => t.id === id)) return s;
   const file = serialize(normalise(mol));
-  return { ...s, templates: s.templates.map((t) => (t.id === id ? { ...t, file } : t)) };
+  // Its atoms may be numbered another way now, so the atom or bond it attached by goes.
+  return { ...s, templates: s.templates.map((t) => { if (t.id !== id) return t; const { anchor: _, ...rest } = t; return { ...rest, file }; }) };
 };
+// The atom or bond one of the user's templates attaches by (none: as Octet places any template).
+export const setTemplateAnchor = <S extends Kept>(s: S, id: string, anchor: TemplateAnchor | undefined): S =>
+  s.templates.some((t) => t.id === id) ? { ...s, templates: s.templates.map((t) => { if (t.id !== id) return t; const { anchor: _, ...rest } = t; return anchor ? { ...rest, anchor } : rest; }) } : s;
 // A copy of one of the user's templates, just after it in its set, named "… copy".
 export const duplicateTemplate = <S extends Kept>(s: S, id: string): S => {
   const k = s.templates.findIndex((t) => t.id === id);
