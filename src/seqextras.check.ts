@@ -83,26 +83,31 @@ const N_END: Record<string, [label: string, helm: string, acyl: string]> = {
   Fmoc: ["Fmoc", "[fmoc]", "C1(COC(=O))c2ccccc2-c2ccccc12"], Bz: ["Bz", "[Bz]", "c1ccccc1C(=O)"],
 };
 for (const [word, [label, code, acyl]] of Object.entries(N_END)) {
-  const text = `peptide: ${word}-AG-OMe`, atoms = built(text), labels = built(text, true);
-  const want = chem.toInchi(acyl.startsWith("C1(") ? "O=C(N[C@@H](C)C(=O)NCC(=O)OC)OCC1c2ccccc2-c2ccccc12" : `${acyl}N[C@@H](C)C(=O)NCC(=O)OC`);
+  const text = `peptide: ${word}-AGG-OMe`, atoms = built(text), labels = built(text, true);
+  const want = chem.toInchi(acyl.startsWith("C1(") ? "O=C(N[C@@H](C)C(=O)NCC(=O)NCC(=O)OC)OCC1c2ccccc2-c2ccccc12" : `${acyl}N[C@@H](C)C(=O)NCC(=O)NCC(=O)OC`);
   assert.equal(chem.toInchi(atoms), want, `${word}: the compound`);
   assert.equal(chem.toInchi(labels), want, `${word}: as labels`);
-  assert.deepEqual(labels.atoms.map((a) => a.text ?? a.label), [label, "Ala", "Gly", "OMe"], word);
-  const helm = `PEPTIDE1{${code}.A.G.[-OMe]}$$$$V2.0`;
+  assert.deepEqual(labels.atoms.map((a) => a.text ?? a.label), [label, "Ala", "Gly", "Gly", "OMe"], word);
+  const helm = `PEPTIDE1{${code}.A.G.G.[-OMe]}$$$$V2.0`;
   assert.equal(toHelm(atoms), helm, `${word}: HELM`);
   assert.equal(toHelm(labels), helm);
-  assert.deepEqual(readSequence(helm), { text: `peptide: ${word === "Z" ? "Cbz" : word}-AG-OMe` });
-  assert.equal(toFasta(atoms), "AG", "FASTA has the residues only");
+  assert.deepEqual(readSequence(helm), { text: `peptide: ${word === "Z" ? "Cbz" : word}-AGG-OMe` });
+  assert.equal(toFasta(atoms), "AGG", "FASTA has the residues only");
 }
 const C_END: Record<string, [code: string, alcohol: string]> = { NH2: ["[am]", "N"], OMe: ["[-OMe]", "OC"], OtBu: ["[OtBu]", "OC(C)(C)C"], OBn: ["[-OBn]", "OCc1ccccc1"], NHMe: ["[NHMe]", "NC"], NHEt: ["[NHEt]", "NCC"] };
 for (const [word, [code, tail]] of Object.entries(C_END)) {
-  const text = `peptide: Boc-AG-${word}`, atoms = built(text), labels = built(text, true);
-  const want = chem.toInchi(`CC(C)(C)OC(=O)N[C@@H](C)C(=O)NCC(=O)${tail}`);
+  const text = `peptide: Boc-AGG-${word}`, atoms = built(text), labels = built(text, true);
+  const want = chem.toInchi(`CC(C)(C)OC(=O)N[C@@H](C)C(=O)NCC(=O)NCC(=O)${tail}`);
   assert.equal(chem.toInchi(atoms), want, `${word}: the compound`);
   assert.equal(chem.toInchi(labels), want, `${word}: as labels`);
   assert.equal(labels.atoms[labels.atoms.length - 1].text, word);
-  assert.equal(toHelm(atoms), `PEPTIDE1{[Boc].A.G.${code}}$$$$V2.0`, `${word}: HELM`);
+  assert.equal(toHelm(atoms), `PEPTIDE1{[Boc].A.G.G.${code}}$$$$V2.0`, `${word}: HELM`);
+  assert.equal(toHelm(labels), toHelm(atoms));
 }
+// A dipeptide with an end beyond Ac and NH2 drawn as atoms stays a small molecule (aspartame is Asp-Phe-OMe); as
+// residue labels it is a sequence.
+assert.equal(toHelm(built("peptide: Boc-AG-OMe")), undefined);
+assert.equal(toHelm(built("peptide: Boc-AG-OMe", true)), "PEPTIDE1{[Boc].A.G.[-OMe]}$$$$V2.0");
 // In either case, H- and -OH are the usual ends, and an end Octet does not have is refused with the list.
 assert.deepEqual(seqOfText("peptide: fmoc-AG-otbu"), seqOfText("peptide: Fmoc-AG-OtBu"));
 assert.deepEqual(seqOfText("peptide: H-AG-OH"), seqOfText("peptide: AG"));
@@ -111,14 +116,14 @@ for (const bad of ["peptide: Tos-AG", "peptide: AG-OEt", "peptide: Boc-Fmoc-AG",
 // Biotin has no HELM library code: HELM writes it as its SMILES (D-biotin), which other programs read, and Octet reads
 // it back as Biotin.
 {
-  const atoms = built("peptide: Biotin-GG"), labels = built("peptide: Biotin-GG", true);
+  const atoms = built("peptide: Biotin-GGG"), labels = built("peptide: Biotin-GGG", true);
   assert.equal(chem.toInchiKey(chem.parseStructure("C1[C@H]2[C@@H]([C@@H](S1)CCCCC(=O)O)NC(=O)N2", false)), "YBJHBAHKTGYVGT-ZKWXMUAHSA-N", "D-biotin");
-  assert.equal(chem.toInchi(atoms), chem.toInchi("C1[C@H]2[C@@H]([C@@H](S1)CCCCC(=O)NCC(=O)NCC(=O)O)NC(=O)N2"));
+  assert.equal(chem.toInchi(atoms), chem.toInchi("C1[C@H]2[C@@H]([C@@H](S1)CCCCC(=O)NCC(=O)NCC(=O)NCC(=O)O)NC(=O)N2"));
   assert.equal(chem.toInchi(labels), chem.toInchi(atoms));
   const helm = toHelm(atoms)!;
-  assert.ok(helm.startsWith("PEPTIDE1{[C1[C@H]2") && helm.endsWith("[*:2])NC(=O)N2].G.G}$$$$V2.0"), helm);
+  assert.ok(helm.startsWith("PEPTIDE1{[C1[C@H]2") && helm.endsWith("[*:2])NC(=O)N2].G.G.G}$$$$V2.0"), helm);
   assert.equal(toHelm(labels), helm);
-  assert.deepEqual(readSequence(helm), { text: "peptide: Biotin-GG" });
+  assert.deepEqual(readSequence(helm), { text: "peptide: Biotin-GGG" });
 }
 // An end's label is a label with its atoms: Expand Label, the setting and files keep the compound; 1.1.2-style files
 // with Ac and NH2 labels with no atoms read as before.

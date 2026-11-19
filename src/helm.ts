@@ -314,7 +314,9 @@ function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own):
     // residues Octet has codes for (Ac-Ala-Cys-NH2): a free amino acid, N-acetylcysteine, aspartame, enalapril or
     // lidocaine (an N–C–C(=O) too) stays a small molecule. One with a residue label is a sequence whatever its length.
     const units = found.flatMap((ch) => ch.units.filter((u) => (c.nucleic ? u.code !== "P" : !isEnd(u.code))));
-    const small = c.nucleic ? units.length < 2 : units.length < 2 || (units.length === 2 && units.some((u) => !u.code));
+    // An end beyond Ac and NH2 (aspartame's OMe) counts as unknown here, as it did before Octet had them.
+    const plainEnds = found.every((ch) => ch.units.every((u) => !isEnd(u.code) || u.code === "ac" || u.code === "am"));
+    const small = c.nucleic ? units.length < 2 : units.length < 2 || (units.length === 2 && (units.some((u) => !u.code) || !plainEnds));
     if (small && !frag.some((i) => m.atoms[from[i]]?.inner?.atoms.length && m.atoms[from[i]].text)) continue;
     chains.push(...found);
     for (const l of c.links) {
