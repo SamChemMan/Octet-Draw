@@ -3,8 +3,8 @@
 Stefan Schramm's issue 68 (his priority: high). A chemist attaches named fields to a structure (internal number,
 batch, melting point, freezer), shows any of them next to it, and gets them in SDF. Branch `item/68-data-fields`,
 cut from `release-1.2-mcp` at b30f413, for release 1.2 (Friday 20 November 2026). This is the plan. Code starts
-after Sam's yes. On 19 November the branch was rebased on bd7c684 for release 1.1.3, which ships with the AI features
-off: the dialog, the menus and the files work in full, and the MCP parts wait for 1.2.
+after Sam's yes. On 19 November the branch was rebased on bd7c684, then on release-1.1.3 (f06d1b4), for release 1.1.3,
+which ships with the AI features off: the dialog, the menus and the files work in full, and the MCP parts wait for 1.2.
 
 ## What Octet has at b30f413
 
@@ -308,6 +308,8 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | S30 | A user template with fields | Inserting it brings the fields |
 | S31 | Expand label and Contract label on a structure with fields | The field stays on the structure |
 | S32 | Attach data… with nothing selected, or with an arrow selected | "Select a structure first." |
+| S33 | Indigo's own SD reader (apart from Octet's) on an SDF Octet wrote, V2000 and V3000, two records | Every item of each record, multi-line and Unicode values and empty ones too. Indigo keeps one item of a name (the last), as most readers do |
+| S34 | ChemDraw's raw line breaks inside Content: a structure's annotation, and a document annotation (Title) | The field's value keeps its lines (CR LF a line feed). The document annotation's breaks are spaces (XML's rule, issue 100's check) |
 
 ## Acceptance
 
@@ -321,7 +323,7 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | `src/datafields.check.ts`: undo chain through `history.ts` | Rule 8; S15 |
 | `src/datafields.check.ts`: timing | J9; S25, S26 (median of interleaved runs, with and without fields) |
 | `src/datafieldsmcp.check.ts` (headless host) | J8; S22-S24, S28 |
-| `src/datafields-stress.check.ts` | Every case of the stress list but S18 and S19, each on its own |
+| `src/datafields-stress.check.ts` | Every case of the stress list but S18 and S19 (S1 to S34), each on its own |
 | `src/numbering.check.ts` and a chemistry check | Rule 7; S27 |
 | `npm run look` with the dialog in `sweep.js`, light and dark | J7; S20, S32 |
 | `npm test`, `cargo test` (the menu item) | Everything else still passes |
@@ -398,17 +400,26 @@ timed out, while `name of every document` still answered ("Untitled ACS Document
 a dialog that only the screen shows. Tried again at 12:28 with the lock: the same. The files are ready to check once
 ChemDraw opens files again (Octet's CDXML and CDX with three fields on aspirin, one shown, and two on ethanol).
 
-19 November: still not done. Another session held the ChemDraw lock for the whole finishing run.
+19 November: still not done. Another session held the ChemDraw lock for the first finishing run. In the second, with
+the lock at 12:47, ChemDraw 22.2 (started 12:43 by another session) again had no document open and opened none of
+Octet's CDXML, CDX or two SD files (V3000 and V2000) in 60 s each, and its own AppleScript `open` timed out. The
+templates check (P11) reports the same. Someone has to look at ChemDraw's screen first. In place of the SD half,
+stress S33 reads Octet's SD files with Indigo's own SD reader.
 
 ## Open for Sam
 
 - Deleting the shown text deletes the field (ChemDraw's way). The other way: deleting the text only hides it.
 - The shown text is the value alone (ChemDraw's way). The other way: "Name: value".
 
-## What's New lines (draft)
+## What's New lines (1.1.3)
 
-- To attach data to a structure, select it and choose **Attach data…**. Type a name and a value for each field.
-- To show a field under its structure, turn on **Show** for it. Type over the text to change the value.
-- When you save as SDF, each structure's fields are its data items. When you open an SD file, each record's data
-  items are fields of its structure.
-- To select the structure that a field's text belongs to, choose **Select linked objects**.
+- To attach data to a structure, select the structure and choose Attach data… in the Actions panel or Object > Attach
+  Data…. Type a name and a value for each field, then click Save.
+- To show the value of a field under its structure, turn on Show for that field. To change the value, type over the
+  text.
+- To change the fields of a structure, select the text of a field and choose Edit attached data….
+- To select the structure that a field's text belongs to, select the text and choose Select linked objects.
+- When you save as SDF, Octet writes the fields of each structure as its data items. When you open an SD file, Octet
+  reads the data items of each record as fields of its structure.
+- When you open a ChemDraw file, Octet reads the attached data and the annotations of each structure as its fields.
+- When you copy a structure into another drawing, its fields go with it.
