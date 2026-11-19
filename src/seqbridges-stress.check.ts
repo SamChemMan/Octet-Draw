@@ -38,6 +38,7 @@ const { DEFAULT_STYLE, readStyle } = await import("./docstyle.ts");
 const { problems, messy } = await import("./check.ts");
 const { chainLayout } = await import("./chain.ts");
 const { peptideSmiles } = await import("./peptide.ts");
+const seqbuildMore = await import("./seqbuild.ts"), monomersMod = await import("./monomers.ts");
 const { labelSmiles } = await import("./labels.ts");
 
 type P = [number, number];
@@ -1099,6 +1100,61 @@ await check("N36", "Expand Label on a whole residue-label chain: along one strai
   const aspirin = (x: Mol) => x.atoms.slice(n, n + 13).map((a) => a.location);
   assert.deepEqual(aspirin(after), aspirin(page), "aspirin stays");
   assert.match(editorSource, /set\(chainsDrawnOut\(m, residues\)\);/, "Structure > Expand Label lays it out");
+});
+
+await check("N37", "The user's monomers (Define Monomer): defined, drawn as atoms and labels, HELM both ways, kept by the drawing in every file, 1.1.2 opens such a file, a hostile list and library refused quickly", () => {
+  const { monomerOf, helmLibrary } = seqbuildMore, { readMonomers, readHelmLibrary, MOST_OWN_MONOMERS } = monomersMod;
+  const marked = chem.parseStructure("[Xe]N[C@@H](CCCCNC(C)=O)C(=O)[Kr]", false);
+  const def = monomerOf({ ...marked, atoms: marked.atoms.map((a) => (a.label === "Xe" ? { ...a, label: "R", text: "R1" } : a.label === "Kr" ? { ...a, label: "R", text: "R2" } : a)) });
+  assert.ok("smiles" in def, JSON.stringify(def));
+  const own = [{ code: "Kac", smiles: (def as { smiles: string }).smiles }], helm = "PEPTIDE1{C.[Kac].A.A.C}$PEPTIDE1,PEPTIDE1,1:R3-5:R3$$$V2.0";
+  const seq = (parseHelm(helm, own) as { seq: Seq }).seq, a = (buildAtoms(seq, undefined, own) as { mol: Mol }).mol, l = (buildLabels(seq, undefined, own) as { mol: Mol }).mol;
+  assert.equal(inchi(a), inchi(l), "the same compound");
+  assert.equal(toHelm(a, undefined, undefined, own), helm, "HELM from atoms, the link kept");
+  assert.equal(toHelm(l, undefined, undefined, own), helm, "HELM from labels");
+  assert.equal(brackets(a).length, 1, "the disulfide a bracket");
+  const style = DEFAULT_STYLE;
+  for (const [how, back] of [[".oct", readOct(writeOct(l, style), true).mol], ["CDXML", fromCdxml(toCdxml(l, style)).mol], ["CDX", readCdx(writeCdx(l, style)).mol], ["the clipboard", parse(serialize({ ...l, style }))]] as const) {
+    assert.deepEqual(back.monomers, own, `${how}: the monomer kept`);
+    assert.equal(toHelm(back, undefined, undefined, back.monomers), helm, `${how}: HELM on another computer`);
+  }
+  // Hostile: a list of 20,000, codes Octet has, a 5,000-character SMILES, a library of 4 MB: refused or cut, quickly.
+  const t = performance.now();
+  assert.equal(readMonomers(Array.from({ length: 20_000 }, (_, k) => ({ code: `Q${k}`, smiles: own[0].smiles }))).length, MOST_OWN_MONOMERS);
+  assert.deepEqual(readMonomers([{ code: "Ala", smiles: own[0].smiles }, { code: "Q", smiles: "C".repeat(5000) }, { code: "x<script>", smiles: own[0].smiles }]), []);
+  assert.deepEqual(readHelmLibrary("[".repeat(100_000)), { problem: "This file is not a HELM monomer library." });
+  assert.ok(performance.now() - t < 1000, `${Math.round(performance.now() - t)} ms`);
+  assert.deepEqual((readHelmLibrary(helmLibrary(own)) as { monomers: unknown }).monomers, own, "a library back");
+  if (typeof old === "string") return old;
+  for (const [how, back] of [[".oct", old.readOct(writeOct({ ...l, monomers: own }, style), true).mol], ["the clipboard", old.parse(serialize({ ...l, monomers: own, style }))]] as const) assert.equal(inchi(back), inchi(l), `1.1.2 ${how}: opens, the same compound`);
+});
+
+await check("N38", "Octet's non-natural amino acids and a peptide's ends (Aib, Nle, Orn, Sar, Hyp; Boc, Fmoc, Z, Biotin; OMe, OtBu, NHMe): words, HELM, atoms and labels, files and 1.1.2, the longest that draw", () => {
+  const text = "peptide: Fmoc-[Aib][Nle][Orn][Sar][Hyp][Cha][Phg][Pen]-OtBu", read = fieldSeq(text);
+  assert.ok(read && "seq" in read, JSON.stringify(read));
+  const a = (buildAtoms(read.seq) as { mol: Mol }).mol, l = (buildLabels(read.seq) as { mol: Mol }).mol, helm = "PEPTIDE1{[fmoc].[Aib].[Nle].[Orn].[Sar].[Hyp].[Cha].[Phg].[Pen].[OtBu]}$$$$V2.0";
+  assert.equal(inchi(a), inchi(l));
+  assert.equal(toHelm(a), helm);
+  assert.equal(toHelm(l), helm);
+  assert.deepEqual(readSequence(helm), { text });
+  assert.equal(toFasta(a), "XLKGPAGV");
+  apart(a, "as atoms");
+  noNaN(a, "as atoms");
+  assert.equal(inchi(withSequences(a, "labels")), inchi(a));
+  const style = DEFAULT_STYLE;
+  for (const [how, back] of [[".oct", readOct(writeOct(l, style), true).mol], ["CDX", readCdx(writeCdx(l, style)).mol]] as const) assert.equal(toHelm(back), helm, how);
+  // A Biotin and Z chain, HELM out and in.
+  const b = fieldSeq("peptide: Biotin-G[Hcy]G-NHMe") as { seq: Seq }, bm = (buildAtoms(b.seq) as { mol: Mol }).mol;
+  assert.deepEqual(readSequence(toHelm(bm)!), { text: "peptide: Biotin-G[Hcy]G-NHMe" });
+  assert.deepEqual(fieldSeq("peptide: Z-AG"), fieldSeq("peptide: Cbz-AG"));
+  // The longest of the largest that draw in full, and one more.
+  let n = 1;
+  while (!seqProblem((fieldSeq(`peptide: ${"[Cha]".repeat(n + 1)}`) as { seq: Seq }).seq, false)) n++;
+  assert.ok("mol" in buildAtoms((fieldSeq(`peptide: ${"[Cha]".repeat(n)}`) as { seq: Seq }).seq), `${n} Cha`);
+  assert.equal(seqProblem((fieldSeq(`peptide: ${"[Cha]".repeat(n + 1)}`) as { seq: Seq }).seq, false), "Up to 1,000 atoms. Choose Residue labels.");
+  if (typeof old === "string") return old;
+  const back = old.readOct(writeOct(l, style), true).mol;
+  assert.equal(inchi(back), inchi(l), "1.1.2 opens the labels, the same compound");
 });
 
 // ==================================================================================================================

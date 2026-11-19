@@ -6,34 +6,41 @@ import type { Mol } from "./render.ts";
 import { pickAtoms } from "./edit.ts";
 import { CODES, residueSmiles } from "./peptide.ts";
 import { PHOSPHATE, unit } from "./nucleic.ts";
-import { D_CODES, elementKey } from "./monomers.ts";
+import { C_ENDS, D_CODES, elementKey, endOfWord, N_ENDS } from "./monomers.ts";
 
 type P = [number, number];
 
 export type SeqKind = "peptide" | "rna" | "dna";
-// start: N-acetyl (peptide) or a 5'-phosphate; end: C-amide or a 3'-phosphate.
-export type SeqParts = { kind: SeqKind; codes: string; start: boolean; end: boolean };
-export const SEQ_ENDS: Record<SeqKind, [start: string, end: string]> = {
-  peptide: ["N-acetyl", "C-amide"], rna: ["5′-phosphate", "3′-phosphate"], dna: ["5′-phosphate", "3′-phosphate"],
+// start and end: each end's word, "" for the usual one. A peptide's: Ac, Boc, Cbz (or Z), Fmoc, Bz or Biotin before
+// (monomers.ts N_ENDS), NH2, OMe, OtBu, OBn, NHMe or NHEt after (C_ENDS); RNA's and DNA's: "p", a phosphate.
+export type SeqParts = { kind: SeqKind; codes: string; start: string; end: string };
+// The ends the choices under the field give: N-acetyl and C-amide, or a 5'- and 3'-phosphate. The others are typed.
+export const SEQ_ENDS: Record<SeqKind, [start: [word: string, name: string], end: [word: string, name: string]]> = {
+  peptide: [["Ac", "N-acetyl"], ["NH2", "C-amide"]], rna: [["p", "5′-phosphate"], ["p", "3′-phosphate"]], dna: [["p", "5′-phosphate"], ["p", "3′-phosphate"]],
 };
+const START = new RegExp(`^(H|${N_ENDS.map((e) => e.word).join("|")}|Z)-`, "i"), FINISH = new RegExp(`-(OH|${C_ENDS.map((e) => e.word).join("|")})\\s*$`, "i");
 
 export function sequenceParts(text: string): SeqParts | undefined {
   const m = /^\s*(peptide|rna|dna)\s*:\s*([\s\S]*)$/i.exec(text);
   if (!m) return undefined;
   const kind = m[1].toLowerCase() as SeqKind;
   if (kind === "peptide") {
-    const p = /^(H-|Ac-)?([\s\S]*?)(-OH|-NH2)?\s*$/i.exec(m[2])!;
-    return { kind, codes: p[2], start: /^ac/i.test(p[1] ?? ""), end: /nh2/i.test(p[3] ?? "") };
+    let rest = m[2].trimEnd();
+    const a = START.exec(rest), b = FINISH.exec(rest.slice(a ? a[0].length : 0));
+    if (a) rest = rest.slice(a[0].length);
+    if (b) rest = rest.slice(0, rest.length - b[0].length);
+    const start = a && a[1].toLowerCase() !== "h" ? endOfWord(N_ENDS, a[1])!.word : "", end = b && b[1].toLowerCase() !== "oh" ? endOfWord(C_ENDS, b[1])!.word : "";
+    return { kind, codes: rest, start, end };
   }
   const n = /^(?:5'-?)?(p-?)?([\s\S]*?)(-?p)?(?:-?3')?\s*$/i.exec(m[2].replace(/[’′]/g, "'"))!;
-  return { kind, codes: n[2], start: !!n[1], end: !!n[3] };
+  return { kind, codes: n[2], start: n[1] ? "p" : "", end: n[3] ? "p" : "" };
 }
 
 // The text for the parts, and where the caret goes: after the codes, before the end.
 export function sequenceText(s: SeqParts): { text: string; caret: number } {
-  const codes = s.codes.trim(), head = `${s.kind}: ${s.start ? (s.kind === "peptide" ? "Ac-" : "p") : ""}${codes}`;
+  const codes = s.codes.trim(), head = `${s.kind}: ${s.start ? (s.kind === "peptide" ? `${s.start}-` : "p") : ""}${codes}`;
   // With no codes yet, a 3' phosphate is "-p", so it is not read as a 5' one.
-  const tail = !s.end ? "" : s.kind === "peptide" ? "-NH2" : codes ? "p" : "-p";
+  const tail = !s.end ? "" : s.kind === "peptide" ? `-${s.end}` : codes ? "p" : "-p";
   return { text: head + tail, caret: head.length };
 }
 
@@ -47,7 +54,8 @@ export function sequenceText(s: SeqParts): { text: string; caret: number } {
 // and phosphate's. The labels are the ones the Sequence tool draws.
 // A link's cap (monomers.ts): OH on an acyl carbon or a P, H anywhere else. more: other residues to try (the D amino
 // acids, the user's monomers; seqbuild.ts monomerRefs), each tried only when its residue has as many heavy atoms.
-export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly { label: string; key: string; smiles: () => string | undefined }[] = []): string | undefined {
+// plain: try the natural residues, nucleosides and phosphate first (false: only more).
+export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly { label: string; key: string; smiles: () => string | undefined }[] = [], plain = true): string | undefined {
   const caps = new Map<number, string>();
   const acyl = (i: number) => m.atoms[i].label === "P" || (m.atoms[i].label === "C" && m.bonds.some((b) => b.type === 2 && b.atoms.includes(i) && m.atoms[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]].label === "O"));
   for (const b of m.bonds) {
@@ -66,7 +74,7 @@ export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string)
   if (!want) return undefined;
   const same = (smiles: string | undefined) => !!smiles && (refs.has(smiles) ? refs : refs.set(smiles, inchi(smiles))).get(smiles) === want;
   const elements = elementKey([...group].map((i) => m.atoms[i]));
-  return residueTexts().find(([smiles]) => same(smiles))?.[1] ?? more.find((x) => x.key === elements && same(x.smiles()))?.label;
+  return (plain ? residueTexts().find(([smiles]) => same(smiles))?.[1] : undefined) ?? more.find((x) => x.key === elements && same(x.smiles()))?.label;
 }
 // Each residue's InChI, read once (Copy As HELM reads every residue of a chain), and each drawn residue's.
 const refs = new Map<string, string | undefined>(), residueInchis = new WeakMap<object, Map<string, string | undefined>>();

@@ -21,7 +21,7 @@ const { fieldSeq, parseHelm, toHelm, toFasta, withSequences, seqBuilt, readSeque
 const { residueName } = await import("./sequence.ts");
 const { serialize, parse } = await import("./file.ts");
 const { toCdxml, fromCdxml } = await import("./cdxml.ts");
-const { cdxToXml, xmlToCdx } = await import("./cdx.ts");
+const { readOct, writeOct, readCdx, writeCdx } = await import("./oct.ts");
 const { insertMol, merge, fragments } = await import("./edit.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
 
@@ -114,13 +114,15 @@ assert.deepEqual(fieldSeq("peptide: A[Kac]C"), { problem: "Not a monomer: [Kac]"
 // Saved and opened on a computer that does not have it: .oct, CDXML and CDX each keep it, and it reads the same.
 {
   const doc: Mol = { ...labels, monomers: own };
-  const oct = parse(serialize(doc));
-  assert.deepEqual(oct.monomers, own, ".oct keeps the drawing's monomers");
+  const json = parse(serialize(doc));
+  assert.deepEqual(json.monomers, own, "Octet's JSON (the clipboard) keeps the drawing's monomers");
+  const oct = readOct(writeOct(doc, DEFAULT_STYLE), true).mol;
+  assert.deepEqual(oct.monomers, own, ".oct keeps them");
   const cdxml = fromCdxml(toCdxml(doc, DEFAULT_STYLE)).mol;
   assert.deepEqual(cdxml.monomers, own, "CDXML keeps them in Octet's own data");
-  const cdx = fromCdxml(cdxToXml(xmlToCdx(cdxToXml(xmlToCdx((await import("./cdxml.ts")).parseXml(toCdxml(doc, DEFAULT_STYLE))))))).mol;
+  const cdx = readCdx(writeCdx(doc, DEFAULT_STYLE)).mol;
   assert.deepEqual(cdx.monomers, own, "and CDX");
-  for (const back of [oct, cdxml, cdx]) {
+  for (const back of [json, oct, cdxml, cdx]) {
     assert.equal(toHelm(back, undefined, undefined, back.monomers), HELM);
     assert.equal(chem.toInchi(withSequences(back, "atoms")), WANT, "drawn out on the other computer");
   }

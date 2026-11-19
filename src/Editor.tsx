@@ -10823,12 +10823,14 @@ export default function Editor() {
         <div className="name-options" role="toolbar" aria-label="Sequence" onPointerDown={(e) => e.preventDefault()}>
           {seqParts && <span className="name-kinds" role="radiogroup" aria-label="Kind">
             {(Object.keys(SEQUENCES) as SeqKind[]).map((k) => (
-              <button key={k} type="button" role="radio" tabIndex={-1} aria-checked={seqParts.kind === k} onClick={() => chooseSequence({ ...seqParts, kind: k, start: false, end: false })}>{SEQUENCES[k].name}</button>
+              <button key={k} type="button" role="radio" tabIndex={-1} aria-checked={seqParts.kind === k} onClick={() => chooseSequence({ ...seqParts, kind: k, start: "", end: "" })}>{SEQUENCES[k].name}</button>
             ))}
           </span>}
-          {seqParts && (["start", "end"] as const).map((end, i) => (
-            <button key={end} type="button" tabIndex={-1} aria-pressed={seqParts[end]} onClick={() => chooseSequence({ ...seqParts, [end]: !seqParts[end] })}>{SEQ_ENDS[seqParts.kind][i]}</button>
-          ))}
+          {seqParts && (["start", "end"] as const).map((end, i) => {
+            // An end typed (Boc-, -OMe) shows as typed in the field; this choice gives the usual one, or N-acetyl or C-amide.
+            const [word, label] = SEQ_ENDS[seqParts.kind][i], on = seqParts[end] === word;
+            return <button key={end} type="button" tabIndex={-1} aria-pressed={on} onClick={() => chooseSequence({ ...seqParts, [end]: on ? "" : word })}>{label}</button>;
+          })}
           {/* The document's Sequences (issue 27): off, every atom; on, one label for each residue, as ChemDraw draws a
               sequence. It draws the document's sequences again, and new documents start with the last choice. */}
           <button type="button" tabIndex={-1} aria-pressed={seqLabels} onClick={() => setSequences(seqLabels ? "atoms" : "labels")}>Residue labels</button>

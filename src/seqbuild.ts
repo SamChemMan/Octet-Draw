@@ -8,7 +8,7 @@ import type { Atom, Mol } from "./render.ts";
 import { canonicalSmiles, fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
 import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
-import { byLabel, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { byLabel, endMonomers, extraCodes, isEnd, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 import { labelLayout } from "./sequence.ts";
 import type { End, Seq, SeqUnit } from "./helm.ts";
 
@@ -60,12 +60,15 @@ const refOf = (label: string, smiles: string): Ref => ({ label, key: smilesKey(s
 let dRefs: Ref[] | undefined;
 const ownRefs = new WeakMap<Own, Ref[]>();
 export function monomerRefs(own: Own = []): Ref[] {
-  dRefs ??= peptideMonomers().filter((x) => /^d[A-Z]$/.test(x.code)).map((m) => refOf(m.label, m.smiles));
+  dRefs ??= peptideMonomers().filter((x) => /^d[A-Z]$/.test(x.code) || extraCodes().includes(x.code)).map((m) => refOf(m.label, m.smiles));
   if (!own.length) return dRefs;
   let refs = ownRefs.get(own);
   if (!refs) ownRefs.set(own, refs = [...dRefs, ...own.map((m) => refOf(m.code, m.smiles))]);
   return refs;
 }
+// A peptide's ends Octet has (monomers.ts N_ENDS, C_ENDS), each by its code, for reading a drawn chain's ends.
+const endsKept = new Map<string, Ref[]>();
+export const endRefs = (side: "N" | "C"): Ref[] => endsKept.get(side) ?? endsKept.set(side, endMonomers(side).map((e) => refOf(e.code, e.smiles))).get(side)!;
 // The signed volume of four points: a centre's hand from its neighbours in order.
 function volume([a, b, d, e]: number[][]): number {
   const [u, v, w] = [b, d, e].map((p) => [p[0] - a[0], p[1] - a[1], p[2] - a[2]]);
@@ -93,11 +96,13 @@ function unitsOf(seq: Seq, own: Own): { units: Units; partner: Map<string, End> 
   const units: Units = [];
   for (const c of seq.chains) {
     const row: Units[number] = [];
-    for (const u of c.units) {
+    for (const [k, u] of c.units.entries()) {
       const m = u.smiles ? undefined : monomer(c.kind, u.code, own), smiles = u.smiles ?? m?.smiles;
       const prep = smiles ? prepare(smiles) : undefined;
       if (!smiles || !prep) return { problem: u.smiles ? "Octet cannot read a monomer's SMILES." : `Not a monomer: [${u.code}]` };
-      if ((u.smiles || !monomer(c.kind, u.code)) && c.kind === "peptide" && !alpha(prep)) return { problem: "A peptide's monomer must be an α-amino acid, with R1 on its N and R2 on its C=O carbon." };
+      // A chain's end with one link (a Boc, an ester, written as its SMILES) caps it, and need not be an amino acid.
+      const end = (k === 0 && prep.r[1] === undefined) || (k === c.units.length - 1 && prep.r[2] === undefined);
+      if ((u.smiles || !monomer(c.kind, u.code)) && c.kind === "peptide" && !end && !alpha(prep)) return { problem: "A peptide's monomer must be an α-amino acid, with R1 on its N and R2 on its C=O carbon." };
       row.push({ kind: c.kind, unit: u, smiles, label: m?.label ?? "", prep });
     }
     units.push(row);
@@ -120,7 +125,7 @@ function unitsOf(seq: Seq, own: Own): { units: Units; partner: Map<string, End> 
 // The atoms Octet draws in full at most, and the residues (amino acids and nucleotides) as residue labels.
 export const MOST_BUILT_ATOMS = 1000, MOST_LABELS = 1000;
 // A sequence's residues: its units but a nucleic acid's phosphates and a peptide's Ac and NH2 ends.
-export const residueCount = (seq: Seq) => seq.chains.reduce((t, c) => t + c.units.filter((u) => (c.kind === "peptide" ? u.code !== "ac" && u.code !== "am" : u.code !== "P")).length, 0);
+export const residueCount = (seq: Seq) => seq.chains.reduce((t, c) => t + c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : u.code !== "P")).length, 0);
 
 // ——— As atoms ———
 // The atoms a sequence has drawn in full: each monomer's, less each R atom linked or capped H (an OH cap stays an O).

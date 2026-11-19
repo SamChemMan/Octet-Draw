@@ -8,10 +8,12 @@ import type { Atom, Caption, Mol } from "./render.ts";
 import { erase, fragments, insertMol, pickAtoms } from "./edit.ts";
 import { chainRead, type ChainEnd } from "./chain.ts";
 import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts";
-import { buildAtoms, buildLabels, monomerRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
+import { buildAtoms, buildLabels, endRefs, monomerRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
-import { byLabel, monomer, naturalLetter, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isNEnd, monomer, N_ENDS, naturalLetter, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+// What a peptide's ends can be, in the field's words.
+const ENDS_PROBLEM = `Ends can be ${[["H", ...N_ENDS.map((e) => e.word)].map((w) => `${w}-`), ["OH", ...C_ENDS.map((e) => e.word)].map((w) => `-${w}`)].flat().join(", ").replace(/, ([^,]*)$/, " or $1")}.`;
 
 // ——— The sequence model (J1) ———
 // A sequence as Octet holds it while it reads and draws one: its chains, each a list of monomer codes (monomers.ts), and
@@ -127,7 +129,9 @@ function peptideUnits(units: string[], own: Own): SeqChain | { problem: string }
     if (/^[A-Za-z0-9_-]{1,40}$/.test(inner)) { if (!monomer("peptide", inner, own)) return unknown(u); out.push({ code: inner }); continue; }
     const smiles = inlineSmiles(inner);
     if (typeof smiles !== "string") return smiles;
-    out.push({ code: "", smiles });
+    // An end Octet writes as its SMILES (Biotin) reads back as that end.
+    const end = [...N_ENDS, ...C_ENDS].find((e) => e.inline && e.smiles === smiles);
+    out.push(end ? { code: end.code } : { code: "", smiles });
   }
   return { kind: "peptide", units: out };
 }
@@ -180,11 +184,12 @@ export function seqWords(seq: Seq): string | undefined {
   if (seq.chains.length !== 1 || seq.links.length) return undefined;
   const [c] = seq.chains, units = c.units;
   if (c.kind === "peptide") {
-    const start = units[0]?.code === "ac", end = units.length > 1 && units[units.length - 1].code === "am", body = units.slice(start ? 1 : 0, end ? -1 : undefined);
-    if (!body.length || body.some((u) => u.smiles || u.code === "ac" || u.code === "am")) return undefined;
+    const word = (u: SeqUnit | undefined, side: "N" | "C") => (u && !u.smiles ? endMonomers(side).find((e) => e.code === u.code)?.word : undefined);
+    const start = word(units[0], "N") ?? "", end = units.length > 1 ? word(units[units.length - 1], "C") ?? "" : "", body = units.slice(start ? 1 : 0, end ? -1 : undefined);
+    if (!body.length || body.some((u) => u.smiles || isEnd(u.code))) return undefined;
     return sequenceText({ kind: "peptide", codes: body.map((u) => (u.code.length === 1 ? u.code : `[${u.code}]`)).join(""), start, end }).text;
   }
-  const start = units[0].code === "P", end = units.length > 1 && units[units.length - 1].code === "P", body = units.filter((u) => u.code !== "P");
+  const start = units[0].code === "P" ? "p" : "", end = units.length > 1 && units[units.length - 1].code === "P" ? "p" : "", body = units.filter((u) => u.code !== "P");
   return sequenceText({ kind: c.kind, codes: body.map((u) => u.code[1]).join(""), start, end }).text;
 }
 
@@ -203,8 +208,8 @@ export function fieldSeq(text: string, own: Own = []): { seq: Seq; notes?: strin
   const body = parts.codes.replace(/\s+/g, "");
   if (parts.kind === "peptide") {
     if (!body) return parts.start || parts.end || /-/.test(t.replace(/^\s*peptide\s*:/i, "")) ? { problem: "Type the amino acids, for example ACDEFG." } : undefined;
-    if (body.includes("-")) return { problem: "Ends can be H-, Ac-, -OH or -NH2." };
-    const units: SeqUnit[] = parts.start ? [{ code: "ac" }] : [], bad = new Set<string>();
+    if (body.includes("-")) return { problem: ENDS_PROBLEM };
+    const units: SeqUnit[] = parts.start ? [{ code: endOfWord(N_ENDS, parts.start)!.code }] : [], bad = new Set<string>();
     let lower = false;
     for (let k = 0; k < body.length; k++) {
       const ch = body[k];
@@ -212,7 +217,7 @@ export function fieldSeq(text: string, own: Own = []): { seq: Seq; notes?: strin
         const end = body.indexOf("]", k);
         if (end < 0) return { problem: "Type ] after the code." };
         const code = body.slice(k + 1, end);
-        if (!/^[A-Za-z0-9_-]{1,40}$/.test(code) || code === "ac" || code === "am" || !monomer("peptide", code, own)) return { problem: `Not a monomer: [${quoted(code)}]` };
+        if (!/^[A-Za-z0-9_-]{1,40}$/.test(code) || isEnd(code) || !monomer("peptide", code, own)) return { problem: `Not a monomer: [${quoted(code)}]` };
         units.push({ code });
         k = end;
       } else if (/[a-z]/.test(ch)) lower = true;
@@ -222,7 +227,7 @@ export function fieldSeq(text: string, own: Own = []): { seq: Seq; notes?: strin
     }
     if (lower) return { problem: "Type the amino acids in capitals, for example ACDEFG." };
     if (bad.size) return { problem: `${bad.size === 1 ? "Not an amino acid" : "Not amino acids"}: ${[...bad].map(quoted).join(", ")}` };
-    if (parts.end) units.push({ code: "am" });
+    if (parts.end) units.push({ code: endOfWord(C_ENDS, parts.end)!.code });
     return { seq: { chains: [{ kind: "peptide", units }], links: [] } };
   }
   const dna = parts.kind === "dna", example = dna ? "ATGC" : "AACGUU";
@@ -260,7 +265,7 @@ export function seqProblem(seq: Seq, labels: boolean, own: Own = []): string | u
 function fromFasta(fasta: string): string | undefined {
   const m = /^\s*>[^\r\n]*\r?\n([^>]*)/.exec(fasta), codes = m?.[1].replace(/[\s\d*]/g, "").toUpperCase();
   if (!codes || !/^[A-Z]+$/.test(codes)) return undefined;
-  return sequenceText({ kind: fastaKind(codes), codes, start: false, end: false }).text;
+  return sequenceText({ kind: fastaKind(codes), codes, start: "", end: "" }).text;
 }
 const fastaKind = (codes: string): SeqKind => (/^[ACGTUN]+$/.test(codes) ? (codes.includes("U") ? "rna" : "dna") : "peptide");
 // A sequence with no ">" line: one line or more of residue letters and nothing else, told apart as a FASTA record is.
@@ -272,9 +277,9 @@ function bareFasta(text: string): string | undefined {
   if (t.length > MOST_TEXT || !/^[A-Za-z\s]+$/.test(t)) return undefined;
   const typed = t.replace(/\s+/g, ""), codes = typed.toUpperCase();
   if (codes.length < 2) return undefined;
-  if (/^[ACGTU]+$/.test(codes)) return sequenceText({ kind: fastaKind(codes), codes, start: false, end: false }).text;
+  if (/^[ACGTU]+$/.test(codes)) return sequenceText({ kind: fastaKind(codes), codes, start: "", end: "" }).text;
   if (typed !== codes || [...codes].some((ch) => !CODES[ch])) return undefined;
-  return sequenceText({ kind: "peptide", codes, start: false, end: false }).text;
+  return sequenceText({ kind: "peptide", codes, start: "", end: "" }).text;
 }
 
 // ——— HELM and FASTA out (J6) ———
@@ -293,29 +298,35 @@ function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own):
     if (!c) continue;
     const base = chains.length, found: Chain[] = [];
     c.chains.forEach((ch) => {
-      // An end Octet does not know (an ester) joins its residue; Ac and NH2 are the units [ac] and [am].
-      const ac = ch.start.length === 3 && ch.start.map((i) => mol.atoms[i].label).sort().join() === "C,C,O", amide = ch.end.length === 1 && mol.atoms[ch.end[0]].label === "N";
+      // A peptide's ends: Ac and NH2 ([ac], [am]), and the others Octet has (Boc, OMe; monomers.ts N_ENDS, C_ENDS) by their
+      // structure. An end Octet does not know (an ester of another alcohol) joins its residue.
+      const ac = ch.start.length === 3 && ch.start.map((i) => mol.atoms[i].label).sort().join() === "C,C,O" ? "ac" : undefined, amide = ch.end.length === 1 && mol.atoms[ch.end[0]].label === "N" ? "am" : undefined;
       const free = ch.end.length === 1 && mol.atoms[ch.end[0]].label === "O";
+      const start = ac ?? (ch.start.length && !c.nucleic ? endOf(mol, ch.start, "N", inchi) : undefined), end = amide ?? (ch.end.length && !free && !c.nucleic ? endOf(mol, ch.end, "C", inchi) : undefined);
       const residues = ch.residues.map((r) => [...r]);
-      if (ch.start.length && !ac) residues[0].push(...ch.start);
-      if (ch.end.length && !amide && !free) residues[residues.length - 1].push(...ch.end);
+      if (ch.start.length && !start) residues[0].push(...ch.start);
+      if (ch.end.length && !end && !free) residues[residues.length - 1].push(...ch.end);
       const units: Unit[] = residues.map((atoms) => ({ code: codeOf(mol, atoms, c.nucleic, inchi, own), atoms }));
       const kind: PolymerKind = !c.nucleic ? "peptide" : units.some((u) => /^d[ACGT]$/.test(u.code ?? "")) ? "dna" : "rna";
-      found.push({ kind, units: [...(ac ? [{ code: "ac", atoms: ch.start }] : []), ...units, ...(amide ? [{ code: "am", atoms: ch.end }] : [])], first: Math.min(...residues.flat()), free: free ? ch.end : [] });
+      found.push({ kind, units: [...(start ? [{ code: start, atoms: ch.start }] : []), ...units, ...(end ? [{ code: end, atoms: ch.end }] : [])], first: Math.min(...residues.flat()), free: free ? ch.end : [] });
     });
     // A structure drawn wholly as atoms is a sequence from three residues (two nucleotides), as in Octet 1.1.2, or two
     // residues Octet has codes for (Ac-Ala-Cys-NH2): a free amino acid, N-acetylcysteine, aspartame, enalapril or
     // lidocaine (an N–C–C(=O) too) stays a small molecule. One with a residue label is a sequence whatever its length.
-    const units = found.flatMap((ch) => ch.units.filter((u) => (c.nucleic ? u.code !== "P" : u.code !== "ac" && u.code !== "am")));
+    const units = found.flatMap((ch) => ch.units.filter((u) => (c.nucleic ? u.code !== "P" : !isEnd(u.code))));
     const small = c.nucleic ? units.length < 2 : units.length < 2 || (units.length === 2 && units.some((u) => !u.code));
     if (small && !frag.some((i) => m.atoms[from[i]]?.inner?.atoms.length && m.atoms[from[i]].text)) continue;
     chains.push(...found);
     for (const l of c.links) {
-      const shift = (e: ChainEnd): ChainEnd => ({ ...e, chain: e.chain + base, residue: e.residue + (chains[e.chain + base].units[0]?.code === "ac" ? 1 : 0) });
+      const shift = (e: ChainEnd): ChainEnd => ({ ...e, chain: e.chain + base, residue: e.residue + (isNEnd(chains[e.chain + base].units[0]?.code) ? 1 : 0) });
       links.push({ a: shift(l.a), b: shift(l.b) });
     }
   }
   return { mol, from, chains, links };
+}
+// A peptide's end (its atoms off the first N or the last C=O carbon): the code of the end Octet has with its structure.
+function endOf(mol: Mol, atoms: number[], side: "N" | "C", inchi: (x: Mol | string) => string | undefined): string | undefined {
+  return residueName(mol, new Set(atoms), inchi, endRefs(side), false);
 }
 // A residue's code: the monomer whose InChI it has. A residue label is read by its kept atoms, so a label typed over
 // other atoms (Lys over an acetyl-Lys) is not taken for what it says.
@@ -327,7 +338,7 @@ function codeOf(mol: Mol, atoms: number[], nucleic: boolean, inchi: (x: Mol | st
 // Edit > Copy As > FASTA: each chain's one-letter codes, a line each: a D monomer as its natural letter, X for any other
 // peptide monomer Octet does not know a letter for, N for such a nucleotide. Undefined when there is none.
 export function toFasta(m: Mol, inchi: (x: Mol | string) => string | undefined = toInchi, own: Own = []): string | undefined {
-  const lines = read(m, inchi, own).chains.map((c) => c.units.filter((u) => (c.kind === "peptide" ? u.code !== "ac" && u.code !== "am" : u.code !== "P")).map((u) => (c.kind !== "peptide" ? /^[rd]([ACGTU])$/.exec(u.code ?? "")?.[1] ?? "N" : naturalLetter(u.code ?? "") ?? "X")).join(""));
+  const lines = read(m, inchi, own).chains.map((c) => c.units.filter((u) => (c.kind === "peptide" ? !isEnd(u.code) : u.code !== "P")).map((u) => (c.kind !== "peptide" ? /^[rd]([ACGTU])$/.exec(u.code ?? "")?.[1] ?? "N" : naturalLetter(u.code ?? "") ?? "X")).join(""));
   return lines.length ? lines.join("\n") : undefined;
 }
 
@@ -390,7 +401,11 @@ export function helmOf(seq: Seq): string | undefined {
       const n = /^([rd])([ACGTU])$/.exec(u.code);
       if (u.code === "P") { if (units.length && units[units.length - 1] !== "P") units[units.length - 1] += "P"; else units.push("P"); } else if (n) units.push(`${n[1] === "d" ? "[dR]" : "R"}(${n[2]})`); else return undefined;
     }
-    else units.push(...c.units.map((u) => (u.smiles ? `[${u.smiles}]` : u.code.length === 1 ? u.code : `[${u.code}]`)));
+    else units.push(...c.units.map((u) => {
+      // An end with no HELM library code (Biotin) goes as its SMILES, which other programs read.
+      const inline = [...N_ENDS, ...C_ENDS].find((e) => e.inline && e.code === u.code && !u.smiles);
+      return u.smiles || inline ? `[${u.smiles ?? inline!.smiles}]` : u.code.length === 1 ? u.code : `[${u.code}]`;
+    }));
     polymers.push(`${names[names.length - 1]}{${units.join(".")}}`);
   }
   const rank = (e: End) => e.chain * 1e6 + e.unit * 10 + e.r;
@@ -467,7 +482,7 @@ function redrawn(m: Mol, parts: { gone: number[]; mol: Mol }[]): Mol {
 // a residue joins at an R3 that caps H. A problem says why there is no bond.
 export function linkResidues(m: Mol, i: number, j: number, own: Own = m.monomers ?? []): Mol | { problem: string } | undefined {
   // An amino acid's residue label (Cys, D-Phe, one of own's). Any other label (tBu, a nickname, rA) bonds as a label does.
-  const isResidue = (k: number) => !!(m.atoms[k]?.inner?.atoms.length && m.atoms[k].text && byLabel("peptide", m.atoms[k].text!, own));
+  const isResidue = (k: number) => { const r = m.atoms[k]?.inner?.atoms.length && m.atoms[k].text ? byLabel("peptide", m.atoms[k].text!, own) : undefined; return !!r && !isEnd(r.code); };
   if (!isResidue(i) && !isResidue(j)) return undefined;
   const none = (k: number) => ({ problem: `${m.atoms[k].text} has no free link. Expand the label to bond to its atoms.` });
   if (!isResidue(i) || !isResidue(j)) {
@@ -500,7 +515,7 @@ export function linkResidues(m: Mol, i: number, j: number, own: Own = m.monomers
   // A residue Octet has a label for but the drawing shows in full (expanded by hand) stays in full: built from its
   // SMILES, as a residue with no label is.
   const isLabel = (k: number) => !!(part.atoms[k].inner?.atoms.length && part.atoms[k].text);
-  const chains = read.seq.chains.map((c, k) => ({ ...c, units: c.units.map((u, n) => (u.smiles || c.kind !== "peptide" || u.code === "ac" || u.code === "am" || read.units[k][n].some(isLabel) ? u : { code: "", smiles: monomer("peptide", u.code, own)?.smiles ?? "" })) }));
+  const chains = read.seq.chains.map((c, k) => ({ ...c, units: c.units.map((u, n) => (u.smiles || c.kind !== "peptide" || (u.code === "ac" || u.code === "am") || read.units[k][n].some(isLabel) ? u : { code: "", smiles: monomer("peptide", u.code, own)?.smiles ?? "" })) }));
   const seq: Seq = { chains, links: [...read.seq.links, [{ ...a, r: ra }, { ...b, r: rb }]] };
   const built = buildLabels(seq, undefined, own);
   if ("problem" in built) return built;

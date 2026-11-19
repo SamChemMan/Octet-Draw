@@ -32,12 +32,49 @@ const amino = (k: string, d: boolean) => {
   if (k === "P") return `[*:1]N1CCC[C${d ? "@@" : "@"}H]1C(=O)[*:2]`;
   return `[*:1]N[C${d ? "@" : "@@"}H](${SIDES[k]})C(=O)[*:2]`;
 };
+// Common non-natural α-amino acids, each L, by their IUPAC codes, which the HELM library uses too: its structure
+// (an α-amino acid, a side chain's link where the library has one) and its natural analogue's letter for FASTA.
+const aa = (side: string) => `[*:1]N[C@@H](${side})C(=O)[*:2]`;
+const EXTRA: Record<string, [smiles: string, analogue?: string]> = {
+  Abu: [aa("CC")], Aib: ["[*:1]NC(C)(C)C(=O)[*:2]"], Cha: [aa("CC1CCCCC1"), "A"], Cit: [aa("CCCNC(N)=O")], Dab: [aa("CCN[*:3]")],
+  Hcy: [aa("CCS[*:3]"), "C"], Hse: [aa("CCO"), "S"], Hyp: ["[*:1]N1C[C@H](O)C[C@H]1C(=O)[*:2]", "P"], Nle: [aa("CCCC"), "L"], Nva: [aa("CCC"), "V"],
+  Orn: [aa("CCCN[*:3]"), "K"], Pen: [aa("C(C)(C)S[*:3]"), "V"], Phg: [aa("C1=CC=CC=C1"), "G"], Sar: ["[*:1]N(C)CC(=O)[*:2]", "G"],
+};
+// A peptide's ends beyond H- and -OH: the word typed in the Sequence field (Boc-, -OMe), the HELM code, the residue
+// label and the structure. An N-terminal end has only R2, a C-terminal end only R1. Z is Cbz typed another way. Biotin
+// has no HELM library code, so HELM writes it as its SMILES (inline) and other programs read it.
+export type PeptideEnd = { word: string; code: string; label: string; smiles: string; inline?: true };
+export const N_ENDS: PeptideEnd[] = [
+  { word: "Ac", code: "ac", label: "Ac", smiles: "CC(=O)[*:2]" },
+  { word: "Boc", code: "Boc", label: "Boc", smiles: "CC(C)(C)OC(=O)[*:2]" },
+  { word: "Cbz", code: "Cbz", label: "Cbz", smiles: "O=C([*:2])OCC1=CC=CC=C1" },
+  { word: "Fmoc", code: "fmoc", label: "Fmoc", smiles: "O=C([*:2])OCC1C2=CC=CC=C2C2=CC=CC=C12" },
+  { word: "Bz", code: "Bz", label: "Bz", smiles: "O=C([*:2])C1=CC=CC=C1" },
+  { word: "Biotin", code: "Biotin", label: "Biotin", smiles: "C1[C@H]2[C@@H]([C@@H](S1)CCCCC(=O)[*:2])NC(=O)N2", inline: true },
+];
+export const C_ENDS: PeptideEnd[] = [
+  { word: "NH2", code: "am", label: "NH2", smiles: "N[*:1]" },
+  { word: "OMe", code: "-OMe", label: "OMe", smiles: "CO[*:1]" },
+  { word: "OtBu", code: "OtBu", label: "OtBu", smiles: "CC(C)(C)O[*:1]" },
+  { word: "OBn", code: "-OBn", label: "OBn", smiles: "[*:1]OCC1=CC=CC=C1" },
+  { word: "NHMe", code: "NHMe", label: "NHMe", smiles: "CN[*:1]" },
+  { word: "NHEt", code: "NHEt", label: "NHEt", smiles: "CCN[*:1]" },
+];
+// The end a word names (either case; Z for Cbz), or undefined.
+export const endOfWord = (ends: PeptideEnd[], word: string) => (word.toLowerCase() === "z" ? ends.find((e) => e.code === "Cbz") : ends.find((e) => e.word.toLowerCase() === word.toLowerCase()));
+// Whether a code is a peptide's N-terminal or C-terminal end.
+export const isNEnd = (code: string | undefined) => N_ENDS.some((e) => e.code === code);
+export const isCEnd = (code: string | undefined) => C_ENDS.some((e) => e.code === code);
+export const isEnd = (code: string | undefined) => isNEnd(code) || isCEnd(code);
+export const endMonomers = (side: "N" | "C") => (side === "N" ? N_ENDS : C_ENDS);
 const PEPTIDES = new Map<string, Monomer>([
   ...Object.keys(CODES).map((k): [string, Monomer] => [k, { code: k, label: CODES[k], smiles: amino(k, false) }]),
   ...D_CODES.map((k): [string, Monomer] => [`d${k}`, { code: `d${k}`, label: `D-${CODES[k]}`, smiles: amino(k, true) }]),
-  ["ac", { code: "ac", label: "Ac", smiles: "CC(=O)[*:2]" }],
-  ["am", { code: "am", label: "NH2", smiles: "N[*:1]" }],
+  ...Object.entries(EXTRA).map(([k, [smiles]]): [string, Monomer] => [k, { code: k, label: k, smiles }]),
+  ...[...N_ENDS, ...C_ENDS].map((e): [string, Monomer] => [e.code, { code: e.code, label: e.label, smiles: e.smiles }]),
 ]);
+// Octet's own non-natural amino acids (Aib, Nle, …), for the field's [code] and Contract Label.
+export const extraCodes = () => Object.keys(EXTRA);
 const NUCLEIC = new Map<string, Monomer>([
   ...[..."ACGU"].map((b): [string, Monomer] => [`r${b}`, { code: `r${b}`, label: `r${b}`, smiles: `[*:1]${unit(b, false)}[*:2]` }]),
   ...[..."ACGT"].map((b): [string, Monomer] => [`d${b}`, { code: `d${b}`, label: `d${b}`, smiles: `[*:1]${unit(b, true)}[*:2]` }]),
@@ -55,8 +92,9 @@ export function monomer(kind: PolymerKind, code: string, own: Own = []): Monomer
   const o = own.find((x) => x.code === code);
   return o ? { code: o.code, label: o.code, smiles: o.smiles } : undefined;
 }
-// The one-letter code of a monomer's natural analogue, for FASTA: a natural or D amino acid's letter.
-export const naturalLetter = (code: string) => (/^[A-Z]$/.test(code) && CODES[code] ? code : /^d[A-Z]$/.test(code) && D_CODES.includes(code[1]) ? code[1] : undefined);
+// The one-letter code of a monomer's natural analogue, for FASTA: a natural or D amino acid's letter, or the one the HELM
+// library gives a non-natural amino acid (Nle L, Orn K).
+export const naturalLetter = (code: string) => (/^[A-Z]$/.test(code) && CODES[code] ? code : /^d[A-Z]$/.test(code) && D_CODES.includes(code[1]) ? code[1] : EXTRA[code]?.[1]);
 // The monomer whose residue label reads text (Ala, D-Phe, rA, P, or one of own's codes).
 export function byLabel(kind: PolymerKind | undefined, text: string, own: Own = []): Monomer | undefined {
   for (const k of kind ? [kind] : (["peptide", "rna", "dna"] as const)) {
