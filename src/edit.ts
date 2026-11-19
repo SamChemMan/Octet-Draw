@@ -7,6 +7,7 @@ import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
 import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
+import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
 import { chainOrder, flatAtoms, remapCaption, sameAtoms, settleMeasures, structuresOf } from "./measurement.ts";
 import { clean3d, MOST_3D } from "./clean3d.ts";
@@ -1079,6 +1080,8 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   const keptCycles = new Set(cycles?.map((c) => c.id));
   return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
     shapes: m.shapes?.map(kept),
+    // A curved arrow's end tied to an atom follows its new number; an end whose atom went lets go where it is.
+    arrows: retie(m.arrows, (i) => map.get(i)),
     groups: m.groups?.map((g) => ({ ...g, atoms: g.atoms.filter((i) => map.has(i)).map((i) => map.get(i)!) })), fills: refill(m.fills, map) });
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
@@ -1458,7 +1461,8 @@ export function contractLabel(m: Mol, keep: number, group: Set<number>, text: st
   });
   // Bonded on more than one side, the label is centred, so it reads as written whichever side its bonds are on.
   const labelled = { ...m, bonds, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: many ? a.label : anchorElement(text) ?? a.label, charge: undefined, inner, ...(many ? { align: "centre" as const } : {}) } : a)) };
-  return removeAtoms(labelled, new Set([...group].filter((k) => k !== keep)));
+  // A curved arrow tied to an atom of the group is tied to the label (to a bond inside the group, it lets go).
+  return removeAtoms({ ...labelled, arrows: retie(m.arrows, (k) => (group.has(k) ? keep : k)) }, new Set([...group].filter((k) => k !== keep)));
 }
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {
   return { ...m, atoms: m.atoms.map((a, i) => (ids.has(i) ? { ...a, location: [a.location[0] + d[0], a.location[1] + d[1], a.location[2] ?? 0] } : a)) };
@@ -1620,9 +1624,10 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
     seen.add(key);
     return true;
   });
+  // A curved arrow tied to a joined atom stays tied, to the atom it joined.
   // A measurement goes on with the atom a measured atom joined; one with two of its atoms joined into one goes.
   const captions = m.captions?.some((c) => c.measure) ? m.captions.map((c) => (c.measure ? remapCaption(c, (k) => into.get(k) ?? k) : c)).filter((c, k) => !m.captions![k].measure || c.measure) : m.captions;
-  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(captions ? { captions } : {}) }, new Set(into.keys())), joined: true };
+  return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}), ...(captions ? { captions } : {}), ...(m.arrows ? { arrows: retie(m.arrows, (k) => into.get(k) ?? k) } : {}) }, new Set(into.keys())), joined: true };
 }
 
 // Object > Join (⌘J), as ChemDraw's. One atom in each of two structures:
@@ -3067,7 +3072,8 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
       const { under: _u, on: _o, cycle: _c, placed: _p, measure: _m, ...free } = c, [x, y] = at?.(c) ?? [c.x, c.y], lined = align?.(c);
       return copied({ ...free, x, y, ...(lined ? { align: lined } : {}) });
     }),
-    arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
+    // A copied curved arrow stays tied to the atoms copied with it, and lets go of the others.
+    arrows: retie(arrows, (i) => map.get(i)), shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
     // A picked cycle comes as a delete would take it: an intermediate left behind is a break where it was.
     cycles: cycles.map((c) => ({ ...mapBranches(c.nodes.flat().every((i) => map.has(i)) ? c : keepAngles(m, c), (i) => map.get(i)), nodes: c.nodes.map((n) => n.flatMap((i) => (map.has(i) ? [map.get(i)!] : []))) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
@@ -3093,7 +3099,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     // A copy is a new structure: it is in no spectrum session (Editor.tsx), whatever the original is in.
     atoms: [...m.atoms, ...add.atoms.map(({ session: _, ...a }) => renumberCentre(unlink({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }), at))],
     bonds: [...m.bonds, ...add.bonds.map((b) => unlink({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
-    arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map(plain).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
+    arrows: [...(m.arrows ?? []), ...(retie(add.arrows, at) ?? []).map(plain).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
     shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],
     cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...mapBranches(c, at), id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],

@@ -265,7 +265,11 @@ export type Arrow = {
   scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
   role?: PlotPart; // a page spectrum's part: its role and where Octet put it (pageplot.ts)
   notes?: Annotation[]; // its notes, not drawn (annotate.ts)
+  fromOn?: ArrowEnd; toOn?: ArrowEnd; // what a curved arrow's start and end are tied to, so they follow it (arrowlink.ts)
 };
+// What a curved arrow's end is tied to: an atom, a lone pair or radical dot on it (by the renderer's key: pair0 to
+// pair3, radical0, radical1), or the bond between two atoms. Atoms by their numbers.
+export type ArrowEnd = { atom: number; pair?: string } | { bond: [number, number] };
 // An arrowhead's size in line widths, as CDXML keeps it in hundredths (HeadSize, ArrowheadCenterSize, ArrowheadWidth):
 // how far back from the tip it reaches, how far back its notch is, and how far each barb stands off the shaft.
 export type HeadSize = { length: number; centre: number; width: number };
