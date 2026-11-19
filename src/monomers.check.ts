@@ -15,9 +15,9 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { monomerOf, buildAtoms, buildLabels, helmLibrary, monomerRefs, usableMonomer } = await import("./seqbuild.ts");
+const { monomerOf, buildAtoms, buildLabels, helmLibrary, monomerRefs } = await import("./seqbuild.ts");
 const { codeProblem, withMonomer, readMonomers, readHelmLibrary, monomer, smilesKey, elementKey, MOST_OWN_MONOMERS } = await import("./monomers.ts");
-const { fieldSeq, parseHelm, toHelm, toFasta, withSequences, seqBuilt, readSequence, seqOf } = await import("./helm.ts");
+const { fieldSeq, parseHelm, toHelm, toFasta, withSequences, seqBuilt, readSequence, seqOf, importableMonomer } = await import("./helm.ts");
 const { residueName } = await import("./sequence.ts");
 const { serialize, parse } = await import("./file.ts");
 const { toCdxml, fromCdxml } = await import("./cdxml.ts");
@@ -203,8 +203,9 @@ assert.ok(monomerRefs(own).some((r) => r.label === "Kac") && monomerRefs(own) ==
   // Wrapped in an object, as some libraries are.
   assert.equal((readHelmLibrary(JSON.stringify({ monomers: JSON.parse(lib) })) as { monomers: unknown[] }).monomers.length, 2);
 }
-// Import… keeps only monomers Octet can use (seqbuild.ts usableMonomer): an α-amino acid whose SMILES reads whole. A β-amino
-// acid, brackets that do not pair, an atom no element ([Xx]) and links with no residue are left out and counted.
+// Import… keeps only monomers Octet can use (helm.ts importableMonomer): an α-amino acid whose SMILES reads whole and that
+// Octet names back. A β-amino acid, brackets that do not pair, an atom no element ([Xx]) and links with no residue are
+// left out and counted.
 {
   const lib = JSON.stringify([
     { symbol: "Abu2", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H](CC)C(=O)[*:2]" },
@@ -214,15 +215,31 @@ assert.ok(monomerRefs(own).some((r) => r.label === "Kac") && monomerRefs(own) ==
     { symbol: "Xx1", polymerType: "PEPTIDE", smiles: "[*:1]N[C@@H]([Xx])C(=O)[*:2]" },
     { symbol: "Rr", polymerType: "PEPTIDE", smiles: "[*:1][*:2]" },
   ]);
-  const read = readHelmLibrary(lib, usableMonomer);
+  const read = readHelmLibrary(lib, importableMonomer);
   assert.deepEqual(read, { monomers: [{ code: "Abu2", smiles: "[*:1]N[C@@H](CC)C(=O)[*:2]" }], left: 5 });
-  assert.ok(["Bal", "Open", "Shut", "Xx1", "Rr"].every((c) => !usableMonomer(JSON.parse(lib).find((x: { symbol: string }) => x.symbol === c).smiles)));
-  assert.ok(usableMonomer(KAC) && own.every((m) => usableMonomer(m.smiles)), "a monomer Define Monomer makes is one Import keeps");
-  // A hostile library of 20,000 that no α-amino acid is in: each asked of at most 2,000, quickly.
-  const t = performance.now(), bad = readHelmLibrary(JSON.stringify(Array.from({ length: 20_000 }, (_, k) => ({ symbol: `B${k}`, smiles: `[*:1]NCC${"C".repeat(k % 40)}C(=O)[*:2]` }))), usableMonomer);
+  assert.ok(["Bal", "Open", "Shut", "Xx1", "Rr"].every((c) => !importableMonomer(JSON.parse(lib).find((x: { symbol: string }) => x.symbol === c).smiles)));
+  assert.ok(importableMonomer(KAC) && own.every((m) => importableMonomer(m.smiles)), "a monomer Define Monomer makes is one Import keeps");
+  // An α-amino acid that Octet does not name back is left out too: drawn in a chain, Copy As HELM writes no such
+  // monomer (a side chain read as a residue of its own gives no HELM; a charge its SMILES does not balance and a ring
+  // with no Kekulé form come back as SMILES).
+  for (const [why, smiles] of [["a side chain with an amino acid of its own", "[*:1]N[C@@H](CC(N)C(=O)O)C(=O)[*:2]"], ["an N+ with too few H", "[*:1][NH+]([C@@H](C)C(=O)[*:2])C"], ["a ring with no Kekulé form", "[*:1]N[C@@H](Cc1cccc1)C(=O)[*:2]"]]) {
+    const one = [{ code: "Zx", smiles }], m = (buildAtoms((fieldSeq("peptide: A[Zx]G", one) as { seq: Seq }).seq, undefined, one) as { mol: Mol }).mol;
+    assert.ok(!(toHelm(m, undefined, undefined, one) ?? "").includes("[Zx]"), `${why}: not named back`);
+    assert.ok(!importableMonomer(smiles), `${why}: left out`);
+  }
+  // Charged side chains that balance, N-methyl and Octet's own (Abu) name back and come in.
+  for (const smiles of ["[*:1]N[C@@H](CCCC[NH3+])C(=O)[*:2]", "[*:1]N[C@@H](CC(=O)[O-])C(=O)[*:2]", "[*:1]N(C)[C@@H](C)C(=O)[*:2]", "[*:1]N[C@@H](Cc1c[nH]c2ccccc12)C(=O)[*:2]"]) assert.ok(importableMonomer(smiles), smiles);
+  // A hostile library of 20,000 that no α-amino acid is in: each asked of at most 600, quickly.
+  const t = performance.now(), bad = readHelmLibrary(JSON.stringify(Array.from({ length: 20_000 }, (_, k) => ({ symbol: `B${k}`, smiles: `[*:1]NCC${"C".repeat(k % 40)}C(=O)[*:2]` }))), importableMonomer);
   assert.deepEqual(bad, { monomers: [], left: 20_000 });
   assert.ok(performance.now() - t < 1500, `${Math.round(performance.now() - t)} ms`);
-  assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const read = readHelmLibrary\(picked\[1\], usableMonomer\);/, "Import… asks it");
+  // And one of 20,000 different α-amino acids that each read but none names back (the slowest kind: each one is drawn
+  // and read): at most 600 are asked (about 1.5 s here), the rest left out.
+  const side = (k: number) => `C${"C".repeat(k % 40)}${["O", "N", "S", "F", "Cl"][Math.floor(k / 40) % 5]}${"C".repeat(Math.floor(k / 200) % 10)}`;
+  const t2 = performance.now(), worse = readHelmLibrary(JSON.stringify(Array.from({ length: 20_000 }, (_, k) => ({ symbol: `C${k}`, smiles: `[*:1][NH+]([C@@H](${side(k % 2000)})C(=O)[*:2])C` }))), importableMonomer);
+  assert.deepEqual(worse, { monomers: [], left: 20_000 });
+  assert.ok(performance.now() - t2 < 3000, `${Math.round(performance.now() - t2)} ms`);
+  assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const read = readHelmLibrary\(picked\[1\], importableMonomer\);/, "Import… asks it");
 }
 assert.deepEqual(readHelmLibrary("{"), { problem: "This file is not a HELM monomer library." });
 assert.deepEqual(readHelmLibrary("[]"), { monomers: [], left: 0 });

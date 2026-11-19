@@ -117,8 +117,8 @@ import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE } from "./peptide";
 import { chainEnds, END_GROUPS, relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
-import { chainAgain, fieldSeq, inPlaceOf, linkResidues, markChain, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences, type ChainMark } from "./helm";
-import { helmLibrary, monomerOf, monomerRefs, usableMonomer } from "./seqbuild";
+import { chainAgain, fieldSeq, importableMonomer, inPlaceOf, linkResidues, markChain, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences, type ChainMark } from "./helm";
+import { helmLibrary, monomerOf, monomerRefs } from "./seqbuild";
 import { codeProblem, MOST_OWN_MONOMERS, readHelmLibrary, withMonomer, type Own } from "./monomers";
 import { NUCLEIC } from "./nucleic";
 import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, seqLayout, warmLayout } from "./namepreview";
@@ -947,7 +947,7 @@ export default function Editor() {
       const picked = await invoke<[string, string] | null>("import_monomers");
       if (!picked) return;
       await ready;
-      const read = readHelmLibrary(picked[1], usableMonomer);
+      const read = readHelmLibrary(picked[1], importableMonomer);
       if ("problem" in read) return setNotice(read.problem);
       // New codes only, as many as there is room for (up to MOST_OWN_MONOMERS): a monomer the user has stays as it is.
       const fresh = read.monomers.filter((m) => !settings.monomers.some((x) => x.code === m.code)), add = fresh.slice(0, Math.max(0, MOST_OWN_MONOMERS - settings.monomers.length));
@@ -12397,7 +12397,8 @@ export default function Editor() {
         // The settings keep MOST_OWN_NICKNAMES (nicknames.ts): a new one past it is refused before anything changes.
         const there = !!label && !!ownNickname(label), full = !there && settings.nicknames.length >= MOST_OWN_NICKNAMES;
         const problem = (label ? nicknameProblem(label) : undefined) ?? (full ? `Octet keeps up to ${MOST_OWN_NICKNAMES} nicknames. Remove one in Settings > Dictionary to add another.` : undefined);
-        const octets = !!label && !there && !problem && !!labelSmiles(label);
+        // A nickname an older Octet kept that is refused now (OH, Ala) shows the refusal alone: it cannot be replaced.
+        const replace = there && !problem, octets = !!label && !there && !problem && !!labelSmiles(label);
         const keepIt = () => {
           const d = dialog;
           // A group Contract Label refuses (over 256 atoms) is no nickname: nicknameGroup says so, and none is saved.
@@ -12409,10 +12410,10 @@ export default function Editor() {
           setNotice(`${label} is a nickname. Type it on an atom to add the group.`, "done");
         };
         return (
-          <Dialog title="Define nickname" action={there ? "Replace" : "Define"} disabled={!label || !!problem} onClose={() => setDialog(undefined)} onAction={keepIt}>
+          <Dialog title="Define nickname" action={replace ? "Replace" : "Define"} disabled={!label || !!problem} onClose={() => setDialog(undefined)} onAction={keepIt}>
             <label className="dialog-row"><span>Nickname</span><span className="unit-field text"><input aria-label="Nickname" value={dialog.label} maxLength={32} spellCheck={false} autoFocus onChange={(e) => setDialog({ ...dialog, label: e.target.value })} /></span></label>
             {problem && <p className="dialog-note">{problem}</p>}
-            {there && <p className="dialog-note">You have the nickname {label} already. Replace gives it this group.</p>}
+            {replace && <p className="dialog-note">You have the nickname {label} already. Replace gives it this group.</p>}
             {octets && <p className="dialog-note">Octet reads {label} already. Your group comes first.</p>}
           </Dialog>
         );

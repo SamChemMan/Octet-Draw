@@ -232,9 +232,10 @@ export function elementKey(atoms: readonly { label: string; isotope?: number }[]
 const MOST_LIBRARY = 4_000_000;
 // (seqbuild.ts helmLibrary writes one.)
 // The monomers in a HELM monomer library file, or why there are none. usable: whether Octet can use a monomer's SMILES
-// (seqbuild.ts usableMonomer: a whole structure of real atoms, an α-amino acid); each one that is not counts as left out.
-// It is asked of at most MOST_TRIED monomers, so a hostile file costs little time.
-const MOST_TRIED = 2000;
+// (helm.ts importableMonomer: a whole structure of real atoms, an α-amino acid that Octet names back, about 2 ms a
+// monomer); each one that is not counts as left out. It is asked of at most MOST_TRIED monomers (the 500 Octet keeps
+// and 100 more), so a hostile file costs little time.
+const MOST_TRIED = MOST_OWN_MONOMERS + 100;
 export function readHelmLibrary(text: string, usable: (smiles: string) => boolean = () => true): { monomers: OwnMonomer[]; left: number } | { problem: string } {
   if (text.length > MOST_LIBRARY) return { problem: "Octet reads monomer libraries of up to 4 MB." };
   let data: unknown;

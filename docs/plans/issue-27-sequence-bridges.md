@@ -547,3 +547,24 @@ Each with its check: stress cases N41, N42 and U11, `nicknames.check.ts` and `mo
 - Define nickname… is in every right-click menu that has Define monomer…. The command palette names the items of
   Structure > Sequence Peptide sequence…, DNA sequence… and RNA sequence…. The Define monomer dialog says when the
   drawing has its own monomer by that code, which comes first in that drawing.
+
+## 19. Review fixes, second round (19 November 2026, night)
+
+Each with its check: stress cases N43, N44, U11 and U12, `nicknames.check.ts` and `monomers.check.ts`.
+
+- **One nucleotide is a chain only as a residue label** (rA, dG, mA): `chain.ts chainRead` reads one nucleotide only
+  where the structure has a nucleotide's residue label. A nucleotide drawn as atoms (ATP, ADP, NAD+, CoA, FAD,
+  UDP-glucose, sofosbuvir) stays a small molecule, as in Octet 1.1.2: no HELM, no FASTA, no field text, and Copy As
+  HELM and FASTA give a peptide, RNA or DNA beside it alone. A sweep of 103 molecules drawn as atoms (nucleotides,
+  cofactors, peptides, sugars, nucleosides, drugs) and 24 chains beside a nucleotide reads as on a2d143b9.
+- **A chain opened in the field is the same chain** only by its own atoms or its own bonds at the same numbers (a move
+  keeps the bonds, a colour the atoms or the bonds), else by its sequence when the structure's centre is in the box the
+  chain had (one bond length larger each way). A chain taken out of the history, or deleted with an alike chain added,
+  gives way to a new one; the alike chain elsewhere is left alone.
+- **Edit > Undo with the field open** undoes the field's typing, never the drawing (U11 runs it as the menu does).
+- **Define nickname…** for a label an older Octet kept as a nickname and refused now (OH, OMe) shows the refusal alone,
+  and its button is Define, off.
+- **Import… of a HELM library** keeps a monomer only when Octet names it back (`helm.ts importableMonomer`: drawn as a
+  residue label and read again, it is a monomer, never its SMILES). A side chain with an amino acid of its own, an N+
+  its SMILES gives too few H and a ring with no Kekulé form are left out. It is asked of at most 600 monomers (the 500
+  Octet keeps and 100 more): a hostile library of 20,000 that each read but none names back takes about 1.5 s.

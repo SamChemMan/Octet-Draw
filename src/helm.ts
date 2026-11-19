@@ -8,11 +8,11 @@ import type { Atom, Caption, Mol } from "./render.ts";
 import { erase, fragments, insertMol, pickAtoms } from "./edit.ts";
 import { chainRead, type ChainEnd } from "./chain.ts";
 import { canonicalSmiles, expandWithOrigins, toInchi, toSmiles } from "./chem.ts";
-import { buildAtoms, buildLabels, endRefs, monomerRefs, nucleicRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms } from "./seqbuild.ts";
+import { buildAtoms, buildLabels, endRefs, monomerRefs, nucleicRefs, MOST_LABELS, r3Port, residueCount, TOO_MANY_ATOMS, tooManyAtoms, usableMonomer } from "./seqbuild.ts";
 import { residueName, sequenceParts, sequenceText, type SeqKind } from "./sequence.ts";
 import { CODES } from "./peptide.ts";
 import { retie } from "./arrowlink.ts";
-import { baseLetter, byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isLinker, isNEnd, monomer, N_ENDS, naturalLetter, nucleotideCode, nucleotideParts, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { baseLetter, byLabel, C_ENDS, endMonomers, endOfWord, isEnd, isLinker, isNEnd, monomer, N_ENDS, naturalLetter, nucleicMonomers, nucleotideCode, nucleotideParts, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 // What a peptide's ends can be, in the field's words.
 const ENDS_PROBLEM = `Ends can be ${[["H", ...N_ENDS.map((e) => e.word)].map((w) => `${w}-`), ["OH", ...C_ENDS.map((e) => e.word)].map((w) => `-${w}`)].flat().join(", ").replace(/, ([^,]*)$/, " or $1")}.`;
 
@@ -318,11 +318,15 @@ function bareFasta(text: string): string | undefined {
 type Unit = { code?: string; atoms: number[] };
 type Chain = { kind: PolymerKind; units: Unit[]; first: number; free: number[] };
 type Read = { mol: Mol; from: number[]; chains: Chain[]; links: { a: ChainEnd; b: ChainEnd }[] };
+let nucleotideLabels: Set<string> | undefined;
 function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own): Read {
   const { mol, from } = expandWithOrigins(m);
   const chains: Chain[] = [], links: Read["links"] = [];
+  // A nucleotide's residue label (rA, dG, mA): one nucleotide is a chain only with one, as one amino acid label is.
+  nucleotideLabels ??= new Set(nucleicMonomers().flatMap((x) => (isLinker(x.code) ? [] : [x.label])));
+  const nucleotide = (i: number) => { const a = m.atoms[from[i]]; return !!a?.inner?.atoms.length && !!a.text && nucleotideLabels!.has(a.text); };
   for (const frag of fragments(mol)) {
-    const c = chainRead(mol, frag);
+    const c = chainRead(mol, frag, frag.some(nucleotide));
     if (!c) continue;
     const base = chains.length, found: Chain[] = [];
     c.chains.forEach((ch) => {
@@ -440,6 +444,20 @@ export function seqOf(m: Mol, inchi: (x: Mol | string) => string | undefined = t
   const units = order.map((k) => r.chains[k].units.map((u, n) => [...new Set([...u.atoms, ...(n === r.chains[k].units.length - 1 ? r.chains[k].free : [])].map((i) => r.from[i]))].filter((i) => i !== undefined)));
   return { seq: { chains, links }, drawn, units };
 }
+// Whether Import… keeps a HELM library's monomer: Octet can use it (seqbuild.ts usableMonomer) and names it back. Drawn
+// as a residue label and read again (as Copy As HELM reads it), it is a monomer, never its SMILES: a side chain that
+// reads as a residue of its own, a charge its SMILES does not balance, or a ring with no Kekulé form is left out.
+export function importableMonomer(smiles: string): boolean {
+  if (!usableMonomer(smiles)) return false;
+  // "?" is no code of Octet's, so the monomer is drawn from its SMILES; one that is Octet's (Abu) names back as it.
+  const own: Own = [{ code: "?", smiles }], built = buildLabels({ chains: [{ kind: "peptide", units: [{ code: "?" }] }], links: [] }, undefined, own);
+  if ("problem" in built) return false;
+  let read: ReturnType<typeof seqOf>;
+  // A residue it does not name is written as SMILES: "*" says so, without the time a SMILES takes.
+  try { read = seqOf(built.mol, toInchi, () => "*", own); } catch { return false; }
+  const units = read?.seq.chains.length === 1 ? read.seq.chains[0].units : [];
+  return units.length === 1 && !!units[0].code && !units[0].smiles;
+}
 // A sequence as HELM 2 in Octet's form: the chains as polymers in order (PEPTIDE1, PEPTIDE2, RNA1), each link written
 // from its lower end and the links sorted by it, the rest empty. parseHelm reads it back as the same model.
 export function helmOf(seq: Seq): string | undefined {
@@ -527,10 +545,13 @@ export function inPlaceOf(m: Mol, gone: number[], built: Mol): Mol {
 }
 // A chain opened in the Sequence field, so Return finds it again when the drawing changes before Return (the Residue
 // labels choice or Settings > Document > Sequences draws it again with new atoms, an undo, a move): its atoms, how they
-// are drawn (each atom's label and text, and the bonds between them), and each structure's sequence and centre.
+// are drawn (each atom's label and text, and the bonds between them), the atoms and bonds themselves (a move keeps the
+// bonds, a colour the atoms or the bonds), and each structure's sequence, centre and half its width and height.
 type P = [number, number];
-export type ChainMark = { atoms: number[]; drawn: string; parts: { text: string; mid: P }[] };
+export type ChainMark = { atoms: number[]; drawn: string; parts: { text: string; mid: P; half: P }[]; was: { atoms: Atom[]; bonds: Set<Mol["bonds"][number]> } };
 const midOf = (m: Mol, atoms: number[]): P => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; }) as P;
+const halfOf = (m: Mol, atoms: number[]): P => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.max(...v) - Math.min(...v)) / 2; }) as P;
+const bondsIn = (m: Mol, inside: Set<number>) => m.bonds.filter((b) => inside.has(b.atoms[0]) && inside.has(b.atoms[1]));
 function drawnKey(m: Mol, atoms: number[]): string {
   const at = new Map(atoms.map((i, k) => [i, k]));
   const bonds = m.bonds.flatMap((b) => { const p = at.get(b.atoms[0]), q = at.get(b.atoms[1]); return p === undefined || q === undefined ? [] : [`${Math.min(p, q)}-${Math.max(p, q)}:${b.type}`]; }).sort();
@@ -545,27 +566,31 @@ export function markChain(m: Mol, atoms: number[], own: Own = []): { text: strin
   for (const f of frags) {
     const t = frags.length === 1 ? text : chainText(m, f, own);
     if (!t) return undefined;
-    parts.push({ text: t, mid: midOf(m, f) });
+    parts.push({ text: t, mid: midOf(m, f), half: halfOf(m, f) });
   }
-  return { text, mark: { atoms: sorted, drawn: drawnKey(m, sorted), parts } };
+  return { text, mark: { atoms: sorted, drawn: drawnKey(m, sorted), parts, was: { atoms: sorted.map((i) => m.atoms[i]), bonds: new Set(bondsIn(m, inside)) } } };
 }
 // The marked chain in the drawing as it is now: the same atoms when they are still drawn as they were (moved or
-// coloured), else for each structure the one with the same sequence, the nearest to where it was; undefined when one is
-// gone (deleted, changed, or undone away).
+// coloured: its own atoms, or its own bonds, at the same numbers), else for each structure the one with the same
+// sequence whose centre is in the box it had (one bond length larger each way: drawn again as atoms or labels, it is
+// centred where it was), the nearest; undefined when one is gone (deleted, changed, or undone away), so a chain alike
+// elsewhere is never taken for it.
 export function chainAgain(m: Mol, mark: ChainMark, own: Own = []): number[] | undefined {
   const n = m.atoms.length, inside = new Set(mark.atoms);
   if (mark.atoms.every((i) => i < n)) {
-    const frags = fragments(m).filter((f) => f.some((i) => inside.has(i)));
-    if (frags.flat().length === mark.atoms.length && drawnKey(m, mark.atoms) === mark.drawn) return mark.atoms;
+    const frags = fragments(m).filter((f) => f.some((i) => inside.has(i))), bonds = bondsIn(m, inside);
+    const same = mark.atoms.every((i, k) => m.atoms[i] === mark.was.atoms[k]) || (bonds.length > 0 && bonds.length === mark.was.bonds.size && bonds.every((b) => mark.was.bonds.has(b)));
+    if (same && frags.flat().length === mark.atoms.length && drawnKey(m, mark.atoms) === mark.drawn) return mark.atoms;
   }
   const frags = fragments(m).map((f) => [...f].sort((p, q) => p - q)), texts = new Map<number, string | undefined>(), used = new Set<number>(), out: number[] = [];
   const textOf = (k: number) => { if (!texts.has(k)) texts.set(k, chainText(m, frags[k], own)); return texts.get(k); };
   for (const part of mark.parts) {
     let best = -1, far = Infinity;
     for (let k = 0; k < frags.length; k++) {
-      if (used.has(k) || textOf(k) !== part.text) continue;
+      if (used.has(k)) continue;
       const [x, y] = midOf(m, frags[k]), d = Math.hypot(x - part.mid[0], y - part.mid[1]);
-      if (d < far) { far = d; best = k; }
+      if (Math.abs(x - part.mid[0]) > part.half[0] + 1 || Math.abs(y - part.mid[1]) > part.half[1] + 1 || d >= far || textOf(k) !== part.text) continue;
+      far = d; best = k;
     }
     if (best < 0) return undefined;
     used.add(best);

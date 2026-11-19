@@ -31,7 +31,7 @@ const { parseHelm, helmOf, toHelm, toFasta, readSequence, fieldSeq, linkResidues
 const { buildAtoms, buildLabels, MOST_BUILT_ATOMS } = await import("./seqbuild.ts");
 const { bracketOf, bracketPath, render } = await import("./render.ts");
 const { relabel } = await import("./sequence.ts");
-const { bondAt, flipAtoms, rotateAtoms, fragments, dragBond, labelHooks, setLabel, erase, insertMol, expandLabel, contractLabel, duplicateSelection, scaleSizes, pickAtoms, transformParts } = await import("./edit.ts");
+const { bondAt, flipAtoms, rotateAtoms, fragments, dragBond, labelHooks, setLabel, erase, insertMol, expandLabel, contractLabel, duplicateSelection, scaleSizes, pickAtoms, transformParts, moveAtoms } = await import("./edit.ts");
 const { serialize, parse } = await import("./file.ts");
 const { toCdxml, fromCdxml } = await import("./cdxml.ts");
 const { readOct, writeOct, readCdx, writeCdx } = await import("./oct.ts");
@@ -1356,8 +1356,69 @@ await check("N42", "A chain opened in the Sequence field and changed under it be
   assert.match(editorSource, /const gone = e && naming !== undefined && isSequence\(naming\.trim\(\)\) \? \(e\.doc === doc \? e\.mark\.atoms : chainAgain\(doc, e\.mark, ownMonomers\)\) : undefined;/, "Return looks for it");
 });
 
+await check("N43", "A nucleotide drawn as atoms stays a small molecule, as in Octet 1.1.2 (one nucleotide is a chain only as a residue label, N41): ATP, ADP, NAD+, CoA, dTTP, GTP, FAD, UDP-glucose and sofosbuvir give no HELM, no FASTA and no field text, and stay as drawn; beside a peptide, RNA or DNA (atoms or labels) Edit > Copy As > HELM and FASTA give the chain alone", () => {
+  const small: [string, string][] = [
+    ["ATP", "Nc1ncnc2c1ncn2[C@@H]1O[C@H](COP(=O)(O)OP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]1O"],
+    ["ADP", "Nc1ncnc2c1ncn2[C@@H]1O[C@H](COP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]1O"],
+    ["NAD+", "NC(=O)c1ccc[n+](c1)[C@@H]1O[C@H](COP(=O)([O-])OP(=O)(O)OC[C@H]2O[C@@H](n3cnc4c(N)ncnc43)[C@H](O)[C@@H]2O)[C@@H](O)[C@H]1O"],
+    ["CoA", "CC(C)(COP(=O)(O)OP(=O)(O)OC[C@H]1O[C@@H](n2cnc3c(N)ncnc32)[C@H](O)[C@@H]1OP(=O)(O)O)[C@@H](O)C(=O)NCCC(=O)NCCS"],
+    ["dTTP", "Cc1cn([C@H]2C[C@H](O)[C@@H](COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O2)c(=O)[nH]c1=O"],
+    ["GTP", "Nc1nc2n(cnc2c(=O)[nH]1)[C@@H]1O[C@H](COP(=O)(O)OP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]1O"],
+    ["FAD", "Cc1cc2nc3c(=O)[nH]c(=O)nc-3n(C[C@H](O)[C@H](O)[C@H](O)COP(=O)(O)OP(=O)(O)OC[C@H]3O[C@@H](n4cnc5c(N)ncnc54)[C@H](O)[C@@H]3O)c2cc1C"],
+    ["UDP-glucose", "O=c1ccn([C@@H]2O[C@H](COP(=O)(O)OP(=O)(O)O[C@H]3O[C@H](CO)[C@@H](O)[C@H](O)[C@H]3O)[C@@H](O)[C@H]2O)c(=O)[nH]1"],
+    ["sofosbuvir", "CC(C)OC(=O)[C@@H](C)N[P@](=O)(OC[C@@H]1[C@H]([C@@](C)([C@@H](O1)N2C=CC(=O)NC2=O)F)O)OC3=CC=CC=C3"],
+  ];
+  for (const [name, smiles] of small) {
+    const m = chem.parseStructure(smiles);
+    assert.equal(toHelm(m), undefined, `${name}: no HELM`);
+    assert.equal(toFasta(m), undefined, `${name}: no FASTA`);
+    assert.equal(chainText(m, m.atoms.map((_, i) => i)), undefined, `${name}: no field text (the Sequence tool's click)`);
+    assert.equal(withSequences(m, "labels"), m, `${name}: Settings > Document > Sequences leaves it as drawn`);
+  }
+  const atp = chem.parseStructure(small[0][1]), nad = chem.parseStructure(small[2][1]);
+  for (const [words, helm, fasta] of [["peptide: AGFW", "PEPTIDE1{A.G.F.W}$$$$V2.0", "AGFW"], ["rna: ACG", "RNA1{R(A)P.R(C)P.R(G)}$$$$V2.0", "ACG"], ["dna: ATGC", "RNA1{[dR](A)P.[dR](T)P.[dR](G)P.[dR](C)}$$$$V2.0", "ATGC"], ["rna: A", "RNA1{R(A)}$$$$V2.0", "A"]])
+    for (const as of ["atoms", "labels"] as const) {
+      if (words === "rna: A" && as === "atoms") continue;
+      const seq = (fieldSeq(words) as { seq: Seq }).seq, built = ((as === "atoms" ? buildAtoms(seq) : buildLabels(seq)) as { mol: Mol }).mol;
+      for (const [other, mol] of [["ATP", atp], ["NAD+", nad]] as const) {
+        const page = insertMol(built, mol, [40, 0]).mol;
+        assert.equal(toHelm(page), helm, `${words} (${as}) and ${other}: Copy As > HELM, the chain alone`);
+        assert.equal(toFasta(page), fasta, `${words} (${as}) and ${other}: FASTA, one line`);
+      }
+    }
+});
+
+await check("N44", "A chain opened in the Sequence field that goes while the field is open gives way to a new one, and an alike chain elsewhere is left alone: (A) the second of two AGF opened, then taken out of the history; (B) the first opened, an alike one added and the first deleted. A move of any length keeps the chain", () => {
+  const { markChain, chainAgain } = helmMod;
+  const agf = () => (buildAtoms((fieldSeq("peptide: AGF") as { seq: Seq }).seq) as { mol: Mol }).mol;
+  const range = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => from + k);
+  // (A) peptide: AGF drawn and moved left; a second AGF drawn and opened with Structure > Sequence > Peptide sequence;
+  // the history goes back to before the second (the drawing is the earlier one again): Return places a new chain.
+  const first = agf(), left = moveAtoms(first, new Set(range(0, first.atoms.length)), [-12, 0]);
+  const two = insertMol(left, agf()).mol, second = range(left.atoms.length, two.atoms.length), openedA = markChain(two, second);
+  assert.ok(openedA, "A: the second AGF opens in the field");
+  assert.deepEqual(chainAgain(two, openedA.mark), second, "A: while it is there, it is the one");
+  assert.equal(chainAgain(left, openedA.mark), undefined, "A: taken out of the history, it is gone: the AGF on the left is not taken for it");
+  // (B) the first opened, an alike one added beside it (the first is still the one), then the first deleted: the alike
+  // one has its atom numbers but is not it.
+  const one = agf(), mine = range(0, one.atoms.length), openedB = markChain(one, mine)!;
+  const both = insertMol(one, agf(), [12, 0]).mol;
+  assert.deepEqual(chainAgain(both, openedB.mark), mine, "B: an alike one added, the first is still the one");
+  const after = erase(both, new Set(), new Set(mine));
+  assert.equal(after.atoms.length, one.atoms.length, "B: the alike one has the first one's atom numbers");
+  assert.equal(chainAgain(after, openedB.mark), undefined, "B: the first deleted, it is gone: the alike one is not taken for it");
+  // Moved far, or coloured: still its own atoms (a move keeps its bonds, a colour its bonds or its atoms).
+  const far = moveAtoms(one, new Set(mine), [40, -25]);
+  assert.deepEqual(chainAgain(far, openedB.mark), mine, "moved 47 bond lengths: its own atoms");
+  const red = { ...one, atoms: one.atoms.map((a) => ({ ...a, colour: "#ff0000" })) };
+  assert.deepEqual(chainAgain(red, openedB.mark), mine, "coloured: its own atoms");
+  // Drawn again as residue labels (new atoms, centred where it was): found by its sequence.
+  const relabelled = withSequences(one, "labels");
+  assert.deepEqual(chainAgain(relabelled, openedB.mark), range(0, relabelled.atoms.length), "drawn again as labels: found in its place");
+});
+
 // ==================================================================================================================
-// ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8 to U11)
+// ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8 to U12)
 // ==================================================================================================================
 await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) and Boc-A-Aib-Nle-G-OMe (labels), saves CDXML, Octet reads it: the same InChI, labels kept as labels", async () => {
   if (!process.env.OCTET_STRESS_CHEMDRAW) return "set OCTET_STRESS_CHEMDRAW=1 to run ChemDraw 22.2 by AppleScript";
@@ -1391,7 +1452,7 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) 
 // nothing from this file. It reads the editor's state from React's own records (the undo history) and drives the
 // canvas and the name field with pointer and key events, as scripts/look/sweep.js does.
 const ui = process.env.OCTET_STRESS_URL;
-await check("U", "The app in WebKit: U1 to U6 and U9 to U11", async () => {
+await check("U", "The app in WebKit: U1 to U6 and U9 to U12", async () => {
   if (!ui) return "set OCTET_STRESS_URL to the dev server (npx vite --port 1467) to drive the app in WebKit";
   if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) return "needs a Mac with Xcode's swift";
   const dir = mkdtempSync(join(tmpdir(), "octet-ui27-")), script = join(dir, "stress.js");
@@ -1429,8 +1490,9 @@ await check("U8", "The look sweep in light and dark: every control matches", asy
 // the document's chains into labels in one undo step and back. U4: dark paper draws the bracket in the light ink. U5:
 // the smallest and largest zoom: no error, the bracket drawn. U6: Escape while a sequence builds leaves nothing. U10:
 // the worker busy, Return, then the field's preview timer: Return draws. U11: a chain opened in the field, the drawing
-// changed before Return (the Residue labels chip, Settings > Document > Sequences, an undo, a move): Return draws one
-// structure in its place.
+// changed before Return (the Residue labels chip, Settings > Document > Sequences, a move) or Edit > Undo in the field
+// (it undoes the field's typing, not the drawing): Return draws one structure in its place. U12: Define nickname… for a
+// label the settings kept that is refused now: the refusal alone.
 async function uiStress(helmText: string) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const until = async <T,>(find: () => T, ms = 10000): Promise<T | null> => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
@@ -1658,21 +1720,23 @@ async function uiStress(helmText: string) {
       await wait(500);
       if (!off) { ok = false; notes.push("Settings: no Sequences row"); } else await finish("Settings > Document > Sequences", at0, 2, x, true);
     } else { ok = false; notes.push("Settings: the field did not open"); }
-    // An undo: the chain drawn again by the chip, the field opened on it, then Edit > Undo (the menu leaves the field
-    // open) gives back the chain as it was, with other atoms.
+    // Edit > Undo with the field open, as the menu runs it (Editor.tsx commands.undo): in the field it undoes the
+    // field's typing (document.execCommand), never the drawing. A G typed after the codes goes; the drawing and its
+    // history stay as they were, the field stays open on the chain, and Return draws one structure in its place.
     if (await opened()) {
-      chip()?.click();
-      await wait(800);
-      key({ key: "Escape", code: "Escape" }, field());
+      const at0 = hist().at, before = doc(), x = mid(doc());
+      field()!.focus();
+      field()!.setSelectionRange(field()!.value.length, field()!.value.length);
+      document.execCommand("insertText", false, "G");
       await wait(300);
-      key({ key: "a", code: "KeyA", metaKey: true }, document.body);
-      await wait(300);
-      await palette("Peptide sequence");
-      const again = (await until(() => field(), 3000))?.value === "peptide: AGF", before = hist().at;
-      histHook().queue.dispatch({ type: "undo" });
+      const typed = field()?.value;
+      const commands = hookList().map((h) => h.memoizedState).find((s) => s && typeof s === "object" && typeof s.current?.undo === "function" && typeof s.current?.select_all === "function")?.current;
+      commands?.undo();
       await wait(600);
-      if (again && hist().at === before - 1) await finish("an undo", hist().at, 1); else { ok = false; notes.push(`an undo: field open ${again}, undone ${hist().at === before - 1}`); }
-    } else { ok = false; notes.push("an undo: the field did not open"); }
+      const back = field()?.value;
+      if (typed === "peptide: AGFG" && back === "peptide: AGF" && doc() === before && hist().at === at0) await finish("Edit > Undo in the field", at0, 1, x);
+      else { ok = false; notes.push(`Edit > Undo in the field: typed "${typed}", after Undo "${back}", drawing kept ${doc() === before}, steps ${hist().at - at0}`); }
+    } else { ok = false; notes.push("Edit > Undo in the field: the field did not open"); }
     // A move of the chain (as a nudge or Object > Flip from the menu would) while the field is open.
     if (await opened()) {
       const at0 = hist().at, x = mid(doc()) + 3;
@@ -1680,7 +1744,40 @@ async function uiStress(helmText: string) {
       await wait(500);
       await finish("a move", at0, 2, x);
     } else { ok = false; notes.push("a move: the field did not open"); }
-    result("U11", "(issue 27) A chain opened in the field, then the Residue labels chip, Settings > Document > Sequences, an undo or a move before Return: Return draws one structure in its place, no second one", ok, notes.join("; "));
+    result("U11", "(issue 27) A chain opened in the field, then the Residue labels chip, Settings > Document > Sequences, Edit > Undo in the field (the field's typing goes, the drawing stays) or a move before Return: Return draws one structure in its place, no second one", ok, notes.join("; "));
+  });
+  // U12: Define nickname… for a label an older Octet kept as a nickname and that is refused now (OMe = OCC, ethoxy):
+  // the dialog shows the refusal alone (no "You have the nickname OMe already"), and its button is Define, off.
+  await step("U12", "Define nickname for a refused label the settings kept", async () => {
+    const settingsHook = () => hookList().find((h) => h.memoizedState && Array.isArray(h.memoizedState.nicknames) && Array.isArray(h.memoizedState.monomers));
+    // The menu's commands, as the drawing is now (each render makes them again).
+    const commands = () => hookList().map((h) => h.memoizedState).find((x) => x && typeof x === "object" && typeof x.current?.define_nickname === "function")?.current;
+    const kept = settingsHook().memoizedState.nicknames;
+    settingsHook().queue.dispatch((st: any) => ({ ...st, nicknames: [{ label: "OMe", smiles: "OCC" }] }));
+    // Methyl acetate, its methoxy selected.
+    const A = (label: string, x: number, y: number) => ({ label, location: [x, y, 0] });
+    histHook().queue.dispatch({ type: "set", mol: { atoms: [A("C", 0, 0), A("O", 1, 0), A("C", 2, 0), A("O", 2, 1), A("C", 3, 0)], bonds: [[0, 1, 1], [1, 2, 1], [2, 3, 2], [2, 4, 1]].map(([a, b, t]) => ({ atoms: [a, b], type: t })), ...(doc().style ? { style: doc().style } : {}) } });
+    await wait(400);
+    (document.activeElement as HTMLElement | null)?.blur();
+    commands()?.select_all();
+    await wait(300);
+    const selected = hookList().find((h) => h.memoizedState instanceof Set && h.memoizedState.size === doc().atoms.length && [...h.memoizedState].every((i) => typeof i === "number"));
+    selected?.queue.dispatch(new Set([0, 1]));
+    await wait(300);
+    commands()?.define_nickname();
+    const input = await until(() => document.querySelector('input[aria-label="Nickname"]') as HTMLInputElement | null, 3000);
+    if (!input) { settingsHook().queue.dispatch((st: any) => ({ ...st, nicknames: kept })); return result("U12", "Define nickname: the dialog opens", false, `commands ${!!commands()}, selection ${!!selected}`); }
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "OMe");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await wait(400);
+    const card = input.closest(".dialog") ?? document.body, notes = [...card.querySelectorAll(".dialog-note")].map((n) => n.textContent!.trim());
+    const primary = card.querySelector(".dialog-button.primary") as HTMLButtonElement | null;
+    key({ key: "Escape", code: "Escape" }, input);
+    await wait(400);
+    settingsHook().queue.dispatch((st: any) => ({ ...st, nicknames: kept }));
+    await wait(300);
+    result("U12", "(issue 27) Define nickname… with a refused label the settings kept (OMe): the refusal alone, the button Define and off", notes.length === 1 && /^OMe is a peptide end in Octet's sequences\.$/.test(notes[0]) && primary?.textContent?.trim() === "Define" && primary.disabled,
+      `notes ${JSON.stringify(notes)}, button "${primary?.textContent?.trim()}" ${primary?.disabled ? "off" : "on"}`);
   });
   await step("U6", "Escape while it builds", async () => {
     const before = doc();

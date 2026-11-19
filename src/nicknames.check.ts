@@ -8,7 +8,7 @@ browser();
 const chem = await import("./chem.ts");
 await chem.ready;
 const { isElement, labelSmiles, nicknameProblem, standsIn } = await import("./labels.ts");
-const { BUILT_IN, builtInNickname, readNicknames, setOwnNicknames, withNickname, withoutNickname, MOST_OWN_NICKNAMES } = await import("./nicknames.ts");
+const { BUILT_IN, builtInNickname, ownNickname, readNicknames, setOwnNicknames, withNickname, withoutNickname, MOST_OWN_NICKNAMES } = await import("./nicknames.ts");
 const { NICKNAME_DATA } = await import("./nicknamedata.ts");
 const { fromCdxml, toCdxml } = await import("./cdxml.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
@@ -134,6 +134,29 @@ for (const text of ["peptide: AGF", "peptide: Ac-KAF-NH2"]) {
   assert.equal(chem.toInchi(fromCdxml(xml).mol), want, `${text}: CDXML`);
   setOwnNicknames([]);
   assert.equal(chem.toInchi(fromCdxml(xml).mol), want, `${text}: CDXML on another computer`);
+}
+// Pinned: an older Octet's settings keep the nickname OH = OCC (ethoxy). Peptide AGF drawn as residue labels is still
+// the AGF free acid, C14H19N3O4: the InChI of its atoms, and the same through CDXML written as the app writes it (its
+// expand and own), read with the nickname and without it.
+{
+  const ethoxy = readNicknames([{ label: "OH", smiles: "OCC" }]);
+  assert.deepEqual(ethoxy, [{ label: "OH", smiles: "OCC" }], "an older Octet's settings keep OH = OCC");
+  setOwnNicknames([]);
+  const { atoms, labels } = built("peptide: AGF"), want = chem.toInchi(atoms);
+  assert.match(want ?? "", /^InChI=1S\/C14H19N3O4\//, "AGF drawn as atoms: the free acid");
+  setOwnNicknames(ethoxy);
+  assert.equal(chem.toInchi(labels), want, "AGF as residue labels, OH = OCC kept: the free acid's InChI");
+  assert.equal(chem.analyse(labels)?.[0]?.formula, "C14H19N3O4", "and its formula");
+  const app = { expand: (t: string, end?: boolean) => { const s = end ? END_GROUPS.get(t) : labelSmiles(t); return s ? chem.parseStructure(s) : undefined; }, own: (t: string) => !!ownNickname(t) };
+  const withIt = toCdxml(labels, DEFAULT_STYLE, app);
+  assert.equal(chem.toInchi(fromCdxml(withIt).mol), want, "CDXML written and read with OH = OCC");
+  setOwnNicknames([]);
+  assert.equal(chem.toInchi(fromCdxml(withIt).mol), want, "CDXML written with it, read without it");
+  const without = toCdxml(labels, DEFAULT_STYLE, app);
+  assert.equal(chem.toInchi(fromCdxml(without).mol), want, "CDXML written and read without it");
+  setOwnNicknames(ethoxy);
+  assert.equal(chem.toInchi(fromCdxml(without).mol), want, "CDXML written without it, read with it");
+  setOwnNicknames([]);
 }
 // An NH2 label on no chain is still the user's (an older Octet's nickname is not lost).
 setOwnNicknames(odd);
