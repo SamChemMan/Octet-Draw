@@ -8,7 +8,7 @@
 // ChemDraw checks take it), and Octet reads its saves back.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -297,27 +297,35 @@ await test("pages: Slides, A3, Legal, Tabloid, small pages and Custom are poster
   }
 });
 
-// The writer without this item, for the files that must not change: cdxml.ts as it is now, with this item's commits to
-// it undone (found by their subjects; add a later commit of this item here). Every other change to cdxml.ts, before or
-// after the item is merged, is in both writers. If one changed the same lines, the byte checks are skipped, with the
-// reason.
+// The files that must not change, written by cdxml.ts from the commit before this item, without and with this item's
+// changes to it (its commits, found by their subjects; add a later commit of this item here). So no other change to
+// cdxml.ts, before or after the item is merged, is in either writer. Skipped with the reason when the history is not
+// here (a shallow clone) or a commit of this item does not apply there.
 const ITEM = ["Keep generic labels and poster pages through ChemDraw 22.2", "Keep charged and bigger Ar labels, and write a poster only where ChemDraw opens it"];
-let oldToCdxml: typeof toCdxml | undefined, oldDir: string | undefined, why = "";
-const log = spawnSync("git", ["log", "--no-merges", "--format=%H %s", "--", "src/cdxml.ts"], { cwd: root, encoding: "utf8" });
+let before: typeof toCdxml | undefined, withItem: typeof toCdxml | undefined, oldDir: string | undefined, why = "";
+const log = spawnSync("git", ["log", "--no-merges", "--reverse", "--format=%H %s", "--", "src/cdxml.ts"], { cwd: root, encoding: "utf8" });
 const commits = log.status === 0 ? log.stdout.split("\n").filter((l) => ITEM.includes(l.slice(41))).map((l) => l.slice(0, 40)) : [];
 if (!commits.length) why = log.status === 0 ? "this item's commits are not in this tree" : "no git history";
 else {
   oldDir = mkdtempSync(join(tmpdir(), "octet-cdxml-before-"));
-  cpSync(join(root, "src"), join(oldDir, "src"), { recursive: true });
-  copyFileSync(join(root, "package.json"), join(oldDir, "package.json"));
+  execFileSync("tar", ["-x", "-C", oldDir], { input: execFileSync("git", ["archive", `${commits[0]}^`, "src", "package.json"], { cwd: root, maxBuffer: 1 << 28 }) });
   symlinkSync(join(root, "node_modules"), join(oldDir, "node_modules"));
-  // Newest first, as git log lists them.
+  copyFileSync(join(oldDir, "src/cdxml.ts"), join(oldDir, "src/cdxml-before.ts"));
+  // Oldest first.
   for (const c of commits) {
     const patch = execFileSync("git", ["diff", `${c}^`, c, "--", "src/cdxml.ts"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 });
-    if (spawnSync("git", ["apply", "-R", "-C1", "-"], { cwd: oldDir, input: patch, encoding: "utf8" }).status !== 0) { why = `cdxml.ts has other changes where ${c.slice(0, 8)} changed it`; break; }
+    if (spawnSync("git", ["apply", "-"], { cwd: oldDir, input: patch, encoding: "utf8" }).status !== 0) { why = `${c.slice(0, 8)} does not apply to cdxml.ts before this item`; break; }
   }
-  if (!why) oldToCdxml = (await import(join(oldDir, "src/cdxml.ts"))).toCdxml;
+  if (!why) [before, withItem] = [(await import(join(oldDir, "src/cdxml-before.ts"))).toCdxml, (await import(join(oldDir, "src/cdxml.ts"))).toCdxml];
 }
+// This item's change leaves the file as it was.
+const unchanged = (m: Mol, st: DocStyle, what: string) => assert.equal(withItem!(m, st), before!(m, st), what);
+await test("pages: the writer with this item's change is not the one before it (the catalytic cycle's Ar)", () => {
+  if (!withItem) return skip("comparison of the writers before and with this item", why);
+  const m = parse(readFileSync(join(root, "src/examples/cycle.json"), "utf8")), st = readStyle(m.style);
+  assert.match(withItem(m, st), /InterpretChemically="no"/);
+  assert.doesNotMatch(before!(m, st), /<t\b[^>]*InterpretChemically="no"/);
+});
 process.on("exit", () => { if (oldDir) rmSync(oldDir, { recursive: true, force: true }); });
 
 await test("pages: a page ChemDraw 22.2 cannot open as a poster is written as before, byte for byte", () => {
@@ -342,9 +350,9 @@ await test("pages: a page ChemDraw 22.2 cannot open as a poster is written as be
   for (const [what, m, st] of cases) {
     const xml = toCdxml(m, st);
     assert.doesNotMatch(pageOf(xml), /DrawingSpace|Width=|Height=/, what);
-    if (oldToCdxml) assert.equal(xml, oldToCdxml(m, st), what);
+    if (withItem) unchanged(m, st, what);
   }
-  if (!oldToCdxml) skip("byte check of pages ChemDraw cannot open as a poster", why);
+  if (!withItem) skip("byte check of pages ChemDraw cannot open as a poster", why);
 });
 
 await test("pages: a page whose drawing fits is a poster, wherever the drawing is on it", () => {
@@ -375,8 +383,8 @@ for (const id of ["oseltamivir", "suzuki", "epoxidation", "hydrolysis", "threoni
 for (const [what, m, st] of same) await test(`pages: ${what} is written as before, byte for byte`, () => {
   const xml = toCdxml(m, st);
   assert.doesNotMatch(pageOf(xml), /DrawingSpace|Width=|Height=/);
-  if (!oldToCdxml) return skip(`byte check of ${what}`, why);
-  assert.equal(xml, oldToCdxml(m, st));
+  if (!withItem) return skip(`byte check of ${what}`, why);
+  unchanged(m, st, what);
 });
 
 await test("pages: a page ChemDraw prints on sheets (no DrawingSpace) reads as before, with no purpose", () => {
@@ -433,8 +441,8 @@ else {
     assert.equal(st.page, "A4");
     const xml = d.host.fileText("cdxml")!;
     assert.doesNotMatch(pageOf(xml), /DrawingSpace/);
-    if (!oldToCdxml) return skip("byte check of the experiment", why);
-    assert.equal(toCdxml(m, st), oldToCdxml(m, st));
+    if (!withItem) return skip("byte check of the experiment", why);
+    unchanged(m, st, "experiment");
   });
 
   // ---- ChemDraw 22.2 itself (OCTET_STRESS_CHEMDRAW=1) ----

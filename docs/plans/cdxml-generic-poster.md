@@ -120,9 +120,10 @@ Posters ChemDraw does not open:
     A0 with the Poster purpose and scale 3.
 11. Pages ChemDraw does not open as a poster (a side of 25.4 mm or less, a drawing bigger than the page, or less than
     9 pt smaller) are written as before; pages just bigger than that are posters, wherever the drawing is.
-12. A4, Letter, A4 landscape, Letter landscape and an experiment page with its risk assessment on page 2: the CDXML
-    is the same as the writer's without this item, byte for byte (cdxml.ts as it is, with this item's commits to it
-    undone, run beside it; skipped with the reason when a later change to the same lines stops that).
+12. A4, Letter, A4 landscape, Letter landscape, an experiment page with its risk assessment on page 2, and the pages
+    of case 11 that are not posters: this item's change leaves the CDXML the same, byte for byte. Both writers are
+    cdxml.ts from the commit before this item, one with this item's commits applied, so no other change to cdxml.ts
+    is in either (skipped with the reason in a clone with no history).
 13. Hostile pages: huge, negative, zero and NaN Width, Height and BoundingBox read as a bounded page.
 14. OCTET_STRESS_CHEMDRAW=1: ChemDraw 22.2 opens and saves the 10 examples (as Export writes them), an empty A0
     poster, the labels file, the charged labels file and pages that are and are not posters (two examples on a page

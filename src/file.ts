@@ -1,16 +1,21 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
+import { readGap } from "./conditions.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
-import { LIVE_ATTRS, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
+import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
+import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD } from "./annotate.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
+import { settleMeasures, soundMeasure } from "./measurement.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
 import { ALL_ARROW_KINDS, FREE_SYMBOLS, readSign, HBOND, isBracket, isChargeKind, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize, type FreeSymbol } from "./render.ts";
 import { readGrid } from "./stoich.ts";
+import { readTie, tieable } from "./arrowlink.ts";
 import { keyOf, readMeasured, writeMeasured } from "./measured.ts";
 import { readPart, readPlot, type PlotPart } from "./pageplot.ts";
 import { readRisk } from "./riskassess.ts";
+import { fromProperties, markLeft, readData, withProperties, writeData } from "./datafields.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const FORMAT = "octet";
@@ -41,7 +46,9 @@ function innerIn(v: unknown): Mol | undefined {
   return atoms.every(Boolean) && bonds.every(Boolean) ? { atoms: atoms as Mol["atoms"], bonds: bonds as Mol["bonds"] } : undefined;
 }
 
-export function serialize(mol: Mol): string {
+export function serialize(input: Mol): string {
+  // A shown data field's text carries ChemDraw's attached-data property, which Octet 1.1.2 keeps (datafields.ts).
+  const mol = withProperties(input);
   const atoms = mol.atoms.map((a) => ({ label: a.label, x: round(a.location[0]), y: round(a.location[1]), ...(round(a.location[2] ?? 0) ? { z: round(a.location[2]) } : {}), ...(a.shade ? { shade: true } : {}), ...(typeof a.shade === "number" ? { opacity: a.shade } : {}), ...(a.charge ? { charge: a.charge } : {}), ...(a.text ? { text: a.text } : {}),
     ...(a.text && a.runs && plainOf(a.runs) === a.text ? { runs: a.runs } : {}), ...(a.centre ? { centre: a.centre } : {}), ...(a.kept ? { kept: a.kept } : {}),
     ...(a.radical ? { radical: a.radical } : {}), ...(a.isotope ? { isotope: a.isotope } : {}), ...(a.pairs ? { pairs: a.pairs } : {}), ...(a.circled ? { circled: true } : {}), ...(a.partial ? { partial: a.partial } : {}),
@@ -58,25 +65,26 @@ export function serialize(mol: Mol): string {
   // Structure ends are also saved as sides, so Octet 1.0.29 still draws them.
   const sidesOf = (c: Cycle) => (c.branches ?? []).flatMap((b) => (["in", "out"] as const).flatMap((side) => (b[side]?.atoms?.length ? [{ atoms: b[side]!.atoms!, side }] : []))).slice(0, 32);
   const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.at ? { at: c.at.map(round) } : {}), ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...(c.width ? { width: c.width } : {}), ...(c.gap !== undefined ? { gap: c.gap } : {}),
-    ...(c.head ? { head: c.head } : {}), ...(c.arrowSize ? { arrowSize: c.arrowSize } : {}), ...(c.steps?.some(Boolean) ? { steps: c.steps } : {}), ...(c.branches?.length ? { branches: c.branches, ...(sidesOf(c).length ? { sides: sidesOf(c) } : {}) } : {}), ...scaled(c) }));
+    ...(c.head ? { head: c.head } : {}), ...(c.arrowSize ? { arrowSize: c.arrowSize } : {}), ...(c.steps?.some(Boolean) ? { steps: c.steps } : {}), ...(c.branches?.length ? { branches: c.branches, ...(sidesOf(c).length ? { sides: sidesOf(c) } : {}) } : {}), ...scaled(c), ...notesOut(c) }));
   const arrows = arrowList.map((a) => ({ kind: a.kind, x1: round(a.from[0]), y1: round(a.from[1]), x2: round(a.to[0]), y2: round(a.to[1]), ...(a.bend ? { bend: round(a.bend) } : {}),
     ...(a.style ? { style: a.style } : {}), ...(a.orbital ? { orbital: a.orbital } : {}), ...(a.colour ? { colour: a.colour } : {}),
     ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.order ? { order: a.order } : {}), ...(a.width ? { width: a.width } : {}),
-    ...(a.headSize ? { headSize: { length: round(a.headSize.length), centre: round(a.headSize.centre), width: round(a.headSize.width) } } : {}), ...(a.ratio ? { ratio: round(a.ratio) } : {}), ...(a.shaft ? { shaft: round(a.shaft) } : {}), ...(a.point ? { point: true } : {}), ...scaled(a), ...partOf(a) }));
+    ...(a.headSize ? { headSize: { length: round(a.headSize.length), centre: round(a.headSize.centre), width: round(a.headSize.width) } } : {}), ...(a.ratio ? { ratio: round(a.ratio) } : {}), ...(a.shaft ? { shaft: round(a.shaft) } : {}), ...(a.point ? { point: true } : {}), ...scaled(a), ...partOf(a), ...notesOut(a),
+    ...(a.fromOn ? { fromOn: a.fromOn } : {}), ...(a.toOn ? { toOn: a.toOn } : {}) }));
   // Shapes keep their order in the list, which is the order they are drawn in within their layer (order.ts).
   const shapes = (mol.shapes ?? []).map((x) => ({ kind: x.kind, x1: round(x.from[0]), y1: round(x.from[1]), x2: round(x.to[0]), y2: round(x.to[1]), ...(x.dashed ? { dashed: true } : {}), ...(x.colour ? { colour: x.colour } : {}),
     ...(x.fill ? { fill: x.fill } : {}), ...(x.shadow ? { shadow: true } : {}), ...(x.side ? { side: x.side } : {}), ...(x.mark ? { mark: x.mark } : {}), ...(x.tlc ? { tlc: x.tlc } : {}), ...(x.table ? { table: x.table } : {}), ...(x.plasmid ? { plasmid: x.plasmid } : {}), ...(x.shade ? { shade: x.shade } : {}), ...(x.order ? { order: x.order } : {}),
     ...(x.boldLine ? { boldLine: true } : {}), ...(x.angle ? { angle: round(x.angle) } : {}), ...(x.width ? { width: x.width } : {}), ...(x.radius !== undefined ? { radius: x.radius } : {}),
     ...(x.font ? { font: x.font } : {}), ...(x.size ? { size: x.size } : {}), ...(x.bold ? { bold: true } : {}), ...(x.italic ? { italic: true } : {}), ...(x.underline ? { underline: true } : {}), ...(x.ignoreWarnings ? { ignoreWarnings: true } : {}), ...scaled(x),
-    ...(x.picture ? { picture: x.picture } : {}), ...(x.polymer ? { polymer: x.polymer } : {}), ...(x.bracketed ? { bracketed: true } : {}), ...(x.rgroup ? { rgroup: x.rgroup } : {}), ...(x.symbol ? { symbol: x.symbol } : {}), ...(x.count ? { count: x.count } : {}) }));
+    ...(x.picture ? { picture: x.picture } : {}), ...(x.polymer ? { polymer: x.polymer } : {}), ...(x.bracketed ? { bracketed: true } : {}), ...(x.rgroup ? { rgroup: x.rgroup } : {}), ...(x.symbol ? { symbol: x.symbol } : {}), ...(x.count ? { count: x.count } : {}), ...notesOut(x) }));
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
-    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}),
-    ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { atoms: c.measure.atoms, ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
+    ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side, ...(c.on.gap !== undefined ? { gap: c.on.gap } : {}) } } : {}),
     ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side, ...(c.cycle.branch !== undefined ? { branch: c.cycle.branch } : {}), ...(c.cycle.at !== undefined ? { at: c.cycle.at } : {}), ...(c.cycle.reach !== undefined ? { reach: c.cycle.reach } : {}), ...(c.cycle.off ? { off: c.cycle.off } : {}) } } : {}),
-    ...partOf(c),
+    ...partOf(c), ...notesOut(c),
   }));
   // Groups name their objects by kind and place in the lists above: c caption, a arrow, s shape, y cycle.
   const captionList = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id), shapeList = mol.shapes ?? [];
@@ -87,9 +95,11 @@ export function serialize(mol: Mol): string {
   const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}), ...(g.annotations?.length ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
   const grids = (mol.grids ?? []).map((g) => ({ ...g, arrow: arrowList.findIndex((a) => a.id === g.arrow) })).filter((g) => g.arrow >= 0);
-  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}) }, null, 1) + "\n";
+  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}), ...(mol.data?.length ? { data: writeData(mol, captionList) } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
+// An object's notes (annotate.ts), saved when it has some. Octet 1.1.2 leaves them out.
+const notesOut = (x: { notes?: Annotation[] }) => (x.notes?.length ? { notes: x.notes } : {});
 // A page spectrum's part (pageplot.ts): its role and where Octet put it. Octet 1.1.0 leaves both out.
 const partOf = (x: { role?: PlotPart }) => (x.role ? { role: { role: x.role.role, at: x.role.at.map(round) } } : {});
 // A thing's draw order (order.ts): a whole number other than zero; anything else is left out.
@@ -167,7 +177,7 @@ function copySet(to: object, from: Record<string, unknown>, keys: string[]) {
 export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
-  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown };
+  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown; data?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
@@ -299,7 +309,10 @@ export function parse(text: string): Mol {
         ...(a.start ? { start: a.start as Head } : {}), ...(a.end ? { end: a.end as Head } : {}), ...(a.head ? { head: a.head as HeadShape } : {}),
         ...(a.curve ? { curve: readCurve(a.curve)! } : {}), ...(a.fill ? { fill: a.fill as CurveFill } : {}), ...orderOf(a.order), ...(a.width ? { width: a.width as number } : {}),
         ...(a.headSize ? { headSize: readHead(a.headSize)! } : {}), ...(a.ratio ? { ratio: a.ratio as number } : {}), ...(a.shaft ? { shaft: a.shaft as number } : {}), ...(a.point ? { point: true as const } : {}), ...scaled(a as { scale?: number }),
-        ...(readPart(a.role) ? { role: readPart(a.role)! } : {}) };
+        ...(readPart(a.role) ? { role: readPart(a.role)! } : {}), ...notesIn(a.notes),
+        // What a curved arrow's ends are tied to (arrowlink.ts): a tie that does not check out is left off.
+        ...(tieable({ kind: a.kind as ArrowKind }) && readTie(a.fromOn, out.atoms.length) ? { fromOn: readTie(a.fromOn, out.atoms.length)! } : {}),
+        ...(tieable({ kind: a.kind as ArrowKind }) && readTie(a.toOn, out.atoms.length) ? { toOn: readTie(a.toOn, out.atoms.length)! } : {}) };
     });
   }
   // Cycles take ids after the arrows'.
@@ -316,7 +329,7 @@ export function parse(text: string): Mol {
       const steps = c.steps === undefined ? undefined : readSteps(c.steps), branches = c.branches === undefined ? undefined : readBranches(c.branches, nodes.length, (i) => (int(i, 0, out.atoms.length - 1) ? (i as number) : undefined));
       if ((c.steps !== undefined && !steps) || (c.branches !== undefined && !branches)) throw new Error("This drawing is damaged.");
       return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(at ? { at } : {}), ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order), ...(c.width ? { width: c.width as number } : {}), ...(typeof c.gap === "number" && c.gap >= 0 && c.gap <= 100 ? { gap: c.gap } : {}),
-        ...(c.head === "hollow" || c.head === "angled" ? { head: c.head } : {}), ...(c.arrowSize === "large" || c.arrowSize === "medium" ? { arrowSize: c.arrowSize } : {}), ...(steps?.some(Boolean) ? { steps } : {}), ...(branches?.length ? { branches } : {}), ...(sides?.length ? { sides: sides as CycleSide[] } : {}), ...scaled(c as { scale?: number }) } as Cycle;
+        ...(c.head === "hollow" || c.head === "angled" ? { head: c.head } : {}), ...(c.arrowSize === "large" || c.arrowSize === "medium" ? { arrowSize: c.arrowSize } : {}), ...(steps?.some(Boolean) ? { steps } : {}), ...(branches?.length ? { branches } : {}), ...(sides?.length ? { sides: sides as CycleSide[] } : {}), ...scaled(c as { scale?: number }), ...notesIn(c.notes) } as Cycle;
     });
   }
   // Shapes take ids after the cycles'.
@@ -351,7 +364,7 @@ export function parse(text: string): Mol {
         ...(x.font ? { font: x.font as string } : {}), ...(x.size ? { size: x.size as number } : {}), ...(x.bold ? { bold: true as const } : {}), ...(x.italic ? { italic: true as const } : {}), ...(x.underline ? { underline: true as const } : {}),
         ...(x.ignoreWarnings === true ? { ignoreWarnings: true as const } : {}),
         ...(x.picture ? { picture: readPictureData(x.picture)! } : {}), ...(x.symbol ? { symbol: x.symbol as FreeSymbol } : {}), ...(x.count ? { count: x.count as number } : {}),
-        ...(readPolymer(x.polymer) && isBracket({ kind: x.kind as ShapeKind }) ? { polymer: readPolymer(x.polymer) } : {}), ...(x.bracketed === true && isBracket({ kind: x.kind as ShapeKind }) ? { bracketed: true as const } : {}), ...(readRgroup(x.rgroup) ? { rgroup: readRgroup(x.rgroup) } : {}), ...scaled(x as { scale?: number }) };
+        ...(readPolymer(x.polymer) && isBracket({ kind: x.kind as ShapeKind }) ? { polymer: readPolymer(x.polymer) } : {}), ...(x.bracketed === true && isBracket({ kind: x.kind as ShapeKind }) ? { bracketed: true as const } : {}), ...(readRgroup(x.rgroup) ? { rgroup: readRgroup(x.rgroup) } : {}), ...scaled(x as { scale?: number }), ...notesIn(x.notes) };
     });
   }
   if (d.captions !== undefined) readCaptions(d.captions, out);
@@ -393,9 +406,15 @@ export function parse(text: string): Mol {
   // Groups as an edit leaves them: each atom and object once, nested or apart, and two or more things in each. Cycles
   // as this version keeps them, and π rings from 1.0.x as ligand() orders them. Hydrogens set by hand only where they
   // are fewer than usual (settleHydrogens).
-  return settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(out) : out)));
+  // Data fields (datafields.ts): a sound entry is kept and the rest left out, so the drawing opens.
+  const fields = readData(d.data, out.atoms.length, out.captions ?? []);
+  if (fields.data) out.data = fields.data;
+  // At most 10,000 notes (annotate.ts capNotes): a drawing pasted into twice may have had more when it was saved.
+  return markLeft(capNotes(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(fromProperties(out)) : fromProperties(out)))), undefined, true)), fields.left);
 }
 
+// An object's notes, if any: checked as annotations are (a bad list makes the drawing damaged).
+const notesIn = (v: unknown) => { const notes = v === undefined ? [] : readAnnotations(v); return notes.length ? { notes } : {}; };
 // Annotations (keyword and content pairs from ChemDraw), checked as the CDXML reader checks them.
 function readAnnotations(v: unknown): Annotation[] {
   const ok = (s: unknown, most: number) => typeof s === "string" && s.length <= most && !/[\u0000-\u0009\u000b-\u001f\u007f]/.test(s);
@@ -440,10 +459,14 @@ function readCaptions(raw: unknown, out: Mol) {
     if (c.chemical === false) caption.chemical = false;
     if (c.auto === true) caption.auto = true;
     if (typeof c.field === "string" && /^[a-z][a-z0-9:]{0,39}$/.test(c.field)) caption.field = c.field;
+    // A measurement (measurement.ts); one that is not sound is its text alone.
+    if (soundMeasure(c.measure, out.atoms.length)) caption.measure = { atoms: [...c.measure.atoms], ...(c.measure.at ? { at: [c.measure.at[0], c.measure.at[1]] } : {}) };
     const role = readPart(c.role);
     if (role) caption.role = role;
+    Object.assign(caption, notesIn(c.notes));
     if (under) caption.under = under as number[];
-    if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
+    // A gap of its own from 0 to 100 pt; anything else is left out (the document's).
+    if (on) { const gap = readGap((on as { gap?: unknown }).gap); caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below", ...(gap !== undefined ? { gap } : {}) }; }
     if (placed) caption.placed = { at: placed.at as [number, number], arrow: placed.arrow as [number, number] };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" | "node" | "name", ...(cyc.branch !== undefined ? { branch: cyc.branch as number } : {}), ...(cyc.off !== undefined && cyc.side === "centre" ? { off: cyc.off as [number, number] } : {}), ...(num(cyc.at) && (cyc.at as number) >= 0 && (cyc.at as number) <= 1 ? { at: cyc.at as number } : {}), ...(num(cyc.reach) && Math.abs(cyc.reach as number) <= 1000 ? { reach: cyc.reach as number } : {}), ...(typeof cyc.through === "boolean" ? { through: cyc.through } : {}),
       ...(num(cyc.meet) && (cyc.meet as number) >= 0 && (cyc.meet as number) <= 1 ? { meet: cyc.meet as number } : {}), ...(pair(cyc.tail) && (cyc.tail as number[])[0] >= 0 && (cyc.tail as number[])[0] <= 1 && Math.abs((cyc.tail as number[])[1]) <= 1000 ? { tail: cyc.tail as [number, number] } : {}) } as CycleText;

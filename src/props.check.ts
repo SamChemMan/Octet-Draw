@@ -164,4 +164,7 @@ assert.deepEqual(properties(mol("O N C C C C C C O", "0=1 1-2 2=3 3-4 4=5 5-6 6=
 // An element Joback has no group for, or a label Octet could not read ("*"), gives no Joback estimate.
 assert.equal(properties(mol("C Si", "0-1")).joback, undefined);
 assert.equal(properties(mol("C C *", "0-1 1-2")).joback, undefined);
+// Ammonia and ammonium have no alkylamine pKa: their N has 3 or 4 hydrogens and no carbon. Both once threw.
+assert.deepEqual(properties(mol("N", "")).pka, []);
+assert.deepEqual(properties(mol("N+", "")).pka, []);
 console.log("props.check: ok");

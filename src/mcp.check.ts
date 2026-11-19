@@ -59,7 +59,7 @@ const host: Host = {
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
-  file: (t) => host.structure(t), export: () => true, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
+  file: (t) => host.structure(t), export: () => true, office: () => false, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
   libreoffice: async () => { commands.push("add_to_libreoffice"); return libreOfficeFails; },
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
@@ -1677,8 +1677,8 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // compounds (given for a * or on an atom of a molecule), each label once. A label it reads (Bpin, t-Bu), a stand-in
   // (L, Ar, R1) and a label written round one (OR, NHPG, OPG, CO2Alkyl) are not named. Ar stays a generic group: it is no phenyl.
   fresh();
-  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "ODMT"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
-  assert.match(text(out), /\. Octet does not know the labels Xyz, ODMT: they are drawn as text\. One undo step\./);
+  out = await call("draw", { kind: "structures", structures: [{ text: "*c1ccc(*)cc1", labels: ["Xyz", "OZq"] }, { text: "*c1ccccc1", labels: ["Xyz"] }] });
+  assert.match(text(out), /\. Octet does not know the labels Xyz, OZq: they are drawn as text\. One undo step\./);
   fresh();
   out = await call("draw", { kind: "structures", structures: [{ text: "*[Pd](*)Br", labels: ["L", "Ar"] }, { text: "*c1ccc(*)cc1", labels: ["Bpin", "t-Bu"] }, { text: "*C(*)*", labels: ["R1", "OR", "NHPG"] }, { text: "*C(*)(*)*", labels: ["OPG", "CO2Alkyl", "HNu", "MLn"] }] });
   assert.ok(!out.isError && !/does not know/.test(text(out)), text(out));

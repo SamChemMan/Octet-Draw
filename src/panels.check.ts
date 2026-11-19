@@ -10,10 +10,41 @@ const editor = read("./Editor.tsx"), css = read("./editor.css"), actions = read(
 const controls = read("./PanelControls.tsx");
 
 // B1.4 and B1.23: one set of controls on every panel, in Octet's style on every platform (no platform branches).
-for (const file of ["Spectrum.tsx", "MassSpec.tsx", "Properties.tsx", "Actions.tsx"]) assert.match(read(`./${file}`), /<PanelControls /, `${file} uses PanelControls`);
+for (const file of ["Spectrum.tsx", "MassSpec.tsx", "Properties.tsx", "Actions.tsx", "Notes.tsx"]) assert.match(read(`./${file}`), /<PanelControls /, `${file} uses PanelControls`);
 assert.match(read("./Spectrum.tsx"), /<PanelControls minimise=\{p\.onMinimise\} full=\{[^}]+\}\} close=\{p\.onClose\} \/>/);
 assert.match(read("./MassSpec.tsx"), /<PanelControls minimise=\{p\.onMinimise\} full=\{[^}]+\}\} close=\{p\.onClose\} \/>/);
 assert.match(read("./Properties.tsx"), /<PanelControls close=\{onClose\} \/>/);
+// The Notes panel (issues 101 and 102): View > Show or Hide Notes and Object > Annotate… (no key, as ChemDraw), gone in
+// an object window, which keeps no notes; it moves by its header, and what comes into view is not under it.
+{
+  const notes = read("./Notes.tsx");
+  assert.match(notes, /<PanelControls close=\{onClose\} \/>/);
+  assert.match(notes, /useMovable\("notes"\)/);
+  assert.match(menu, /item\("notes", "Show or Hide Notes", ""\)/);
+  assert.match(menu, /item\("annotate", "Annotate…", ""\)/);
+  assert.match(menu, /if !notes_here \{\n\s*view\.remove\(&notes\)\?;\n\s*object\.remove\(&annotate\)\?;/);
+  assert.match(editor, /\.properties, \.note-panel:not\(\.leaving\)"\)\]/);
+  assert.match(editor, /notes: \(\) => \(officeRef\.current \? undefined : setSettings/);
+  assert.match(read("./settings.ts"), /notesPanel: saved\.notesPanel === true/);
+  // A note being typed is used before a menu command (Save, Quit…) and before the window closes.
+  assert.match(editor, /if \(\["undo", "redo", "select_all", "cut", "copy", "paste"\]\.includes\(e\.payload\)\) go\(\); else afterNote\(go\);/);
+  assert.match(editor, /onCloseRequested\(\(e\) => \{ e\.preventDefault\(\); afterNote\(\(\) => commands\.current\.close\(\)\); \}\)/);
+  // Off the Mac the page runs the menu's Ctrl keys itself (Ctrl+S, Ctrl+W): the note goes into the drawing first there too.
+  assert.match(editor, /pageRan\.current = \{ id: cmd, at: performance\.now\(\) \};\n\s*\/\/[^\n]*\n\s*return afterNote\(\(\) => commands\.current\[cmd\]\?\.\(\)\);/);
+  assert.doesNotMatch(editor, /return commands\.current\[cmd\]\?\.\(\);/, "no menu command from a key skips afterNote");
+  // Quit (Octet's own, the Dock's, a logout) asks only the windows that said they are edited (quit.rs): a note being
+  // typed makes its window edited from the first key until the field is left or goes.
+  const fields = read("./Fields.tsx");
+  assert.match(editor, /const unsaved = mainDirty \|\| !!templateEdit \|\| noteTyped;/);
+  assert.match(editor, /useEffect\(\(\) => \{ if \(TAURI\) invoke\("set_edited", \{ edited: unsaved \}\)/);
+  assert.match(editor, /<Notes [^>]*onTyped=\{setNoteTyped\}/);
+  assert.match(notes, /onChange=\{\(text\) => onNote\(f\.targets, f\.keyword, f\.nth, text\)\} onTyped=\{onTyped\} \/>/);
+  assert.match(fields, /onChange: \([^)]*\) => \{ if \(!typed\.current\) onTyped\?\.\(true\); typed\.current = true;/, "the first key typed");
+  assert.match(fields, /onBlur: \(\) => \{ focused\.current = false; if \(typed\.current\) \{ typed\.current = false; onTyped\?\.\(false\);/, "the field left");
+  assert.match(fields, /if \(typed\.current\) \{ l\.onChange\(l\.text\); l\.onTyped\?\.\(false\); \}/, "the field gone while it has the focus");
+  assert.match(actions, /if \(context\.annotate\) items\.push\(small\(it\(<NotePencil size=\{18\} \/>, "Annotate…", "annotate"\)\)\)/);
+  assert.match(editor, /notes = !office && c\.kind !== "grid" && \(c\.kind === "empty" \|\| c\.kind === "drawing" \|\| noteTargets\(doc, selection, picked\)\.length > 0\)/, "Annotate… in every context but a reagent table's");
+}
 assert.match(actions, /<PanelControls minimise=\{\(\) => onOpen\(false\)\} \/>/, "the Actions panel's control is Minimise: it becomes its pill");
 assert.doesNotMatch(controls, /isMac|IS_MAC|navigator|userAgent/, "the same controls on Mac, Windows and Linux");
 for (const name of ['"Minimise"', '"Full screen"', '"Leave full screen"', '"Close"']) assert.ok(controls.includes(name), name);
