@@ -29,7 +29,7 @@ import {
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
-import { snapBoxes, snapMove, type Guide } from "./snap";
+import { oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
 import { model3mf } from "./model3mf";
@@ -270,7 +270,7 @@ type Drag =
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P }
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; alone?: true }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
@@ -5062,7 +5062,7 @@ export default function Editor() {
     // They are worked out at the first move and kept for the rest of the drag.
     let boxes: ReturnType<Extract<Drag, { kind: "move" }>["snap"]> | null = null;
     const snap = () => (boxes !== null ? boxes : (boxes = objectBoxes(atoms0, picks0, !!copies)));
-    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}) });
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}), ...(alone ? { alone: true as const } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its parts (cycleParts, and the rest of an integral group it is
   // in), and grabs them.
@@ -5129,7 +5129,8 @@ export default function Editor() {
     }
     if (t.cycle !== undefined) return pressCycle(p, t, screen, copy);
     if (t.caption !== undefined || t.arrow !== undefined) return pressCaption(p, t, shift, screen, copy);
-    if (!shift && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
+    // The copy key with Shift copies the selection on one axis (onPointerMove "move").
+    if ((!shift || copy) && (selection.size || picked.size) && onSelection(doc, selection, p)) return startMove(p, screen, t, picked, selection, copy);
     if (ids.length) {
       const atoms = new Set(shift ? [...selection, ...ids] : ids), picks = shift ? picked : new Set<number>();
       reselect(atoms, picks);
@@ -5137,7 +5138,7 @@ export default function Editor() {
     }
     // A press anywhere inside the frame of a selected group moves the whole group.
     const f = frameBox(views.get().zoom);
-    if (!shift && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
+    if ((!shift || copy) && f && p[0] >= f[0] && p[0] <= f[2] && p[1] >= f[1] && p[1] <= f[3] && groupsOf(doc, selection, picked).length) {
       const [ga, gi] = withGroups(selection, picked);
       reselect(ga, gi);
       return startMove(p, screen, t, gi, ga, copy);
@@ -5197,9 +5198,10 @@ export default function Editor() {
     const tables = gridViews.filter((v) => { const [x0, y0, x1, y1] = tableSpan(v); return ([[x0, y0], [x1, y0], [x1, y1], [x0, y1]] as P[]).every(inside); }).map((v) => TABLE(v.arrow));
     choose([...atoms, ...parts.flatMap((x) => x[0])], [...items, ...cycles.map((c) => c.id), ...parts.flatMap((x) => x[1]), ...tables], keep);
   };
-  // A selection area: a box, or a lasso, as the Select tool is set.
+  // A selection area: a box, or a lasso, as the Select tool is set. Alt (Option) at the press gives the other one, as
+  // in ChemDraw. Structure perspective keeps the box.
   function startArea(p: P, t: Hover, base: Set<number>, picks = new Set<number>()) {
-    if (selectKind === "lasso") setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
+    if (selectKind === "lasso" ? !pressAlt.current : selectKind === "box" && pressAlt.current) setDrag({ kind: "lasso", points: [p], base, picks, target: t, moved: false });
     else setDrag({ kind: "box", from: p, to: p, base, picks, target: t, moved: false });
   }
   // The captions and arrows whose middle is inside a selection area (drawing coordinates). Shapes are containers:
@@ -5937,7 +5939,9 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        return setDrag({ ...drag, d: snapped.d, guides: snapped.guides, moved: true });
+        // Shift keeps it to one axis (snap.ts oneAxis).
+        const one = oneAxis(snapped, raw, e.shiftKey);
+        return setDrag({ ...drag, d: one.d, guides: one.guides, moved: true });
       }
       case "box": {
         // As ChemDraw's Marquee: only the atoms inside the box (atomsInArea). The highlight shows what stays selected on release.
@@ -5977,8 +5981,10 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
+        // Shift keeps it to one axis, a copy too (snap.ts oneAxis), but for a bond tool's Shift-drag of an atom (alone).
+        const one = oneAxis(snapped, raw, e.shiftKey && !drag.alone);
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, snapped.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d: snapped.d });
+        return setDrag({ ...drag, working: moveAll(base, one.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: one.guides, point: one.point, skip: skipsCycle(e, pressCtrlCopy.current), d: one.d });
       }
     }
   }

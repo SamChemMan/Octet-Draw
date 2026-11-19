@@ -196,3 +196,13 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
   else if (sy) guides.push({ axis: "y", at: sy.line.at, from: Math.min(fb[0], sy.line.lo) - 0.3, to: Math.max(fb[2], sy.line.hi) + 0.3 });
   return { d: out, guides };
 }
+
+// Shift held on a move (lock): it keeps to one axis, the one the pointer has gone further along (raw, from the press),
+// so it can change as the pointer goes. The other axis of the move is 0, and its guides go (a spacing mark snaps the
+// axis across its line). An atom-on-atom snap moves both axes, so it goes too and the free axis follows the pointer.
+export function oneAxis<T extends { d: P; guides: Guide[]; point?: P }>(s: T, raw: P, lock: boolean): T {
+  if (!lock) return s;
+  const k = Math.abs(raw[0]) >= Math.abs(raw[1]) ? 0 : 1, off = k ? "x" : "y";
+  const d: P = k ? [0, s.point ? raw[1] : s.d[1]] : [s.point ? raw[0] : s.d[0], 0];
+  return { ...s, d, point: undefined, guides: s.point ? [] : s.guides.filter((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) !== off) } as T;
+}

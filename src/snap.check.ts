@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { EMPTY, fragments, merge, pos, sprout, type P } from "./edit.ts";
 import type { Mol } from "./render.ts";
-import { type Guide, snapBoxes, snapMove } from "./snap.ts";
+import { readFileSync } from "node:fs";
+import { type Guide, oneAxis, snapBoxes, snapMove } from "./snap.ts";
 
 // Two ethanes side by side. Moving the second (atoms 2, 3) a little off line snaps it back level.
 const a = sprout(EMPTY, [0, 0]), m = merge(a, a, [3, 0.04]);
@@ -124,3 +125,33 @@ for (const d of [[0, 0], [2.95, 2.97], [0.4, -0.1], [NaN, 1]] as P[]) assert.dee
   assert.ok(!snapBoxes([0, 0, 2, 2], [...row, [5.3, 0, 5.6, 2]], [6.05, 0.5], 0.1).guides.some((g) => g.gap));
 }
 console.log("snap.check: ok");
+// Shift on a move (#169): one axis, the one the pointer has gone further along. A guide on the free axis stays, one on
+// the locked axis goes (a spacing mark drawn across x snaps y), and an atom-on-atom snap goes with the pointer.
+{
+  const gx: Guide = { axis: "x", at: 1, from: 0, to: 1 }, gy: Guide = { axis: "y", at: 1, from: 0, to: 1 }, gapX: Guide = { ...gx, gap: true };
+  const s = { d: [2.05, 0.4] as P, guides: [gx, gy, gapX] };
+  assert.equal(oneAxis(s, [2, 0.3], false), s, "no Shift: unchanged");
+  const across = oneAxis(s, [2, 0.3], true);
+  assert.deepEqual(across.d, [2.05, 0], "across: level with where it started");
+  assert.deepEqual(across.guides, [gx], "across: the x guide stays");
+  const down = oneAxis(s, [0.3, -2], true);
+  assert.deepEqual(down.d, [0, 0.4], "up or down: straight under");
+  assert.deepEqual(down.guides, [gy, gapX], "up or down: the y guides stay");
+  // It changes axis as the pointer goes.
+  assert.deepEqual(oneAxis(s, [1, 1.01], true).d, [0, 0.4]);
+  const pt = oneAxis({ d: [2.05, 0.4] as P, guides: [], point: [5, 5] as P }, [2, 0.3], true);
+  assert.deepEqual([pt.d, pt.point], [[2, 0], undefined], "an atom snap goes");
+}
+// The editor's move (every object, and copies) and reagent table drags lock on the move's own Shift, so Shift pressed
+// or let go mid-drag counts; a bond tool's Shift-drag of an atom (alone) stays free. startMove makes every move drag.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /case "move": \{[^]*?oneAxis\(snapped, raw, e\.shiftKey && !drag\.alone\)[^]*?moveAll\(base, one\.d/);
+  assert.match(editor, /case "grid": \{[^]*?oneAxis\(snapped, raw, e\.shiftKey\)[^]*?d: one\.d/);
+  assert.equal(editor.match(/setDrag\(\{ kind: "move"/g)?.length, 1, "startMove makes every move drag");
+  assert.match(editor, /const startMove = [^]*?\.\.\.\(alone \? \{ alone: true as const \} : \{\}\)/);
+  // The copy key with Shift, pressed on the selection or in a selected group's frame, copies.
+  assert.match(editor, /function pressSelect[^]*?if \(\(!shift \|\| copy\) && \(selection\.size \|\| picked\.size\) && onSelection[^]*?if \(\(!shift \|\| copy\) && f && /);
+}
+console.log("snap.check: one axis ok");
+
