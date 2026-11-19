@@ -49,6 +49,7 @@ function pickGlyph(p: ArrowPick, id: string, c: Context): React.ReactNode {
     case "arrow.size": case "cycle.size": return <ArrowGlyph kind={id === "own" ? "reaction" : withSize(arrow === "block" ? "block" : "reaction", id as ArrowSize)} />;
     case "arrow.fill": return <FillGlyph fill={id as CurveFill} />;
     case "cycle.side.ends": return <SideGlyph ends={id as CycleSide["ends"]} />;
+    case "caption.places": return <span className="glyph-text">{id === "standard" ? "Std" : id}</span>;
     default: return id === "back" ? <span className="pick-turned"><ArrowGlyph kind="unbalanced" /></span> : <ArrowGlyph kind={id === "equal" ? "equilibrium" : "unbalanced"} />; // a step's balance
   }
 }
@@ -77,8 +78,8 @@ export type Context =
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   // risk: the lone group is the page's risk assessment.
-  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden" } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values: as a caption's
-  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden" } // values: live values among the text picked with it (⌘A), as a caption's
+  | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden"; places?: string } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values, places: as a caption's
+  | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden"; places?: string } // values, places: live values among the text picked with it (⌘A), as a caption's
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
   | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
@@ -86,8 +87,8 @@ export type Context =
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
       // cycleSide: one picked caption that labels a cycle's side arrow (CycleSide). cycleName: one picked caption that is
       // a step's name, moved from where Octet puts it. values: live values among them (Add to drawing), one showing its
-      // names or none.
-      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden" }
+      // names or none. places: the first one's decimals (Decimals), standard or 0 to 8.
+      cycleSide?: CycleSide; cycleName?: { moved: boolean }; values?: "shown" | "hidden"; places?: string }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; chart?: ChartLook; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };

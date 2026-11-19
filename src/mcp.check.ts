@@ -2933,11 +2933,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(t.text, "Formula: C2H6O\nMolecular weight: 46.07", "in the panel's order");
   assert.deepEqual(t.property, { attrs: { rows: "formula weight" }, atoms: fragments(m)[0] });
   assert.deepEqual(t.runs?.filter((r) => r.script === "sub").map((r) => r.text), ["2", "6"]);
-  // Without names, decimals 3: the values alone; a predicted value keeps its mark after the value.
+  // Without names, decimals 3 (on every number): the values alone; a predicted value keeps its mark after the value.
   o = await call("advanced", { tool: "add_values", args: { ids: [s[1]], rows: ["weight", "logp"], decimals: 3, names: false } });
   assert.ok(!o.isError, text(o));
   const u = m.captions!.at(-1)!, uid = `t${u.id}`;
-  assert.match(u.text, /^78\.114\n\d\.\d\d \(predicted\)$/);
+  assert.match(u.text, /^78\.114\n\d\.\d\d\d \(predicted\)$/);
   assert.deepEqual(u.property!.attrs, { rows: "weight logp -names", places: "3" });
   // read: the summary gives each structure's values, a full read each text's.
   const summary = (await call("read", {})).structuredContent;
@@ -2949,7 +2949,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   o = await call("change", { operations: [{ op: "edit", ids: [uid], names: true }] });
   assert.ok(!o.isError, text(o));
   const shown = m.captions!.find((c) => c.id === u.id)!;
-  assert.match(shown.text, /^Molecular weight: 78\.114\nlogP \(predicted\): \d\.\d\d$/);
+  assert.match(shown.text, /^Molecular weight: 78\.114\nlogP \(predicted\): \d\.\d\d\d$/);
   assert.deepEqual([shown.property!.attrs, shown.colour, shown.size, shown.angle, shown.font, shown.runs!.every((r) => r.bold)], [{ rows: "weight logp", places: "3" }, "#c42b2b", 14, 30, "Times New Roman", true]);
   assert.equal(steps.length, 1);
   // The same setting again changes no text.

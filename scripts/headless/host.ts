@@ -18,7 +18,7 @@ import { dictionaryCas, loadDictionary, nameList } from "../../src/dictionary.ts
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
-import { calculated, liveValues, nameValues, propertyValues, withCas } from "../../src/proprows.ts";
+import { calculated, liveValues, nameValues, placeValues, propertyValues, withCas } from "../../src/proprows.ts";
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
 import { followCharts, followLeaders, followLevels } from "../../src/pageplot.ts";
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
@@ -268,6 +268,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     set({ ...doc, fills: fills.length ? fills : undefined });
     return true;
   };
+  const rework = ({ mol, changed }: { mol: Mol; changed: Set<number> }) => { if (!changed.size) return false; set(liveValues(mol, (atoms, places) => host.values(mol, atoms, places, true), changed)); return true; };
   const COMMANDS: Record<string, () => boolean> = {
     undo: () => { const was = past.pop(); if (!was) return false; future.push(doc); doc = was; undid = true; return true; },
     redo: () => { const next = future.pop(); if (!next) return false; past.push(doc); doc = next; undid = true; return true; },
@@ -301,13 +302,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
     },
     "risk.update": () => { if (!riskGroup(doc)) return false; set(withSubstances(doc, riskList().map(({ inchi: _, ...x }) => x), sheet())); return true; },
     "risk.hazards": () => !!riskGroup(doc),
-    // Hide or show the picked live values' property names, their text worked out at once (as the editor's).
-    "caption.names": () => {
-      const { mol, changed } = nameValues(doc, new Set(picked.items));
-      if (!changed.size) return false;
-      set(liveValues(mol, (atoms, places) => host.values(mol, atoms, places, true), changed));
-      return true;
-    },
+    // Hide or show the picked live values' property names, or set their decimals, their text worked out at once (as
+    // the editor's).
+    "caption.names": () => rework(nameValues(doc, new Set(picked.items))),
+    ...Object.fromEntries(["standard", ..."012345678"].map((p) => [`caption.places.${p}`, () => rework(placeValues(doc, new Set(picked.items), p === "standard" ? undefined : Number(p)))])),
     "risk.remove": () => { const g = riskGroup(doc); if (!g) return false; set(deleteGraphics(doc, new Set(g.items))); return true; },
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };
