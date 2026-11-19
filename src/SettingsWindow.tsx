@@ -83,6 +83,9 @@ type Props = {
   onOnlineSearch: (on: boolean) => void;
   moreFormats: boolean; // File > More Formats is in the File menu
   onMoreFormats: (on: boolean) => void;
+  feedbackButton: boolean; // the round Feedback button shows
+  onFeedbackButton: (on: boolean) => void;
+  feedbackOff: boolean; // Octet started with OCTET_FEEDBACK=0, which hides the button whatever the switch says
   chemfigCompact: boolean; // chemfig code on one line (Copy as LaTeX, Export LaTeX)
   onChemfigCompact: (on: boolean) => void;
   // The selection's own settings (Pro > Selection, ChemDraw's Object Settings), while something is selected: a change
@@ -683,10 +686,12 @@ export function SettingsWindow(p: Props) {
       d("pro", "File menu", "More formats", "more formats rare file import export open save menu submenu extra", <Switch on={p.moreFormats} label="More formats" onChange={p.onMoreFormats} />),
       // On writes chemfig code on one line; off, an atom on each line with its branches indented. Only with More formats.
       ...(p.moreFormats ? [d("pro", "File menu", "Compact chemfig code", "compact chemfig latex tex code one line readable indent copy export", <Switch on={p.chemfigCompact} label="Compact chemfig code" onChange={p.onChemfigCompact} />)] : []),
+      // Off hides the round Feedback button in every window. OCTET_FEEDBACK=0 at launch hides it and holds this off.
+      d("pro", "Window", "Feedback button", "feedback button mail email send hide remove report", <Switch on={p.feedbackButton && !p.feedbackOff} label="Feedback button" disabled={p.feedbackOff} onChange={p.onFeedbackButton} />),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ].filter((x) => AI || x.module !== "ai");
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.feedbackButton, p.feedbackOff, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
