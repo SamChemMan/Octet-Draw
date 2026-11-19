@@ -77,7 +77,7 @@ export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen,
                           </span>
                         )}
                       </span>
-                      <span className="supplier-out" data-tip="Open in the browser"><ArrowSquareOut size={14} aria-hidden /></span>
+                      <span className="supplier-out" data-tip="Open in the browser"><ArrowSquareOut size={16} aria-hidden /></span>
                     </button>
                     <button className={on ? "supplier-star on" : "supplier-star"} aria-pressed={on} aria-label={`Favourite ${s.name}`} data-tip={on ? "Remove from favourites" : "Add to favourites"} onClick={() => onStar(s.name, !on)}>
                       <Star size={16} />

@@ -49,7 +49,8 @@ const Pictogram = ({ code }: { code: string }) => (
 export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, tab, onTab, online, finding, looked, onHazards, onOpen, onSettings }: Props) {
   const [calculated, hazards] = useMemo(() => {
     const [first = [], ...rest] = values, at = first.findIndex((r) => r.key === STRUCTURE_FROM);
-    const predicted = rest.slice(0, -1).flat();
+    // Every predicted row under the one Predicted heading, so a predicted value is never shown as a plain one.
+    const predicted = values.flat().filter((r) => r.predicted);
     const groups: [string, Row[]][] = [["Composition", at < 0 ? first : first.slice(0, at)], ["Structure", at < 0 ? [] : first.slice(at)], ["Predicted", predicted]];
     return [groups.filter(([, rows]) => rows.length), rest[rest.length - 1] ?? []];
   }, [values]);
@@ -76,20 +77,23 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
       </button>
     );
   };
-  const text = (row: Row) => row.values.map((v) => (v === undefined ? "–" : v)).join("; ");
+  const joined = (row: Row) => row.values.map((v) => (v === undefined ? "–" : v)).join("; ");
   // An m/z peak or an element's percentage never breaks inside itself: the line breaks only between them.
   const pieces = (t: string) => t.split(/(?<=[,;]) /).map((p, i) => <span key={i} className="prop-piece">{i > 0 && " "}{p}</span>);
   // A row on the Properties tab: its box, its name and its value, which copies the row. The formula's counts are drawn
   // as subscripts.
-  const valueRow = (row: Row) => (
-    <div key={row.key} className="prop-row">
-      {box(row)}
-      <span className="prop-name">{row.name}</span>
-      <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text(row)}`)}>
-        {row.key === "formula" ? text(row).replace(/\d/g, (d) => SUB[Number(d)]) : row.key === "mz" || row.key === "analysis" ? pieces(text(row)) : text(row)}
-      </button>
-    </div>
-  );
+  const valueRow = (row: Row) => {
+    const text = joined(row);
+    return (
+      <div key={row.key} className="prop-row">
+        {box(row)}
+        <span className="prop-name">{row.name}</span>
+        <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text}`)}>
+          {row.key === "formula" ? text.replace(/\d/g, (d) => SUB[Number(d)]) : row.key === "mz" || row.key === "analysis" ? pieces(text) : text}
+        </button>
+      </div>
+    );
+  };
   // The Hazards tab's rows, each with its name over its value. The pictograms are drawn; each structure's statements
   // go one to a line (from its own value, as a statement can hold a semicolon: H360FD); a CID opens PubChem.
   const hazardValue = (row: Row) => {
@@ -97,7 +101,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     if (row.key === "hazards") return row.values.map((one = "–", k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>);
     if (row.key === "precautions") return row.values.map((one = "–", k) => <span key={k} className="prop-codes">{one.split(", ").map((c, i) => <span key={i}>{c}</span>)}</span>);
     if (row.key === "signal") return row.values.map((one = "–", k) => <span key={k} className="prop-signal">{one}</span>);
-    return text(row);
+    return joined(row);
   };
   const source = hazards.find((r) => r.key === "ghs-source"), shown = hazards.filter((r) => r.key !== "ghs-source");
   return (
@@ -126,7 +130,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
                   {row.key === "cid" ? (
                     <span className="prop-links">{row.values.map((v, k) => (v ? <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button> : <span key={k}>–</span>))}</span>
                   ) : (
-                    <button className="prop-value" data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text(row)}`)}>{hazardValue(row)}</button>
+                    <button className="prop-value" data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${joined(row)}`)}>{hazardValue(row)}</button>
                   )}
                 </div>
               ))}
