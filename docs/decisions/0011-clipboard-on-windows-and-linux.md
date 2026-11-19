@@ -54,7 +54,7 @@ while Settings > Import and export > Copy > Office object is on (the default), a
 registered for the user. Every format in the table above stays, in its order, after the object. Paste reads Octet's
 own object after Octet's JSON. The Mac and Linux are not changed. Since 1.1.3 the EMF on Windows also holds the
 picture as EMF+ records, with the object or without it, and so does Export as EMF. Word draws EMF+ anti-aliased
-(issues 166 and 167, decision 0023). The Mac's EMF for Office is GDI only, as before. Text in a right-to-left script
+(issues 166 and 167, decision 0023). The Mac's EMF for Office and a LibreOffice object's picture are GDI only, as before. Text in a right-to-left script
 is outlines in every EMF.
 
 ## Office's copy of the picture on the Mac (12 November 2026, release 1.1.2)
