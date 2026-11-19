@@ -2419,7 +2419,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
   // (Not drawings new and use: they report no change, as they run outside the page's queue, plan 17.5.)
-  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 24);
+  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 25);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
   assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
   // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a
