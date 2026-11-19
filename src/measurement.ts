@@ -197,11 +197,12 @@ function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, 
     const side = score > 0 ? -1 : score < 0 ? 1 : f.v[1] > 1e-9 || (Math.abs(f.v[1]) <= 1e-9 && f.v[0] < 0) ? 1 : -1;
     ways = [mul(f.v, side), mul(f.v, -side)].map((d) => ({ d, from: GAP + reach(d) }));
   }
-  // How much is in the way at a place: counted only as far as the fewest found so far.
+  // How much is in the way at a place: counted only as far as the fewest found so far. Another measurement's label
+  // counts within GAP of it, so two labels never touch and read as one.
   const hits = (c: P) => {
     const bx: Box = [c[0] - w / 2, c[1] - h / 2, c[0] + w / 2, c[1] + h / 2];
     let n = 0;
-    for (const t of taken) if (t[0] < bx[2] && t[2] > bx[0] && t[1] < bx[3] && t[3] > bx[1] && (n += 2) >= fewest) return n;
+    for (const t of taken) if (t[0] - GAP < bx[2] && t[2] + GAP > bx[0] && t[1] - GAP < bx[3] && t[3] + GAP > bx[1] && (n += 2) >= fewest) return n;
     return n + space.count(bx, fewest - n);
   };
   // An angle tries inside first, a little way, before outside; a line takes its two sides in turn.

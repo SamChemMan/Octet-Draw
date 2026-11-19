@@ -1091,8 +1091,9 @@ export default function Editor() {
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
     const env = plotEnv();
     mol = keepPlace(doc, settleHydrogens(opened ? mol : followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
-    // Measurements follow their atoms (measurement.ts), once the multi-centre points are where their atoms are.
-    const fitted = settleMeasures(doc, placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol)));
+    // Measurements follow their atoms (measurement.ts), once the multi-centre points are where their atoms are. A
+    // drawing opened keeps its labels where the file has them.
+    const fitted = settleMeasures(opened ? undefined : doc, placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol)), undefined, opened);
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
     // page (experiment.ts syncDetails).

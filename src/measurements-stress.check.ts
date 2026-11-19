@@ -204,4 +204,41 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ato
   console.log("measurements-stress: S38 ok");
 }
 
+// S19 in a window: a drawing opened over another (the editor's set with opened) settles with no drawing before and
+// its labels kept. A caption id and atoms the window's drawing had too do not count as the label moved by hand, and
+// a label away from its automatic place stays where the file has it.
+{
+  const window = made(addMeasure(clean3d(chain(5), [0, 1, 2, 3, 4]), [0, 3])).mol, c = measures(window)[0];
+  const file: Mol = { ...window, atoms: window.atoms.map((a) => ({ ...a })), captions: [{ ...c, x: c.x + 1.3, y: c.y + 0.9 }] };
+  assert.equal(settleMeasures(undefined, file, undefined, true), file, "opened: the file's labels and values as they are");
+  const stale: Mol = { ...file, captions: [{ ...file.captions![0], text: "9.99 Å" }] }, back = settleMeasures(undefined, stale, undefined, true);
+  assert.equal(back.captions![0].text, c.text, "opened: a value the file has wrong is worked out again");
+  assert.deepEqual([back.captions![0].x, back.captions![0].y, back.captions![0].measure!.at], [file.captions![0].x, file.captions![0].y, undefined], "and its label stays");
+  console.log("measurements-stress: S19 opened ok");
+}
+
+// Labels apart: on 3-methylpentane, a distance (the methyl to an end) and then the angle at the next carbon, as made
+// in the dev server. The automatic places keep the two labels a gap apart (0.2 bond lengths), so they never read as
+// one line of text; the same holds for a measurement of each kind on one chain.
+{
+  const { widthOf } = await import("./arial.ts");
+  const style = DEFAULT_STYLE, size = style.captionSize / style.bond, h = (ASCENT + DESCENT) * size;
+  const boxOf = (c: Caption) => { const w = widthOf(c.text, size), y = c.y + ((ASCENT - DESCENT) / 2) * size; return [c.x - w / 2, y - h / 2, c.x + w / 2, y + h / 2]; };
+  const apart = (m: Mol, what: string) => {
+    const bs = measures(m).map(boxOf);
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+      const [a, b] = [bs[i], bs[j]], gap = Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3]);
+      assert.ok(gap >= 0.2 - 1e-6, `${what}: labels ${measures(m)[i].text} and ${measures(m)[j].text} ${gap.toFixed(2)} apart`);
+    }
+  };
+  const branched: Mol = { atoms: [C(0, 0), C(0.866, 0.5), C(1.732, 0), C(1.732, -1), C(2.598, 0.5), C(3.464, 0)], bonds: [[0, 1], [1, 2], [2, 3], [2, 4], [4, 5]].map(([a, b]) => ({ type: 1, atoms: [a, b] as [number, number] })) };
+  let m = made(addMeasure(branched, [3, 5])).mol;
+  m = made(addMeasure(m, [0, 1, 2])).mol;
+  apart(m, "3-methylpentane");
+  let n = clean3d(chain(6), [0, 1, 2, 3, 4, 5]);
+  for (const atoms of [[0, 2], [1, 2, 3], [0, 1, 2, 3], [2, 3, 4], [3, 5]]) n = made(addMeasure(n, atoms)).mol;
+  apart(n, "hexane, five measurements");
+  console.log("measurements-stress: labels apart ok");
+}
+
 console.log("measurements-stress.check: every case ok");
