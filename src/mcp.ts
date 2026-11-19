@@ -2627,7 +2627,7 @@ function addFreeSymbol(host: Host, a: ShapeIn & { around?: string[]; box?: numbe
   if (a.charge === 0) return { text: "A free charge cannot be 0. Give -8 to 8, not 0.", error: true };
   const style = host.style(), size = (a.size ?? 0.75 * style.labelSize) / style.bond, signed = a.charge !== undefined || a.circled !== undefined, unfit: string[] = [];
   let kind = a.symbol ?? "plus", count: number | undefined;
-  if (signed && !isChargeKind(kind)) unfit.push(`${["charge", "circled"].filter((k) => a[k as "charge" | "circled"] !== undefined).join(", ")} (a radical or lone pair takes no charge)`);
+  if (signed && !isChargeKind(kind)) unfit.push(`${["charge", "circled"].filter((k) => a[k as "charge" | "circled"] !== undefined).join(", ")} (a radical, lone pair or partial charge takes no charge)`);
   else if (signed) ({ symbol: kind, count } = chargeKind(a.charge ?? (kind === "plus" || kind === "circledPlus" ? 1 : -1), a.circled ?? (a.symbol ? kind.startsWith("circled") : !!style.circled)));
   let sh = freeSymbol(kind, [0, 0], size, count);
   if (a.box) {

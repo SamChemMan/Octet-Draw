@@ -460,10 +460,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         // atom to that atom when it opens the file (the atom's Charge changes), and in a group it stays free. A charge of
         // 2 to 8 has its number as plain text in the group, just left of the sign (outside a ring), the symbol standing
         // for it (as ChemDraw 22.2 links the two when it saves), so ChemDraw shows 2⊕ and moves the two as one, and
-        // Octet 1.1.2 shows it as a caption. Such a group reads back as one free charge (readChargeGroup).
+        // Octet 1.1.2 shows it as a caption. Such a group reads back as one free charge (readChargeGroup). The digit is
+        // plain text (InterpretChemically no), so ChemDraw gives it no chemical warning.
         const n = String(Math.abs(q)), w = widthOf(n, size), gap = (kind === "plus" || kind === "minus" ? 0.25 + DIGIT / 2 : 0.6) * size + (kind === "plus" || kind === "minus" ? 0 : w / 2);
         const mid: P = [o[0] - d[0] * gap, o[1] - d[1] * gap], tid = sh.count ? fresh() : undefined, base = mid[1] + 0.358 * size, left = mid[0] - w / 2;
-        const digit = tid === undefined ? "" : el("t", { id: tid, p: pt([left, base]), BoundingBox: boxText([left, base - 0.716 * size, left + w, base]), Z: Z(), color: ink, LineHeight: "auto" }, run(n, { font: style.labelFont, size, colour: sh.colour, face: 0 }));
+        const digit = tid === undefined ? "" : el("t", { id: tid, p: pt([left, base]), BoundingBox: boxText([left, base - 0.716 * size, left + w, base]), Z: Z(), color: ink, LineHeight: "auto", InterpretChemically: "no" }, run(n, { font: style.labelFont, size, colour: sh.colour, face: 0 }));
         const all: Box = tid === undefined ? box : [Math.min(box[0], left), Math.min(box[1], base - 0.716 * size), Math.max(box[2], left + w), Math.max(box[3], base)];
         put(el("group", { id: fresh(), BoundingBox: boxText(all), Z: Z(), Integral: "yes" }, digit + graphic(tid)), 3, all, sh.id);
       }

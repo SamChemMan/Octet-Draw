@@ -8425,7 +8425,8 @@ export default function Editor() {
         // map, table, picture or free symbol picked with the shape keeps its kind: its data is no box's or oval's.
         return each((x) => (turns(x) && x.kind !== "symbol" ? { kind: arg as ShapeKind, ...((x.kind === "highlight") !== (arg === "highlight") ? { colour: undefined } : {}) } : {}));
       }
-      if (what === "dashed") return each((x) => ({ dashed: !x.dashed || undefined }));
+      // (A free symbol is its ink: no line style, side or mark of a box or brackets goes on it.)
+      if (what === "dashed") return each((x) => (x.kind === "symbol" ? {} : { dashed: !x.dashed || undefined }));
       // A free symbol's kind: the new one at the same size, in the same place. A free charge keeps its number (2+ to
       // Negative charge gives 2−); a radical or lone pair has none.
       if (what === "symbol" && (FREE_SYMBOLS as string[]).includes(arg)) return each((x) => (x.kind === "symbol" ? reKind(x, arg as FreeSymbol, x.count) : {}));
@@ -8478,9 +8479,9 @@ export default function Editor() {
       if (what === "fit") return each((x) => fitTable(x, cellWidth(x), style.captionSize));
       // One style at a time: plain, dashed, shaded, filled or with a shadow (not on a free symbol, which is its ink).
       if (what === "style") return each((x) => (x.kind === "symbol" ? {} : { dashed: arg === "dashed" || undefined, fill: arg === "shaded" || arg === "solid" || arg === "faded" ? arg : undefined, shadow: arg === "shadow" || undefined }));
-      if (what === "boldline") return each((x) => ({ boldLine: !x.boldLine || undefined }));
-      if (what === "side") return each(() => ({ side: arg === "both" ? undefined : (arg as "left" | "right") }));
-      if (what === "mark") return each((x) => ({ mark: x.mark === arg ? undefined : arg }));
+      if (what === "boldline") return each((x) => (x.kind === "symbol" ? {} : { boldLine: !x.boldLine || undefined }));
+      if (what === "side") return each((x) => (x.kind === "symbol" ? {} : { side: arg === "both" ? undefined : (arg as "left" | "right") }));
+      if (what === "mark") return each((x) => (x.kind === "symbol" ? {} : { mark: x.mark === arg ? undefined : arg }));
       if (what === "colour") return each(() => ({ colour: arg.toLowerCase() === "#000000" ? undefined : arg }));
       if (what === "front" || what === "back") return restack(what === "front");
     }
@@ -8830,6 +8831,10 @@ export default function Editor() {
       if (on) return set(updateShape(doc, on.id, reKind(on, free, on.count)));
       // A click on other text, an arrow or a shape only picks it (the press did), as before.
       if (t.caption !== undefined || t.arrow !== undefined) return;
+      // A charge clicked on an atom's charge sign adds to that atom, as a click on the atom does: a free charge on top of
+      // the sign would look the same and count in nothing (issue 60).
+      const sign = /^(plus|minus|circledPlus|circledMinus)$/.test(symbolKind) ? markNear(drawing.electrons, doc, at, L) : undefined;
+      if (sign?.mark === "charge") return set(addSymbol(doc, sign.atom, symbolKind));
       // It is not picked, as ChemDraw leaves it, so the next click places another.
       return set(addShape(doc, freeSymbol(free, at, (0.75 * style.labelSize) / style.bond))[0]);
     }

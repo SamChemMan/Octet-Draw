@@ -121,6 +121,20 @@ console.log("freecharge.check: stepping and Circle the charge ok");
   assert.match(actions, /if \(context\.charges\) items\.push\(it\(<PlusCircle size=\{18\} \/>, "Add a positive charge", "charge\.plus"\), it\(<MinusCircle size=\{18\} \/>, "Add a negative charge", "charge\.minus"\),/);
   assert.match(editor, /reKind\(x, arg as FreeSymbol, x\.count\)/);
   assert.match(editor, /charges: chargesOf\(doc, \[\], picked\)/);
+  // A charge clicked on an atom's charge sign (outside the atom's own hit) adds to that atom, as on the atom: the click
+  // finds the sign with markNear, as Select does. The sign of a carbocation, a circled N+ and an O− is found there.
+  assert.match(editor, /const sign = \/\^\(plus\|minus\|circledPlus\|circledMinus\)\$\/\.test\(symbolKind\) \? markNear\(drawing\.electrons, doc, at, L\) : undefined;\s*if \(sign\?\.mark === "charge"\) return set\(addSymbol\(doc, sign\.atom, symbolKind\)\);/);
+  const { render } = await import("./render.ts"), { addSymbol, markNear } = await import("./edit.ts");
+  const fs = frameStyle(S, (S.bond * 4) / 3), L = fs.bond, ms = (t: string) => ({ width: 0.556 * fs.size * t.length, ascent: 0.716 * fs.size, outline: [] as P[] });
+  for (const a of [{ label: "C", charge: 1 }, { label: "N", charge: 1, circled: true as const }, { label: "O", charge: -1 }]) {
+    const m: Mol = { atoms: [{ ...a, location: [0, 0, 0] }, { label: "C", location: [1, 0, 0] }], bonds: [{ atoms: [0, 1], order: 1 }] as Mol["bonds"] };
+    const e = render(m, fs, ms, L).electrons.find((x) => x.atom === 0 && x.key === "charge")!, at: P = [e.at[0] / L, -e.at[1] / L];
+    assert.deepEqual(markNear(render(m, fs, ms, L).electrons, m, at, L), { atom: 0, mark: "charge" }, a.label);
+    assert.equal(addSymbol(m, 0, a.charge > 0 ? "plus" : "minus").atoms[0].charge, 2 * a.charge, a.label);
+  }
+  // A box's line style, side and mark (shape.style, dashed, boldline, side, mark) leave a free symbol picked with it as
+  // it is.
+  for (const what of ["style", "dashed", "boldline", "side", "mark"]) assert.match(editor, new RegExp(`if \\(what === "${what}"\\) return each\\(\\(x\\) => \\(x\\.kind === "symbol" \\? \\{\\} :`), what);
 }
 console.log("freecharge.check: the Symbols tool, keys and Actions ok");
 
@@ -360,7 +374,7 @@ console.log("freecharge.check: chemistry ok");
   refused(await change({ op: "edit", ids: [ids[0], ids[1]], colour: "#C42B2B", charge: 0 }), /cannot be 0/);
   refused(await call("advanced", { tool: "set_style", args: { circled_charges: "yes" } }), /circled_charges/);
   assert.equal(serialize(m), before, "nothing half done");
-  assert.match(fine(await change({ op: "shape", kind: "symbol", symbol: "radical", charge: 2, at: [0, 5] })), /Not drawn: charge \(a radical or lone pair takes no charge\)/);
+  assert.match(fine(await change({ op: "shape", kind: "symbol", symbol: "radical", charge: 2, at: [0, 5] })), /Not drawn: charge \(a radical, lone pair or partial charge takes no charge\)/);
   assert.equal(last().symbol, "radical");
   fine(await change({ op: "shape", kind: "box", box: [20, 0, 21, 1] }));
   const box = `b${last().id}`, radical = `b${m.shapes!.at(-2)!.id}`;
