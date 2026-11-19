@@ -13,7 +13,8 @@ import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch, TextField } from "./Fields";
 import { CHANGED_BY, MAX_COMMENT, PROPERTIES, changedBy, detailsOf, withDetails } from "./experiment";
-import type { Annotation } from "./render";
+import { GAP_ARROW_PT, type Annotation } from "./render";
+import { MAX_GAP, readGap } from "./conditions";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
 import { EXPORT_FORMATS, PICTURES, copyToClipboard, type ExportFormat } from "./export";
@@ -551,6 +552,10 @@ export function SettingsWindow(p: Props) {
       d("drawing", "Stereochemistry", "Hide abs flags", "hide absolute stereo flags enhanced stereochemistry abs", <Switch on={p.drawing.hideAbs} label="Hide abs flags" onChange={(on) => p.onDrawing({ hideAbs: on })} />),
       d("document", "Text", "Captions", "caption text font typeface", <FontPick label="Caption font" font={style.captionFont} fonts={FONTS} onPick={(v) => change({ captionFont: v })} className="select-field" />),
       num("captionSize", "Caption size", "pt", "caption text font size", "Text"),
+      // The space between a reaction arrow and its conditions (0 to 100 pt). ChemDraw has no such setting.
+      d("document", "Text", "Conditions gap", "conditions gap arrow reaction reagents text space distance above below", (
+        <NumberField label="Conditions gap" unit="pt" lazy min={0} max={MAX_GAP} step={0.5} value={style.arrowGap ?? GAP_ARROW_PT} onChange={(n) => { const g = readGap(n); if (g !== undefined) change({ arrowGap: g === GAP_ARROW_PT ? undefined : g }); }} />
+      )),
       // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions): captions that read as
       // chemistry (Rh, CH3OH) count in the formula, names and warnings, and bonds join them.
       d("document", "Text", "Interpret chemically", "interpret chemically when possible captions text chemistry formula mass analysis bonds valence", <Switch on={style.interpret} label="Interpret chemically" onChange={(on) => change({ interpret: on })} />),

@@ -473,6 +473,7 @@ export type Layout = {
   captionBox: (id: number) => Box | undefined; // a caption's box as drawn now
   plusBox: Box; // a new plus sign's box, about its point
   captionPt: number; bondPt: number; // the document's caption size and bond length (pt), for text kept on arrows
+  arrowGap?: number; // the document's space between an arrow and its conditions (pt; unset GAP_ARROW_PT)
 };
 
 // Clean Up Reaction, as ChemDraw 26.1's (its help, and its ReactionNeatener):
@@ -546,8 +547,9 @@ export function cleanUpReaction(m: Mol, r: Reaction, arrows: Arrow[], o: Layout,
     out = { ...out, captions: out.captions?.map((c) => (give.has(c.id) ? { ...give.get(c.id)!, id: c.id } : c)) };
   }
   const kept = (id: number, side: "above" | "below") => (out.captions ?? []).filter((c) => c.on?.arrow === id && c.on.side === side);
-  // How far text kept on an arrow reaches from it, as the renderer stacks it (render.ts placeCaptions).
-  const block = (cs: Caption[]) => (cs.length ? (GAP_ARROW_PT + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
+  // How far text kept on an arrow reaches from it, as the renderer stacks it (render.ts placeCaptions): from the
+  // largest gap on the side.
+  const block = (cs: Caption[]) => (cs.length ? (Math.max(...cs.map((c) => c.on?.gap ?? o.arrowGap ?? GAP_ARROW_PT)) + cs.reduce((s, c) => s + (c.text.split("\n").length * LINE + 0.2) * (c.size ?? o.captionPt), 0)) / o.bondPt : 0);
   // The widest text kept on an arrow across the page (beside an arrow down the page, text does not set its length).
   const textWidth = (cs: Caption[]) => (flat ? Math.max(0, ...cs.map((c) => { const b = o.captionBox(c.id); return b ? b[2] - b[0] : 0; })) : 0);
 
