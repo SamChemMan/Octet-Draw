@@ -493,6 +493,10 @@ export function SettingsWindow(p: Props) {
 
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
   const files = p.files, setFiles = (patch: Partial<FilePrefs>) => p.onFiles({ ...files, ...patch });
+  // The drawing as it is when a property is set: the memo below keeps its controls while the annotations stay the same,
+  // so a change to the drawing in that time (a live value, an AI app) is not undone by an old callback.
+  const onAnnotations = useRef(p.onAnnotations);
+  onAnnotations.current = p.onAnnotations;
 
   const defs: Def[] = useMemo(() => {
     const d = (module: ModuleId, section: string, label: string, keywords: string, control: React.ReactNode, wide?: boolean): Def => ({ module, section, label, keywords, control, wide });
@@ -572,7 +576,7 @@ export function SettingsWindow(p: Props) {
       ...(p.template ? [] : PROPERTIES.map(([k, keyword]) => [k, k === "comment" ? "Comment" : keyword] as const).map(([k, name]) => d("document", "Properties", name, `document properties ${name} metadata pdf file info creator name tags${k === "comment" ? " description notes subject remarks" : ""}`, (
         <TextField label={name} value={properties[k] ?? ""} {...(k === "comment" ? { lines: 4, max: MAX_COMMENT } : {})} onChange={(v) => {
           const next = withDetails(p.annotations, { ...properties, [k]: v }, PROPERTIES);
-          if (JSON.stringify(next) !== JSON.stringify(p.annotations)) p.onAnnotations(next);
+          if (JSON.stringify(next) !== JSON.stringify(p.annotations)) onAnnotations.current(next);
         }} />
       ), k === "comment"))),
       d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
