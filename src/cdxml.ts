@@ -13,13 +13,14 @@ import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle 
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, symbolCharge, signOf, isChargeKind, reKind, DIGIT, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
-  type Annotation, type Arrow, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
+  type Annotation, type Arrow, type ArrowEnd, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
 import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
 import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
+import { readTie, retie, tieable } from "./arrowlink.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub } from "./render.ts";
@@ -612,6 +613,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
 
   // Structures: one fragment per connected set of atoms, its nodes, bonds and the symbols drawn on its atoms.
   const nodeId = new Map<number, number>(), bondId = mol.bonds.map(() => 0), fragId = new Map<number, number>();
+  // Each lone pair's and radical dot's symbol id, by its atom and the renderer's key ("3 pair0"), for a curved arrow tied
+  // to it (ArrowSource, ArrowTarget).
+  const markId = new Map<string, number>();
   const nbrs: number[][] = mol.atoms.map(() => []), bondsAt: number[][] = mol.atoms.map(() => []);
   // Labels whose bonds say which of their kept atoms each joins (a residue label, sequence.ts): written as ChemDraw
   // writes a monomer, a connection point inside for each bond (ExternalConnectionNum) and that number on the bond.
@@ -989,9 +993,10 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
     // A radical ion's symbol is level, its two points half a symbol's size apart about its middle, as ChemDraw draws
     // one with a click. A charge's symbol takes the charge's own size (the length of its box) and colour (Atom.sign).
-    const symbol = (c: P, type: string, represent: string[]) => {
-      const own = represent[0] === "Charge" ? a.sign : undefined, z = size * (own?.size ?? 1);
-      return el("graphic", { id: fresh(), BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - z / 4, c[1]])} ${pt([c[0] + z / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - z, c[1]])}`,
+    const symbol = (c: P, type: string, represent: string[], key?: string) => {
+      const own = represent[0] === "Charge" ? a.sign : undefined, z = size * (own?.size ?? 1), id = fresh();
+      if (key) markId.set(`${i} ${key}`, id);
+      return el("graphic", { id, BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - z / 4, c[1]])} ${pt([c[0] + z / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - z, c[1]])}`,
         Z: Z(), color: colour(own?.colour ?? a.colour), GraphicType: "Symbol", SymbolType: type }, represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
     };
     // A radical ion (render.ts) is one symbol, ChemDraw's Radical Cation or Radical Anion, for its charge and radical: on a
@@ -1022,9 +1027,16 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     let next = 0;
     for (const g of gaps) for (let k = 0; k < g.n; k++) angles[free[next++]] = g.start + (g.size * (k + 1)) / (g.n + 1);
     const r = 0.5 * B * scaleOf(a);
-    return sign + list.map(([type, represent], k) => symbol([X[0] + r * Math.cos(angles[k]!), X[1] + r * Math.sin(angles[k]!)], type, represent)).join("");
+    return sign + list.map(([type, represent], k) => symbol([X[0] + r * Math.cos(angles[k]!), X[1] + r * Math.sin(angles[k]!)], type, represent, keys[k])).join("");
   }
 
+  // A tie's object id (arrowlink.ts), when the file has it and it fits ChemDraw's 16-bit ArrowSource and ArrowTarget.
+  const tieId = (on?: ArrowEnd) => {
+    if (!on) return undefined;
+    const k = "bond" in on ? mol.bonds.findIndex((b) => (b.atoms[0] === on.bond[0] && b.atoms[1] === on.bond[1]) || (b.atoms[0] === on.bond[1] && b.atoms[1] === on.bond[0])) : -1;
+    const id = "bond" in on ? (k >= 0 ? bondId[k] : undefined) : on.pair ? markId.get(`${on.atom} ${on.pair}`) : nodeId.get(on.atom);
+    return id !== undefined && id > 0 && id < 32768 ? id : undefined;
+  };
   // Arrows: each written twice, as ChemDraw 22 does (spec 11): the arrow, and a legacy line or arc graphic that
   // points at it with SupersededBy. Curved arrows store their circle as a frame and a signed sweep (spec 10.2).
   const legacyOf = new Map<number, number>();
@@ -1074,6 +1086,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       id, BoundingBox: boxText(box), Z: z, color: c, LineType: lineType, FillType: fill === "solid" ? "Solid" : fill ? "Shaded" : "None", ArrowheadHead: head, ArrowheadTail: tail, ArrowheadType: type, ...lines,
       HeadSize: sizes[0], ArrowheadCenterSize: sizes[1], ArrowheadWidth: sizes[2], ArrowShaftSpacing: spacing, ArrowEquilibriumRatio: a.kind === "equilibrium" && a.ratio && a.ratio !== 1 ? Math.round(a.ratio * 100) : undefined,
       NoGo: nogo, Dipole: a.kind === "dipole" ? "yes" : undefined, AngularSize: angular === undefined ? undefined : fmtAngle(angular),
+      // What a curved arrow's tail and head are tied to, as ChemDraw ties them: the node, bond or electron symbol's id.
+      ...(derived ? {} : { ArrowSource: tieId(a.fromOn), ArrowTarget: tieId(a.toOn) }),
       Head3D: pt3(T), Tail3D: pt3(S), ...frame, Octet: derived ? tag : priv({ kind: kind === a.kind ? undefined : a.kind, style: a.style === "doubled" ? "doubled" : undefined, bend: arc ? a.bend : undefined, point: a.point, fill: fill === "faded" ? "faded" : undefined, grid: gridOf(a.id), scale: ownScale(a), role: a.role }),
     }, notes(own)), 6, box, item);
   };
@@ -1288,7 +1302,7 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
   const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) }));
   const fills = (m.fills ?? []).filter((f) => f.atoms.every((i) => map.has(i))).map((f) => ({ ...f, atoms: keep(f.atoms) }));
-  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)).map((a) => renumberCentre(a, map)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows, shapes, cycles, groups, ...(fills.length ? { fills } : {}) });
+  return tidyGroups({ atoms: m.atoms.filter((_, i) => map.has(i)).map((a) => renumberCentre(a, map)), bonds: m.bonds.filter((b) => map.has(b.atoms[0]) && map.has(b.atoms[1])).map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions, arrows: retie(arrows, (i) => map.get(i)), shapes, cycles, groups, ...(fills.length ? { fills } : {}) });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1536,6 +1550,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   let nextId = octet ? maxId + 1 : 1;
   // madeFrom: each id given for an element, so an object's notes are read from the element it came from.
   const madeFrom = new Map<number, Xml>();
+  // Each lone pair's and radical dot's symbol, by its id: its atom and the renderer's key (for tied arrows).
+  const markOf = new Map<number, { atom: number; pair: string }>();
   const newId = (x?: Xml) => {
     const id = x && octet ? int(x.attrs.id) : undefined;
     if (id !== undefined && id > 0 && id < 2 ** 31 && !taken.has(id)) { taken.add(id); if (x) madeFrom.set(id, x); return id; }
@@ -2658,7 +2674,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         if (unpaired && !a.radical) a.radical = 1;
         // A radical ion's symbol is its charge and electron together, drawn as one unit (render.ts): its middle is
         // the charge's place.
-        if (type === "Electron") { const n = electrons.get(linked) ?? 0; electrons.set(linked, n + 1); if (n < 2) place(a, `radical${n}`); }
+        if (type === "Electron") { const n = electrons.get(linked) ?? 0; electrons.set(linked, n + 1); if (n < 2) { place(a, `radical${n}`); markOf.set(int(x.attrs.id) ?? -1, { atom: linked, pair: `radical${n}` }); } }
         else if (sign && !unpaired) place(a, "charge");
         else if (sign) { const ends = reals(x.attrs.BoundingBox, 4); place(a, "charge", ends ? toOctet((ends[0] + ends[2]) / 2, (ends[1] + ends[3]) / 2) : c); }
         if (sign && !octet) ownSign(a, x, type.startsWith("Radical"));
@@ -2667,6 +2683,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (linked !== undefined && type.startsWith("LonePair") && mol.atoms[linked].radical === 3 && x.kids.some((k) => k.name === "represent" && k.attrs.attribute === "Radical")) {
         if (type === "LonePairBar") mol.atoms[linked].bars = true;
         place(mol.atoms[linked], "pair0");
+        markOf.set(int(x.attrs.id) ?? -1, { atom: linked, pair: "pair0" });
         continue;
       }
       const kind = FREE_OF.get(type);
@@ -2680,7 +2697,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         a.pairs = Math.min(4, (a.pairs ?? 0) + 1);
         if (type === "LonePairBar") a.bars = true;
         // A ChemDraw file's lone pairs stay where it put them round the atom.
-        if (/^pair[0-3]$/.test(key)) place(a, key);
+        if (/^pair[0-3]$/.test(key)) { place(a, key); markOf.set(int(x.attrs.id) ?? -1, { atom: i, pair: key }); }
         continue;
       }
       const text = SYMBOL_TEXT[type];
@@ -2733,6 +2750,20 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   readDelocalised();
   readLigands();
   readSymbols();
+  // Curved arrows tied to a node, a bond or an electron symbol (ArrowSource at the tail, ArrowTarget at the head).
+  for (const a of arrows) {
+    const x = madeFrom.get(a.id);
+    if (!x || !tieable(a)) continue;
+    const tie = (v?: string) => {
+      const id = int(v);
+      if (id === undefined) return undefined;
+      const k = bondIds.indexOf(id), b = k >= 0 ? mol.bonds[k] : undefined;
+      return readTie(atomOf.has(id) ? { atom: atomOf.get(id) } : markOf.get(id) ?? (b ? { bond: b.atoms } : undefined), mol.atoms.length);
+    };
+    const from = tie(x.attrs.ArrowSource), to = tie(x.attrs.ArrowTarget);
+    if (from) a.fromOn = from;
+    if (to) a.toOn = to;
+  }
   readBrackets();
   readSteps();
   readKept();
@@ -2813,6 +2844,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     mol.bonds = mol.bonds.map((b, k) => [b, bondIds[k]] as const).sort((p, q) => p[1] - q[1]).map(([b]) => ({ ...b, atoms: [ix(b.atoms[0]), ix(b.atoms[1])] }));
     mol.atoms = order.map((i) => renumberCentre(mol.atoms[i], ix));
     for (const c of captions) if (c.under) c.under = c.under.map(ix);
+    const tied = retie(arrows, ix);
+    if (tied) arrows.splice(0, arrows.length, ...tied);
     for (const c of cycles) { c.nodes = c.nodes.map((n) => n.map(ix)); if (c.sides) c.sides = c.sides.map((s) => ({ ...s, atoms: s.atoms.map(ix) })); Object.assign(c, mapBranches(c, ix)); }
     for (const c of captions) if (c.property) c.property.atoms = c.property.atoms.map(ix);
   }
