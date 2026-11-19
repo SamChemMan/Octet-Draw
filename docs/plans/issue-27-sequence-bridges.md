@@ -471,3 +471,19 @@ by opening a file.
 - **Three or more chains in one structure** (J3) are read as two, the third as part of a residue written as its own
   SMILES: the HELM is the same compound.
 
+
+## 16. The last 1.1.3 asks (19 November 2026)
+
+- **FASTA with no ">" line.** A paste that no name or SMILES reads, and that is only residue letters over one line or
+  more, opens the field as a FASTA record does: bases (A, C, G, T, U, either case) as DNA or RNA, else the 20 amino
+  acids in capitals as a peptide. Anything else (a lower-case protein, X or O, digits, dashes, one letter) is not read,
+  so the paste says what it said before. A header still reads as it did.
+- **How long a chain draws in full** is set by the builder's 1,000 atoms only. The 60 and 30 caps of 1.1.2 are gone
+  from every path (the field, a paste, Name to Structure on a text or label, an AI app). The longest that fit: 249 Gly,
+  52 dC, 50 rC or rU; any chain of 71 amino acids, 45 DNA or 43 RNA nucleotides (Trp, dG, rG are the largest). One
+  more says "Up to 1,000 atoms. Choose Residue labels." A phosphate is no residue, so 1,000 nucleotides draw as residue
+  labels. "peptide:" text is built without OPSIN.
+- **Expand Label on every residue label of a chain** lays it out along the straight backbone at the labels' scale
+  (chem.ts chainsDrawnOut), as Sequences > Atoms draws it, in the same undo step. A chain with a label left keeps its
+  places.
+- Stress cases N34 to N36.
