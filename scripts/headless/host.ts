@@ -22,7 +22,8 @@ import { calculated, liveValues, nameValues, propertyValues, withCas } from "../
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
 import { followCharts, followLeaders, followLevels } from "../../src/pageplot.ts";
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
-import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
+import { interpret, turnScheme, type Part, type RoleStep } from "../../src/interpret.ts";
+import { elnRecords } from "../../src/eln.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
@@ -197,31 +198,39 @@ export function drawing(purpose = "paper", title = "Untitled") {
     return { ...out, cycles: out.cycles?.map((x) => (x.id === c.id ? { ...x, radius, at: even } : x)) };
   };
   // Each reagent table as the editor lays it out (gridview.ts), as the editor's Host gives it.
-  const tables = () => {
-    const m = doc, d = drawn(m), s = style();
+  const viewsOf = (m: Mol) => {
+    const d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
       structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)), reagent,
       captionBox: d.captionBox,
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
-    }).map((v) => {
+    });
+  };
+  const tables = () => {
+    return viewsOf(doc).map((v) => {
       const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
       return { arrow: v.arrow, view: v, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
     });
   };
   // The reaction steps in a drawing or a part of it, for RXN files and reaction SMILES (the editor's stepsIn): each
   // step's reactant, product and agent structures. A step needs a reactant and a product structure.
-  const stepsOf = (m: Mol): RxnStep[] => {
-    const d = drawn(m), seen = new Set<number>(), out: RxnStep[] = [], atoms = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+  // Each reaction's steps, as interpret.ts reads them.
+  const reactionsOf = (m: Mol): RoleStep[][] => {
+    const d = drawn(m), seen = new Set<number>(), out: RoleStep[][] = [];
     for (const a of d.arrows) {
       if (seen.has(a.id) || !straightArrow(a)) continue;
       const r = findReaction(m, a.id, d.arrows, d.ink, d.captionBox);
       if (!r) continue;
       r.arrows.forEach((id) => seen.add(id));
-      for (const st of interpret(m, r, d.captionBox)) out.push({ reactants: atoms(st.reactants), products: atoms(st.products), agents: atoms([...st.above, ...st.below]) });
+      out.push(interpret(m, r, d.captionBox));
     }
-    return out.filter((st) => st.reactants.length && st.products.length);
+    return out;
+  };
+  const stepsOf = (m: Mol): RxnStep[] => {
+    const atoms = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+    return reactionsOf(m).flat().map((st) => ({ reactants: atoms(st.reactants), products: atoms(st.products), agents: atoms([...st.above, ...st.below]) })).filter((st) => st.reactants.length && st.products.length);
   };
   // A file's text as Export writes it (the editor's formatOf), for the drawing or a part of it. Nothing is saved.
   const fileText = (format: FileFormat, part?: Mol, o?: FileOptions): string | undefined => {
@@ -237,7 +246,12 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (!chem.atoms.length) return undefined;
       if (format === "inchi") return toInchi(chem) || undefined;
       if (format === "mol" || format === "mol2000") return toMolfile(chem, format === "mol2000");
-      if (format === "sdf") return toSdf(chem);
+      // RD and SD files with each reagent table's values (eln.ts), as the editor's chemistryOf writes them.
+      if (format === "sdf" || format === "sdf2000" || format === "rdf" || format === "rdf2000") {
+        const { records, items } = elnRecords(m, reactionsOf(m), viewsOf(m)), v2000 = format.endsWith("2000");
+        if (format.startsWith("sdf")) return toSdf(chem, v2000, items);
+        return records.length ? toReaction(chem, records.map((r) => r.step), "rdf", v2000, records.map((r) => r.fields)) : undefined;
+      }
       // File > More Formats' text formats, as the editor's chemistryOf writes them.
       if (format === "cml") return toCml(chem);
       if (format === "ct") return toCt(chem, title);
@@ -247,7 +261,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
       // (No pictures and no .oct here: a picture needs the app's renderer.)
-      return format === "rxn" && steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
+      return (format === "rxn" || format === "rxn2000") && steps.length === 1 ? toReaction(chem, steps, "rxn", format === "rxn2000") : undefined;
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);

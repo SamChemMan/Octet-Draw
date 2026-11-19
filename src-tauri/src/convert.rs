@@ -61,10 +61,11 @@ fn number(text: &str, min: f64, max: f64) -> Option<f64> {
     text.trim().parse::<f64>().ok().filter(|n| (min..=max).contains(n))
 }
 
-// An Export format by its id or an extension it takes (tiff, jpeg, smiles), not a template file or Home's list.
+// An Export format by its id or an extension it takes (tiff, jpeg, smiles), not a template file, Home's list or an ELN
+// archive (File > More Formats only).
 fn format_of(name: &str) -> Option<&'static str> {
     let name = name.trim().trim_start_matches('.').to_ascii_lowercase();
-    FORMATS.iter().filter(|f| !matches!(f.0, "ctp" | "cts" | "csv")).find(|f| f.0 == name || f.2.contains(&name.as_str())).map(|f| f.0)
+    FORMATS.iter().filter(|f| !matches!(f.0, "ctp" | "cts" | "csv" | "eln")).find(|f| f.0 == name || f.2.contains(&name.as_str())).map(|f| f.0)
 }
 
 // The files to convert: each file named, and every file in each folder named that Octet reads (in folders inside it

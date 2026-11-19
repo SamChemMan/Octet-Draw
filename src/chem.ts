@@ -17,6 +17,7 @@ import { isCif, readCif } from "./cif.ts";
 import { axialLabels } from "./axial.ts";
 import { sandwichIons } from "./metals.ts";
 import { cipLabels } from "./cip.ts";
+import { rdData, readFields, sdData, withRecord, type DataField } from "./eln.ts";
 import type { StereoFacts } from "./check.ts";
 
 type IndigoModule = Awaited<ReturnType<typeof Indigo>>;
@@ -276,13 +277,16 @@ function fromKet(ket: Record<string, unknown> & { root: { nodes: Record<string, 
   return { ...mol, ...(arrows.length ? { arrows } : {}), ...(captions.length ? { captions } : {}) };
 }
 // An RD file: each reaction (and molecule) record read on its own, one under another, so no two overlap.
+// A record's data fields (from its first $DTYPE) put back what Octet wrote there: the text over and under the arrow,
+// the compound numbers and the reagent table (eln.ts).
 function readRdf(text: string): Mol {
   const records = text.replace(/\r\n?/g, "\n").split(/^\$[RM]FMT[^\n]*\n/m).slice(1).slice(0, 200)
-    .map((r) => r.replace(/^\$(RIREG|REREG|MIREG|MEREG)[^\n]*\n/, "").split(/^\$DTYPE/m)[0].trimEnd()).filter((r) => r.trim());
+    .map((r) => { const s = r.replace(/^\$(RIREG|REREG|MIREG|MEREG)[^\n]*\n/, ""), k = s.search(/^\$DTYPE/m); return k < 0 ? [s.trimEnd(), ""] : [s.slice(0, k).trimEnd(), s.slice(k)]; }).filter(([r]) => r.trim());
   if (!records.length) throw new Error("This RD file has no reactions.");
   let out: Mol = { atoms: [], bonds: [] }, top = 0;
-  for (const r of records) {
-    const part = importStructure(r.startsWith("$RXN") ? r : `${r}\n`), ys = [...part.atoms.map((a) => a.location[1]), ...(part.arrows ?? []).flatMap((a) => [a.from[1], a.to[1]])];
+  for (const [r, data] of records) {
+    const read = importStructure(r.startsWith("$RXN") ? r : `${r}\n`), part = data && r.startsWith("$RXN") ? withRecord(read, readFields(data)) : read;
+    const ys = [...part.atoms.map((a) => a.location[1]), ...(part.arrows ?? []).flatMap((a) => [a.from[1], a.to[1]])];
     if (!ys.length) continue;
     const dy = top - Math.max(...ys);
     out = insertMol(out, part, [0, dy]).mol;
@@ -1284,9 +1288,11 @@ export function drawnInchiKey(part: Mol): string | undefined {
 // An SD file: one record for each structure, as ChemDraw saves one. A drawing with R-group definitions is one record,
 // so its definitions stay with it. A lone atom (methane, a label such as MeOH) is a record too; polymer brackets go
 // with each record, where they enclose its atoms.
-export function toSdf(drawn: Mol, v2000 = false): string {
-  const parts = drawn.shapes?.some((sh) => sh.rgroup) ? [drawn] : fragments(drawn).map((g) => ({ ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) }));
-  return parts.map((p) => `${toMolfile(p, v2000)}\n$$$$\n`).join("");
+// items: a compound's data items (eln.ts), by any of its atoms.
+export function toSdf(drawn: Mol, v2000 = false, items?: Map<number, DataField[]>): string {
+  const groups = drawn.shapes?.some((sh) => sh.rgroup) ? undefined : fragments(drawn);
+  const parts = groups ? groups.map((g) => ({ ...pickAtoms(drawn, g), ...(drawn.shapes ? { shapes: drawn.shapes } : {}) })) : [drawn];
+  return parts.map((p, k) => `${toMolfile(p, v2000)}\n${sdData(groups && items?.get(groups[k][0]))}$$$$\n`).join("");
 }
 
 // One step of a reaction, for RXN, RDF and reaction SMILES: its reactants, its products, and its agents (the structures
@@ -1318,14 +1324,15 @@ function reactionKet(drawn: Mol, step: RxnStep): string {
   return JSON.stringify({ root: { nodes }, ...out });
 }
 // Reactions as an RXN file (the first step), an RD file (every step, one record each) or reaction SMILES (one line
-// for each step), with their map numbers. RXN and RD files are V3000, as ChemDraw 26.1 saves them, or V2000.
-export function toReaction(drawn: Mol, steps: RxnStep[], kind: "rxn" | "rdf" | "smiles", v2000 = false): string {
+// for each step), with their map numbers. RXN and RD files are V3000, as ChemDraw 26.1 saves them, or V2000. fields:
+// an RD file's data fields for each record (eln.ts), after its rxnfile.
+export function toReaction(drawn: Mol, steps: RxnStep[], kind: "rxn" | "rdf" | "smiles", v2000 = false, fields?: DataField[][]): string {
   const mode = { "molfile-saving-mode": v2000 ? "2000" : "3000" };
   if (kind === "smiles") return steps.map((s) => convert(reactionKet(drawn, s), "smiles")).join("\n");
   if (kind === "rxn") return convert(reactionKet(drawn, steps[0]), "rxnfile", mode);
   const d = new Date(), two = (n: number) => String(n).padStart(2, "0");
   const date = `${two(d.getMonth() + 1)}/${two(d.getDate())}/${two(d.getFullYear() % 100)} ${two(d.getHours())}:${two(d.getMinutes())}`;
-  return [`$RDFILE 1`, `$DATM    ${date}`, ...steps.flatMap((s) => ["$RFMT", convert(reactionKet(drawn, s), "rxnfile", mode)])].join("\n") + "\n";
+  return [`$RDFILE 1`, `$DATM    ${date}`, ...steps.flatMap((s, k) => { const rxn = convert(reactionKet(drawn, s), "rxnfile", mode); return fields?.[k]?.length ? ["$RFMT", rxn.trimEnd(), ...rdData(fields[k])] : ["$RFMT", rxn]; })].join("\n") + "\n";
 }
 // Generic labels as query atoms (any atom A, heteroatom Q, metal M, halogen X, and each with H, as ChemDraw's).
 // SMILES cannot keep them; a molfile can, for a Reaxys search. undefined when the drawing has none.

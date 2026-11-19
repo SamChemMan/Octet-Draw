@@ -33,6 +33,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
 import { model3mf } from "./model3mf";
+import { elnArchive, elnRecords } from "./eln";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { sameSet, store, type Store } from "./store";
 import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type Swatch } from "./settings";
@@ -1380,14 +1381,16 @@ export default function Editor() {
     try {
       out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
         : f === "cdx" ? cdxml && toBase64(xmlToCdx(parseXml(cdxml)))
-        : loaded ? ((m) => (m.atoms.length ? chemistryOf(m, f) : undefined))(withCaptionAtoms(part, style.interpret).mol) : undefined) || undefined;
+        : loaded ? ((m) => (m.atoms.length ? chemistryOf(m, f, part === doc) : undefined))(withCaptionAtoms(part, style.interpret).mol) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
   }
   // A part's molecules or reactions as MDL files and SMILES. A drawing with reactions copies as reaction SMILES (one line
   // for each step, with its map numbers); an RXN file holds one step, an RD file every step. CML and a connection table
-  // (File > More Formats) hold the molecules, as a MOL file does; the table takes the drawing's name as its title.
-  function chemistryOf(part: Mol, f: PartFormat): string | undefined {
+  // (File > More Formats) hold the molecules, as a MOL file does; the table takes the drawing's name as its title. An
+  // RD file has a record for each reagent table, with its values as data fields, and an SD file has each compound's row
+  // of its table as data items (eln.ts). whole: the part is the whole drawing.
+  function chemistryOf(part: Mol, f: PartFormat, whole = part === doc): string | undefined {
     const v2000 = f.endsWith("2000"), kind = f.replace("2000", "");
     if (f === "inchi") return toInchi(part);
     if (f === "cml") return toCml(part);
@@ -1396,11 +1399,13 @@ export default function Editor() {
     if (f === "helm") return toHelm(part, toInchi, toSmiles);
     if (f === "fasta") return toFasta(part, toInchi);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
-    if (kind === "sdf") return toSdf(part, v2000);
-    const steps = stepsIn(part);
+    // The tables of the drawing as it is drawn now (none while a picture of a part is being made).
+    const eln = kind === "sdf" || kind === "rdf" ? elnRecords(doc, reactions().map((x) => x.steps), exporting ? [] : gridViews, partAtoms(part, whole)) : undefined;
+    if (kind === "sdf") return toSdf(part, v2000, eln!.items);
+    if (kind === "rdf") return eln!.records.length ? toReaction(part, eln!.records.map((r) => r.step), "rdf", v2000, eln!.records.map((r) => r.fields)) : undefined;
+    const steps = stepsIn(part, whole);
     if (f === "smiles") return steps.length ? toReaction(part, steps, "smiles") : toSmiles(part);
-    if (kind === "rxn") return steps.length === 1 ? toReaction(part, steps, "rxn", v2000) : undefined;
-    return steps.length ? toReaction(part, steps, "rdf", v2000) : undefined;
+    return kind === "rxn" && steps.length === 1 ? toReaction(part, steps, "rxn", v2000) : undefined;
   }
   // The ink of what the canvas shows (px, in the drawing's frame): every drawn element but Octet's own layers and what
   // only shapes others (defs, masks, clips). Text
@@ -1539,6 +1544,13 @@ export default function Editor() {
       if (!model) return void setNotice("There is nothing to export.", "info");
       return { format: "3mf", model };
     });
+  }
+  // File > More Formats > Export ELN Archive…: the selection, or the whole drawing, as an .eln file for an electronic
+  // lab notebook (eln.ts elnArchive): its .oct, CDXML, and RD and SD files with the reagent tables, where it has them.
+  async function exportEln() {
+    const part = selectedPart() ?? doc;
+    if (!part.atoms.length && !part.captions?.length && !part.arrows?.length) return setNotice("There is nothing to export.", "info");
+    await exportAs(() => ({ format: "eln", eln: elnArchive(name, doc, { oct: formatOf(part, "oct"), cdxml: formatOf(part, "cdxml"), rdf: formatOf(part, "rdf"), sdf: formatOf(part, "sdf") }) }));
   }
   // chemfig code (chemfig.ts) for a part of the drawing, and what the notice says it leaves out: the one writer for
   // Export LaTeX (chemfig)…, Copy as LaTeX (chemfig) and an AI app's read. compact: Settings > Pro > Compact chemfig
@@ -2589,6 +2601,7 @@ export default function Editor() {
   const moreFormats: [string, string, React.ReactNode, () => void][] = [
     ["more_bmp", "Export BMP…", <FileImage size={18} />, () => checkFirst(() => void quickExport("bmp"))],
     ["more_3mf", "Export 3MF…", <CubeFocus size={18} />, () => checkFirst(() => void exportModel())],
+    ["more_eln", "Export ELN Archive…", <Notebook size={18} />, () => checkFirst(() => void exportEln())],
     ["more_chemfig", "Export LaTeX (chemfig)…", <BracketsCurly size={18} />, () => checkFirst(() => void exportChemfig())],
     ["more_chemfig_copy", "Copy as LaTeX (chemfig)", <CodeBlock size={18} />, () => copyChemfig()],
     ["more_cml", "Export CML…", <BracketsAngle size={18} />, () => checkFirst(() => void exportText("cml"))],
@@ -4158,8 +4171,10 @@ export default function Editor() {
   // The reaction steps in a part of the drawing (the drawing, or the selection's part), for RXN and RD files and
   // reaction SMILES: each step's reactant, product and agent structures, by the part's atoms. A step needs a reactant
   // and a product structure, and all of it in the part.
-  const stepsIn = (part: Mol): RxnStep[] => {
-    const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
+  // whole: the part is the drawing (with its chemical captions as atoms after the drawing's own: withCaptionAtoms).
+  const partAtoms = (part: Mol, whole = part === doc) => (whole ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k])));
+  const stepsIn = (part: Mol, whole = part === doc): RxnStep[] => {
+    const at = partAtoms(part, whole);
     return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structureAtoms(s.reactants), products: structureAtoms(s.products), agents: structureAtoms([...s.above, ...s.below]) }))
       .filter((s) => s.reactants.length && s.products.length && (!at || [...s.reactants, ...s.products, ...s.agents].flat().every((i) => at.has(i))))
       .map((s) => (at ? { reactants: s.reactants.map((g) => g.map((i) => at.get(i)!)), products: s.products.map((g) => g.map((i) => at.get(i)!)), agents: s.agents.map((g) => g.map((i) => at.get(i)!)) } : s));
