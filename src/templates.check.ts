@@ -7,7 +7,7 @@ import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
-  readPalettes, readSize, keepOwnRings, ringed, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
+  readPalettes, readSize, keepOwnRings, ringed, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, setTemplateAnchor, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -24,6 +24,17 @@ const drawing: Mol = (() => {
 const all = new Set(drawing.atoms.map((_, i) => i));
 const empty: Kept = { templates: [], templateSets: [] };
 
+// The atom or bond one of the user's templates attaches by comes back from the settings, and goes when the template
+// is edited (its atoms may be numbered another way).
+{
+  const k0 = addTo(empty, newTemplate("Furan", ring)), id = k0.templates[0].id;
+  const kept = setTemplateAnchor(k0, id, { atom: 2 });
+  assert.deepEqual(loadTemplates(JSON.parse(JSON.stringify(kept.templates)))[0].anchor, { atom: 2 }, "the anchor is kept");
+  assert.equal(loadTemplates([{ ...kept.templates[0], anchor: { atom: 40 } }])[0].anchor, undefined, "an anchor not in it is none");
+  assert.equal(setTemplateAnchor(kept, id, undefined).templates[0].anchor, undefined, "taken off");
+  assert.equal(updateTemplate(kept, id, ring).templates[0].anchor, undefined, "edited: it goes");
+  assert.deepEqual(duplicateTemplate(kept, id).templates[1].anchor, { atom: 2 }, "a copy keeps it");
+}
 // Adding: a selection goes into My templates, with its name ready to change, and every part of it comes back from the
 // settings (which keep JSON).
 const whole = extractSelection(drawing, all, new Set(drawing.captions!.map((c) => c.id)));
@@ -434,6 +445,53 @@ await chem.ready;
   assert.equal(chem.toSmiles(azide), "CCN=[N+]=[N-]");
   assert.equal(chem.analyse(azide)?.[0].formula, "C2H5N3");
   assert.equal(chem.toInchi(azide), "InChI=1S/C2H5N3/c1-2-4-5-3/h2H2,1H3");
+}
+// A template put on by the atom or bond chosen in the library (its anchor, addTemplate). On a bond it fuses; on an
+// atom an end atom of that element becomes the atom, any other atom joins it by a new bond, its open side facing it.
+{
+  const { addTemplate, validAnchor } = await import("./edit.ts");
+  const formula = (m: Mol) => chem.analyse(m)?.[0].formula;
+  const benzene = libraryItem("lib:Benzene")!.mol, furan = libraryItem("lib:Furan")!.mol;
+  const onPage = addTemplate({ atoms: [], bonds: [] }, benzene, { point: [0, 0] });
+  // Furan by C-3 (atom 2) on a benzene carbon: 3-phenylfuran, a new bond, both rings whole.
+  const phenylfuran = addTemplate(onPage, furan, { atom: 0, point: [0, 0], anchor: { atom: 2 } });
+  assert.equal(formula(phenylfuran), "C10H8O", "furan by C-3 on benzene: 3-phenylfuran");
+  assert.equal(phenylfuran.bonds.length, 12, "joined by one new bond");
+  const c3 = 6 + 2, out = (m: Mol, i: number) => m.bonds.filter((b) => b.atoms.includes(i)).map((b) => { const j = b.atoms[0] === i ? b.atoms[1] : b.atoms[0]; return Math.atan2(m.atoms[j].location[1] - m.atoms[i].location[1], m.atoms[j].location[0] - m.atoms[i].location[0]); });
+  const turns = out(phenylfuran, c3), gap = (a: number, b: number) => Math.abs(((a - b + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) * 180 / Math.PI;
+  assert.ok(Math.abs(gap(turns[0], turns[2]) - gap(turns[1], turns[2])) < 1, "the new bond leaves C-3 between its ring bonds, the same angle to each");
+  // Adenine by N-9 (atom 0) on a methyl carbon: 9-methyladenine.
+  const methyl: Mol = { atoms: [atom("C", 0, 0), atom("C", 1, 0)], bonds: [bond(0, 1)] };
+  const adenine = addTemplate({ atoms: [atom("C", 0, 0)], bonds: [] }, libraryItem("lib:Adenine")!.mol, { atom: 0, anchor: { atom: 0 } });
+  assert.equal(formula(adenine), "C6H7N5", "adenine by N-9 on a carbon: 9-methyladenine");
+  // α-D-Glucopyranose by O-1 (atom 0, an end atom) on the O of methanol: the O is shared, methyl α-D-glucoside.
+  const methanol: Mol = { atoms: [atom("C", 0, 0), atom("O", 1, 0)], bonds: [bond(0, 1)] };
+  const glycoside = addTemplate(methanol, libraryItem("lib:α-D-Glucopyranose")!.mol, { atom: 1, anchor: { atom: 0 } });
+  assert.equal(formula(glycoside), "C7H14O6", "glucose by O-1 on methanol's O: methyl glucoside");
+  assert.equal(glycoside.atoms.length, 13, "O-1 is methanol's O");
+  // The same O-1 on a carbon is joined by a bond (another element): no atom changes element.
+  assert.equal(formula(addTemplate(methyl, libraryItem("lib:α-D-Glucopyranose")!.mol, { atom: 1, anchor: { atom: 0 } })), "C8H16O6", "glucose by O-1 on a carbon: ethyl glucoside");
+  // Furan's C-2–C-3 bond (bond 1) on a benzene bond: benzofuran.
+  assert.equal(formula(addTemplate(onPage, furan, { bond: 0, anchor: { bond: 1 } })), "C8H6O", "furan's C-2–C-3 on a benzene bond: benzofuran");
+  // An atom anchor on a bond: fused along one of its bonds, the anchor on the end nearer the click, and along C-2–C-3
+  // (both carbons, as the benzene bond) so the O stays.
+  const o = (m: Mol) => m.atoms.findIndex((a) => a.label === "O");
+  const [i, j] = onPage.bonds[0].atoms, near = (k: number) => [onPage.atoms[k].location[0] * 0.8 + onPage.atoms[k === i ? j : i].location[0] * 0.2, onPage.atoms[k].location[1] * 0.8 + onPage.atoms[k === i ? j : i].location[1] * 0.2] as [number, number];
+  for (const end of [i, j]) {
+    const m = addTemplate(onPage, furan, { bond: 0, point: near(end), anchor: { atom: 1 } }), bonded = m.bonds.filter((b) => b.atoms.includes(o(m))).flatMap((b) => b.atoms);
+    assert.equal(formula(m), "C8H6O", "furan by C-2 on a benzene bond: benzofuran");
+    assert.ok(bonded.includes(end), `furan by C-2 on a bond: C-2 is the end clicked (${end}), next to the O`);
+  }
+  // Connect (the Ring tool's Option-click) with no anchor: the template's first atom joins by a new bond.
+  const sprouted = addTemplate(methyl, benzene, { atom: 1, connect: true });
+  assert.equal(formula(sprouted), "C8H10", "benzene sprouted on ethane: ethylbenzene");
+  // No anchor and no connect: as before.
+  assert.deepEqual(addTemplate(methyl, furan, { atom: 1, anchor: undefined }), addTemplate(methyl, furan, { atom: 1 }), "no anchor: as it was");
+  // An anchor not in the template (edited since) is none.
+  assert.equal(validAnchor(furan, { atom: 5 }), undefined);
+  assert.equal(validAnchor(furan, { bond: -1 }), undefined);
+  assert.deepEqual(validAnchor(furan, { bond: 4, extra: 1 }), { bond: 4 });
+  console.log("templates: attach by a chosen atom or bond ok");
 }
 const opsin = await loadOpsin();
 const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
