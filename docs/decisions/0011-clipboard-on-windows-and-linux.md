@@ -48,7 +48,8 @@ CDXML is in the PDF. "CDXML" is ChemDraw JS's name.
 
 Since 1.1.3, Copy on Windows and Linux puts LibreOffice's own copy of a picture ("SVXB (StarView Bitmap/Animation)" on
 Windows, its MIME type on Linux) after Octet's JSON, holding the PDF, so a paste into LibreOffice opens in Octet
-(decision 0025, issue 48). No other program reads it, and every type before it is unchanged.
+(decision 0025, issue 48). On Windows, Impress and Draw take it only with the Office object off: with the object on
+they paste the EMF as their own picture. No other program reads it, and every type before it is unchanged.
 
 ## Office objects on Windows (release 1.2, decision 0023)
 

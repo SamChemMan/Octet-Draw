@@ -13,8 +13,9 @@ LibreOffice (see Not done).
 Adds to decisions 0011 (the clipboard) and 0023 (the object window). LibreOffice Writer, Impress, Draw and Calc get
 what Word gets on Windows: double-click a structure, edit it in Octet's object window, and Update puts it back. The
 same picture works in a document that moves between Linux, Windows and the Mac. A structure gets into a document by
-Insert > Octet Drawing on every system, and by a paste from Octet into Writer, Impress, Draw or Calc on Windows and
-Linux, and into Writer, Impress or Draw on the Mac.
+Insert > Octet Drawing on every system, and by a paste from Octet: into Writer, Impress, Draw or Calc on Linux, into
+Writer or Calc on Windows (Impress and Draw too with Settings > Import and export > Copy > Office object off), and into
+Writer, Impress or Draw on the Mac.
 
 ## Copy and paste
 
@@ -39,13 +40,20 @@ Linux, and into Writer, Impress or Draw on the Mac.
   the PDF with its own PDF reader and keeps its bytes, so the picture is the same as a pasted PDF and the extension
   opens it. Windows names it `SVXB (StarView Bitmap/Animation)`, the name in its MIME type's `windows_formatname`
   (`vcl/win/dtrans/ftransl.cxx`); Linux by the whole MIME type. No SVXB with the picture switched off, with no PDF (a
-  font Octet cannot embed), or over 64 MB. Windows makes the PDF after the EMF, on the thread beside the bitmap.
+  font Octet cannot embed), or over 64 MB. Windows makes the PDF after the EMF, on the thread beside the bitmap. On
+  Linux the clipboard holds the PDF twice (`application/pdf` and the SVXB), so a PDF near 64 MB puts about 128 MB on it.
 - Which picture each program takes (it takes the first format in its own table that the clipboard has; the clipboard's
   order does not count). Writer (`sot/source/base/formats.cxx`, the free-area copy table) and Calc
   (`ScViewFunc::PasteFromSystem`, the Calc free-area copy table) take SVXB before every other picture and before
-  Windows' OLE formats. Impress and Draw (`View::InsertData`) take a PDF first, then SVXB: on Linux the PDF, on
-  Windows the SVXB. Their OLE step is skipped while the clipboard has an EMF. So on Windows and Linux every program's
-  paste is a PDF picture that opens in Octet, with the Office object on or off.
+  Windows' OLE formats. On Linux Writer takes the SVXB, not `application/pdf`; both hold the same PDF. Impress and
+  Draw (`View::InsertData`) take a PDF first, then their OLE step, then SVXB. On Linux they take the PDF. On Windows
+  with Settings > Import and export > Copy > Office object on (the default), Octet's copy has "Embed Source" and
+  "Object Descriptor" (`EMBED_SOURCE_OLE`, `OBJECTDESCRIPTOR_OLE`), so the OLE step runs. The clipboard also has a
+  GDIMETAFILE (from the EMF), so the step inserts that and stops before SVXB. So Impress and Draw on Windows paste
+  LibreOffice's own picture there, converted from the EMF without Octet's CDXML comment, and it does not open in Octet.
+  With the Office object off they take the SVXB. Octet cannot get around this: Word needs the object, and LibreOffice
+  for Windows reads no PDF type (`vcl/win/dtrans/ftransl.cxx` has no `application/pdf`). Writer and Calc on Windows,
+  and every program on Linux, paste a PDF picture that opens in Octet.
 - Before 1.1.3, on Windows, Writer took the bitmap (`CF_DIB`), and Impress, Draw and Calc converted the EMF with
   `TransferableDataHelper::GetGDIMetaFile`, which loses Octet's CDXML comment. Only `GetGraphic` keeps an EMF's own
   bytes, and only from LibreOffice 26.2 (tdf#168886). An SVXB that held the EMF would not help: LibreOffice reads an
@@ -240,10 +248,14 @@ Octet with no window refuses it, as a command that opens a dialog.
   `docs/testing/libreoffice-manual.md`.
 - The paste from Octet into LibreOffice on Windows, and into Calc on Windows and Linux, is proved from LibreOffice's
   source only: no real LibreOffice has read Octet's SVXB yet. Steps W3, W3a and L4 of the checklist.
+- Impress and Draw on Windows with the Office object on (the default): a structure pasted from Octet is LibreOffice's
+  own picture and does not open in Octet (Copy and paste, above). With the Office object off it opens, and Insert >
+  Octet Drawing works either way.
 - Calc on the Mac: a structure pasted from Octet does not open in Octet (Copy and paste, above). It needs LibreOffice to
   spell SVXB `svxb` in its Mac table.
 - A LibreOffice built without its PDF reader (pdfium) reads no PDF: on Linux, Writer, Impress and Draw already paste
-  nothing usable there; Calc, and every program on Windows, now do the same. LibreOffice's own builds have it.
+  nothing usable there; Calc, and on Windows every program that takes the SVXB, now do the same. LibreOffice's own
+  builds have it.
 - Apache OpenOffice reads SVXB too. Whether it reads a PDF in one was not checked; if not, its paste from Octet on
   Windows and Linux gives nothing.
 - The Mac: with both an Octet with no window (an AI app's, 1.2) and Octet Draw running, which one LaunchServices gives

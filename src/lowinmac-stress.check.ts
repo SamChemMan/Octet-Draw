@@ -724,12 +724,13 @@ const WRITER = ["SVXB", "SD_OLE", "RICHTEXT", "EMBED_SOURCE", "EMBEDDED_OBJ", "R
 const windowsOffer = new Set(["SVXB", "BITMAP", "EMF", "GDIMETAFILE", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"]);
 const writerTakes = WRITER.find((f) => windowsOffer.has(f));
 const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md");
-check("O14.writer.windows", "LibreOffice source: Writer on Windows takes Octet's SVXB (the PDF) before the bitmap, the EMF and the Office object, and decision 0025 and the checklist say so", writerTakes === "SVXB" && /Writer \(`sot\/source\/base\/formats\.cxx`, the free-area copy table\) and Calc/.test(decision) && /\(W3\) Copy a structure in Octet and paste it into Writer, Impress, Draw and Calc/.test(manual), `Writer takes ${writerTakes}`);
-// Impress and Draw (sd View::InsertData, with no format from DoPaste): a PDF first, then the OLE step only with no
-// GDIMETAFILE, then SVXB, then GDIMETAFILE (which GetGDIMetaFile converts, losing Octet's comment).
-const IMPRESS = ["PDF", "SVXB", "GDIMETAFILE", "BITMAP"];
-const impressTakes = IMPRESS.find((f) => windowsOffer.has(f));
-check("O15.impress.windows", "LibreOffice source: Impress and Draw on Windows take Octet's SVXB before the EMF, and Insert > Octet Drawing still asks for a PDF", impressTakes === "SVXB" && /Impress and Draw \(`View::InsertData`\) take a PDF first, then SVXB/.test(decision) && /Session\(ctx, controller, None, "pdf", at\)/.test(readFileSync(ext + "octet_draw.py", "utf8")), `Impress takes ${impressTakes}`);
+check("O14.writer.windows", "LibreOffice source: Writer on Windows takes Octet's SVXB (the PDF) before the bitmap, the EMF and the Office object, and decision 0025 and the checklist say so", writerTakes === "SVXB" && /Writer \(`sot\/source\/base\/formats\.cxx`, the free-area copy table\) and Calc/.test(decision) && /\(W3\) Settings > Import and export > Copy > Office object on/.test(manual), `Writer takes ${writerTakes}`);
+// Impress and Draw (sd View::InsertData, with no format from DoPaste): a PDF first, then the OLE step, then SVXB, then
+// GDIMETAFILE. The OLE step runs with EMBED_SOURCE_OLE and OBJECTDESCRIPTOR_OLE (Octet's object, Office object on); with
+// a GDIMETAFILE there it inserts that (converted, losing Octet's comment) and stops, before SVXB.
+const impress = (offer: Set<string>) => offer.has("PDF") ? "PDF" : offer.has("EMBED_SOURCE_OLE") && offer.has("OBJECTDESCRIPTOR_OLE") && offer.has("GDIMETAFILE") ? "GDIMETAFILE" : ["SVXB", "GDIMETAFILE", "BITMAP"].find((f) => offer.has(f));
+const impressOn = impress(new Set([...windowsOffer, "OBJECTDESCRIPTOR_OLE"])), impressOff = impress(new Set(["SVXB", "BITMAP", "EMF", "GDIMETAFILE"]));
+check("O15.impress.windows", "LibreOffice source: Impress and Draw on Windows take Octet's SVXB with the Office object off and the EMF with it on, decision 0025 says so, and Insert > Octet Drawing still asks for a PDF", impressOff === "SVXB" && impressOn === "GDIMETAFILE" && /Impress and Draw on Windows paste\s+LibreOffice's own picture/.test(decision) && /Session\(ctx, controller, None, "pdf", at\)/.test(readFileSync(ext + "octet_draw.py", "utf8")), `Impress takes ${impressOff} (object off), ${impressOn} (object on)`);
 // Calc's paste table (formats.cxx, Calc free-area copy table) and ScViewFunc::PasteFromSystem have no PDF: SVXB first.
 // The Mac's LibreOffice spells SVXB "svbx" in its pasteboard table, so it reads no SVXB from Octet there.
 const CALC = ["SVXB", "EMBED_SOURCE", "GDIMETAFILE", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"];

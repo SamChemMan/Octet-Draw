@@ -22,7 +22,8 @@
 //   (chemical/x-cdx and so on).
 // - Windows and Linux also put LibreOffice's own copy of a picture (SVXB) last, holding the Mac's PDF (svxb_of).
 //   Writer and Calc take it before every other picture, and Impress and Draw before all but a PDF. Each keeps the PDF,
-//   so the paste opens in Octet (decision 0025). No other program reads it. The Mac has none: LibreOffice for the Mac
+//   so the paste opens in Octet (decision 0025). On Windows with the Office object on, Impress and Draw take the EMF
+//   in their OLE step instead. No other program reads it. The Mac has none: LibreOffice for the Mac
 //   reads no SVXB that another program puts on the pasteboard.
 //
 // The webview keeps a page's own clipboard types in a form of its own and shows a page only text, HTML and URLs from

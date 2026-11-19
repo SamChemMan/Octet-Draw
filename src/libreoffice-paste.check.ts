@@ -1,5 +1,6 @@
-// Run: node src/libreoffice-paste.check.ts. Issue 48 (1.1.3): a paste from Octet into LibreOffice opens in Octet on
-// Windows, and in Calc on Windows and Linux (docs/plans/issue-48-48w-1-1-3.md, decision 0025). Copy on Windows and
+// Run: node src/libreoffice-paste.check.ts. Issue 48 (1.1.3): a paste from Octet into LibreOffice Writer and Calc opens
+// in Octet on Windows (Impress and Draw only with the Office object off), and into Calc on Linux
+// (docs/plans/issue-48-48w-1-1-3.md, decision 0025). Copy on Windows and
 // Linux puts LibreOffice's own copy of a picture (SVXB) last, holding the PDF. This checks Copy's names and SVXB's form
 // in clipboard.rs, which picture each LibreOffice program takes from Octet's copy on each system (its paste tables,
 // from LibreOffice's public source), and that the extension opens such a picture in a Calc sheet. clipboard::tests
@@ -36,34 +37,45 @@ assert.ok(/let emf = \|\| \(crate::vector::make_office_emf\(&tree, cdxml\), crat
 const TABLES: Record<string, string[]> = {
   // The Writer free-area copy table.
   Writer: ["SVXB", "SD_OLE", "EMBED_SOURCE", "EMBEDDED_OBJ", "PDF", "PNG", "JPEG", "BITMAP", "GDIMETAFILE", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"],
-  // sd View::InsertData with no format (DoPaste). Its OLE step is skipped while there is a GDIMETAFILE.
-  Impress: ["PDF", "EMBED_SOURCE", "SVXB", "GDIMETAFILE", "BITMAP"],
+  // sd View::InsertData with no format (DoPaste). "OLE" is its OLE step: with EMBED_SOURCE_OLE (or EMBEDDED_OBJ_OLE)
+  // and OBJECTDESCRIPTOR_OLE it inserts the object only when there is no GDIMETAFILE, and otherwise inserts the
+  // GDIMETAFILE and stops, before SVXB.
+  Impress: ["PDF", "EMBED_SOURCE", "OLE", "SVXB", "GDIMETAFILE", "BITMAP"],
   // The Calc free-area copy table, which ScViewFunc::PasteFromSystem asks first.
   Calc: ["SVXB", "SD_OLE", "EMBED_SOURCE", "EMBEDDED_OBJ", "GDIMETAFILE", "PNG", "JPEG", "BITMAP", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"],
 };
 // What LibreOffice sees in Octet's copy on each system. Windows: CF_ENHMETAFILE is EMF, from which GDIMETAFILE is
 // offered too (vcl/source/treelist/transfer.cxx), CF_DIB is BITMAP, and with Settings' Office object on "Embed Source"
-// is EMBED_SOURCE_OLE. Linux: image/png, application/pdf and SVXB. The Mac: com.adobe.pdf is application/pdf, and
+// and "Object Descriptor" are EMBED_SOURCE_OLE and OBJECTDESCRIPTOR_OLE (sot/source/base/exchange.cxx). Linux: image/png, application/pdf and SVXB. The Mac: com.adobe.pdf is application/pdf, and
 // nothing else of Octet's is a picture LibreOffice knows (vcl/osx/DataFlavorMapping.cxx).
 const OFFERS: Record<string, string[]> = {
-  "Windows, Office object on": ["EMBED_SOURCE_OLE", "EMF", "GDIMETAFILE", "BITMAP", "SVXB"],
+  "Windows, Office object on": ["EMBED_SOURCE_OLE", "OBJECTDESCRIPTOR_OLE", "EMF", "GDIMETAFILE", "BITMAP", "SVXB"],
   "Windows, Office object off": ["EMF", "GDIMETAFILE", "BITMAP", "SVXB"],
   Linux: ["PNG", "PDF", "SVXB"],
   Mac: ["PDF"],
 };
-const takes = (program: string, offer: string[]) => TABLES[program].find((f) => offer.includes(f));
+// Draw pastes through the same View::InsertData as Impress.
+TABLES.Draw = TABLES.Impress;
+const ole = (offer: string[]) => (offer.includes("EMBED_SOURCE_OLE") || offer.includes("EMBEDDED_OBJ_OLE")) && offer.includes("OBJECTDESCRIPTOR_OLE");
+const takes = (program: string, offer: string[]) => {
+  const f = TABLES[program].find((f) => (f === "OLE" ? ole(offer) : offer.includes(f)));
+  return f !== "OLE" ? f : offer.includes("GDIMETAFILE") ? "GDIMETAFILE" : "EMBED_SOURCE_OLE";
+};
 for (const [where, offer] of Object.entries(OFFERS)) {
   for (const program of Object.keys(TABLES)) {
     const got = takes(program, offer);
     // A PDF or an SVXB with the PDF in it: the picture is a PDF that LibreOffice keeps, which the extension opens.
     const opens = got === "PDF" || got === "SVXB";
-    const want = !(where === "Mac" && program === "Calc");
+    // Calc on the Mac takes nothing of Octet's as a PDF. Impress and Draw on Windows with the Office object on take
+    // the EMF (converted, losing Octet's comment) in their OLE step, before SVXB.
+    const want = !(where === "Mac" && program === "Calc") && !(where === "Windows, Office object on" && (program === "Impress" || program === "Draw"));
     assert.equal(opens, want, `${program} on ${where} takes ${got}`);
   }
 }
 // Before 1.1.3's SVXB, Windows' Writer took the bitmap and Calc the converted metafile: neither opened in Octet.
 const before = OFFERS["Windows, Office object off"].filter((f) => f !== "SVXB");
 assert.deepEqual([takes("Writer", before), takes("Impress", before), takes("Calc", before)], ["BITMAP", "GDIMETAFILE", "GDIMETAFILE"]);
+assert.deepEqual([takes("Writer", OFFERS["Windows, Office object on"]), takes("Impress", OFFERS["Windows, Office object on"]), takes("Calc", OFFERS["Windows, Office object on"])], ["SVXB", "GDIMETAFILE", "SVXB"]);
 
 // The extension: in a Calc sheet, the pasted picture (LibreOffice keeps it as "0fdp", the length, then the PDF, its
 // /Metadata deflated with the /Filter taken off, as pdfium saves it) gets Edit in Octet Draw and opens on a
@@ -126,6 +138,6 @@ else assert.equal(py.stdout.trim().split("\n").at(-1), "ok", py.stderr.slice(-20
 
 // The documents say what the source says, and the checklist asks for the real runs.
 const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md");
-assert.ok(decision.includes("LibreOffice's own copy of a picture (SVXB, 1.1.3)") && decision.includes("spells SVXB `svbx`"), "decision 0025");
-assert.ok(manual.includes("(W3) Copy a structure in Octet and paste it into Writer, Impress, Draw and Calc") && manual.includes("(W3a)") && manual.includes("(L4) Copy a structure in Octet and paste it into Calc"), "the checklist");
+assert.ok(decision.includes("LibreOffice's own copy of a picture (SVXB, 1.1.3)") && decision.includes("spells SVXB `svbx`") && /Impress and Draw on Windows paste\s+LibreOffice's own picture/.test(decision), "decision 0025");
+assert.ok(manual.includes("(W3) Settings > Import and export > Copy > Office object on") && manual.includes("(W3a)") && manual.includes("(L4) Copy a structure in Octet and paste it into Calc"), "the checklist");
 console.log("libreoffice-paste: ok");
