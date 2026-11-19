@@ -167,18 +167,18 @@ Proof. There is no Windows computer on the Mac where this was built.
 - By hand on Windows: `docs/testing/ole-manual.md`, test 16.
 
 Speed (decision 0024; `cargo test --release --bin octet windows_copy_time -- --ignored --nocapture`; Apple M1 Pro,
-with other work running, load average about 12 on 10 cores; the middle of 9 runs taken in turn; 600 dpi, Settings'
+with other work running, load average 8 to 10 on 10 cores; the middle of 9 runs taken in turn; 600 dpi, Settings'
 default; measured again on 19 November with the fill groups):
 
 | Drawing | Copy with the object | Without it | 1.1.2's Copy | `make_office_emf` | `make_emf` | EMF+ EMF | GDI EMF |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| L-proline | 1.80 ms | 1.82 ms | 1.74 ms | 0.014 ms | 0.009 ms | 4,264 B | 3,120 B |
-| 40 paclitaxels | 227.4 ms | 228.3 ms | 229.0 ms | 1.48 ms | 0.74 ms | 1.13 MB | 705 KB |
-| A 500-residue peptide | 321.2 ms | 319.1 ms | 319.3 ms | 2.05 ms | 1.10 ms | 1.73 MB | 1.13 MB |
+| L-proline | 1.86 ms | 1.93 ms | 1.77 ms | 0.014 ms | 0.010 ms | 4,264 B | 3,120 B |
+| 40 paclitaxels | 226.8 ms | 226.5 ms | 226.5 ms | 1.66 ms | 0.74 ms | 1.13 MB | 705 KB |
+| A 500-residue peptide | 344.0 ms | 342.6 ms | 343.9 ms | 2.46 ms | 1.15 ms | 1.73 MB | 1.13 MB |
 
 Copy is within 1.1.2's time plus a tenth and 2 ms: reading the SVG and drawing the bitmap are most of it, and the EMF
-is made beside the bitmap. The object window's picture (after each change, off the main thread) takes 1.5 to 2 times
-`make_emf`'s time, and 1.5 ms for 40 paclitaxels. The EMF+ EMF is 1.4 to 1.6 times the GDI EMF; a photo adds
+is made beside the bitmap. The object window's picture (after each change, off the main thread) takes 1.4 to 2.3 times
+`make_emf`'s time, and 1.7 ms for 40 paclitaxels. The EMF+ EMF is 1.4 to 1.6 times the GDI EMF; a photo adds
 under 1 KB. The drawings other than L-proline are made by a generator with Octet's export's shapes and counts
 (`octet_drawing`): paclitaxel 69 bonds and 20 labels, the peptide 3,500 bonds and 1,500 labels in one path of about
 24,000 points. The generator's bonds do not share points, so each is a fill of its own: more records than a real

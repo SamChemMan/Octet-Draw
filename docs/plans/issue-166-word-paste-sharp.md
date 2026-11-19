@@ -1,6 +1,7 @@
 # Issue 166: a drawing pasted into Word for Windows is aliased
 
-Branch `fix/166-word-paste-sharp`, from `release-1.2-mcp` (b30f413). For release 1.2 (Friday 20 November 2026).
+Branch `fix/166-word-paste-sharp`, from `release-1.2-mcp` (b30f413), rebased onto bd7c684 on 19 November. For release
+1.1.3 (Friday 20 November 2026) and 1.2.
 Plan of 17 November 2026, built the same day (J1 to J5). Revised 18 November 2026: what is left (J6 to J10), and the
 stress list cut to 20 cases. J6 to J10 built on 18 November ("Finished", below).
 
@@ -94,9 +95,13 @@ Gap confirmed: the core is built, and these five things stop it from going into 
 Rebased onto `release-1.2-mcp` bd7c684 (no conflicts) for release 1.1.3. The review and stress findings:
 
 - LibreOffice on Windows pastes CF_ENHMETAFILE, plays only the EMF+ records and fills each path even-odd, so the
-  bond overlaps came out white. Fixed (D3): a nonzero fill's figures go in paths of their own, except figures that
-  share a point (mitred bonds: no anti-aliased seam) and a figure in another's box within 8 figures (a letter's
-  holes). New test `plus_fills_draw_the_same_in_any_fill_mode`. T5 and T6 draw shapes that stay one path.
+  bond overlaps came out white. Fixed (D3): a nonzero fill's figures go in paths of their own, except figures with a
+  point in common to 0.05 px (mitred bonds, a cycle's arc in pieces: no anti-aliased seam in GDI+) and a figure in
+  another's box within 8 figures (a letter's holes). New test `plus_fills_draw_the_same_in_any_fill_mode` (also on
+  the structure and cycle starters). T5 and T6 draw shapes that stay one path. Copy stays within 1.1.2's time
+  (decision 0023's table); `make_office_emf` is 2.3 times `make_emf` at most, inside J4's bound.
+- Checks on bd7c684 + this branch: `cargo test` 174 pass; the Windows type check, debug and release, clean; full
+  `npm test` 169 of 169, and 170 of 170 with 1.1.3's AI switch off (applied for the check, then taken out).
 - An EMF+ pen under 1/20 pt: the pen is now at least 1/20 pt, as the GDI pen, so its dashes match.
 - A picture under 0.014 pt: its frame is at least 0.01 mm each way, so Word gets a size (both EMFs).
 - S12 (right-to-left text) was J6; the Windows tests on every push were J8.
