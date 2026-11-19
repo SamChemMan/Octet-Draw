@@ -78,7 +78,7 @@ import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog"
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
 import { chemfig } from "./chemfig";
-import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
+import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
@@ -1370,6 +1370,8 @@ export default function Editor() {
       flushSync(() => setExporting(undefined));
     }
   }
+  // The picture Copy puts on the clipboard, and Word and the Office object get: pictureOf on whole points (issue 171).
+  const copyPicture = (part: Mol) => ((s) => s && onWholePoints(s))(pictureOf(part));
   // What other programs read: CDXML, CDX (ChemDraw's binary form of the same drawing, as base64), a .oct file (the same
   // CDXML with Octet's drawing), and the molecules as a molfile, SMILES and InChI; undefined where Octet or Indigo cannot
   // write them. Each is made when it is first asked for and kept with the part (the drawing itself, or the selection's
@@ -1661,7 +1663,7 @@ export default function Editor() {
     if (o.gone) { setNotice(`${o.host} is closed. Save a copy to keep this drawing.`); return false; }
     try {
       const sent = doc, oct = writeOct({ ...sent, guides }, savedStyle(), cdxmlOptions());
-      await invoke("ole_update", { oct, svg: pictureOf(sent) ?? BLANK_SVG, cdxml: formatOf(sent, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
+      await invoke("ole_update", { oct, svg: copyPicture(sent) ?? BLANK_SVG, cdxml: formatOf(sent, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
       setFile({ saved: sent, name: o.title });
       return true;
     } catch (e) {
@@ -3297,7 +3299,7 @@ export default function Editor() {
   useEffect(() => {
     if (!officePrime.current || !office) return;
     officePrime.current = false;
-    const svg = pictureOf(doc);
+    const svg = copyPicture(doc);
     if (svg) invoke("ole_update", { oct: "", svg, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   }, [office, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Then, while the user draws, the newest drawing goes to Octet's side too (still not to Word), half a second after
@@ -3312,7 +3314,7 @@ export default function Editor() {
     if (!o || o.gone || templateEdit || officeKept.current.doc === doc) return;
     officeKept.current.doc = doc;
     const oct = mainDirty ? writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) : "";
-    invoke("ole_update", { oct, svg: pictureOf(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
+    invoke("ole_update", { oct, svg: copyPicture(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   };
   // Word closed the document. sent: Word has the drawing Octet last kept. If that is this drawing, the window closes
   // with no question. If not (a change too new, or Word asked for nothing to be saved), the window stays, says the
@@ -9553,7 +9555,7 @@ export default function Editor() {
         // Windows: an Octet Drawing object first, for Word, PowerPoint and Excel (decision 0023). It needs the picture,
         // which Office shows for it, so it goes on only with the picture.
         const object = WINDOWS && on.office !== false && on.pdf;
-        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? pictureOf(part) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
+        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? copyPicture(part) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
           .then(() => { ackCopy(page); return true; }, (err) => { setNotice(failure("Octet cannot copy this.", err)); return false; });
       }
       // A browser (dev only): its own clipboard, with Octet's form and SMILES (or the text) as text. After Check Structure
