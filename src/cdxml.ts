@@ -22,7 +22,7 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
-import { cross, len, ligandEllipse, sub } from "./render.ts";
+import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, sub } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -759,7 +759,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
-      Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
+      Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
     }, (inner ? nested(i, inner, !!known) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
@@ -776,8 +776,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // turned: a turned label's p and turn. There the sign is a symbol of its own that stays level (render.ts charged): it
   // goes out from the atom the way it was dragged, or else the way it is from the atom with the label not turned, until
   // it is clear of the turned label and of the atom (which a label turned about its end may leave bare).
+  // A charge at its own place (Atom.sign at): the middle of its ink on the page.
+  function ownSign(i: number, X: P): P { const a = mol.atoms[i], f = scaleOf(a) * B; return [X[0] + a.sign!.at![0] * f, X[1] - a.sign!.at![1] * f]; }
   function signAt(i: number, X: P, size: number, text: string, isoW: number, textW: number, rtl: boolean, end: number, down: number, more: Box[], turned?: { p: P; angle: number }): P | undefined {
-    const a = mol.atoms[i], f = scaleOf(a), s = 0.75 * size, t = (a.charge ?? 0) > 0 ? "+" : "–", [w, l, r] = arialGlyph(t).map((n) => (n * s) / 1000);
+    const a = mol.atoms[i], f = scaleOf(a);
+    if (a.sign?.at) return ownSign(i, X);
+    const s = 0.75 * size, t = (a.charge ?? 0) > 0 ? "+" : "–", [w, l, r] = arialGlyph(t).map((n) => (n * s) / 1000);
     const y = X[1] + (/[OSCGQ]/.test(text) ? 0.364 : 0.358) * size, left = rtl ? X[0] + end - isoW - textW : X[0] - advance(text[0], size) / 2 - isoW;
     const edge = (b: Box): P[] => Array.from({ length: 9 }, (_, k): P[] => { const g = k / 8, x = b[0] + (b[2] - b[0]) * g, yy = b[1] + (b[3] - b[1]) * g; return [[x, b[1]], [x, b[3]], [b[0], yy], [b[2], yy]]; }).flat();
     // The sign's ink: Arial's + is two bars 0.08 em thick, from 0.116 to 0.589 em up; its en dash one bar.
@@ -854,7 +858,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
         RotationAngle: rotationAngle(a.labelAngle) },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + labelText(a, text.slice(0, text.length - range.length), 0, { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
-        + (sign ? run(sign, { ...style2, face: 0x40 | look }) : "")),
+        + (sign ? run(sign, { ...style2, colour: a.sign?.colour ?? a.colour, face: 0x40 | look }) : "")),
       box,
     };
   }
@@ -897,7 +901,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     return {
       xml: el("t", { p: pt([x, y0]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined,
         InterpretChemically: a.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
-        parts.filter(([t]) => t).map(([t, face, at]) => (at === undefined ? run(t, { ...style2, face }) : labelText(a, t, at, { ...style2, face }))).join("")),
+        parts.filter(([t]) => t).map(([t, face, at]) => (at === undefined ? run(t, { ...style2, colour: a.sign?.colour ?? a.colour, face }) : labelText(a, t, at, { ...style2, face }))).join("")),
       box,
     };
   }
@@ -977,20 +981,24 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // circled charge or a skeletal carbon's charge, radical electrons and lone pairs, each in the widest gap between the
   // atom's bonds and label.
   function marks(i: number): string {
-    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length, moved = signs.get(i);
+    const a = mol.atoms[i], X = page(i), charge = a.charge ?? 0, deg = nbrs[i].length, moved = signs.get(i) ?? (charge && a.sign?.at ? ownSign(i, X) : undefined);
     const shown = !a.attach && !a.bead && (a.label !== "C" || !deg || !!a.text || !!a.isotope || !!a.shown || (deg === 1 ? style.terminalLabels : style.carbonLabels));
     const size = (7.5 * (a.size ?? style.labelSize) * scaleOf(a)) / 10;
     // A radical ion's symbol is level, its two points half a symbol's size apart about its middle, as ChemDraw draws
-    // one with a click.
-    const symbol = (c: P, type: string, represent: string[]) => el("graphic", { id: fresh(), BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - size / 4, c[1]])} ${pt([c[0] + size / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - size, c[1]])}`,
-      Z: Z(), color: colour(a.colour), GraphicType: "Symbol", SymbolType: type }, represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
+    // one with a click. A charge's symbol takes the charge's own size (the length of its box) and colour (Atom.sign).
+    const symbol = (c: P, type: string, represent: string[]) => {
+      const own = represent[0] === "Charge" ? a.sign : undefined, z = size * (own?.size ?? 1);
+      return el("graphic", { id: fresh(), BoundingBox: type.startsWith("Radical") ? `${pt([c[0] - z / 4, c[1]])} ${pt([c[0] + z / 4, c[1]])}` : `${pt(c)} ${pt([c[0] - z, c[1]])}`,
+        Z: Z(), color: colour(own?.colour ?? a.colour), GraphicType: "Symbol", SymbolType: type }, represent.map((what) => `<represent attribute="${what}" object="${nodeId.get(i)}"/>`).join(""));
+    };
     // A radical ion (render.ts) is one symbol, ChemDraw's Radical Cation or Radical Anion, for its charge and radical: on a
-    // label where Octet draws it (signAt), else round the atom as a skeletal carbon's sign.
+    // label where Octet draws it (signAt), else round the atom as a skeletal carbon's sign. A charge at its own place is
+    // its symbol there, of its kind.
     const ion: [string, string[]] | undefined = radicalIon(a) ? [charge > 0 ? "RadicalCation" : "RadicalAnion", ["Charge", "Radical"]] : undefined;
-    const sign = moved ? symbol(moved, ...(ion ?? [charge > 0 ? "Plus" : "Minus", ["Charge"]])) : "";
+    const sign = moved ? symbol(moved, ...(ion ?? [a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]])) : "";
     const list: [string, string[]][] = [];
-    if (ion && !moved) list.push(ion);
-    else if (charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
+    if (!moved && ion) list.push(ion);
+    else if (!moved && charge && (a.circled || !shown)) list.push([a.circled ? (charge > 0 ? "CirclePlus" : "CircleMinus") : charge > 0 ? "Plus" : "Minus", ["Charge"]]);
     // A singlet radical (carbene) is a pair of electrons that stands for the radical.
     if (a.radical === 3) list.push([a.bars ? "LonePairBar" : "LonePair", ["Radical"]]);
     else if (!radicalIon(a)) for (let r = 0; r < Math.min(2, a.radical ?? 0); r++) list.push(["Electron", ["Radical"]]);
@@ -1687,6 +1695,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Marks moved round the atom by hand, in Octet's own files (a ChemDraw file's symbols keep their places below).
     const angles = p?.angles && typeof p.angles === "object" ? Object.entries(p.angles as Record<string, unknown>).filter(([k, v]) => /^(charge|partial|radical[01]|pair[0-3])$/.test(k) && isNum(v, -360, 360)) : [];
     if (angles.length) a.angles = Object.fromEntries(angles) as Record<string, number>;
+    const sign = readSign(p?.sign);
+    if (sign) a.sign = sign;
     if (isNum(p?.scale, 0.01, 100) && p!.scale !== 1) a.scale = p!.scale as number;
     // An atom number, shown or kept hidden (Name to Structure and templates number atoms without showing them).
     const number = (n.attrs.AtomNumber ?? "").trim();
@@ -2575,6 +2585,23 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const colour = colourOf(x.attrs.color);
       addShape({ ...sh, id: newId(x), ...(colour ? { colour } : {}), z: zOf(x) }, x, group);
     };
+    // A ChemDraw file's charge symbol with its own look (issue 164): a colour that is not its atom's, a size (the length
+    // of its box; a radical ion's is half) 5% or more off its atom's sign size, and a place more than 0.8 bond lengths
+    // out (ChemDraw's own places are 0.42 to 0.66 out; nearer, it keeps its angle only, as before).
+    const ownSign = (a: Atom, x: Xml, ion: boolean) => {
+      const e = reals(x.attrs.BoundingBox, 4), f = scaleOf(a), out: Record<string, unknown> = { ...a.sign };
+      const ink = colourOf(x.attrs.color);
+      if (ink && ink.toLowerCase() !== a.colour?.toLowerCase()) out.colour = ink.toLowerCase();
+      if (e) {
+        const p1 = toOctet(e[0], e[1]), p2 = toOctet(e[2], e[3]), mid = ion ? [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2] : p1;
+        const k = (len(sub(p2, p1)) * (ion ? 2 : 1)) / ((0.75 * (a.size ?? style.labelSize) * f) / B);
+        if (Math.abs(k - 1) >= 0.05) out.size = Math.round(Math.min(SIGN_SIZES[1], Math.max(SIGN_SIZES[0], k)) * 1e3) / 1e3;
+        const d = [(mid[0] - a.location[0]) / f, (mid[1] - a.location[1]) / f], r = Math.hypot(d[0], d[1]), in3 = Math.min(1, SIGN_REACH / r);
+        if (r > 0.8) out.at = [Math.round(d[0] * in3 * 1e4) / 1e4, Math.round(d[1] * in3 * 1e4) / 1e4];
+      }
+      const own = readSign(out);
+      if (own) a.sign = own;
+    };
     const nearest = (c: P, among: number[]) => among.reduce<number | undefined>((best, i) => {
       const d = len(sub(mol.atoms[i].location as unknown as P, c));
       return d < 1 && (best === undefined || d < len(sub(mol.atoms[best].location as unknown as P, c))) ? i : best;
@@ -2598,6 +2625,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         if (type === "Electron") { const n = electrons.get(linked) ?? 0; electrons.set(linked, n + 1); if (n < 2) place(a, `radical${n}`); }
         else if (sign && !unpaired) place(a, "charge");
         else if (sign) { const ends = reals(x.attrs.BoundingBox, 4); place(a, "charge", ends ? toOctet((ends[0] + ends[2]) / 2, (ends[1] + ends[3]) / 2) : c); }
+        if (sign && !octet) ownSign(a, x, type.startsWith("Radical"));
         continue;
       }
       if (linked !== undefined && type.startsWith("LonePair") && mol.atoms[linked].radical === 3 && x.kids.some((k) => k.name === "represent" && k.attrs.attribute === "Radical")) {

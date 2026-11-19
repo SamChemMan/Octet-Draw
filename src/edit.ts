@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, add, bandRf, bandSize, chargeKind, cross, dot, GEL, HBOND, H_FIRST, hydrogens, len, lonePairs, mul, orderOf, placedAt, QUADRUPLE, reKind, scaleOf, settleShape, sub, symbolCharge, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc, circledRings } from "./render.ts";
+import { AROMATIC, add, bandRf, bandSize, chargeKind, cross, dot, GEL, HBOND, H_FIRST, hydrogens, len, lonePairs, mul, orderOf, placedAt, QUADRUPLE, reKind, scaleOf, SIGN_REACH, SIGN_SIZES, type FreeSymbol, type Sign, settleShape, sub, symbolCharge, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc, circledRings } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -537,6 +537,40 @@ export function moveMark(m: Mol, i: number, key: string, p: P, snap: boolean): M
   const a = m.atoms[i], raw = (Math.atan2(p[1] - a.location[1], p[0] - a.location[0]) * 180) / Math.PI;
   return setAtom(m, i, { angles: { ...a.angles, [key]: snap ? Math.round(raw / 15) * 15 : Math.round(raw) } });
 }
+// Atom i's charge moved by hand to its own place (issue 164): its middle at p (drawing units), no further from the atom
+// than SIGN_REACH bond lengths at its scale; with snap (Fixed Angles) its direction in 15° steps.
+export function moveSign(m: Mol, i: number, p: P, snap: boolean): Mol {
+  const a = m.atoms[i], f = scaleOf(a), d = [(p[0] - a.location[0]) / f, (p[1] - a.location[1]) / f], r = Math.min(SIGN_REACH, Math.hypot(d[0], d[1]));
+  let t = Math.atan2(d[1], d[0]);
+  if (snap) t = (Math.round((t * 180) / Math.PI / 15) * 15 * Math.PI) / 180;
+  const round = (v: number) => Math.round(v * 1e4) / 1e4, { charge: _, ...angles } = a.angles ?? {};
+  return setAtom(m, i, { sign: { ...a.sign, at: [round(r * Math.cos(t)), round(r * Math.sin(t))] }, angles: Object.keys(angles).length ? angles : undefined });
+}
+// Atom i's charge's own colour (black or the atom's colour clears it) or size factor (1 clears it), within limits.
+export function setSign(m: Mol, i: number, change: { colour?: string; size?: number }): Mol {
+  const a = m.atoms[i];
+  if (!a?.charge) return m;
+  const next: Sign = { ...a.sign };
+  if ("colour" in change) { const c = change.colour?.toLowerCase(); if (!c || c === "#000000" || c === a.colour?.toLowerCase()) delete next.colour; else next.colour = c; }
+  if (change.size !== undefined) { const k = Math.min(SIGN_SIZES[1], Math.max(SIGN_SIZES[0], change.size)); if (Math.abs(k - 1) < 1e-3) delete next.size; else next.size = Math.round(k * 1e3) / 1e3; }
+  return setAtom(m, i, { sign: Object.keys(next).length ? next : undefined });
+}
+// The kind a picked charge shows as a free symbol would (the Actions panel), and the change a kind button makes: a plain
+// or circled charge of either sign keeps its number; a radical ion's two kinds swap its sign.
+export const signKind = (a: Atom): FreeSymbol | undefined => (!a.charge ? undefined : a.radical === 1 && Math.abs(a.charge) === 1 && !a.circled ? (a.charge > 0 ? "radicalCation" : "radicalAnion") : chargeKind(a.charge, !!a.circled).symbol);
+export function setSignKind(m: Mol, i: number, kind: FreeSymbol): Mol {
+  const a = m.atoms[i], q = Math.abs(a?.charge ?? 0);
+  if (!q) return m;
+  const positive = kind === "plus" || kind === "circledPlus" || kind === "radicalCation";
+  if (kind === "radicalCation" || kind === "radicalAnion") return signKind(a)?.startsWith("radical") ? setAtom(m, i, { charge: positive ? 1 : -1 }) : m;
+  if (!(["plus", "minus", "circledPlus", "circledMinus"] as string[]).includes(kind)) return m;
+  return settleHydrogens(setAtom(m, i, { charge: positive ? q : -q, circled: kind.startsWith("circled") || undefined }));
+}
+// A picked charge deleted (as ChemDraw deletes a charge symbol): the atom loses its charge, its look and its place.
+export const dropCharge = (m: Mol, i: number): Mol => {
+  const { charge: _, ...angles } = m.atoms[i]?.angles ?? {};
+  return m.atoms[i]?.charge ? settleHydrogens(trimPairs(setAtom(m, i, { charge: undefined, circled: undefined, sign: undefined, angles: Object.keys(angles).length ? angles : undefined }), i)) : m;
+};
 // Lone pairs shown never outnumber the ones the atom has (after a charge or radical changes them).
 const trimPairs = (m: Mol, i: number) => (m.atoms[i].pairs ? setAtom(m, i, { pairs: Math.min(m.atoms[i].pairs!, freePairs(m, i)) || undefined }) : m);
 // Each atom's bond orders added up, in one pass over the bonds (orderOf: an aromatic bond counts 1.5, a hydrogen bond 0).
@@ -1939,8 +1973,12 @@ export function rotateAtoms(m: Mol, ids: Set<number>, degrees: number): Mol {
   }) };
 }
 // Marks placed by hand (Atom.angles) turn and flip with their atom, so they keep their place beside it.
-const turnMarks = (a: Atom, f: (degrees: number) => number) =>
-  a.angles ? { angles: Object.fromEntries(Object.entries(a.angles).map(([k, t]) => [k, ((((f(t) + 180) % 360) + 360) % 360) - 180])) } : {};
+// A charge at its own place (Atom.sign at) keeps its distance and turns or flips the same way.
+const turnMarks = (a: Atom, f: (degrees: number) => number) => {
+  const at = a.sign?.at, r = at ? Math.hypot(at[0], at[1]) : 0, t = at ? (f((Math.atan2(at[1], at[0]) * 180) / Math.PI) * Math.PI) / 180 : 0;
+  return { ...(a.angles ? { angles: Object.fromEntries(Object.entries(a.angles).map(([k, t]) => [k, ((((f(t) + 180) % 360) + 360) % 360) - 180])) } : {}),
+    ...(at ? { sign: { ...a.sign, at: [Math.round(r * Math.cos(t) * 1e4) / 1e4, Math.round(r * Math.sin(t) * 1e4) / 1e4] as [number, number] } } : {}) };
+};
 
 // Chair cyclohexane, drawn the textbook way and at ChemDraw 22.2's angles: three pairs of parallel bonds, all one
 // bond long, a steep pair at the ends at 60° (the first bond, 0-1) and two pairs sloping 15° up and 15° down (issue 3).
