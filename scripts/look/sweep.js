@@ -79,6 +79,12 @@ templates?.click();
 await measure("the template library", !!(await until(() => document.querySelector(".segmented.library-kind"), 4000)));
 key({ key: "Escape" });
 await wait(600);
+// The Template tool's library, with the template in hand drawn large to choose where it attaches.
+const template = [...document.querySelectorAll(".tool")].find((t) => /templates$/i.test(t.getAttribute("aria-label") ?? ""));
+template?.click(); await wait(500); template?.click();
+await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
+key({ key: "Escape" });
+await wait(600);
 
 // A caption, and the offer that comes when a reference is pasted into it with its formatting.
 key({ key: "a", code: "KeyA", metaKey: true });
