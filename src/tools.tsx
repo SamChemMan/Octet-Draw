@@ -16,6 +16,7 @@ import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbit
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
 import { followDrag } from "./cursor";
+import { optionCommand } from "./keys";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
@@ -95,7 +96,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -649,6 +650,7 @@ export function Palette(p: PaletteProps) {
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "cycle" ? CYCLES[kind] : tool === "sequence" ? SEQUENCES[kind]?.name : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;
+  const optionKey = (tool: Strip, kind: string) => { const c = optionCommand(tool, kind); return c ? p.keys(c) : undefined; }; // J for benzene
   const iconOf = (tool: Strip, kind: string) => {
     if (tool === "more") return SPECIAL_TOOLS[kind]?.icon;
     if (tool === "bond") return <BondGlyph kind={kind as BondKind} />;
@@ -812,7 +814,7 @@ export function Palette(p: PaletteProps) {
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
-              data-key={p.keys(`tool.${t.id}`)}
+              data-key={p.keys(`tool.${t.id}`) ?? (t.id === "ring" ? optionKey("ring", p.variants.ring) : undefined)}
               // A selection dragged from the canvas onto the Ring or Template tool goes into My templates.
               {...(t.id === "ring" || t.id === "template" ? { "data-drop-set": MY_SET, "data-drop-tool": t.id } : {})}
               onPointerDown={() => {
@@ -837,7 +839,7 @@ export function Palette(p: PaletteProps) {
             </button>
             <Exit>{group && open === t.id && (
               // The specialist tools; any can be dragged onto the toolbar.
-              <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id }))]}
+              <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id, hint: optionKey("more", id) }))]}
                 columns={columnsOf("more")} onColumns={(n) => p.onStripWidth("more", menuWidth(n))}
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
             )}</Exit>
@@ -860,7 +862,7 @@ export function Palette(p: PaletteProps) {
                 const name = nameOf(tool, kind)!;
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind) || !!template(kind)));
                 return {
-                  key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
+                  key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind, hint: optionKey(tool, kind),
                   ...(kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => unkeep(tool, kind) } } : {}),
                 };
               };
@@ -934,6 +936,7 @@ export function Palette(p: PaletteProps) {
             style={{ "--d": Math.abs(j - shown.findIndex((x) => x.key === landed?.key)) } as React.CSSProperties}
             aria-pressed={lit?.key === key}
             aria-label={nameOf(tool, kind)}
+            data-key={optionKey(tool, kind)}
             onPointerDown={(e) => startCarry(e, key, true)}
             onClick={() => { if (!dragged.current) { choose(tool, kind); setChosen(key); } }}
           >
