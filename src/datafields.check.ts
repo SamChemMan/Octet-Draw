@@ -52,7 +52,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   // Unicode is kept whole: α, °C, 日本, 🧪 (two UTF-16 units), Arabic.
   assert.equal(D.cleanValue("α °C 日本 🧪 مرحبا"), "α °C 日本 🧪 مرحبا");
   t = 0;
-  console.log("datafields.check: cleaners and limits ok");
 }
 
 // J1: a structure's fields in order; shown, a field's value is its caption's text, tied under the structure, never
@@ -84,7 +83,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   // Select Linked Objects: the structures and the text.
   assert.deepEqual(D.linked(withFields, shown.caption!), { atoms: P, items: [shown.caption!] });
   assert.equal(D.linked(withFields, 999), undefined);
-  console.log("datafields.check: fields, rows, show and hide ok");
 }
 
 // J2: edits keep fields with their atoms.
@@ -150,7 +148,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual(values(contracted, [3, 4]), [["ID", "OCT-002", false]]);
   const expanded = E.expandLabel(contracted, 4, { atoms: [at(0, 0), at(1, 0, "O")], bonds: [bond(0, 1)] });
   assert.deepEqual(values(expanded, [3, 4, expanded.atoms.length - 1]), [["ID", "OCT-002", false]]);
-  console.log("datafields.check: split, merge, delete, copy, paste, templates and labels keep fields ok");
 }
 
 // Rule 8, S15: each change is one undo step, and undo and redo give each drawing back.
@@ -168,7 +165,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   for (let k = steps.length - 1; k > 0; k--) { assert.equal(h.stack[h.at], steps[k]); h = history(h, { type: "undo" }); }
   assert.equal(h.stack[h.at], base);
   for (let k = 1; k < steps.length; k++) { h = history(h, { type: "redo" }); assert.equal(h.stack[h.at], steps[k]); }
-  console.log("datafields.check: undo and redo ok");
 }
 
 // J3: .oct keeps the fields in order; a shown field's text carries ChemDraw's attached-data property (which Octet 1.1.2
@@ -197,7 +193,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.equal(many.data!.length, D.MAX_DATA);
   assert.ok(performance.now() - t < 1500, "100,000 entries read in under a second and a half");
   t = 0;
-  console.log("datafields.check: .oct round trip, Octet 1.1.2's form and hostile lists ok");
 }
 
 // J4: CDXML. A hidden field is an annotation in its fragment, a shown one ChemDraw's attached data (its text, not
@@ -233,7 +228,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual([h.mol.data!.length, h.mol.data![0].name, h.lost], [D.MAX_EACH, "Data", { "data field": 4000, "property link": 1 }]);
   assert.ok(performance.now() - t < 1000);
   t = 0;
-  console.log("datafields.check: CDXML and CDX ok");
 }
 
 // J5, J6: SDF. Each record has its structure's fields as data items, in order; Octet reads them back, a lone record
@@ -259,7 +253,6 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   // Data S-groups (a molfile's attached data) are fields of their atoms.
   const dat = chem.importStructure("\n  Octet\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\nM  STY  1   1 DAT\nM  SAL   1  3   1   2   3\nM  SDT   1 Batch\nM  SDD   1     0.0000    0.0000    DA    ALL  1       5\nM  SED   1 B-001\nM  END\n");
   assert.deepEqual(dat.data, [{ name: "Batch", atoms: [0, 1, 2], value: "B-001" }]);
-  console.log("datafields.check: SDF write and read ok");
 }
 
 // S9: a hostile SD file: a giant value, 20,000 items on one record, a header with no <name>, NUL and ESC in values,
