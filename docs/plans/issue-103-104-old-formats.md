@@ -172,12 +172,22 @@ No default key: ChemDraw has none for these formats.
   error (they can quote the file). A message that is not a short sentence, or has "error" or "null" in it, keeps the
   general words, as `reason` does for any error.
 - D12 (found while building J1). Old Mac CIF files: `isCif` takes lines that end in CR alone, and `readCif` makes
-  them LF when the first line end is a lone CR (LF and CR LF files are not copied). Its line-end pattern matches
-  each line end one way only, so it cannot backtrack.
+  them LF when the file has no LF at all. A stray CR in an LF or CR LF file stays a space, as in 1.1.2 (review, 19
+  November: testing the first line end refused LF files with a CR in a quoted value). Its line-end pattern matches
+  each line end one way only, so it cannot backtrack. A paste tests for CR as well as LF, so an old Mac file's text
+  reads on ⌘V too.
 - D13 (found by the fuzz while building J1). A CIF atom more than 1,000,000 Å from the origin on any axis refuses
   the file: "This CIF file is damaged: an atom is more than 1,000,000 Å from the origin." Before, a coordinate of
   1e160 Å or more gave NaN positions, and 1e30 Å gave a drawing 10^29 bond lengths wide. D7 sets the same limit for
   SMD.
+- D14 (review, 19 November). Bonds found by distance count toward the file's limit: 20,000 bonds at most with the
+  file's own, or "It has more than 20,000 bonds." Atoms packed close in a hostile file made 77,000 bonds from 1,000
+  atoms, and 1.5 million from 20 such blocks (4 s). A bond given twice in a ligand's table is kept once.
+- D15 (review, 19 November). `refusal` passes a `RangeError` only when it is one of Octet's limits ("It has …",
+  "It takes …"). The engine's own `RangeError`s (a stack overflow, a bad array length) end in a full stop in
+  JavaScriptCore, so they would read as a reason. They keep the general words. `add_file` reads a CIF file with no
+  aromatic step, as File > Open, a drop and a paste do. With no window, a MOL file over a limit gives the limit, as in a
+  window.
 
 ## Jobs
 
