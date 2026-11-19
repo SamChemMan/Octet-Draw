@@ -410,6 +410,14 @@ function readLabel(label: string): string | undefined {
     }
   }
   if (crowded(smiles)) return undefined;
+  // Peroxy acids and peresters written CO3H or CO3R (CO3tBu): C(=O)OO with R on the last O. Undefined when more than
+  // one group follows.
+  if (smiles.startsWith("C(O)(O)(O)")) {
+    let r = smiles.slice(10), depth = 0, end = -1;
+    for (let i = 0; i < r.length && end < 0; i++) if ((depth += r[i] === "(" ? 1 : r[i] === ")" ? -1 : 0) === 0) end = i;
+    if (r[0] === "(" && end === r.length - 1) r = r.slice(1, -1);
+    return r[0] === "(" ? undefined : `C(=O)OO${r}`;
+  }
   // Esters and acids written CO2R or COOR: one O double-bonded to the carbon.
   return smiles.replace(/^C\(O\)\(O\)/, "C(=O)O").replace(/^COO/, "C(=O)O") || undefined;
 }
