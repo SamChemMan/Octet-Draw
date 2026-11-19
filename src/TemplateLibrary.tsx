@@ -150,22 +150,24 @@ export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: num
 }
 
 // A template's menu, the same in the library and in a floating palette: Edit, Rename, Duplicate, Move to, Move to
-// start, Move to end and Remove for one of the user's own; Add to templates (a copy), Edit a copy and the Ring menu pin
-// for a built-in one. onRename: Rename was chosen (the library shows the name field).
+// start, Move to end, the Ring menu pin and Remove for one of the user's own; Add to templates (a copy), Edit a copy and
+// the Ring menu pin for a built-in one. onRename: Rename was chosen (the library shows the name field).
 export function TemplateMenu({ item, at, keyboard, actions: a, onRename, onClose }: {
   item: LibraryItem; at: { x: number; y: number }; keyboard?: boolean; actions: TemplateActions; onRename?: () => void; onClose: () => void;
 }) {
   const id = ownId(item.kind), kept = !!a.kept?.includes(item.kind);
+  const keep: MenuItem[] = a.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : [];
   const groups: MenuItem[][] = id ? [
     [...(a.onEdit ? [{ key: "edit", name: "Edit", icon: <NotePencil size={18} /> }] : []), ...(onRename ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }] : []),
       ...(a.onDuplicate ? [{ key: "duplicate", name: "Duplicate", icon: <Copy size={18} /> }] : [])],
     [...(a.onSets ? [{ key: "move", name: "Move to", icon: <Folders size={18} />, more: true }] : []), ...(a.onToStart ? [{ key: "start", name: "Move to start", icon: <ArrowLineUpLeft size={18} /> }] : []),
       ...(a.onToEnd ? [{ key: "end", name: "Move to end", icon: <ArrowLineDownRight size={18} /> }] : [])],
+    keep,
     a.onRemove ? [{ key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
   ] : [[
     ...(a.onCopy && a.onSets ? [{ key: "copy", name: "Add to templates", icon: <BookmarkSimple size={18} />, more: true }] : []),
     ...(a.onEdit ? [{ key: "edit", name: "Edit a copy", icon: <NotePencil size={18} /> }] : []),
-    ...(a.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : []),
+    ...keep,
   ]];
   const sub = (key: string) => (key === "move" ? { label: "Move to", groups: setItems(a.sets ?? [], (s) => `move:${s}`, "move.new", item.category) }
     : key === "copy" ? { label: "Add to templates", groups: setItems(a.sets ?? [], (s) => `copy:${s}`, "copy.new") } : undefined);
@@ -378,7 +380,7 @@ export function LibraryPanel(p: TemplateActions & {
     if (key === "rename") return setNaming({ from: s.set, value: s.set });
     if (key === "remove") { p.onSets?.remove(s.set); if (category === s.set) setCategory(MY_SET); }
   };
-  // A template's tile, with its pin (or, for one of the user's, its ×). Its name is a field while it is renamed.
+  // A template's tile, with its pin and, for one of the user's, its ×. Its name is a field while it is renamed.
   const cell = (t: LibraryItem, k: number) => {
     const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind), mark = ordering ? order.markOf(t.kind, k === shown.length - 1) : undefined;
     if (editing === t.kind) return (
@@ -413,13 +415,14 @@ export function LibraryPanel(p: TemplateActions & {
           <Thumb item={t} px={px} />
           <span className="library-name">{t.name}</span>
         </button>
-        {mine && p.onRemove ? (
-          <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
-            <X size={12} />
-          </button>
-        ) : p.onKeep && !mine && (
+        {p.onKeep && (
           <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
             <PushPin size={12} />
+          </button>
+        )}
+        {mine && p.onRemove && (
+          <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
+            <X size={12} />
           </button>
         )}
       </div>

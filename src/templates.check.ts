@@ -7,7 +7,7 @@ import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
-  readPalettes, readSize, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
+  readPalettes, readSize, keepOwnRings, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -701,4 +701,43 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
     assert.ok(mol.atoms.some((a) => a.location[2]), `${t.name}: its depths come back from MOL`);
   }
   console.log(`templates: ${frames.length} polyhedron frames and the fullerenes show no warning, no bond end on, and come back from CDXML, CDX, .oct and MOL ok`);
+}
+
+// Own templates in the Ring menu (1.1.3, docs/plans/c-templates.md): one pin for built-in and own templates.
+{
+  const src = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  const a = newTemplate("A", { atoms: [atom("C", 0, 0)], bonds: [] }), b = newTemplate("B", { atoms: [atom("N", 0, 0)], bonds: [] });
+  const [ka, kb] = [templateKind(a.id), templateKind(b.id)];
+  // 4. Settings from 1.1.2: every own template stays in the strip, before the kept built-in ones, in the old order.
+  assert.deepEqual(keepOwnRings(["lib:Adamantane"], [a, b]), [ka, kb, "lib:Adamantane"], "1.1.2 settings: own templates first, then the kept built-in ones");
+  assert.deepEqual(keepOwnRings([kb, "lib:Adamantane"], [a, b]), [ka, kb, "lib:Adamantane"], "a kind already kept is not kept twice");
+  assert.deepEqual(keepOwnRings(["lib:Adamantane"], [null, 3, { id: 7 }, "x"]), ["lib:Adamantane"], "bad saved templates are skipped");
+  assert.deepEqual(keepOwnRings([], []), [], "no templates: nothing kept");
+  const settings = src("settings.ts");
+  assert.match(settings, /saved\.ringOwnKept === true \? kept : keepOwnRings\(kept, /, "loadSettings moves own templates into the strip only while the flag is missing");
+  assert.match(settings, /ringOwnKept: true,\n/, "loadSettings sets the flag, so it moves them once");
+  assert.match(settings, /libraryRings: \[\], ringOwnKept: true,/, "a new user has nothing to move");
+  // 2. The strip: kept kinds that still exist, in order; an own template only when kept.
+  const exists = (k: string) => [ka, kb, "lib:Adamantane"].includes(k);
+  assert.deepEqual(ringStrip([kb, "lib:Adamantane", "custom:gone", ka], exists), [kb, "lib:Adamantane", ka], "the strip: kept ones in order, removed ones left out");
+  assert.deepEqual(ringStrip([], exists), [], "own templates not kept are not in the strip");
+  const tools = src("tools.tsx");
+  assert.match(tools, /\[\.\.\.Object\.keys\(RINGS\), \.\.\.ringStrip\(p\.libraryRings, \(k\) => libraryItem\(k\) \|\| p\.named\(k\) \|\| template\(k\)\)\]/, "the Ring strip lists the rings, then the kept templates of every kind");
+  assert.doesNotMatch(tools, /p\.templates\.map\(\(t\) => templateKind\(t\.id\)\)/, "the Ring strip no longer lists every own template");
+  assert.match(tools, /key\.startsWith\("ring:custom:"\) \? "ring"/, "an own template dragged from the library onto the strip is kept there");
+  assert.match(tools, /tool === "ring" && \(!!libraryItem\(kind\) \|\| !!kindName\(kind\) \|\| !!template\(kind\)\)/, "the strip × on an own template takes it out of the strip");
+  assert.match(tools, /onClick: \(\) => unkeep\(tool, kind\)/, "the strip × never removes the template itself");
+  // 1 and 6. The pin: in the menu of every template (library and floating palette), and on the Ring library's tiles.
+  const library = src("TemplateLibrary.tsx");
+  assert.match(library, /const keep: MenuItem\[\] = a\.onKeep \? \[\{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size=\{18\} \/>, checked: kept \}\] : \[\];/, "one Keep in the Ring menu item, ticked when kept");
+  assert.match(library, /Move to end", icon: <ArrowLineDownRight size=\{18\} \/> \}\] : \[\]\)\],\n\s*keep,\n\s*a\.onRemove/, "an own template's menu has the pin, before Remove");
+  assert.match(library, /\{p\.onKeep && \(\n\s*<button className="variant-action" aria-pressed=\{kept\} aria-label=\{`Keep \$\{t\.name\} in the Ring menu`\}/, "every tile in the Ring library has the pin, own ones too, as a pressed button");
+  // 3 and 5. Saved from the Ring tool (or with it in hand) it goes in the strip; removed, it leaves the strip.
+  const editor = src("Editor.tsx");
+  assert.match(editor, /function addOwnTemplate\(name: string, mol: Mol, set\?: string, tool: TemplateTool = "ring", ring = tool === "ring"\)/, "a template saved from the Ring tool goes in the strip");
+  assert.match(editor, /\.\.\.\(ring \? \{ libraryRings: \[\.\.\.s\.libraryRings, templateKind\(t\.id\)\] \} : \{\}\)/, "addOwnTemplate keeps it in the strip only when ring");
+  assert.match(editor, /addPart\(templatePart\(\), command\.slice\(13\) \|\| MY_SET, "ring", undefined, tool === "ring"\)/, "Add to templates from the canvas: in the strip only with the Ring tool in hand");
+  assert.match(editor, /e\.tool === "ring" \? \{ libraryRings:/, "a copy edited from the Ring library and saved goes in the strip");
+  assert.match(editor, /libraryRings: s\.libraryRings\.filter\(\(k\) => k !== kind\)/, "a removed template leaves the strip");
+  console.log("templates: own templates in the Ring menu: pin, strip, migration and removal ok");
 }

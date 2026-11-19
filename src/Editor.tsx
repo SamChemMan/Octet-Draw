@@ -667,10 +667,11 @@ export default function Editor() {
   const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
   const showLibrary = (tool: TemplateTool, set: string, id?: string) => setReveal((r) => ({ tool, set, id, n: (r?.n ?? 0) + 1 }));
   // A template of the user's own, at the end of a set (My templates unless one is named). It is the Ring tool's (or the
-  // Template tool's, from its library) in hand now.
-  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring") {
+  // Template tool's, from its library) in hand now. ring: it goes in the Ring menu too (saved from the Ring tool, its
+  // strip or its library, or with the Ring tool in hand); the user pins any other there.
+  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring", ring = tool === "ring") {
     const t = newTemplate(name, mol);
-    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
+    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) }, ...(ring ? { libraryRings: [...s.libraryRings, templateKind(t.id)] } : {}) }));
     setTool(tool);
     return t;
   }
@@ -679,17 +680,18 @@ export default function Editor() {
     setSettings((s) => ({
       ...removeTemplate(s, id),
       pinned: s.pinned.filter((k) => k !== `ring:${kind}` && k !== `template:${kind}`),
+      libraryRings: s.libraryRings.filter((k) => k !== kind),
       variants: { ...s.variants, ...(s.variants.ring === kind ? { ring: "benzene" } : {}), ...(s.variants.template === kind ? { template: "lib:Alanine" } : {}) },
     }));
   }
   // A drawing (a selection, a structure picked, a built-in template) becomes a template of the user's own, with
   // everything in it (its text, arrows, shapes and look, as ChemDraw's templates keep them). The library opens on its
   // set with its name ready to type: Return keeps the name.
-  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string) => {
+  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string, ring = tool === "ring") => {
     if (!part) return;
     let n = templates.length + 1;
     while (templates.some((t) => t.name === `Template ${n}`)) n++;
-    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool);
+    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool, ring);
     showLibrary(tool, set, t.id);
   };
   // What Add to templates keeps: the selection, or with one atom or bond chosen (its Actions), its whole structure.
@@ -757,7 +759,7 @@ export default function Editor() {
     // A template removed meanwhile (from a palette) is kept as a new one, so nothing drawn is lost.
     const kept = !!e.id && templates.some((t) => t.id === e.id);
     if (kept) setSettings((s) => updateTemplate(s, e.id!, mol));
-    else { const t = newTemplate(e.name, mol); setSettings((s) => addTo(s, t)); }
+    else { const t = newTemplate(e.name, mol); setSettings((s) => ({ ...addTo(s, t), ...(e.tool === "ring" ? { libraryRings: [...s.libraryRings, templateKind(t.id)] } : {}) })); }
     endTemplateEdit();
     setNotice(kept ? `${e.name} is saved.` : `${e.name} is saved in My templates.`, "done");
   }
@@ -8658,8 +8660,9 @@ export default function Editor() {
       }
     }
     // Add to templates: into My templates (the Actions panel), into a set (the right-click menu), or into a new set.
-    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
-    if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
+    // It goes in the Ring menu too only with the Ring tool in hand.
+    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET, "ring", undefined, tool === "ring");
+    if (command === "template.add.new") { const part = templatePart(), ring = tool === "ring"; return part && askSet((set) => addPart(part, set, "ring", undefined, ring)); }
     if (command === "dictionary.add") return addToDictionary();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.

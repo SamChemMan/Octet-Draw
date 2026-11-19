@@ -46,6 +46,14 @@ export function legible(whole: Mol): boolean {
 export const templateKind = (id: string) => `custom:${id}`;
 // The id of one of the user's templates from its kind, or undefined for a built-in one.
 export const ownId = (kind: string) => (kind.startsWith("custom:") ? kind.slice(7) : undefined);
+// The Ring strip's kept templates (built-in, named and the user's own, one list): those that still exist, in order.
+export const ringStrip = (kept: string[], exists: (kind: string) => unknown) => kept.filter((k) => !!exists(k));
+// Settings from before the Ring menu pin for the user's own templates (1.1.3) showed every own template in the Ring
+// strip, before the kept built-in ones: they stay there, in that order.
+export const keepOwnRings = (kept: string[], saved: unknown[]) => {
+  const own = saved.flatMap((t) => (typeof (t as SavedTemplate)?.id === "string" ? [templateKind((t as SavedTemplate).id)] : []));
+  return [...new Set([...own, ...kept])];
+};
 // A structure the library's search found by name or abbreviation (TREN, a name OPSIN reads), as a template: its kind,
 // and the name from a kind (undefined for any other kind).
 export const namedKind = (name: string) => `name:${name}`;
