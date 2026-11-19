@@ -2,7 +2,7 @@
 // ¹H multiplet, the solvent's peaks, the axis ticks and the peak labels. The figure is in bond lengths, y up, with the
 // axis along y = 0 from x = 0 (the high-shift end) to its width.
 import { countText, frequency, multiplicity, shiftText, NUCLEI, type Nucleus, type Prediction, type Signal } from "./nmr.ts";
-import type { CurvePoint, LineStyle, Mol } from "./render.ts";
+import type { CurvePoint, Head, LineStyle, Mol } from "./render.ts";
 import type { TextRun } from "./richtext.ts";
 import { widthOf } from "./arial.ts";
 import { addArrow, addCaption, groupSelection } from "./edit.ts";
@@ -301,11 +301,11 @@ type P = [number, number];
 // bottom to top) and all at the document's caption size. grey: the solvent's. fill: a closed curve filled in that
 // colour. width: a text wraps to it. role: which part it is ("axis", "tick:7", "unit", "trace", "fill:a1b2", "peak:a1b2",
 // "leader:peak:a1b2", "bracket:…", "solvent:CDCl₃", "title", "notice"). top: the top of the labels.
-// A chart (charts.ts) also sets: a line's or a curve's style (bold, dashed), a curve's colour, closed (an outline joined
-// back to its start), back (drawn behind the lines), and a text's runs (rich text), small (SMALL of the caption size) or chemical (false:
-// text only, never read as a formula).
+// A chart (charts.ts) also sets: a line's or a curve's style (bold, dashed, wavy), a line's head at its end, a curve's
+// colour, closed (an outline joined back to its start), back (drawn behind the lines), and a text's runs (rich text),
+// small (SMALL of the caption size) or chemical (false: text only, never read as a formula).
 export type Figure = {
-  lines: { from: P; to: P; colour?: string; grey?: true; role?: string; style?: LineStyle }[];
+  lines: { from: P; to: P; colour?: string; grey?: true; role?: string; style?: LineStyle; end?: Head }[];
   curves: { points: CurvePoint[]; grey?: true; fill?: string; role?: string; colour?: string; closed?: true; back?: true; style?: LineStyle }[];
   texts: { text: string; at: P; align: "left" | "centre" | "right"; colour?: string; grey?: true; angle?: number; width?: number; role?: string; runs?: TextRun[]; small?: true; chemical?: false }[];
   top?: number;

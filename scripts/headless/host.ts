@@ -20,6 +20,7 @@ import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
 import { calculated, liveValues, nameValues, propertyValues, withCas } from "../../src/proprows.ts";
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
+import { followCharts, followLeaders, followLevels } from "../../src/pageplot.ts";
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
 import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
@@ -129,6 +130,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
       const size = (c.size ?? s.captionSize) / s.bond, ls = c.text.split("\n"), w = Math.max(...ls.map((t) => textWidth(t, size, c.bold, c.italic, fontStack(c.font ?? s.captionFont)))), x = c.x - (c.align === "right" ? w : c.align === "centre" ? w / 2 : 0);
       return [x, c.y - (ls.length - 0.75) * 1.2 * size, x + w, c.y + 0.75 * size];
     };
+    // As the editor's set: a page spectrum's leader follows its label, text typed over a chart's caption is its data,
+    // and a Jablonski diagram's transitions follow a level moved (a level or transition moved is its data).
+    const env = { captionSize: s.captionSize, bond: s.bond, line: s.line };
+    mol = followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env);
     const fitted = placeCentres(carryDepth(doc, showWarnedHydrogens(mol)));
     const cycled = fitted.cycles?.length ? dropOnCycle(fitted, fragments(fitted), doc, { box: dropBox, bond: s.bond }) : fitted;
     const ordered = onTop(doc, wholeGroups(cycled), fragments);
