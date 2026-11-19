@@ -8,8 +8,8 @@ import { homedir } from "node:os";
 import { browser, loadOpsin, needOpsin, norender, opsinDir } from "./checkkit.ts";
 import { COMMON } from "../src/common.ts";
 import { DRUGS } from "../src/drugs.ts";
-import { graphOf } from "../src/naming.ts";
-import { iupacNameWhy } from "../src/namer.ts";
+import { graphOf, namerName, setNamer } from "../src/naming.ts";
+import { iupacName, iupacNameWhy } from "../src/namer.ts";
 import type { Mol } from "../src/render.ts";
 
 needOpsin("namer.check: skipped (no OPSIN build)");
@@ -142,7 +142,6 @@ const complexOf = (smiles: string): string | undefined => {
   } catch { return undefined; }
 };
 const { citesPseudo, pseudoSmiles } = await import("../src/pseudo.ts");
-const { namerName, setNamer } = await import("../src/naming.ts");
 setNamer(iupacName);
 const pseudoApi = { mol: (s: string) => chem.parseStructure(s, false), inchi: chem.toInchi, cip: chem.cipOf, name: namerName };
 let tried = 0, named = 0;

@@ -6,32 +6,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Mol } from "../src/render.ts";
+import { browser, loadOpsin, opsinDir } from "./checkkit.ts";
 
 const file = process.env.CIP_SUITE ?? `${homedir()}/octet-research/data/cip-validation-suite/compounds_2d.sdf`;
-const dir = new URL("../src/vendor/opsin/", import.meta.url);
-if (!existsSync(file) || !existsSync(new URL("opsin.js", dir))) { console.log("namer-suite: skipped (no suite file or no OPSIN build)"); process.exit(0); }
+if (!existsSync(file) || !existsSync(new URL("opsin.js", opsinDir))) { console.log("namer-suite: skipped (no suite file or no OPSIN build)"); process.exit(0); }
 const list = process.argv.includes("--list");
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+browser();
 const chem = await import("../src/chem.ts");
 await chem.ready;
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+const opsin = await loadOpsin();
 const { attachOpsin, knownName, nameToSmiles, setPseudoReader } = await import("../src/names.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"));
 const { checkedName, graphOf, namerName, setCageCheck, setNamer } = await import("../src/naming.ts");
 const { iupacLocants, iupacName } = await import("../src/namer.ts");
 const { pseudoReader } = await import("../src/pseudo.ts");

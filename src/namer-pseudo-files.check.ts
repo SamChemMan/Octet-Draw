@@ -2,32 +2,17 @@
 // and opened again: .oct, CDXML and CDX as ChemDraw reads them (the CDXML alone, without Octet's own copy), and MOL,
 // SDF and SMILES. The structure has the same name again, and the caption keeps its text and its italic r and s.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 import type { Mol } from "./render.ts";
 
-const dir = new URL("./vendor/opsin/", import.meta.url);
-if (!existsSync(new URL("opsin.js", dir))) { console.log("namer-pseudo-files: skipped (no OPSIN build)"); process.exit(0); }
-const gl = globalThis as Record<string, unknown>;
-gl.document = { documentElement: {}, createElement: () => ({ getContext: () => ({}) }) };
-gl.getComputedStyle = () => ({ getPropertyValue: () => "10" });
-gl.window = globalThis;
-gl.self = { location: { origin: "file://" } };
-gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
+needOpsin("namer-pseudo-files: skipped (no OPSIN build)");
+browser();
 const chem = await import("./chem.ts");
 await chem.ready;
-const pack = readFileSync(new URL("opsin-data.bin", dir)), files = new Map<string, Int8Array>();
-for (let p = 0; ; ) {
-  const n = pack.readUInt16BE(p); p += 2;
-  if (!n) break;
-  const name = pack.toString("latin1", p, p + n); p += n;
-  const size = pack.readInt32BE(p); p += 4;
-  files.set(name, new Int8Array(pack.buffer, pack.byteOffset + p, size)); p += size;
-}
-gl.opsinResource = (name: string) => files.get(name) ?? null;
-const opsin = await import(new URL("opsin.js", dir).href);
-opsin.init();
+const opsin = await loadOpsin();
 const { attachOpsin, knownName, nameToSmiles, setPseudoReader } = await import("./names.ts");
-attachOpsin(opsin, readFileSync(new URL("names.txt", dir), "utf8"));
+attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"));
 const { checkedName, namerName, setCageCheck, setNamer } = await import("./naming.ts");
 const { iupacName } = await import("./namer.ts");
 const { pseudoReader } = await import("./pseudo.ts");
