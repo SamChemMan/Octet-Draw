@@ -1,5 +1,5 @@
-// The names of the bond, arrow and shape kinds, as the palette, the Actions panel, the command palette and the canvas
-// for screen readers (access.ts) give them. tools.tsx draws the palette from these.
+// The names of the bond, arrow and shape kinds and the Pen tool's options, as the palette, the Actions panel, the command
+// palette and the canvas for screen readers (access.ts) give them. tools.tsx draws the palette from these.
 import type { BondSpec } from "./edit.ts";
 import { HBOND, QUADRUPLE, type ArrowKind, type FreeSymbol, type ShapeKind } from "./render.ts";
 
@@ -37,3 +37,18 @@ export const FREE_SYMBOL_NAMES: Record<FreeSymbol, string> = {
   plus: "Positive charge", minus: "Negative charge", circledPlus: "Circled positive", circledMinus: "Circled negative", radical: "Radical", pair: "Lone pair", bar: "Lone pair bar",
   radicalCation: "Radical cation", radicalAnion: "Radical anion", partialPlus: "Partial positive", partialMinus: "Partial negative",
 };
+
+// The Pen tool's options, as ChemDraw's Pen tools: Pen draws a curve point by point, and Edit curve changes one (its
+// points and handles, a point added or taken out).
+export const PENS: Record<string, string> = { pen: "Pen", "pen-edit": "Edit curve" };
+export const isPen = (v: unknown): v is string => typeof v === "string" && Object.keys(PENS).includes(v);
+// Settings saved by 1.1.2 and before, when both were options of the Shape tool: a Shape choice of either is the Pen
+// tool's choice, and the Shape tool takes its default again (variants). A shortcut pinned to either is the Pen tool's
+// (pin).
+export function movePens(saved: unknown): Record<string, unknown> {
+  const v = typeof saved === "object" && saved !== null ? (saved as Record<string, unknown>) : {};
+  if (!isPen(v.shape)) return v;
+  const { shape, ...rest } = v;
+  return { ...rest, pen: shape };
+}
+export const movePin = (key: string) => (/^shape:pen(-edit)?$/.test(key) ? `pen:${key.slice(6)}` : key);

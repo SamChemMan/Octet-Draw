@@ -45,7 +45,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
-import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, PEN_TOOLS, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -103,7 +103,8 @@ import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./sear
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
-import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
+import { isPen, PENS } from "./kinds";
+import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, PenGlyph, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
@@ -938,13 +939,14 @@ export default function Editor() {
     const { [kind]: _, ...rest } = s.anchors;
     return { ...s, anchors: a ? { ...rest, [kind]: a } : rest };
   });
-  // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
+  // The Shape, Bracket and Pen tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
+  const penChoice = isPen(settings.variants.pen) ? settings.variants.pen : "pen";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
   const cycleChoice = settings.variants.cycle && CYCLES[settings.variants.cycle] ? settings.variants.cycle : "circle";
   const sequenceChoice = SEQUENCES[settings.variants.sequence] ? settings.variants.sequence : "peptide";
   const shapePick = shapeSpec(shapeChoice)!, bracketPick = bracketSpec(bracketChoice)!;
-  const editCurve = tool === "shape" && "edit" in shapePick; // Edit curve in hand
+  const penDraw = tool === "pen" && penChoice === "pen", editCurve = tool === "pen" && penChoice === "pen-edit"; // the Pen, or Edit curve, in hand
   const orbitalChoice = orbitalSpec(settings.variants.orbital) ? settings.variants.orbital : "p-shaded";
   // A clicked orbital's tip: s orbitals a third of a bond across, lobes most of a bond long, pointing up, or for a
   // single lobe or hybrid on an atom, out into the atom's widest gap.
@@ -4462,7 +4464,7 @@ export default function Editor() {
     setPicked(new Set([id]));
   }
   // Putting the Pen down ends its curve.
-  useEffect(() => { if (pen && !(tool === "shape" && "pen" in shapePick)) finishPen(); }, [tool, shapeChoice]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (pen && !penDraw) finishPen(); }, [penDraw]); // eslint-disable-line react-hooks/exhaustive-deps
   // Saves the cell being typed, then moves to another cell (adding a row past the last one) or closes.
   function commitCell(to?: [number, number]) {
     const w = cell;
@@ -5959,7 +5961,7 @@ export default function Editor() {
       return pressSelect(p, t, e.shiftKey || bare, screen, copy);
     }
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
-    if (tool === "shape" && "pen" in shapePick) {
+    if (penDraw) {
       if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * views.get().zoom < 8) return finishPen(true);
       setDrag({ kind: "pen", at: p, start: screen });
       return startHold(p, t, screen);
@@ -6651,10 +6653,10 @@ export default function Editor() {
       if (ring) return fuse(addRing(doc, ring.n, ring.aromatic, { bond }));
     }
     if (kind === "tool") {
-      // A ring key picks its ring; a specialist tool's key leaves it in its slot, as its menu does.
-      const ring = RING_TOOLS[arg], slot = ring ? "ring" : SPECIAL.includes(arg as Tool) ? "more" : undefined;
-      if (slot) setSettings((s) => ({ ...s, variants: { ...s.variants, [slot]: ring ?? arg } }));
-      return setTool(ring ? "ring" : (arg as Tool));
+      // A ring key picks its ring, and a Pen key its option; a specialist tool's key leaves it in its slot, as its menu does.
+      const ring = RING_TOOLS[arg], penOption = PEN_TOOLS[arg], slot = ring ? "ring" : penOption ? "pen" : SPECIAL.includes(arg as Tool) ? "more" : undefined;
+      if (slot) setSettings((s) => ({ ...s, variants: { ...s.variants, [slot]: ring ?? penOption ?? arg } }));
+      return setTool(ring ? "ring" : penOption ? "pen" : (arg as Tool));
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
     // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
@@ -9036,6 +9038,7 @@ export default function Editor() {
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
       ...variants("shape", "shape", [...SHAPE_GRID.flat(), ...SHAPE_EXTRA].map((k) => [k, shapeName(k)!, <ElementGlyph v={k} />]), "Shapes"),
       ...variants("bracket", "bracket", Object.entries(BRACKETS).map(([k, n]) => [k, n, <BracketGlyph v={k} />]), "Brackets"),
+      ...variants("pen", "pen", Object.entries(PENS).map(([k, n]) => [k, n, <PenGlyph v={k} />]), "Tools", "curve bezier spline freehand draw"),
       ...variants("orbital", "orbital", ORBITAL_GRID.flat().map((k) => [k, orbitalName(k)!, <OrbitalGlyph v={k} />]), "Orbitals"),
       { id: "tool:text", name: "Text", group: "Tools", keys: toolKey("tool.text"), icon: <TextT size={18} />, run: pick("text") },
       { id: "tool:erase", name: "Eraser", group: "Tools", keys: toolKey("tool.erase"), icon: <Eraser size={18} />, run: pick("erase") },
@@ -11825,7 +11828,7 @@ export default function Editor() {
       <Palette
         tool={tool}
         coach={coachTool}
-        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, cycle: cycleChoice, sequence: sequenceChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
+        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, pen: penChoice, cycle: cycleChoice, sequence: sequenceChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
         curvedArrows={settings.curvedArrows}
         onCurvedArrows={(curvedArrows) => setSettings((s) => ({ ...s, curvedArrows }))}
         libraryRings={settings.libraryRings}
