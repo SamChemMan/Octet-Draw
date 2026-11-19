@@ -1,5 +1,5 @@
 // Run: node src/datafields-stress.check.ts. The stress list of issue 68 (docs/plans/issue-68-data-fields.md, S1 to
-// S33): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
+// S34): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
 // undo, copy and paste, every format in a chain, AI apps with odd arguments and two at once, and speed. Each case runs on
 // its own, and the file fails at the end with the cases that fail. What only the window does (the dialog, a notice) is
 // checked here in the source the editor runs for it. S18 (ChemDraw 22.2) and S19 (Octet 1.1.2's own readers) need
@@ -417,6 +417,16 @@ test("S33 Indigo's own SD reader reads the data items Octet writes", async () =>
       assert.deepEqual(ket.root.nodes.map((n: { $ref: string }) => ket[n.$ref].properties), want, v2000 ? "V2000" : "V3000");
     } finally { opts.delete(); }
   }
+});
+
+test("S34 ChemDraw's raw line breaks: lines in a structure's annotation, spaces in the document's", () => {
+  // ChemDraw writes a value's line breaks raw inside Content. The document's own annotations keep XML's rule (issue 100).
+  const m = fielded(two(), 0, [["Note", "a\nb\nc"]]);
+  const text = toCdxml(m, S).replace(/\n Octet="[^"]*"/g, "").replace("a&#10;b&#10;c", "a\nb\r\nc").replace("</page>", '<annotation Keyword="Title" Content="A\nB"/></page>');
+  assert.ok(text.includes('Content="a\nb\r\nc"'));
+  const read = fromCdxml(text).mol;
+  assert.deepEqual(all(read)[0], [["Note", "a\nb\nc", false]]);
+  assert.equal(read.annotations?.find((a) => a.keyword === "Title")?.content, "A B");
 });
 
 const failed: string[] = [];

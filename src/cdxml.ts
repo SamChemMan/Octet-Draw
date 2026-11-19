@@ -121,9 +121,11 @@ export function parseXml(src: string): Xml {
       if (e < 0) fail();
       const raw = src.slice(i + 1, e);
       if (raw.includes("<") || key in el.attrs) fail();
-      // A line break in an attribute is a space (XML's rule), but in Comment (ChemDraw's document comment) and in an
-      // annotation's Content, which ChemDraw writes with their line breaks as they are, it is a line feed.
-      el.attrs[key] = decode(key === "Comment" || key === "Content" ? raw.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : raw.replace(/\r\n|[\r\n\t]/g, " "));
+      // A line break in an attribute is a space (XML's rule), but in Comment (ChemDraw's document comment) and in the
+      // Content of a structure's annotation (a data field's value), which ChemDraw writes with their line breaks as
+      // they are, it is a line feed.
+      const lines = key === "Comment" || (key === "Content" && el.name === "annotation" && stack[stack.length - 1].name === "fragment");
+      el.attrs[key] = decode(lines ? raw.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : raw.replace(/\r\n|[\r\n\t]/g, " "));
       i = e + 1;
     }
   }
