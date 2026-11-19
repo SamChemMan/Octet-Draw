@@ -55,7 +55,7 @@ import { experimentRows, type ExperimentEntry, type ExperimentSort } from "./exp
 import { formatAmount } from "./stoich";
 import { HOLD_MS } from "./tools";
 
-export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
+export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean; title?: string | null; author?: string | null };
 // A drawing open in a window of its own (src-tauri/src/windows.rs), with its picture as an SVG when it has one.
 export type OpenWindow = { label: string; name: string; path: string | null; edited: boolean; picture: string | null };
 // A drawing a crash took, kept with its unsaved changes (src-tauri/src/recovery.rs).
@@ -830,17 +830,18 @@ export function Home(p: Props) {
   };
 
   // A drawing's tile, in Recent or in a folder. A drawing that was moved or deleted shows so, and Locate… finds it.
-  const drawingTile = (d: { path: string; name: string; found: boolean; recent?: RecentEntry; project?: string; when: string }, k: number) => {
-    const picture = lib.pictureFor(d.path), key = `drawing:${d.path}`;
+  // A drawing with a title shows it in place of the file's name, and its author after when it was used (issue 100).
+  const drawingTile = (d: { path: string; name: string; found: boolean; recent?: RecentEntry; project?: string; when: string; title?: string | null; author?: string | null }, k: number) => {
+    const picture = lib.pictureFor(d.path), key = `drawing:${d.path}`, shown = d.title || d.name;
     return (
       <div key={key} className={[d.found ? "home-slot" : "home-slot missing", chosen.has(key) && "chosen"].filter(Boolean).join(" ")} style={arrive(k)} {...pictureDrop({ path: d.path })}>
         <button className="home-tile" data-tile={key} data-drawing={d.path} data-tip={tilde(d.path, lib.home)} aria-describedby={chosen.has(key) ? "home-chosen" : undefined}
           onClick={(e) => { if (pickClick(e, key)) return; if (d.found) p.onRecent({ path: d.path }); else lib.locate(d.path); }}
           onPointerDown={(e) => press(e, { path: d.path, name: d.name, picture })} {...tileMenu(key, () => ({ kind: "drawing", path: d.path, name: d.name, found: d.found, recent: d.recent, project: d.project }))}>
-          <DrawingPicture name={d.name} picture={picture} />
+          <DrawingPicture name={shown} picture={picture} />
           <span className="home-caption">
-            <span className="home-name">{d.name}</span>
-            <span className="home-when">{d.found ? d.when : "Moved or deleted"}</span>
+            <span className="home-name">{shown}</span>
+            <span className="home-when">{d.found ? [d.when, d.author].filter(Boolean).join(" · ") : "Moved or deleted"}</span>
           </span>
         </button>
         {drawingActs(d)}
@@ -894,7 +895,7 @@ export function Home(p: Props) {
         <button className="home-remove" tabIndex={-1} onClick={() => p.onDiscard([r])} aria-label={`Discard ${r.name}`} data-tip="Discard"><X size={12} /></button>
       </div>
     )),
-    ...p.recents.map((r, k) => drawingTile({ path: r.path, name: r.name, found: r.found, recent: r, when: when(r.at, now) }, n + p.recovered.length + k)),
+    ...p.recents.map((r, k) => drawingTile({ path: r.path, name: r.name, found: r.found, recent: r, when: when(r.at, now), title: r.title, author: r.author }, n + p.recovered.length + k)),
   ];
 
   // Each section's tiles.
@@ -1025,7 +1026,7 @@ export function Home(p: Props) {
       </div>
       <Section id="project" title={open.drawings.length ? drawings(open.drawings.length) : "No drawings"} className="home-project" action={removeButton}>
         <div className="home-grid" data-project={open.id}>
-          {open.drawings.map((d, k) => drawingTile({ path: d.path, name: d.name, found: !lib.missing.has(d.path), project: open.id, when: opened(d.path, d.added) }, k))}
+          {open.drawings.map((d, k) => { const r = p.recents.find((x) => x.path === d.path) ?? d; return drawingTile({ path: d.path, name: d.name, found: !lib.missing.has(d.path), project: open.id, when: opened(d.path, d.added), title: r.title, author: r.author }, k); })}
           <div className="home-slot">
             <button className="home-tile new custom" data-tile="add-files" onClick={() => lib.addPicked(open.id)}>
               <span className="home-thumb"><span className="custom-sheet" aria-hidden><Plus size={20} /></span></span>
@@ -1076,7 +1077,7 @@ export function Home(p: Props) {
                     <td className="home-cell-picture"><DrawingPicture name={title} picture={lib.pictureFor(x.path)} /></td>
                     <td>
                       <button className="home-cell-open" data-tip={tilde(x.path, lib.home)} onClick={(e) => { e.stopPropagation(); go(); }}>{title}</button>
-                      <span className="home-when">{x.found ? x.name : "Moved or deleted"}</span>
+                      <span className="home-when">{x.found ? [x.name, x.details.author].filter(Boolean).join(" · ") : "Moved or deleted"}</span>
                     </td>
                     <td>{x.details.date}</td>
                     <td>{x.details.project}</td>

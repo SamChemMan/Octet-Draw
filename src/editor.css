@@ -1640,6 +1640,13 @@ button.variant.add {
 .action-name {
   flex: 1;
 }
+/* A value Settings shows and does not change (Last changed by). */
+.setting-value {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A menu command's fixed shortcut in Settings > Keyboard shortcuts. */
 .menu-key {
   color: var(--ink-muted);
@@ -5982,6 +5989,12 @@ div.facts {
 .home-when {
   color: var(--ink-faint);
   font: 11px/14px var(--font-sans);
+}
+/* A tile's author and time, on one line. */
+.home-caption .home-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-initial {
   color: var(--ink-faint);
