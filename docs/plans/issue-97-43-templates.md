@@ -1,6 +1,7 @@
 # Cyclodextrins, cucurbiturils and the energy transfer arrow (issues 97 and 43)
 
-Branch `item/97-43-templates`, cut from `release-1.2-mcp` at b30f413. For release 1.2 (Friday 20 November 2026).
+Branch `item/97-43-templates`, cut from `release-1.2-mcp` at b30f413, now on `release-1.1.3` f06d1b4. For release 1.1.3
+(Friday 20 November 2026).
 Plan written 17 November 2026.
 
 ## What is there and what is missing
@@ -433,3 +434,22 @@ number of atoms (the same rings, wedges and OH labels), as Pillar[5]arene has a 
 what is typed as part of a name or other word, the same for every template, so "beta cyclodextrin" or "CB-7" finds no
 template; a looser search is a change for all 558). The check bugs in P8a, P20, N10, N14, N21 and N22 are fixed. Timing cases are
 measured again, up to three times, before they fail. Result: 46 cases, 45 pass, P11 (ChemDraw 22.2) skipped.
+
+## Finish for 1.1.3 (19 November)
+
+Sam put every built item in 1.1.3. The branch is rebased on `release-1.1.3` f06d1b4 (1.2-mcp with the AI switch off
+and the merged 1.1.3 items). One conflict: the release had taken cis- and trans-decalin and Cubane out of `UNNAMED` in
+`templates.check.ts` and let four carbon polyhedra be named; the cucurbiturils go in beside that. `node
+tools/library/build.mjs --keep-shipped` gives both library files byte for byte. The MCP part (`place_template`) is
+inert with AI off.
+
+Found in the browser on f06d1b4 and fixed: the library grid kept the scroll of the set it showed when a search's
+results took its place, so typing EnT after scrolling Supramolecules showed Energy transfer above the view; another set
+also opened as far down as the last one. A new search or another set now starts at the top of the grid (stress N26).
+This was so in 1.1.2 too.
+
+Seen and left as it is: typing a full name that the name reader also reads (beta-cyclodextrin) lists that structure,
+drawn by Octet's layout, first and the β-Cyclodextrin template second. The search does this for every template whose
+other word is a name (glucose and the glucose templates in 1.1.2). Putting the template first means mapping a read name
+to a template by its other words, and 54 of the 119 other words the name reader reads give another compound (glucose is
+open-chain, Pro is proline and not its side chain, mesylate is methanesulfonic acid), so it stays as 1.1.2 has it.

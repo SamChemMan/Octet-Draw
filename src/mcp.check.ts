@@ -2133,7 +2133,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
     r = await call("advanced", { tool: "place_template", args: { name } });
     assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name.replace(/[[\]]/g, "\\$&")} from ${set}\\.`));
   }
-  // 1.2's hosts and energy transfer (issues 97 and 43), by the word a chemist types: one general word picks the
+  // The hosts and energy transfer (issues 97 and 43), by the word a chemist types: one general word picks the
   // commonest host. A wrong name, a blank one, one too long, the wrong set or no such atom is an error that says so,
   // and leaves the drawing as it was.
   {
