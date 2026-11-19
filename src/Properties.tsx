@@ -5,16 +5,20 @@
 // rows only); Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
 // groups of predicted values have a Predicted heading, and every copy of their values says (predicted). With Online
 // search on, Find hazards adds each structure's GHS hazards from PubChem (ChemDraw's PubChem GHS LCSS add-in): the
-// pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser. Names off: Add
-// to drawing writes the values without their names (issue 77; ChemDraw's empty Property Labels word does the same).
+// pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser. Find suppliers
+// (issue 114) adds each structure's suppliers from PubChem: its count opens the list, and a supplier opens its page in
+// the browser. While either lookup runs its button is Stop. Names off: Add to drawing writes the values without their
+// names (issue 77; ChemDraw's empty Property Labels word does the same).
 import { useLayoutEffect, useMemo, useState } from "react";
-import { ArrowSquareOut, Check, CopySimple, WarningDiamond } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretDown, Check, CopySimple, Stop, Storefront, WarningDiamond } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import { useMovable } from "./movable";
 import { Select } from "./Select";
 import { propertyReport, rowLabel, type PropertyValues } from "./proprows";
 import { useLeaving } from "./motion";
 import { PICTOGRAMS } from "./ghs";
+import { Pick } from "./Menu";
+import type { Found, Lookup } from "./suppliers";
 
 const SUB = "₀₁₂₃₄₅₆₇₈₉";
 // Decimals: ChemDraw's 0 to 8, and Octet's standard places (4 for the exact mass, 2 for the rest).
@@ -24,6 +28,9 @@ type Props = {
   values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: string; // the panel it sits on, when one is open
   decimals?: number; onDecimals: (places?: number) => void; names: boolean; onNames: (on: boolean) => void;
   online: boolean; onHazards: () => void; onOpen: (cid: string) => void;
+  // Find suppliers: each structure's suppliers as far as found, the lookups running now, a supplier's link and the
+  // compound's vendor section in PubChem.
+  suppliers: Found[]; busy: Partial<Record<Lookup, boolean>>; onSuppliers: () => void; onSupplier: (url: string) => void; onVendors: (cid: number) => void;
 };
 
 // A GHS pictogram: the diamond in the error colour (GHS draws it red) and the symbol in ink.
@@ -34,7 +41,7 @@ const Pictogram = ({ code }: { code: string }) => (
   </svg>
 );
 
-export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, online, onHazards, onOpen }: Props) {
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, online, onHazards, onOpen, suppliers, busy, onSuppliers, onSupplier, onVendors }: Props) {
   // Pictograms are drawn, and hazard statements go one to a line: each structure's, in turn (from its own value, as a
   // statement can hold a semicolon: H360FD).
   const show = (row: PropertyValues[number][number], v: string) => (row.key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)])
@@ -70,11 +77,26 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
               const text = row.values.map((v) => (v === undefined ? "–" : v)).join("; "), on = chosen.includes(row.key);
               return (
                 <div key={row.key} className={`prop-row${text.length > 18 && row.key !== "ghs" ? " long" : ""}`}>
-                  <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${rowLabel(row)} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
-                    {on && <Check size={12} />}
-                  </button>
+                  {row.key === "suppliers" ? <span aria-hidden /> : (
+                    <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${rowLabel(row)} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
+                      {on && <Check size={12} />}
+                    </button>
+                  )}
                   <span className="prop-name">{row.name}</span>
-                  {row.key === "cid" ? (
+                  {row.key === "suppliers" ? (
+                    <span className="prop-links" aria-busy={!!busy.suppliers}>{row.values.map((v = "–", k) => {
+                      const f = suppliers[k];
+                      if (!f || f === "busy" || !f.suppliers.length) return <span key={k}>{v}</span>;
+                      // Each supplier once, A to Z, then the compound's vendor section. Names are text only.
+                      return (
+                        <Pick key={k} label={v} value="" className="prop-link" find="Find a supplier" title="Show the suppliers"
+                          groups={[f.suppliers.map((x, i) => ({ key: String(i), name: x.name, icon: null })), [{ key: "pubchem", name: "Open in PubChem", icon: <ArrowSquareOut size={16} /> }]]}
+                          onPick={(key) => (key === "pubchem" ? onVendors(f.cid) : onSupplier(f.suppliers[Number(key)].url))}>
+                          {v}<CaretDown size={12} aria-hidden />
+                        </Pick>
+                      );
+                    })}</span>
+                  ) : row.key === "cid" ? (
                     <span className="prop-links">{row.values.map((v, k) => (v ? <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button> : "–"))}</span>
                   ) : (
                     <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text}`)}>{show(row, text)}</button>
@@ -88,7 +110,8 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
       <div className="prop-foot">
         <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
         <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
-        {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length} data-tip="Find the GHS hazards in PubChem"><WarningDiamond size={16} aria-hidden /> Find hazards</button>}
+        {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length && !busy.hazards} aria-label={busy.hazards ? "Stop finding hazards" : undefined} data-tip={busy.hazards ? "Stop finding hazards" : "Find the GHS hazards in PubChem"}>{busy.hazards ? <><Stop size={16} aria-hidden /> Stop</> : <><WarningDiamond size={16} aria-hidden /> Find hazards</>}</button>}
+        {online && <button className="prop-add" onClick={onSuppliers} disabled={!groups.length && !busy.suppliers} aria-label={busy.suppliers ? "Stop finding suppliers" : undefined} data-tip={busy.suppliers ? "Stop finding suppliers" : "Find the suppliers in PubChem"}>{busy.suppliers ? <><Stop size={16} aria-hidden /> Stop</> : <><Storefront size={16} aria-hidden /> Find suppliers</>}</button>}
         <span className="prop-decimals">
           <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>
           <span className="prop-name">Decimals</span>

@@ -142,6 +142,7 @@ type PickProps = {
   groups: MenuItem[][];
   onPick: (key: string) => void;
   more?: { name: string; icon?: React.ReactNode; find: string; load: () => Promise<MenuItem[]> };
+  find?: string; // a list of more than 12 options has a field at the top, with this name, that narrows it (Find suppliers)
   className?: string; // the button's look
   title?: string;
   style?: React.CSSProperties;
@@ -196,8 +197,10 @@ export function Pick(p: PickProps) {
     if (!open?.focus || !list.current) return;
     (list.current.querySelector<HTMLElement>(".menu-head input") ?? list.current.querySelector<HTMLElement>('.variant[aria-checked="true"]') ?? list.current.querySelector<HTMLElement>(".variant"))?.focus();
   }, [open, all]);
-  const found = all?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = found ? [found.slice(0, 300)] : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
+  // The options the field narrows: the longer list, or the list's own when it has a field (find).
+  const own = p.find && p.groups.reduce((n, g) => n + g.length, 0) > 12 ? p.groups.flat() : undefined, pool = all ?? own, findName = all ? p.more!.find : p.find;
+  const found = pool?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = found ? [all ? found.slice(0, 300) : found] : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
   const choose = (key: string) => {
     if (key === "\u0000more") return void p.more!.load().then((items) => { setAll(items); setOpen({ focus: true }); });
     close(!!open?.focus);
@@ -234,8 +237,8 @@ export function Pick(p: PickProps) {
           if (key && p.onItemMenu) { e.preventDefault(); p.onItemMenu(key, { x: e.clientX, y: e.clientY }, false); }
         }}>
           <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} onPress={p.onPress} style={place()}
-            head={all && (
-              <input className="list-find" autoFocus placeholder={p.more!.find} aria-label={p.more!.find} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
+            head={pool && (
+              <input className="list-find" autoFocus={!!all || !!open.focus} placeholder={findName} aria-label={findName} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && found?.[0]) { e.preventDefault(); e.stopPropagation(); choose(found[0].key); }
                   if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); list.current?.querySelector<HTMLElement>(".variant")?.focus(); }
