@@ -474,7 +474,7 @@ export function SettingsWindow(p: Props) {
         const taken = clashes(map, recording.id, k);
         for (const other of taken) next[other] = (map[other] ?? []).filter((x) => x !== k);
         p.onKeys(next);
-        if (taken.length) setNote({ id: recording.id, text: `Taken from ${taken.map((t) => ACTIONS.find((a) => a.id === t)!.name.toLowerCase()).join(", ")}.`, undo: before });
+        if (taken.length) setNote({ id: recording.id, text: `Taken from ${taken.map((t) => ACTIONS.find((a) => a.id === t)!.name.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())).join(", ")}.`, undo: before });
         setRecording(undefined);
         return;
       }
@@ -718,7 +718,7 @@ export function SettingsWindow(p: Props) {
       <>
         {sections(module, list).map((s, i) => (
           <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
-            aside={i === 0 && !query && <button className="text-button" onClick={() => p.onKeys({})} disabled={!Object.keys(p.keys).length}>Reset to ChemDraw keys</button>} />
+            aside={i === 0 && !query && <button className="text-button" onClick={() => { p.onKeys({}); setNote(undefined); }} disabled={!Object.keys(p.keys).length}>Reset to ChemDraw keys</button>} />
         ))}
       </>
     );

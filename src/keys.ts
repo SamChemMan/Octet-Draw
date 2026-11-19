@@ -59,6 +59,11 @@ export const ACTIONS: Action[] = [
   any("tool.cyclohexane", "Cyclohexane tool", "Tools"), any("tool.cyclopentane", "Cyclopentane tool", "Tools"), any("tool.erase", "Eraser tool", "Tools"), any("tool.text", "Text tool", "Tools"), any("tool.arrow", "Arrow tool", "Tools"),
   any("tool.template", "Template tool", "Tools"), any("tool.symbol", "Symbols tool", "Tools"), any("tool.shape", "Shape tool", "Tools"),
   any("tool.bracket", "Bracket tool", "Tools"), any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
+  // No key by default (keys.check holds every tool to having an action, so any can be given one).
+  any("tool.sequence", "Sequence tool", "Tools"), any("tool.cycle", "Catalytic cycle tool", "Tools"), any("tool.gel", "Gel tool", "Tools"),
+  any("tool.plasmid", "Plasmid map tool", "Tools"), any("tool.table", "Table tool", "Tools"), any("tool.fragment", "Mass fragmentation tool", "Tools"),
+  any("tool.massspec", "Mass spec analysis tool", "Tools"), any("tool.synthesis", "Synthesis tool", "Tools"), any("tool.retro", "Retrosynthesis tool", "Tools"),
+  any("tool.map", "Atom map tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
   any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),
@@ -120,6 +125,7 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "tool.select": ["space"], "tool.bond": ["x"], "tool.chain": ["shift+x"], "tool.ring": [], "tool.benzene": ["j"],
   "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [], "tool.text": ["t"], "tool.arrow": ["e"], "tool.template": [], "tool.symbol": ["shift+e"], "tool.shape": [],
   "tool.bracket": ["shift+t"], "tool.tlc": ["g"], "tool.orbital": ["shift+g"],
+  "tool.sequence": [], "tool.cycle": [], "tool.gel": [], "tool.plasmid": [], "tool.table": [], "tool.fragment": [], "tool.massspec": [], "tool.synthesis": [], "tool.retro": [], "tool.map": [],
   "eraser.smaller": ["["], "eraser.bigger": ["]"],
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
@@ -246,6 +252,16 @@ export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "ca
   const found = (p: Place) => ACTIONS.find((a) => (a.place === p || (a.place === "item" && p !== "any")) && map[a.id]?.includes(key))?.id;
   const charge = place === "caption" ? found("atom") : undefined;
   return (place === "atom" || place === "bond" ? found(place) : charge?.startsWith("charge.") ? charge : undefined) ?? found("any");
+}
+
+// The ring each ring command picks (J picks benzene). Ring kinds are RINGS' keys in tools.tsx.
+export const RING_TOOLS: Record<string, string> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
+// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel) or a ring's
+// (tool.benzene), so the Ring slot, its menu and a pinned ring can name the key.
+export function optionCommand(tool: string, kind: string): string | undefined {
+  if (tool === "more") return `tool.${kind}`;
+  const ring = tool === "ring" ? Object.keys(RING_TOOLS).find((c) => RING_TOOLS[c] === kind) : undefined;
+  return ring && `tool.${ring}`;
 }
 
 // Other actions that already use this key in the same place.
