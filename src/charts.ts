@@ -209,8 +209,9 @@ export const radiative = (k: JablonskiKind) => k === "absorption" || k === "fluo
 export const LINE = 0.6 / 14.4;
 // How far apart vibrational levels are: half the caption size, so they scale with the text.
 export const vibGap = (em: number) => em / 2;
-// A state's letter (S, T, D, Q), by which a new state finds its column and a new transition its kind.
-const letterOf = (name: string) => (name.trim()[0] ?? "").toUpperCase();
+// A state's letter (S, T, D, Q), by which a new state finds its column and a new transition its kind. A name that
+// starts with another letter (GS, A) counts as a singlet, as most ground states are.
+const letterOf = (name: string) => { const l = (name.trim()[0] ?? "").toUpperCase(); return l && "STDQ".includes(l) ? l : "S"; };
 // The lowest state (the ground state), or the lowest of those that pass.
 function lowest(states: Pick<JState, "y">[], ok: (k: number) => boolean = () => true): number {
   let best = -1;
@@ -365,10 +366,13 @@ export function jablonskiFigure(c: JablonskiChart, em: number, line = LINE): Fig
   for (const i of order) {
     const [p, q] = ends[i]!, t = scripted(c.transitions[i].label), w = runsWidth(t) * em;
     if (!t.text.trim()) continue;
+    // A steep transition that leans keeps its label clear of it by as much as it leans over the label's height, and a
+    // wavy one by its wave too.
     const steep = Math.abs(q[1] - p[1]) >= Math.abs(q[0] - p[0]), slope = steep ? 0 : Math.abs(q[1] - p[1]) / Math.max(1e-9, Math.abs(q[0] - p[0]));
+    const wave = radiative(c.transitions[i].kind) ? 0 : 0.15 * em, side = steep ? 0.3 * em + wave + (0.7 * em * Math.abs(q[0] - p[0])) / Math.max(1e-9, Math.abs(q[1] - p[1])) : 0;
     const spots = [0.5, 0.35, 0.65, 0.2, 0.8].flatMap((k) => {
       const m: P = [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
-      return (steep ? [[m[0] + 0.3 * em, m[1] - 0.35 * em, "left"], [m[0] - 0.3 * em, m[1] - 0.35 * em, "right"]] : [[m[0], m[1] + 0.5 * em + (slope * w) / 2, "centre"], [m[0], m[1] - 1.25 * em - (slope * w) / 2, "centre"]]) as [number, number, "left" | "right" | "centre"][];
+      return (steep ? [[m[0] + side, m[1] - 0.35 * em, "left"], [m[0] - side, m[1] - 0.35 * em, "right"]] : [[m[0], m[1] + 0.5 * em + wave + (slope * w) / 2, "centre"], [m[0], m[1] - 1.25 * em - wave - (slope * w) / 2, "centre"]]) as [number, number, "left" | "right" | "centre"][];
     });
     const boxOf = ([x, y, align]: (typeof spots)[number]): [number, number, number, number] => { const x0 = align === "left" ? x : align === "right" ? x - w : x - w / 2; return [x0 - 0.15 * em, y - 0.35 * em, x0 + w + 0.15 * em, y + 0.95 * em]; };
     const clashes = (b: [number, number, number, number]) => segments.filter((s, k) => s !== ends[i] && b[0] <= reach[k][2] && b[2] >= reach[k][0] && b[1] <= reach[k][3] && b[3] >= reach[k][1] && crosses(b, s[0], s[1])).length + boxes.filter((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]).length;
@@ -447,8 +451,9 @@ const num = (t: string) => Number(Number(t.replace(",", ".").replace("−", "-")
 const placesIn = (t: string) => Math.min(MAX_PLACES, /[.,](\d+)/.exec(t)?.[1].length ?? 0);
 // Text as a record keeps it: one line, no control characters (readChart refuses them).
 export const plain = (t: string) => t.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
-// Text cut to n characters, never through the middle of one (an emoji, a rare letter).
-const cut = (t: string, n: number) => (t.length <= n ? t : Array.from(t).slice(0, n).join("")).replace(/[\ud800-\udbff]$/, "");
+// Text cut to n UTF-16 units, as a file's check (str) counts them, never through the middle of a character that takes
+// two (an emoji, a rare letter).
+export const cut = (t: string, n: number) => (t.length <= n ? t : t.slice(0, n)).replace(/[\ud800-\udbff]$/, "");
 export function parseCell(text: string): { value: number; second?: number; name?: string; places: number } | undefined {
   const m = CELL.exec(cut(plain(text), 200));
   if (!m || !Number.isFinite(num(m[1])) || Math.abs(num(m[1])) > 1e6) return undefined;

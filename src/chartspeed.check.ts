@@ -278,7 +278,7 @@ for (let k = 0; k < 40; k++) {
 const peptide = chem.indigoLayout("N[C@@H](C)C(=O)".repeat(500) + "O");
 assert.ok(taxols.atoms.length > 2400 && peptide.atoms.length > 2500, `${taxols.atoms.length} and ${peptide.atoms.length} atoms`);
 const atomMoved = (m: Mol) => () => ({ ...m, atoms: m.atoms.map((a, i) => (i === 7 ? { ...a, location: [a.location[0] + 0.1, a.location[1], 0] as [number, number, number] } : a)) });
-const withLevels = (was: Mol, now: () => Mol) => () => followCharts(was, followLevels(was, followLeaders(was, now()), env), env);
+const withLevels = (was: Mol, now: () => Mol) => () => followLevels(was, followCharts(was, followLeaders(was, now()), env), env);
 const withoutLevels = (was: Mol, now: () => Mol) => () => followCharts(was, followLeaders(was, now()), env);
 const median = (t: number[]) => [...t].sort((p, q) => p - q)[t.length >> 1];
 function medians(a: () => unknown, b: () => unknown, runs: number): [number, number] {

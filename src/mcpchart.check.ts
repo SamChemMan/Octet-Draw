@@ -157,7 +157,7 @@ function attached(what: string, k = 0) {
   await refused("ids from two charts", await run("chart.axis", [c.states[0].level, other.states[0].level]), /ids: these are parts of two charts/);
   await refused("no ids", await run("chart.axis", []), /ids/);
   await refused("an id that is not there", await run("chart.axis", ["a99999"]), /nothing with the id a99999/);
-  await refused("an action of another chart kind", await run("chart.zones", [c.states[0].level]), /command: chart.zones is not an action of this jablonski diagram/);
+  await refused("an action of another chart kind", await run("chart.zones", [c.states[0].level]), /command: chart.zones is not an action of this Jablonski diagram/);
   await refused("an energy diagram with no energies", await draw({ chart: "energy", rows: [["", "A"], ["R", "soon"]] }), /rows/);
   await refused("a screen with two conditions", await draw({ chart: "radar", rows: [["Low T", "-5"], ["High T", "3"]] }), /rows/);
   await refused("a screen whose scale holds no value", await draw({ chart: "radar", rows: [["a", "-5"], ["b", "3"], ["c", "-90"]], min: -50, max: 50, step: 25 }), /min, max, step/);

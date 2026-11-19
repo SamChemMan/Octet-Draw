@@ -139,7 +139,7 @@ assert.ok(page.arrows!.filter((a) => a.role?.role.startsWith("trans:")).every((a
 
 // --- J3: transitions stay attached ----------------------------------------------------------------------------------
 // The editor's set: a leader follows its label, a level its transitions, and text typed over a caption is data.
-const edit = (was: Mol, now: Mol) => followCharts(was, followLevels(was, followLeaders(was, now), env), env);
+const edit = (was: Mol, now: Mol) => followLevels(was, followCharts(was, followLeaders(was, now), env), env);
 const recordOf = (m: Mol, id = gid) => m.groups!.find((x) => x.id === id)!.plot as JablonskiChart;
 const part = (m: Mol, role: string, id = gid): Arrow => { const g = m.groups!.find((x) => x.id === id)!; return m.arrows!.find((a) => g.items.includes(a.id) && a.role?.role === role)!; };
 const label = (m: Mol, role: string, id = gid): Caption => { const g = m.groups!.find((x) => x.id === id)!; return m.captions!.find((c) => g.items.includes(c.id) && c.role?.role === role)!; };

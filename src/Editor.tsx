@@ -1084,13 +1084,13 @@ export default function Editor() {
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true) => {
-    // A page spectrum's label moved takes its leader with it (followLeaders), a Jablonski diagram's level or transition
-    // moved is its data, so its transitions stay on their levels (followLevels), and a number or a name typed over a
-    // chart's is the chart's data (followCharts), in the same step. Hydrogens set by hand
+    // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
+    // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
+    // transitions stay on their levels (followLevels), in the same step. Hydrogens set by hand
     // that are no longer fewer than usual go (settleHydrogens).
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
     const env = plotEnv();
-    mol = keepPlace(doc, settleHydrogens(followCharts(doc, followLevels(doc, followLeaders(doc, mol), env), env)));
+    mol = keepPlace(doc, settleHydrogens(followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
@@ -3364,7 +3364,7 @@ export default function Editor() {
     if (drag?.kind === "bond" && drag.to) return dragBond(doc, drag.from, drag.to, bondSpec);
     if (drag?.kind === "chain" && drag.to) return chainThrough(doc, drag.from, chainPath(drag)).mol;
     if (drag?.kind === "ring" && drag.to) return dropped(ringDrop(drag), chairFree(drag), true);
-    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip));
+    if (drag?.kind === "move" || drag?.kind === "handle" || drag?.kind === "turn" || drag?.kind === "resize" || drag?.kind === "tilt" || drag?.kind === "spot" || drag?.kind === "tlcline" || drag?.kind === "lane" || drag?.kind === "tableedge" || drag?.kind === "mark") return placeCentres(dropped(drag.kind === "move" ? followLevels(doc, followLeaders(doc, drag.working), plotEnv()) : drag.kind === "handle" || drag.kind === "turn" ? followLevels(doc, drag.working, plotEnv()) : drag.working, drag.kind === "move" && drag.skip));
     if (drag?.kind === "arrow" && drag.to && tool === "massspec") return msLine(drag, drag.to)[0];
     if (drag?.kind === "arrow" && drag.to && drag.make?.kind === "cut") return massCut(drag, true).mol;
     if (drag?.kind === "arrow" && drag.to) return addArrow(doc, newArrow(drag.from, drag.to, drag.side, drag.make))[0];
@@ -5206,7 +5206,7 @@ export default function Editor() {
       return undefined;
     }
     if (!a) return undefined;
-    const barb = chartLine(a) ? undefined : headBarb(a, frame, L);
+    const barb = headBarb(a, frame, L);
     return near(a.to) ? { id: a.id, which: "to" } : near(a.from) ? { id: a.id, which: "from" } : (curved(a) || a.point) && near(bendPoint(a)) ? { id: a.id, which: "bend" }
       : barb && near([barb[0] / L, -barb[1] / L]) ? { id: a.id, which: "head" } : pointable(a) && !a.point && near(bendPoint(a)) ? { id: a.id, which: "add" } : undefined;
   };
@@ -5224,8 +5224,8 @@ export default function Editor() {
   };
   // The one pen curve picked, if it is one.
   const pickedCurve = () => (picked.size === 1 && !selection.size ? doc.arrows?.find((a) => picked.has(a.id) && a.kind === "curve" && a.curve) : undefined);
-  // A Jablonski diagram's level, vibrational level or transition: it is data (its place), so it takes only its end
-  // handles (D13).
+  // A Jablonski diagram's level, vibrational level or transition: it is data (its place), so it takes no bend or added
+  // point (D13); a transition keeps its head handle.
   const chartLine = (a: Arrow) => !!a.role && /^(level|vib|trans):/.test(a.role.role) && !!doc.groups?.some((g) => g.plot?.kind === "jablonski" && g.items.includes(a.id));
   // Straight arrows and lines that can take a point in their middle, to bend and branch from.
   const pointable = (a: Arrow) => (straightArrow(a) || a.kind === "line") && a.kind !== "block" && a.kind !== "retro" && !chartLine(a);
@@ -10301,7 +10301,7 @@ export default function Editor() {
               );
             }
             if ((!a || a.kind === "curve") && !wh) return null;
-            const barb = !wh && a && !chartLine(a) ? headBarb(a, frame, L) : undefined;
+            const barb = !wh && a ? headBarb(a, frame, L) : undefined;
             const points = wh ? [wh.at] : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
             return (
               <>

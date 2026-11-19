@@ -22,7 +22,7 @@ import { readCdx, readOct, writeCdx, writeOct } from "./oct.ts";
 import { widthOf } from "./arial.ts";
 import { deleteGraphics, duplicateSelection, EMPTY, extractSelection, fitSizes, groupSelection, insertMol, transformParts, ungroupSelection, withCaptionAtoms } from "./edit.ts";
 import { formulaCaption } from "./labels.ts";
-import { chartAction, followCharts, followLeaders, followLevels, placePlot, plotShift, reframe, rescale, type PlotEnv } from "./pageplot.ts";
+import { chartAction, followCharts, followLeaders, followLevels, jablonskiPick, placePlot, plotShift, reframe, rescale, type PlotEnv } from "./pageplot.ts";
 import { chartFigure, MAX_LEVELS, MAX_TRANSITIONS, NEW_JABLONSKI, readChart, vibGap, type JablonskiChart, type JState } from "./charts.ts";
 import { chartRecord, chartsOf } from "./mcpchart.ts";
 
@@ -36,7 +36,7 @@ const gid = page.groups![0].id;
 
 // --- Helpers: the editor's set() and what a check reads -----------------------------------------------------------
 // The follow chain of the editor's set() (Editor.tsx), with the document's style.
-const edit = (was: Mol, now: Mol, e = env) => followCharts(was, followLevels(was, followLeaders(was, now), e), e);
+const edit = (was: Mol, now: Mol, e = env) => followLevels(was, followCharts(was, followLeaders(was, now), e), e);
 const groupOf = (m: Mol, id = gid) => m.groups?.find((x) => x.id === id);
 const recordOf = (m: Mol, id = gid) => groupOf(m, id)?.plot as JablonskiChart | undefined;
 const part = (m: Mol, role: string, id = gid): Arrow | undefined => { const g = groupOf(m, id); return m.arrows?.find((a) => !!g?.items.includes(a.id) && a.role?.role === role); };
@@ -421,8 +421,11 @@ await check("P34", "A hostile .oct: each record refused, each group plain, no ha
     const bad = { ...page, groups: page.groups!.map((g) => ({ ...g, plot })) };
     let text: string;
     try { text = writeOct(bad, style); } catch { continue; } // a record too big to write is never on a page
-    const t0 = performance.now(), back = readOct(text, true).mol;
-    assert.ok(plainGroup(back), `${what}: the record is refused`);
+    // A file over Octet's size limit is refused whole (cdxml.ts TOO_BIG), which is as safe.
+    const t0 = performance.now();
+    let back: Mol | undefined;
+    try { back = readOct(text, true).mol; } catch (e) { assert.match(String(e), /too large to open/, `${what}: ${e}`); }
+    assert.ok(!back || plainGroup(back), `${what}: the record is refused`);
     assert.ok(performance.now() - t0 < 2000, `${what}: read in ${(performance.now() - t0).toFixed(0)} ms (a hang)`);
   }
 });
@@ -737,6 +740,42 @@ await check("N25", "A hostile record with the smallest frame and text at 100 tim
   const moved = edit(m, moveIds(m, [idOf(m, "level:1", id)], [0, 5]));
   assert.ok(!JSON.stringify(moved).includes("null"), "moved: no NaN");
   sound(recordOf(moved, id), "after the move");
+});
+
+await check("N26", "S1 nudged right 4 times and dragged right by 8: its transitions go with it, one straight up stays so, and no two ends meet", () => {
+  let m = page;
+  for (let k = 0; k < 4; k++) m = edit(m, moveIds(m, [idOf(m, "level:1")], [0.25, 0]));
+  attached(m, "S1 nudged right");
+  const a = part(m, "trans:0")!, was = part(page, "trans:0")!;
+  assert.ok(Math.abs(a.from[0] - a.to[0]) < 1e-6, `absorption S0 → S1 stays upright (${a.from[0].toFixed(2)} to ${a.to[0].toFixed(2)})`);
+  assert.ok(Math.abs(a.to[0] - was.to[0] - 1) < 1e-6, `it moved with S1 (${(a.to[0] - was.to[0]).toFixed(2)})`);
+  const far = edit(page, moveIds(page, [idOf(page, "level:1")], [8, 0]));
+  attached(far, "S1 dragged right by 8");
+  const ends = far.arrows!.filter((x) => /^trans:/.test(x.role?.role ?? "")).flatMap((x) => [[x.role!.role, x.from], [x.role!.role, x.to]] as [string, P][]);
+  for (const [r, q] of ends) for (const [s, o] of ends) if (r < s) assert.ok(Math.hypot(q[0] - o[0], q[1] - o[1]) > 0.3, `${r} and ${s} meet at (${q[0].toFixed(2)}, ${q[1].toFixed(2)})`);
+});
+
+await check("N27", "A file whose roles name a state and a transition its record does not have: picking those parts runs nothing and stops nothing", () => {
+  const odd: Mol = { ...page, captions: page.captions!.map((c) => (c.role?.role === "label:0" ? { ...c, role: { ...c.role, role: "label:50" } } : c)), arrows: page.arrows!.map((a) => (a.role?.role === "vib:1:1" ? { ...a, role: { ...a.role, role: "level:99" } } : a)) };
+  const back = fromCdxml(toCdxml(odd, style)).mol, g = must(back.groups?.find((x) => x.plot), "the chart"), lab = must(back.captions!.find((c) => c.role?.role === "label:50"), "label:50"), line = must(back.arrows!.find((a) => a.role?.role === "level:99"), "level:99");
+  assert.deepEqual(jablonskiPick(back, g, [lab.id, line.id]), { states: [], transitions: [] });
+  for (const cmd of ["chart.kind.ic", "chart.link.0", "chart.link.self", "chart.vib.2"]) { const r = chartAction(back, g.id, cmd, [lab.id, line.id], env); assert.ok(r && "notice" in r, `${cmd} on them: ${r && "mol" in r ? "it ran" : "not an action"}`); }
+  const moved = edit(back, moveIds(back, [line.id], [0, 0.3]));
+  sound(recordOf(moved, g.id), "the odd line moved");
+});
+
+await check("N28", "S1 turned alone by 15°, 45°, 90° and six times by 15°: it keeps its length and lies flat again", () => {
+  const turn = (m: Mol, deg: number) => {
+    const l = part(m, "level:1")!, c: P = [(l.from[0] + l.to[0]) / 2, (l.from[1] + l.to[1]) / 2], r = (deg * Math.PI) / 180;
+    return edit(m, transformParts(m, new Set(), new Set([l.id]), ([x, y]) => [c[0] + (x - c[0]) * Math.cos(r) - (y - c[1]) * Math.sin(r), c[1] + (x - c[0]) * Math.sin(r) + (y - c[1]) * Math.cos(r)]));
+  };
+  const length = (m: Mol) => { const l = part(m, "level:1")!; assert.ok(Math.abs(l.to[1] - l.from[1]) < 1e-9, "flat"); return l.to[0] - l.from[0]; };
+  const L = length(page);
+  for (const deg of [15, 45, 90]) { const m = turn(page, deg); attached(m, `S1 turned ${deg}°`); assert.ok(Math.abs(length(m) - L) < 1e-3, `S1 turned ${deg}° is ${length(m).toFixed(2)} long, not ${L.toFixed(2)}`); }
+  let m = page;
+  for (let k = 0; k < 6; k++) m = turn(m, 15);
+  attached(m, "S1 turned six times");
+  assert.ok(Math.abs(length(m) - L) < 1e-3, `S1 turned six times is ${length(m).toFixed(2)} long`);
 });
 
 // ==================================================================================================================

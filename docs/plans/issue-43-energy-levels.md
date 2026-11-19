@@ -437,6 +437,31 @@ Where the build differs from the plan above, and why.
 - **ChemDraw's save of our file** reads back in Octet as the same picture in a plain group, each transition a reaction
   arrow with its full head: Octet reads every headed arrow with no Octet data that way.
 
+Changed after the stress test and the review (19 November 2026):
+
+- **What counts as moved.** A level or a vibrational level is moved when its start is off its role's place or its
+  length differs from the figure's, neither of which changes with the text size; a transition's end counts only when
+  the edit moved it. A Document Settings change of the caption size (or a paste into a drawing of another style) then
+  moves nothing until the user moves a level, and that change lays the diagram out for the new size.
+- **Which diagrams are read.** `followLevels` reads a diagram only when the edit changed one of its parts (compared
+  object by object), so an edit elsewhere costs no figure. The group's move is the move before the edit unless the edit
+  changed every part, so more than half the parts dragged together still take the labels and the axis along.
+- **The follow order.** `set()` runs `followCharts` before `followLevels`, so a name typed and a level moved in one edit
+  both reach the record. `followLevels` reads a diagram whose record the edit replaced too: a drop that lands after an
+  AI app's change is read against the record it was built from.
+- **A level's move carries its transitions.** An end on a level moved across goes with it, and a transition straight up
+  or down stays so while its other level is still under it. A level turned alone keeps its length about its middle.
+  With every level moved (Scale… on the levels alone), the frame grows from its left and foot, at most 1000.
+- **Reverse** swaps the record's states and the arrow's heads back, so the head is at the state it now goes to.
+- **Vibrational relaxation dropped on another state** takes the kind its two states give, and its label if it had the
+  default one. A record that a file could not hold is never made (`readChart` checks it before the redraw).
+- **Text** is cut at 80 UTF-16 units, as a file counts it. A part whose role names a state or a transition the record
+  does not have is none of them when picked.
+- **Transitions keep the head handle** (D13 takes only the bend and the added point).
+- **The MCP** places states with no energies by their numbers (T1 under S1), counts a ground state named GS as a
+  singlet, refuses vibrational relaxation on a state with no vibrational levels, and makes the frame tall enough for a
+  label between close levels.
+
 ## Not in this version
 
 - **A sheet with typed energies, values on the levels and an energy scale.** The energy diagram draws exact energies.

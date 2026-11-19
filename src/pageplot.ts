@@ -363,29 +363,52 @@ export function followCharts(was: Mol, now: Mol, env: PlotEnv): Mol {
 type Absolute = { name: string; x0: number; x1: number; y: number; vib: number };
 type Line = { from: P; to: P };
 const minus = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+// The ids of the parts an edit changed: a new object in a part's place, or a part gone. Lists of the same length are
+// compared place by place, so an edit that moves one part builds no map.
+function changedIds(was: Mol, now: Mol): Set<number> {
+  const out = new Set<number>();
+  const diff = (a: { id: number }[] = [], b: { id: number }[] = []) => {
+    if (a === b) return;
+    if (a.length === b.length) { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) out.add(a[i].id).add(b[i].id); return; }
+    const by = new Map(a.map((x) => [x.id, x])), here = new Set<number>();
+    for (const x of b) { here.add(x.id); if (by.get(x.id) !== x) out.add(x.id); }
+    for (const x of a) if (!here.has(x.id)) out.add(x.id);
+  };
+  diff(was.arrows, now.arrows);
+  diff(was.captions, now.captions);
+  return out;
+}
 // A part of a Jablonski diagram moved on the page becomes the diagram's data (D2, D3), so its transitions stay on
-// their levels (R2). For each diagram this edit touched, whose record it did not change itself and that is not turned
-// or flipped: a level, or a vibrational level, whose place is not where Octet put it is read back as its state's
-// level (moved, stretched by one end, or laid flat again after a turn; at least 1 em long), and a transition whose
-// place is not Octet's as where it now runs (moved whole, it slides across; an end moved alone joins the level it is
-// dropped on, or keeps its state; reversed, it swaps its states). A level or a transition this edit deleted takes its
-// state or transition out, with every transition to or from it; the last state takes the record. The frame is then
-// the levels' box (no side over 1000 bond lengths), and the diagram is drawn again: each part read back where Octet
-// now puts it, and a name or a label that moved with its level or transition goes with it (the rest keep their
-// offsets). was: the drawing before the edit (in a drag, before the drag).
+// their levels (R2). For each diagram one of whose parts this edit changed, and that is not turned or flipped: a level,
+// or a vibrational level, that is not where Octet put it is read back as its state's level (moved, stretched by one
+// end, or laid flat again about its middle after a turn, as long as it was; at least 1 em long), and a transition this
+// edit moved as where it now runs (moved whole, it slides across; an end moved alone joins the level it is dropped on,
+// or keeps its state; reversed, it swaps its states and its head). A transition's end on a level that moved goes with
+// it, and one straight up or down stays so while its other level is still under it. Vibrational relaxation dropped on
+// another state becomes the kind its two states give. A level or a transition this edit deleted takes its state or
+// transition out, with every transition to or from it; the last state takes the record. The frame is then the levels'
+// box (no side over 1000 bond lengths), and the diagram is drawn again: each part read back where Octet now puts it,
+// and a name or a label that moved with its level or transition goes with it (the rest keep their offsets). A record
+// that a file could not hold is never made: the edit then stays as it is. was: the drawing before the edit (in a drag,
+// before the drag).
 export function followLevels(was: Mol, now: Mol, env: PlotEnv): Mol {
   if (was === now || !now.groups?.some((g) => g.plot?.kind === "jablonski")) return now;
-  let out = now;
+  let out = now, changed: Set<number> | undefined;
   for (const g of now.groups) {
     if (g.plot?.kind !== "jablonski") continue;
     const og = was.groups?.find((x) => x.id === g.id);
-    if (!og || og.plot !== g.plot || (og.items === g.items && was.arrows === now.arrows && was.captions === now.captions)) continue;
-    out = settleLevels(was, out, og, env);
+    if (!og) continue;
+    changed ??= changedIds(was, now);
+    if (og.items === g.items && og.plot === g.plot && !g.items.some((id) => changed!.has(id))) continue;
+    out = settleLevels(was, out, og, env, changed);
   }
   return out;
 }
-function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
-  const g = m.groups!.find((x) => x.id === og.id)!, p = g.plot as JablonskiChart, shift = plotShift(m, g);
+function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv, changed: Set<number>): Mol {
+  const g = m.groups!.find((x) => x.id === og.id)!, p = g.plot as JablonskiChart;
+  // The group's move: where the parts this edit left alone are (the move before it), or, when it changed every part,
+  // where most of them are now (the whole diagram moved).
+  const shift = g.items.every((id) => changed.has(id)) ? plotShift(m, g) : plotShift(was, og);
   if (!shift) return m;
   const em = (env.captionSize * p.text) / env.bond, gap = vibGap(em), [W, H] = p.frame, tol = 2e-3, close = (a: P, b: P) => Math.abs(a[0] - b[0]) < tol && Math.abs(a[1] - b[1]) < tol;
   const ids = new Set(g.items), arrows = new Map<string, Arrow>(), olds = new Set(og.items);
@@ -398,9 +421,19 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
     if (r) (r[1] === "level" ? goneStates : goneTrans).add(+r[2]);
   }
   // Where Octet put each line (in the figure, from the record's origin), and where it is now.
+  const before = new Map([...(was.arrows ?? []), ...(was.captions ?? [])].filter((x) => olds.has(x.id)).map((x) => [x.id, x]));
   const fig = new Map(plotFigure(p, env).lines.map((l) => [l.role!, l as Line])), at = (q: P): P => [q[0] - p.origin[0] - shift[0], q[1] - p.origin[1] - shift[1]];
-  const own = (a: Arrow): Line => ({ from: at(a.from), to: at(a.to) }), settle = new Set<number>();
-  const states: Absolute[] = p.states.map((s) => ({ name: s.name, x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib }));
+  const own = (a: Arrow): Line => ({ from: at(a.from), to: at(a.to) }), settle = new Set<number>(), reversed = new Set<number>();
+  // Which ends of a line are not where Octet put them: its start by its role's place, and a level's end by the
+  // figure's length (neither changes with the text size). A transition's end counts only when this edit moved it, as
+  // where it meets a vibrational level changes with the text size.
+  const movedEnds = (a: Arrow, e: Line, level: boolean): [boolean, boolean] => {
+    const mf = !close(minus(a.from, a.role!.at), shift);
+    if (level) return [mf, !close(minus(minus(a.to, a.role!.at), shift), minus(e.to, e.from))];
+    const b = before.get(a.id) as Arrow | undefined;
+    return [mf, !close(own(a).to, e.to) && (!b || !close(a.to, b.to))];
+  };
+  const states: Absolute[] = p.states.map((s) => ({ name: s.name, x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib })), was0 = states.slice();
   const moved: number[] = [];
   states.forEach((s, k) => {
     if (goneStates.has(k)) return;
@@ -409,29 +442,33 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
     for (const [role, dy] of lines) {
       const a = arrows.get(role), e = fig.get(role);
       if (!a || !e) continue;
-      const l = own(a), mf = !close(l.from, e.from), mt = !close(l.to, e.to);
+      const [mf, mt] = movedEnds(a, e, true);
       if (!mf && !mt) continue;
       settle.add(a.id);
       if (read) continue;
       read = true;
-      // Both ends moved: moved whole, or turned (it lies flat again at its middle). One end: the other keeps the height.
-      const f: P = [l.from[0], l.from[1] - dy], t: P = [l.to[0], l.to[1] - dy], y = mf && mt ? (f[1] + t[1]) / 2 : mf ? t[1] : f[1];
-      let x0 = Math.min(f[0], t[0]), x1 = Math.max(f[0], t[0]);
+      // Both ends moved: moved whole, or turned (flat again about its middle, as long as it is). One end: the other
+      // keeps the height.
+      const l = own(a), f: P = [l.from[0], l.from[1] - dy], t: P = [l.to[0], l.to[1] - dy], L = Math.hypot(t[0] - f[0], t[1] - f[1]), c = (f[0] + t[0]) / 2;
+      const y = mf && mt ? (f[1] + t[1]) / 2 : mf ? t[1] : f[1];
+      let [x0, x1] = mf && mt ? [c - L / 2, c + L / 2] : [Math.min(f[0], t[0]), Math.max(f[0], t[0])];
       if (x1 - x0 < em) {
         if (mf !== mt) { const fixed = mf ? t[0] : f[0], end = mf ? f[0] : t[0]; [x0, x1] = end >= fixed ? [fixed, fixed + em] : [fixed - em, fixed]; }
-        else { const c = (x0 + x1) / 2; [x0, x1] = [c - em / 2, c + em / 2]; }
+        else [x0, x1] = [c - em / 2, c + em / 2];
       }
       states[k] = { ...s, x0, x1, y };
       moved.push(k);
     }
   });
-  // No side of the frame over 1000 bond lengths: a level moved past that stops there.
-  const still = states.filter((_, k) => !goneStates.has(k) && !moved.includes(k));
-  if (still.length) {
-    const L = 999, left = Math.min(...still.map((s) => s.x0)), right = Math.max(...still.map((s) => s.x1)), foot = Math.min(...still.map((s) => s.y)), top = Math.max(...still.map((s) => s.y));
+  // No side of the frame over 1000 bond lengths: a level moved past that stops there (with every level moved, the
+  // frame grows from its left and its foot).
+  if (moved.length) {
+    const L = 999, kept = states.map((_, k) => k).filter((k) => !goneStates.has(k)), still = kept.filter((k) => !moved.includes(k)), ref = (still.length ? still : kept).map((k) => states[k]);
+    const left = Math.min(...ref.map((s) => s.x0)), right = Math.max(...ref.map((s) => s.x1)), foot = Math.min(...ref.map((s) => s.y)), top = Math.max(...ref.map((s) => s.y));
+    const [lo, hi, down, up] = still.length ? [right - L, left + L, top - L, foot + L] : [left, left + L, foot, foot + L];
     for (const k of moved) {
-      const s = states[k], w = Math.min(s.x1 - s.x0, L), x0 = Math.min(Math.max(s.x0, right - L), left + L - w);
-      states[k] = { ...s, x0, x1: x0 + w, y: Math.min(Math.max(s.y, top - L), foot + L) };
+      const s = states[k], w = Math.min(s.x1 - s.x0, L), x0 = Math.min(Math.max(s.x0, lo), hi - w);
+      states[k] = { ...s, x0, x1: x0 + w, y: Math.min(Math.max(s.y, down), up) };
     }
   }
   // The level (or vibrational level) under a point, nearest first: within 0.6 em up or down and inside its ends.
@@ -444,13 +481,22 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
     return best && { k: best.k, i: best.i };
   };
   const inside = (k: number, x: number) => Math.min(states[k].x1, Math.max(states[k].x0, x));
+  // How far a level moved across, kept as long as it was (a stretched level keeps its transitions where they are).
+  const across = (k: number) => (Math.abs(states[k].x1 - states[k].x0 - (was0[k].x1 - was0[k].x0)) < 1e-6 ? states[k].x0 - was0[k].x0 : 0);
   const transitions: (Omit<JTransition, "x"> & { x: P })[] = p.transitions.map((t, i) => {
-    const out = { ...t, x: [t.x[0] * W, t.x[1] * W] as P, vib: [...t.vib] as P }, a = arrows.get(`trans:${i}`), e = fig.get(`trans:${i}`), drawn = endsOf(p, i, em);
+    const out = { ...t, x: [t.x[0] * W, t.x[1] * W] as P, vib: [...t.vib] as P }, da = across(t.from), db = across(t.to);
+    if (da || db) {
+      const upright = Math.abs(out.x[0] - out.x[1]) < 1e-6;
+      out.x = [out.x[0] + da, out.x[1] + db];
+      if (upright && !da !== !db) { const x = da ? out.x[0] : out.x[1], other = states[da ? t.to : t.from]; if (x >= other.x0 && x <= other.x1) out.x = [x, x]; }
+    }
+    const a = arrows.get(`trans:${i}`), e = fig.get(`trans:${i}`), drawn = endsOf(p, i, em);
     if (!a || !e || !drawn || goneTrans.has(i)) return out;
-    const l = own(a), mf = !close(l.from, e.from), mt = !close(l.to, e.to);
+    const [mf, mt] = movedEnds(a, e, false);
     if (!mf && !mt) return out;
     settle.add(a.id);
-    if (close(l.from, e.to) && close(l.to, e.from)) return { ...out, from: t.to, to: t.from, x: [out.x[1], out.x[0]], vib: [t.vib[1], t.vib[0]] };
+    const l = own(a);
+    if (close(l.from, e.to) && close(l.to, e.from)) { reversed.add(a.id); return { ...out, from: t.to, to: t.from, x: [out.x[1], out.x[0]], vib: [t.vib[1], t.vib[0]] }; }
     const d = minus(l.from, e.from);
     if (mf && mt && close(d, minus(l.to, e.to))) return { ...out, x: [drawn[0][0] + d[0], drawn[1][0] + d[0]] };
     const ends = [[mf, l.from, 0], [mt, l.to, 1]] as const;
@@ -460,6 +506,7 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
       if (hit && (hit.k !== other || t.kind === "vr")) { if (j) out.to = hit.k; else out.from = hit.k; out.vib[j] = hit.i; }
       out.x[j] = q[0];
     }
+    if (out.kind === "vr" && out.from !== out.to) { const kind = kindOf(states, out.from, out.to); return { ...out, kind, label: t.label === KIND_LABELS.vr ? KIND_LABELS[kind] : t.label }; }
     return out;
   });
   if (!settle.size && !goneStates.size && !goneTrans.size) return m;
@@ -468,19 +515,21 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
   if (!keptStates.length) return { ...m, groups: m.groups!.map((x) => { if (x.id !== g.id) return x; const { plot: _, ...plain } = x; return plain; }) };
   const keptTrans = transitions.map((_, i) => i).filter((i) => !goneTrans.has(i) && !goneStates.has(transitions[i].from) && !goneStates.has(transitions[i].to));
   const next = framed(p, keptStates.map((k) => states[k]), keptTrans.map((i) => { const t = transitions[i]; return { ...t, from: keptStates.indexOf(t.from), to: keptStates.indexOf(t.to), x: [inside(t.from, t.x[0]), inside(t.to, t.x[1])] as P }; }));
+  if (!readChart(next)) return m;
   const rename = (r: string): string | undefined => {
     const k = /^(level|state|vib):(\d+)(.*)$/.exec(r), t = /^(trans|label):(\d+)(.*)$/.exec(r);
     if (k) { const j = keptStates.indexOf(+k[2]); return j < 0 ? undefined : `${k[1]}:${j}${k[3]}`; }
     if (t) { const j = keptTrans.indexOf(+t[2]); return j < 0 ? undefined : `${t[1]}:${j}${t[3]}`; }
     return r;
   };
-  // Each part read back is where Octet puts it now (its offset the group's move). A name or a label this edit moved
-  // with its level or its transition goes with it: its offset loses that move.
-  const before = new Map([...(was.arrows ?? []), ...(was.captions ?? [])].filter((x) => olds.has(x.id)).map((x) => [x.id, x]));
+  // Each part read back is where Octet puts it now (its offset the group's move); a transition reversed takes its
+  // heads back the other way, so its head stays at the state it now goes to. A name or a label this edit moved with
+  // its level or its transition goes with it: its offset loses that move.
   const moveOf = (x: Arrow | Caption | undefined): P | undefined => { const o = x && before.get(x.id); return o && x ? ("from" in x ? minus(x.from, (o as Arrow).from) : [x.x - (o as Caption).x, x.y - (o as Caption).y]) : undefined; };
   const anchors = new Map((m.arrows ?? []).filter((a) => ids.has(a.id) && a.role).map((a) => [a.role!.role, a]));
+  const back = ({ start, end, ...a }: Arrow): Arrow => ({ ...a, ...(end ? { start: end } : {}), ...(start ? { end: start } : {}) });
   const settled: Mol = { ...m,
-    arrows: m.arrows!.map((a) => (settle.has(a.id) ? { ...a, role: { ...a.role!, at: minus(a.from, shift) } } : a)),
+    arrows: m.arrows!.map((a) => (settle.has(a.id) ? { ...(reversed.has(a.id) ? back(a) : a), role: { ...a.role!, at: minus(a.from, shift) } } : a)),
     captions: m.captions?.map((c) => {
       const r = c.role && ids.has(c.id) ? /^(state|label):(\d+)$/.exec(c.role.role) : null, anchor = r ? anchors.get(`${r[1] === "state" ? "level" : "trans"}:${r[2]}`) : undefined;
       const dc = r ? moveOf(c) : undefined, da = moveOf(anchor);
@@ -491,13 +540,14 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv): Mol {
   return replot(settled, g.id, data, env, { rename });
 }
 // What of a Jablonski diagram is picked: the states (a level, a vibrational level or a name) and the transitions (an
-// arrow or its label).
+// arrow or its label). A part whose role names a state or a transition the record does not have (a file can say
+// anything) is none of them.
 export function jablonskiPick(m: Mol, g: Group, picked: Iterable<number>): { states: number[]; transitions: number[] } {
-  const ids = new Set(picked), states = new Set<number>(), transitions = new Set<number>();
+  const ids = new Set(picked), states = new Set<number>(), transitions = new Set<number>(), p = g.plot as JablonskiChart | undefined;
   for (const x of [...(m.arrows ?? []), ...(m.captions ?? [])]) {
     if (!ids.has(x.id) || !x.role || !g.items.includes(x.id)) continue;
-    const r = /^(level|vib|state|trans|label):(\d+)/.exec(x.role.role);
-    if (r) (r[1] === "trans" || r[1] === "label" ? transitions : states).add(+r[2]);
+    const r = /^(level|vib|state|trans|label):(\d+)/.exec(x.role.role), k = r ? +r[2] : -1, trans = r?.[1] === "trans" || r?.[1] === "label";
+    if (r && k < (trans ? p?.transitions.length ?? 0 : p?.states.length ?? 0)) (trans ? transitions : states).add(k);
   }
   return { states: [...states].sort((a, b) => a - b), transitions: [...transitions].sort((a, b) => a - b) };
 }

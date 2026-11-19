@@ -3,7 +3,7 @@
 // mcp.ts wires them in a few lines and the editor and Octet with no window do the same. Everything here comes from an
 // AI app and is checked: a record that readChart would refuse is never placed.
 import { chartAction, placePlot, plotFigure, plotShift, type PlotEnv } from "./pageplot.ts";
-import { chartName, coverScale, defaultTransitions, energyOfTable, figureBox, isChart, KIND_LABELS, KIND_NAMES, kindOf, MAX_LEVELS, MAX_TRANSITIONS, NEW_ENERGY, NEW_RADAR, plain, radarOfRows, readChart, roomFor, soundScale, vibOf, type Chart, type JablonskiChart, type JablonskiKind, type JState, type JTransition } from "./charts.ts";
+import { chartName, coverScale, cut, defaultTransitions, energyOfTable, figureBox, isChart, KIND_LABELS, KIND_NAMES, kindOf, MAX_LEVELS, MAX_TRANSITIONS, NEW_ENERGY, NEW_RADAR, plain, radarOfRows, readChart, roomFor, soundScale, vibOf, type Chart, type JablonskiChart, type JablonskiKind, type JState, type JTransition } from "./charts.ts";
 import { widthOf } from "./arial.ts";
 import type { DocStyle } from "./docstyle.ts";
 import type { Group, Mol } from "./render.ts";
@@ -15,12 +15,13 @@ export type ChartIn = {
   rows?: string[][]; join?: "line" | "dashed" | "curve"; min?: number; max?: number; step?: number; zones?: boolean;
 };
 export const envOf = (s: DocStyle): PlotEnv => ({ captionSize: s.captionSize, bond: s.bond, line: s.line, measure: (t) => widthOf(t, 1) });
-// Text as a record keeps it: one line, 80 characters at most, never through the middle of one.
-const name = (t: string) => Array.from(plain(t)).slice(0, 80).join("");
+// Text as a record keeps it: one line, 80 UTF-16 units at most, never through the middle of a character.
+const name = (t: string) => cut(plain(t), 80);
 const place = { origin: [0, 0] as P, scale: 1, text: 1, roles: [] as string[] };
 
 // A Jablonski diagram from states and transitions as an AI app gives them: each state's level at its energy (the
-// lowest at the foot; none given, they rise in the order given), the ground state across both columns and the others
+// lowest at the foot; none given, by its name's number with a triplet or a quartet under the singlet of its number,
+// as T1 under S1, else in the order given), the ground state across both columns and the others
 // in theirs (S and D left, T and Q right, D8), and the transitions given (else Kasha's rule's), each kind from its
 // states unless given. Transitions between two levels one over the other share the room across evenly, in the order
 // given; the others run from the end of one level to the start of the other.
@@ -34,8 +35,9 @@ function jablonskiOf(a: ChartIn): JablonskiChart | string {
   if (energies && energies < given.length) return "states: give every state an energy, or none";
   const bad = given.findIndex((s) => (s.energy !== undefined && !Number.isFinite(s.energy)) || (s.vib !== undefined && !(Number.isInteger(s.vib) && s.vib >= 0 && s.vib <= 8)));
   if (bad >= 0) return `states[${bad}]: energy is a number, and vib a whole number from 0 to 8`;
-  const lo = Math.min(...given.map((s) => s.energy ?? 0)), hi = Math.max(...given.map((s) => s.energy ?? 0)), n = given.length;
-  const ys = given.map((s, i) => (energies ? (hi - lo > 1e-12 ? (s.energy! - lo) / (hi - lo) : 0) : n > 1 ? i / (n - 1) : 0));
+  const n = given.length, numbers = names.map((t) => /^([A-Za-z])[_{]*(\d{1,3})(?!\d)/.exec(t.replace(/[₀-₉]/g, (d) => String(d.charCodeAt(0) - 0x2080))));
+  const heights = energies ? given.map((s) => s.energy!) : numbers.every(Boolean) ? numbers.map((x) => Number(x![2]) - (/[TQ]/i.test(x![1]) ? 0.3 : 0)) : given.map((_, i) => i);
+  const lo = Math.min(...heights), hi = Math.max(...heights), ys = heights.map((h) => (hi - lo > 1e-12 ? (h - lo) / (hi - lo) : 0));
   const ground = ys.indexOf(Math.min(...ys));
   const states: JState[] = given.map((s, i) => {
     const right = (s.column ?? (/^[TQ]/i.test(names[i]) ? "right" : "left")) === "right";
@@ -52,6 +54,7 @@ function jablonskiOf(a: ChartIn): JablonskiChart | string {
       if (to < 0) return `transitions[${i}].to: no state is named ${name(t.to)}`;
       const kind = t.kind ?? kindOf(states, from, to);
       if ((from === to) !== (kind === "vr")) return `transitions[${i}].kind: vibrational relaxation is within one state, and every other kind between two`;
+      if (kind === "vr" && !states[from].vib) return `transitions[${i}]: vibrational relaxation needs vibrational levels (vib 1 or more on ${names[from]})`;
       transitions.push({ from, to, kind, label: t.label !== undefined ? name(t.label) : KIND_LABELS[kind], vib: vibOf(kind, states[from], states[to]) });
     }
   }
@@ -63,8 +66,11 @@ function jablonskiOf(a: ChartIn): JablonskiChart | string {
   for (const [k, list] of groups) { const [l, h] = k.split(",").map(Number); list.forEach((i, j) => { const x = l + ((j + 0.5) / list.length) * (h - l); across[i] = [x, x]; }); }
   transitions.forEach((t, i) => { if (!shared(t)) across[i] = roomFor({ states, transitions: [] }, t.from, t.to); });
   const most = Math.max(0, ...[...groups.values()].map((l) => l.length));
+  // Tall enough that between two levels one over the other there is room for the lower one's vibrational levels and a
+  // label (at the default caption size, 0.69 bond lengths), up to 60 bond lengths.
+  const em = 10 / 14.4, room = states.flatMap((p) => states.flatMap((q) => (q.y > p.y + 1e-9 && Math.min(p.x[1], q.x[1]) > Math.max(p.x[0], q.x[0]) + 1e-6 ? [(p.vib * em / 2 + 2.2 * em) / (q.y - p.y)] : [])));
   const c: JablonskiChart = { kind: "jablonski", title: a.title ? name(a.title) : "Jablonski diagram", states, transitions: transitions.map((t, i) => ({ ...t, x: across[i] })), axis: a.axis ?? true, unit: a.unit !== undefined ? name(a.unit) : "Energy",
-    frame: [Math.max(15, 3.6 * most), Math.min(60, Math.max(7, 1.8 * (n - 1)))], ...place };
+    frame: [Math.max(15, 3.6 * most), Math.min(60, Math.max(7, 1.8 * (n - 1), ...room))], ...place };
   return readChart(JSON.parse(JSON.stringify(c))) ? c : "states: Octet cannot draw these";
 }
 // A chart's record from what an AI app gives, or why it cannot be drawn (the argument first).
@@ -131,7 +137,8 @@ export function chartCommand(m: Mol, command: string, items: number[], env: Plot
   if (items.some((id) => !g.items.includes(id))) return "ids: some of these are not part of the chart";
   if (!plotShift(m, g)) return "ids: this chart was turned or flipped, so its data cannot change";
   const r = chartAction(m, g.id, command, items, env);
-  if (!r) return `command: ${command} is not an action of this ${chartName(g.plot as Chart).toLowerCase()}`;
+  const named = chartName(g.plot as Chart);
+  if (!r) return `command: ${command} is not an action of this ${g.plot?.kind === "jablonski" ? named : named.toLowerCase()}`;
   if ("mol" in r) return r;
   const which = /transition first/.test(r.notice) ? "ids: give a transition's id (or its label's)" : /one level/.test(r.notice) ? "ids: give one level's id" : /level first/.test(r.notice) ? "ids: give a level's id (or a vibrational level's, or its name's)" : `command: ${r.notice.replace(/\.$/, "")}`;
   return which;
