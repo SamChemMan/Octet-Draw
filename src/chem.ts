@@ -4,6 +4,7 @@ import { AROMATIC, HBOND, hydrogens, labelInk, NONMETAL, orderOf, QUADRUPLE, sca
 import { arialInk } from "./cdxml.ts";
 import { fontStack } from "./docstyle.ts";
 import { chemicalText, labelSmiles, writtenOxidation } from "./labels.ts";
+import { onNicknamesChange } from "./nicknames.ts";
 import { bondedTo, chairHydrogens, fragments, insertMol, labelPlacer, levelTurn, perspectiveBonds, pickAtoms, renumberCentre, sandwich, subset, withValence } from "./edit.ts";
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
@@ -1195,7 +1196,9 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
     if (!a.text) return;
     // Characters raised or lowered by hand (Fe with III raised) are drawn, not read (chemicalText).
     const text = chemicalText(a.text, a.runs)!;
-    const own = ported.has(i), frag = own ? a.inner : a.chemical === false ? undefined : labelGroup(text);
+    // A label Octet has no reading for that keeps its group (a nickname of another user's, read from a file) is read
+    // as that group, joined by its first atom.
+    const own = ported.has(i), frag = own ? a.inner : a.chemical === false ? undefined : labelGroup(text) ?? a.inner;
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
     // A residue's kept atoms go where they were drawn, moved so its first atom is on the label: its stereocentres stay
     // as drawn.
@@ -1875,6 +1878,8 @@ export function structures(mol: Mol, groups = fragments(mol)): (Structure | unde
 // standard InChI (names.ts abbreviationOf), given as each structure's abbreviation (TREN).
 export type Analysis = { formula: string; weight: number; exact: number; repeat?: Repeat; abbreviation?: string }[];
 const analysed = new Map<string, Analysis | undefined>(), inchis = new Map<string, string | undefined>();
+// A label may stand for another group once the user's nicknames change: what was read from labels is read again.
+onNicknamesChange(() => { for (const kept of [labelGroups, drawnKeys, labelled, textInchis, factsKept, structured, analysed, inchis]) kept.clear(); });
 // The largest structure Octet asks a name or an abbreviation for by its InChI (here, and the names for screen readers
 // in Editor.tsx). The InChI of a larger fused ring system can take seconds, or overflow Indigo's stack (watched) and
 // never end. Octet's own abbreviations have up to 77 atoms. Here hydrogens drawn as atoms do not count, so Pd(PPh3)4
@@ -2018,7 +2023,10 @@ function pieces(mol: Mol): Mol[] {
   return parts;
 }
 // A structure's content as text: what its formula, masses and properties come from (not where it is drawn).
-const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, chemicalText(a.text, a.runs), a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical, a.attach, a.bead, a.centre]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
+// Whether a label keeps a group, and its size: the group is read where Octet has no reading for the label
+// (expandWithOrigins). Only its size, so a long sequence's key costs no more to make.
+const innerOf = (g: Mol | undefined) => g?.atoms.length;
+const contentOf = (m: Mol) => JSON.stringify([m.atoms.map((a) => [a.label, chemicalText(a.text, a.runs), a.charge, a.isotope, a.radical, a.implicitHCount, a.chemical, a.attach, a.bead, a.centre, innerOf(a.inner)]), m.bonds.map((b) => [b.type, b.stereo, b.atoms])]);
 // A value kept by its key, so it is worked out only once. The store is cleared when it grows large. A value worked
 // out with no Indigo (while a fresh one loads, see watched) is not kept.
 function remembered<T>(store: Map<string, T>, key: string, make: () => T): T {
@@ -2064,4 +2072,25 @@ export function smilesWeight(smiles: string): { formula: string; weight: number 
   return remembered(reagents, smiles, () => {
     try { const one = summed(calculate(smiles)); return Number.isFinite(one.weight) && one.weight > 0 ? { formula: one.formula, weight: one.weight } : undefined; } catch { return undefined; }
   });
+}
+
+// Define Nickname (Editor.tsx): the selected atoms as a group joined to the rest of the structure by one single bond,
+// as a nickname keeps it: its SMILES from the atom on that bond (labels.ts reads a label so), that atom (keep, which
+// Contract Label leaves with the label) and the group's atoms. The rest is one xenon, put first so Indigo writes it
+// first; the SMILES after it is the group, checked by its InChI. A label keeps no stereochemistry. A message when the
+// selection cannot be a nickname.
+export function nicknameGroup(m: Mol, selected: Set<number>): { smiles: string; keep: number; group: number[] } | string {
+  const group = [...selected].filter((i) => i < m.atoms.length), inGroup = new Set(group);
+  const links = m.bonds.filter((b) => inGroup.has(b.atoms[0]) !== inGroup.has(b.atoms[1]));
+  if (!group.length || links.length !== 1 || links[0].type !== 1) return "Select a group joined to the rest of the structure by one single bond.";
+  const keep = inGroup.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
+  const kept = [...group, outside].sort((x, y) => x - y), capped = subset({ ...m, atoms: m.atoms.map((a, i) => (i === outside ? { label: "Xe", location: a.location } : a)) }, new Set(kept));
+  const order = [outside, keep, ...group.filter((i) => i !== keep)].map((i) => kept.indexOf(i)), at = new Map(order.map((i, k) => [i, k]));
+  const rooted: Mol = { atoms: order.map((i) => capped.atoms[i]), bonds: capped.bonds.map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })) };
+  let written = "";
+  try { written = toSmiles(rooted).split(/\s/)[0]; } catch { written = ""; }
+  const smiles = written.startsWith("[Xe]") ? written.slice(4) : "";
+  if (/[@/\\]/.test(smiles)) return "A nickname cannot keep stereochemistry. Draw the group without wedges or E/Z bonds.";
+  if (!smiles || /[*.]/.test(smiles) || !toInchi(rooted) || toInchi(rooted) !== toInchi(`[Xe]${smiles}`)) return "Octet cannot keep this group as a nickname.";
+  return { smiles, keep, group };
 }
