@@ -17,7 +17,9 @@ The same kind of fault is in other limits. Each one is in the table below.
 1. Every limit a reader has is a limit the editor keeps too. What the editor makes, its own readers read whole.
 2. Text that is typed or pasted past a limit is cut where it is made, and Octet says so with one notice:
    "A text holds up to 20,000 characters. Octet left out the rest." (`notice.ts` `cutNotice`, with the thing and the
-   number). Dialog and panel fields keep their `maxLength`: the field stops at the limit as the user types.
+   number). In a box (a caption, a label, a table cell) only what went in is cut (`richtext.ts` `typedIn`): the text
+   around it stays, and the caret goes after what went in. Dialog and panel fields keep their `maxLength`: the field
+   stops at the limit as the user types.
 3. A limit is raised only with a reason, and a hostile file at the new limit must still read fast and in bounded
    memory (stress list, H1 to H6).
 4. When a file's JSON copy is there and matches its CDXML but cannot be read, Octet opens the CDXML and says so:
@@ -76,6 +78,12 @@ made to keep it.
 Files from 1.1.2 and before open as they did. One whose JSON copy has a caption of 2,001 to 20,000 characters now
 opens from the JSON copy, whole. One with a longer caption opens from its CDXML with the new notice, the text cut to
 20,000 and counted. Nothing in the file format changes.
+
+Octet 1.1.2 and before keep their old limits. They open a 1.1.3 file with a text of more than 2,000 characters, a
+reagent table column keyed by a text of more than 80 characters or of two lines, or a side arrow's structure of more
+than 512 atoms from its CDXML, with no notice and without Octet's own extras (a long text is cut to 2,000). A risk text
+of more than 2,000 characters, or of more than 200 runs, makes 1.1.2 leave out the risk assessment's record. This
+cannot change in 1.1.2.
 
 ## Cases (`src/longtext-stress.check.ts`)
 

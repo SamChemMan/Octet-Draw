@@ -130,7 +130,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, cutRuns, cutText, edited, labelStyle, lines as richLines, MAX_TEXT, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, cutRuns, edited, labelStyle, lines as richLines, MAX_TEXT, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, typedIn, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
@@ -11148,11 +11148,15 @@ export default function Editor() {
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * t.f * L * z}px`,
             }}
             // A table cell holds 500 characters and no tab, as Octet's files do: a tab (a row pasted from a spreadsheet)
-            // is a space, and more is cut, with a notice (docs/plans/long-text.md).
+            // is a space, and what goes in past the limit is cut, with a notice (docs/plans/long-text.md). The text around
+            // it stays, with the caret after what went in.
             onChange={(e) => {
               const v = e.target.value.replace(/[\u0000-\u0009\u000b-\u001f]/g, " ");
-              if (v.length > MAX_CELL) setNotice(cutNotice("A table cell", MAX_CELL));
-              setCell({ ...cell, value: cutText(v, MAX_CELL) });
+              if (v.length <= MAX_CELL) return setCell({ ...cell, value: v });
+              setNotice(cutNotice("A table cell", MAX_CELL));
+              const { text, at } = typedIn(cell.value, v, MAX_CELL), el = e.target;
+              setCell({ ...cell, value: text });
+              requestAnimationFrame(() => el.setSelectionRange(at, at));
             }}
             onKeyDown={(e) => {
               const i = cell.r * cols + cell.c;

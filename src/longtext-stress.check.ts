@@ -16,7 +16,7 @@ const { fromCdxml, parseXml, toCdxml } = await import("./cdxml.ts");
 const { cdxToXml, xmlToCdx } = await import("./cdx.ts");
 const { FALLBACK, lostText, readCdx, readOct, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
-const { MAX_TEXT, cutRuns, cutText, plainOf } = await import("./richtext.ts");
+const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
 const { cutNotice } = await import("./notice.ts");
 const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve } = await import("./edit.ts");
 const { MAX_STEPS, addStop } = await import("./cycle.ts");
@@ -201,6 +201,16 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
   assert.deepEqual(runs, [{ text: "ab" }, { text: "c", bold: true }]);
   assert.equal(plainOf(cutRuns(styledRuns(prose(3 * MAX_TEXT)), MAX_TEXT)).length, MAX_TEXT);
   assert.equal(cutNotice("A text", MAX_TEXT), "A text holds up to 20,000 characters. Octet left out the rest.");
+  // A box at its limit (typing in the middle, a paste, the Character Map): typedIn cuts what went in, and the text
+  // around it stays, never half a character; the caret goes after what went in.
+  const atLimit = "x".repeat(MAX_LABEL - 2) + "OH";
+  assert.deepEqual(typedIn(atLimit, `${atLimit.slice(0, 5)}Q${atLimit.slice(5)}`, MAX_LABEL), { text: atLimit, at: 5 }, "a key typed in the middle of a full label");
+  assert.deepEqual(typedIn("CO2Et", `${"y".repeat(60)}CO2Et`, MAX_LABEL), { text: `${"y".repeat(35)}CO2Et`, at: 35 }, "a paste at the start");
+  assert.deepEqual(typedIn("ab", "a🧪🧪b", 4), { text: "a🧪b", at: 3 });
+  assert.deepEqual(typedIn("ab", "a🧪🧪b", 5), { text: "a🧪b", at: 3 }, "never half a character");
+  assert.deepEqual(typedIn("abc", "aXYZc", 4), { text: "aXYc", at: 3 }, "over a selection");
+  const long = prose(MAX_TEXT - 100), pasted = prose(500), into = typedIn(long, long.slice(0, 50) + pasted + long.slice(50), MAX_TEXT);
+  assert.equal(into.text.length <= MAX_TEXT && into.text.endsWith(long.slice(50)) && into.text.startsWith(long.slice(0, 50)), true, "a long text keeps its end");
   // Labels: setLabel keeps MAX_LABEL characters and no < or >, whatever the box or a dialog gives it.
   assert.equal(keptLabel("x".repeat(60)), "x".repeat(MAX_LABEL));
   assert.equal(keptLabel("N<Boc>2"), "NBoc2");
@@ -258,13 +268,13 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /max=\{MAX_TEXT\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A text", MAX_TEXT\)\)\}/);
   assert.match(editor, /max=\{MAX_LABEL\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A label", MAX_LABEL\)\)\}/);
   assert.match(box, /const text = fit\(e\.clipboardData\.getData\("text\/plain"\)/, "a paste is cut to the room left, its tabs spaces");
-  assert.match(box, /if \(p\.max !== undefined && plainOf\(now\)\.length > p\.max\) \{ p\.onCut\?\.\(\); const cut = cutRuns\(now, p\.max\)/, "typing past the limit");
+  assert.match(box, /if \(p\.max !== undefined && plainOf\(now\)\.length > p\.max\) \{\n\s+p\.onCut\?\.\(\);\n\s+const \{ text, at \} = typedIn\(plainOf\(runs\.current\), plainOf\(now\), p\.max\);/, "typing past the limit cuts what went in");
   // Committed text: a chart label 80, a detail MAX_VALUE, any other text MAX_TEXT; tabs spaces.
   assert.match(editor, /const \[most, what\] = chartLabel \? \[80, "A chart label"\] : was\?\.field && DETAILS\.some\(\(\[k\]\) => k === was\.field\) \? \[MAX_VALUE, "A detail"\] : \[MAX_TEXT, "A text"\];/);
   assert.match(editor, /if \(over\) setNotice\(cutNotice\(what, most\)\);\n\s+const typed = over \? cutRuns\(clean, most\) : clean/);
   assert.match(editor, /if \(\/\[<>\]\/\.test\(text\)\) setNotice\("A label cannot hold < or >\. Octet left them out\."\);/);
   assert.equal(editor.match(/e\.target\.value\.replace\(\/\[<>\]\/g, ""\)\.slice\(0, MAX_LABEL\)/g)?.length, 2, "the Element and Label fields");
-  assert.match(editor, /if \(v\.length > MAX_CELL\) setNotice\(cutNotice\("A table cell", MAX_CELL\)\);/);
+  assert.match(editor, /if \(v\.length <= MAX_CELL\) return setCell\(\{ \.\.\.cell, value: v \}\);\n\s+setNotice\(cutNotice\("A table cell", MAX_CELL\)\);\n\s+const \{ text, at \} = typedIn\(cell\.value, v, MAX_CELL\)/);
   assert.match(editor, /setNotice\(cutNotice\("A table cell", MAX_VALUE\)\)/, "a reagent table's text cell");
   assert.match(editor, /if \(groupTooBig\(doc, group\)\) return setNotice\("Select a group of 256 atoms or fewer\.", "info"\);/);
   assert.equal(editor.match(/>= MAX_CURVE\) return setNotice\(`A curve holds up to \$\{MAX_CURVE\.toLocaleString\("en-GB"\)\} points\.`, "info"\)/g)?.length, 2, "Pen and Edit Curve");

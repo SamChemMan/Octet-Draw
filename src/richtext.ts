@@ -19,6 +19,18 @@ export function cutRuns(runs: TextRun[], n: number): TextRun[] {
   }
   return normalise(out);
 }
+// An edit that made a text longer than max (typed, pasted, or put in by the Character Map): the text around the edit
+// stays, and what went in is cut to the room left, never half a character. at: the caret, after what went in.
+export function typedIn(was: string, now: string, max: number): { text: string; at: number } {
+  let p = 0, s = 0;
+  while (p < was.length && p < now.length && was[p] === now[p]) p++;
+  while (s < was.length - p && s < now.length - p && was[was.length - 1 - s] === now[now.length - 1 - s]) s++;
+  if (p && /[\ud800-\udbff]/.test(now[p - 1])) p--;
+  if (s && /[\udc00-\udfff]/.test(now[now.length - s])) s--;
+  if (p + s > max) { const text = cutText(now, max); return { text, at: text.length }; }
+  const put = cutText(now.slice(p, now.length - s), max - p - s);
+  return { text: now.slice(0, p) + put + now.slice(now.length - s), at: p + put.length };
+}
 
 const KEYS = ["bold", "italic", "underline", "script", "font", "size", "colour"] as const;
 export const sameStyle = (a: RunStyle, b: RunStyle) => KEYS.every((k) => a[k] === b[k]);

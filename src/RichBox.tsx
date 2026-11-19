@@ -2,7 +2,7 @@
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
 // each span's own data, and paste inserts plain text only (a citation's formatting can follow, from its runs: richpaste.ts).
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { cutRuns, cutText, edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
+import { cutText, edited, normalise, plainOf, styleOf, typedIn, type RunStyle, type TextRun } from "./richtext";
 import { offerFor } from "./richpaste.ts";
 import { inMap } from "./CharMap";
 
@@ -141,8 +141,13 @@ export function RichBox(p: Props) {
       style={p.style}
       onInput={() => {
         const el = box.current!, now = read(el);
-        // Typed past the most it holds (the Character Map types too): cut, and built again with the caret at the end.
-        if (p.max !== undefined && plainOf(now).length > p.max) { p.onCut?.(); const cut = cutRuns(now, p.max), n = plainOf(cut).length; return p.onRuns(cut, [n, n]); }
+        // Typed past the most it holds (the Character Map and Linux's Edit > Paste type too): what went in is cut to the
+        // room left, the text around it stays, and the box is built again with the caret after it.
+        if (p.max !== undefined && plainOf(now).length > p.max) {
+          p.onCut?.();
+          const { text, at } = typedIn(plainOf(runs.current), plainOf(now), p.max);
+          return p.onRuns(p.pending ? edited(runs.current, text, p.pending) : edited(now, text), [at, at]);
+        }
         if (!p.pending) return p.onRuns(now);
         // Characters typed after a style was set with nothing selected take that style; the box is built again.
         p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
