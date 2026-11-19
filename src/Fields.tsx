@@ -1,6 +1,6 @@
 // Octet's number field, segmented control and switch. Settings and every dialog use them, so a number, a short choice
 // and an on or off setting look and work the same everywhere (brand/CLAUDE.md: one component per job).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // A number with its unit inside the field. It keeps what is being typed (such as "0." or "-") until it is a usable
 // value, from min to max. Up and Down change it by step, or by ten steps with Shift. onClear: an empty field is no
@@ -48,25 +48,37 @@ export function NumberField({ value, unit, label, onChange, min = 0.001, max = 1
   );
 }
 
-// A line of text, used on Return or when the field is left (as a lazy NumberField), so a word typed is one change.
-// lines: text of several lines (that many shown), where Return makes a new line and leaving the field uses it; max:
-// its length. A field removed while it has the focus (Escape closes Settings or clears its search) gets no blur, so it
-// uses what was typed then.
-export function TextField({ value, label, onChange, lines, max = 200 }: { value: string; label: string; onChange: (text: string) => void; lines?: number; max?: number }) {
+// A line of text, used on Return or when the field is left (as a lazy NumberField), so a word typed is one change. A
+// value changed elsewhere while the field has the focus shows once it is left, unless something was typed: then what
+// was typed is used. lines: text of several lines (the Comment in Settings, a note), where Return makes a new line and
+// Escape leaves the field; the field grows with its text up to that many lines, then scrolls. max: its length. A field
+// removed while it has the focus (Escape closes Settings or clears its search, the Notes panel closes, or what a note
+// was for is no longer selected) gets no blur, so it uses what was typed then. placeholder: faint text in the empty
+// field ("Mixed").
+export function TextField({ value, label, onChange, lines, max = lines ? 10_000 : 200, placeholder }: { value: string; label: string; onChange: (text: string) => void; lines?: number; max?: number; placeholder?: string }) {
   const [text, setText] = useState(value);
-  const focused = useRef(false), latest = useRef({ text, value, onChange });
-  latest.current = { text, value, onChange };
+  const focused = useRef(false), typed = useRef(false), area = useRef<HTMLTextAreaElement>(null), latest = useRef({ text, onChange });
+  latest.current = { text, onChange };
   useEffect(() => { if (!focused.current) setText(value); }, [value]);
-  useEffect(() => () => { const l = latest.current; if (focused.current && l.text !== l.value) l.onChange(l.text); }, []);
+  useEffect(() => () => { const l = latest.current; if (typed.current) l.onChange(l.text); }, []);
+  // As many rows as the text takes, up to lines.
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el || !lines) return;
+    el.rows = 1;
+    const step = parseFloat(getComputedStyle(el).lineHeight) || 18;
+    el.rows = Math.max(1, Math.min(lines, Math.round(el.scrollHeight / step)));
+  }, [text, lines]);
   const own = {
-    "aria-label": label, value: text, maxLength: max, spellCheck: false,
+    "aria-label": label, value: text, maxLength: max, spellCheck: false, placeholder,
     onFocus: () => { focused.current = true; },
-    onBlur: () => { focused.current = false; if (text !== value) onChange(text); },
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setText(e.target.value),
+    onBlur: () => { focused.current = false; if (typed.current) { typed.current = false; if (text !== value) onChange(text); } else if (text !== value) setText(value); },
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { typed.current = true; setText(e.target.value); },
   };
   return (
     <span className={lines ? "unit-field text lines" : "unit-field text"}>
-      {lines ? <textarea {...own} rows={lines} /> : <input {...own} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.blur(); } }} />}
+      {lines ? <textarea ref={area} rows={1} {...own} spellCheck onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }} />
+        : <input {...own} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.blur(); } }} />}
     </span>
   );
 }

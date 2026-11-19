@@ -289,7 +289,7 @@ function groupText(m: Mol, atoms: number[], items: number[], s: Sources): { role
 // ——— What an edit changed ———
 const PT = 14.4; // points per bond length (ACS Document 1996), as the arrow keys nudge
 const what = (a: Atom) => (a.centre ? "attachment" : a.text ? `label ${a.text.replace(/\n/g, " ")}` : elementName(a.label));
-const nounOf = (m: Mol, id: number): string | undefined => {
+export const nounOf = (m: Mol, id: number): string | undefined => {
   if (m.captions?.some((c) => c.id === id)) return "text";
   const a = m.arrows?.find((x) => x.id === id);
   if (a) return a.kind === "line" || a.kind === "arc" || a.kind === "curve" || a.kind === "cut" || a.kind === "orbital" ? lower(ARROWS[a.kind]) : `${lower(ARROWS[a.kind])} arrow`;
