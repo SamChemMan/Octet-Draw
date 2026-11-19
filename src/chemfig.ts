@@ -153,7 +153,7 @@ function atom(s: string): string {
 const joined = (atoms: string[]) => atoms.map((a, k) => (k && !/^[A-Z]/.test(a) ? `|${a}` : a)).join("");
 // Text in TeX's text mode (a name, a condition, text in a scheme): TeX's specials escaped, and any other character as
 // texOf() writes it, as text where it is an \mbox's and else in maths ($\alpha$).
-const TEXT_SPECIAL: Record<string, string> = { "\\": "\\textbackslash{}", "{": "\\{", "}": "\\}", "#": "\\#", $: "\\$", "%": "\\%", "&": "\\&", _: "\\_", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}" };
+const TEXT_SPECIAL: Record<string, string> = { "\\": "\\textbackslash{}", "{": "\\{", "}": "\\}", "#": "\\#", $: "\\$", "%": "\\%", "&": "\\&", _: "\\_", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}", "<": "\\textless{}", ">": "\\textgreater{}", "|": "\\textbar{}" };
 function textOf(s: string, left: Set<string>): string {
   let out = "";
   for (const ch of s.normalize("NFC")) {
@@ -520,13 +520,17 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
   const itemsOf = (s: Scheme) => s.row.flatMap((p) => ("arrow" in p ? [...(labelsOf(p.arrow, s)?.flat() ?? [])] : [p]));
   for (const c of names) join(c.under!);
   for (const s of schemes) for (const it of itemsOf(s)) if ("atoms" in it) join(it.atoms);
-  // An arrow of a scheme, and its conditions in the order they are in the code: chemfig puts the first label on the
-  // arrow's left, so an arrow that points left has its above and below swapped.
+  // An arrow of a scheme, and its conditions in the order they are in the code. chemfig sets its labels as TikZ sloped
+  // nodes: the first on the arrow's left, turned by 180° when the arrow points left (TikZ never sets one upside down).
+  // The page puts "above" up for a mostly level arrow and on the left for a steep one (render.ts), so the two swap
+  // only where chemfig's first label lands on the page's below side.
   function labelsOf(id: number, s: Scheme): [SchemeItem[], SchemeItem[]] | undefined {
     const a = mol.arrows?.find((x) => x.id === id);
     if (!a) return undefined;
     const up = s.above.get(id) ?? [], down = s.below.get(id) ?? [];
-    return a.to[0] - a.from[0] < -1e-6 && Math.abs(a.to[0] - a.from[0]) > Math.abs(a.to[1] - a.from[1]) * 0.01 ? [down, up] : [up, down];
+    const dx = a.to[0] - a.from[0], dy = a.to[1] - a.from[1], len = Math.hypot(dx, dy) || 1, flip = dx < -1e-9 ? -1 : 1;
+    const first: P = [(-dy / len) * flip, (dx / len) * flip], above: P = Math.abs(dx) >= 0.5 * len ? [0, 1] : [-1, 0];
+    return first[0] * above[0] + first[1] * above[1] < 0 ? [down, up] : [up, down];
   }
   // The blocks in the order they are in the code: with no scheme or name, one for every structure (as 1.1.2 wrote);
   // else the schemes' compounds in order, each named structure, then the rest together.
@@ -828,7 +832,8 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     return chemfigOf(n, label || undefined);
   };
   // Each reaction as chemfig's scheme: its compounds, \+ for each plus sign and an \arrow for each arrow, at the
-  // arrow's angle and as long as the page's arrow (a bond is chemfig's 3em, an arrow 5em at 1), with its conditions
+  // arrow's angle and as long as the page's arrow (a bond is chemfig's 3em; an \arrow draws from 1em to coeff × 5em
+  // less 1em, so 5em × coeff − 2em long, and an arrow of L bonds takes coeff (3L + 2) / 5), with its conditions
   // above and below it (structures compact, and text; more than one of either stacked). A row the page wraps onto more
   // lines is one long row.
   const arrowCode = (id: number, s: Scheme) => {
@@ -836,9 +841,11 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     if (!a || !labels) return "";
     ids.add(id);
     const label = (list: SchemeItem[]) => { const ps = list.map((it) => piece(it, true)).filter(Boolean); return ps.length ? `[{${ps.length > 1 ? `\\shortstack{${ps.join("\\\\")}}` : ps[0]}}]` : "[]"; };
-    const [above, below] = labels.map(label), d: P = [(a.to[0] - a.from[0]) * f, (a.to[1] - a.from[1]) * f], angle = Math.round(degreesOf(d)), coeff = +(0.6 * Math.hypot(...d)).toFixed(1);
+    const [above, below] = labels.map(label), d: P = [(a.to[0] - a.from[0]) * f, (a.to[1] - a.from[1]) * f], angle = Math.round(degreesOf(d)), coeff = +((3 * Math.hypot(...d) + 2) / 5).toFixed(1);
     const fields = fieldsOf([String(angle), Math.abs(coeff - 1) > 0.05 ? num(Math.max(coeff, 0.1), 1) : ""]);
-    return `\\arrow{${ARROW_TYPES[a.kind] ?? "->"}${above !== "[]" || below !== "[]" ? `${above}${below === "[]" ? "" : below}` : ""}}${fields}`;
+    // An unbalanced equilibrium: ratio above 1 has the shorter back arrow, chemfig's <->>; below 1 the shorter forward one.
+    const type = a.kind === "equilibrium" && a.ratio !== undefined && a.ratio !== 1 ? (a.ratio > 1 ? "<->>" : "<<->") : ARROW_TYPES[a.kind] ?? "->";
+    return `\\arrow{${type}${above !== "[]" || below !== "[]" ? `${above}${below === "[]" ? "" : below}` : ""}}${fields}`;
   };
   const tab = (s: string) => s.split("\n").map((l) => `\t${l}`).join("\n");
   const parts = schemes.flatMap((s) => {
@@ -891,7 +898,7 @@ function chemfigNotice(mol: Mol, left: Set<string>, inSyntax: Set<string>, ids: 
     [bonds.some((b) => b.type === 2 && b.display === "dashed"), "dashed double bonds with both lines dashed"], [bonds.some((b) => b.type === 2 && b.display === "bold"), "bold double bonds as double bonds"],
     // A scheme's arrows chemfig has no arrow for.
     ...(["retro", "dipole", "block"] as const).map((k): [boolean, string] => [scheme(k), `${k === "retro" ? "retrosynthetic" : k} arrows as plain arrows`]),
-    [scheme("hash"), "hashed no-go arrows as crossed ones"], [!!mol.arrows?.some((a) => ids.has(a.id) && a.kind === "equilibrium" && a.ratio !== undefined && a.ratio !== 1), "unbalanced equilibrium arrows as balanced ones"],
+    [scheme("hash"), "hashed no-go arrows as crossed ones"],
   ];
   const changed = shows.filter(([on]) => on).map(([, x]) => x);
   if (changed.length) out.push(`${out.length ? "It" : "The code"} shows ${list(changed)}.`);

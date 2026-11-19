@@ -560,7 +560,7 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
 // ---- Schemes, names, brackets, arrows, numbers and stereo labels (issue 59 reopened: PR 127's features) ----
 {
   // A + B → C ⇌ D, with H2SO4 above the first arrow and a structure below it: one \schemestart row, a \chemfig for each
-  // compound, the conditions in the arrow's labels, the arrow's length as its coeff (2 bond lengths: 1.2).
+  // compound, the conditions in the arrow's labels, the arrow's length as its coeff (2 bond lengths: (3 × 2 + 2) / 5 = 1.6).
   const m: Mol = {
     atoms: [A("C", 0, 0), A("C", 1, 0), A("O", 2.5, 0), A("C", 3.5, 0), A("C", 6.5, 0), A("C", 7.5, 0), A("C", 10.5, 0), A("C", 11.5, 0), A("C", 4.5, -1), A("N", 5.5, -1)],
     bonds: [B(0, 1), B(2, 3), B(4, 5, 2), B(6, 7), B(8, 9)],
@@ -569,20 +569,33 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   } as Mol;
   const row: Scheme = { row: [{ atoms: [0, 1] }, { plus: 10 }, { atoms: [2, 3] }, { arrow: 20 }, { atoms: [4, 5] }, { arrow: 21 }, { atoms: [6, 7] }], above: new Map([[20, [{ caption: 30 }]]]), below: new Map([[20, [{ atoms: [8, 9] }]]]) };
   const r = check("scheme", m, 0.02, { schemes: [row] });
-  assert.equal(r.compact, "\\schemestart\\chemfig{-[:0]}\\+\\chemfig{HO-[:0,,2]}\\arrow{->[{H\\textsubscript{2}SO\\textsubscript{4}}][{\\chemfig{-[:0,,,1]NH_2}}]}[0,1.2]\\chemfig{=[:0]}\\arrow{<=>}[0,1.2]\\chemfig{-[:0]}\\schemestop");
+  assert.equal(r.compact, "\\schemestart\\chemfig{-[:0]}\\+\\chemfig{HO-[:0,,2]}\\arrow{->[{H\\textsubscript{2}SO\\textsubscript{4}}][{\\chemfig{-[:0,,,1]NH_2}}]}[0,1.6]\\chemfig{=[:0]}\\arrow{<=>}[0,1.6]\\chemfig{-[:0]}\\schemestop");
   assert.equal(r.notice, "", "the arrows, the plus sign and the conditions are in the code");
   assert.ok(r.code.startsWith("\\schemestart%\n\t\\chemfig{\n\t\t-[:0]\n\t}%\n\t\\+%\n"), "readable: a piece a line, each ended by %");
   // Without the scheme: one \chemfig as before, and the notice names the arrow it cannot draw and the text.
   assert.equal(chemfig(m, S, ink).notice, "The code does not have the arrows and text.");
-  // Each arrow kind: chemfig's own where it has one; the others -> and named. An arrow pointing left has its above and
-  // below swapped (chemfig puts the first label on the arrow's left). A two-line condition is a \shortstack.
+  // Each arrow kind: chemfig's own where it has one; the others -> and named. chemfig's first label is on the arrow's
+  // left, turned to stay upright: above a level arrow either way, on the page's right of a straight-down arrow and on
+  // its left of a straight-up one. The page's above is up, or left of a steep arrow. A two-line condition is a \shortstack.
   const two: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 4, 0), A("C", 5, 0)], bonds: [B(0, 1), B(2, 3)], captions: [{ id: 5, text: "up", x: 2.5, y: 0.5 }, { id: 6, text: "down\nlow", x: 2.5, y: -0.5 }] } as Mol;
   const kind = (k: string, from: P = [1.5, 0], to: P = [3.5, 0]) => check(`arrow ${k}`, { ...two, arrows: [{ id: 9, kind: k, from, to }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map([[9, [{ caption: 6 }]]]) }] });
   for (const [k, type] of [["reaction", "->"], ["equilibrium", "<=>"], ["resonance", "<->"], ["nogo", "-/>"], ["hash", "-/>"], ["retro", "->"], ["dipole", "->"], ["block", "->"]]) assert.ok(kind(k).compact.includes(`\\arrow{${type}[{up}][{\\shortstack{down\\\\low}}]}`), k);
   assert.equal(kind("retro").notice, "The code shows retrosynthetic arrows as plain arrows.");
   assert.equal(kind("hash").notice, "The code shows hashed no-go arrows as crossed ones.");
-  assert.ok(kind("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[{\\shortstack{down\\\\low}}][{up}]}[180,1.2]"), "an arrow pointing left swaps its labels");
-  assert.ok(kind("reaction", [1.5, 0], [6.5, 0]).compact.includes("}[0,3]"), "a long arrow is longer");
+  assert.ok(kind("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[180,1.6]"), "an arrow pointing left keeps its labels");
+  assert.ok(kind("reaction", [2.5, 1], [2.5, -1]).compact.includes("\\arrow{->[{\\shortstack{down\\\\low}}][{up}]}[-90,1.6]"), "an arrow pointing down swaps its labels");
+  assert.ok(kind("reaction", [2.5, -1], [2.5, 1]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[90,1.6]"), "an arrow pointing up keeps its labels");
+  assert.ok(kind("reaction", [2.6, -1], [2.4, 1]).compact.includes("\\arrow{->[{\\shortstack{down\\\\low}}][{up}]}[96,1.6]"), "an arrow up and leaning left swaps its labels");
+  assert.ok(kind("reaction", [2.6, 1], [2.4, -1]).compact.includes("\\arrow{->[{up}][{\\shortstack{down\\\\low}}]}[-96,1.6]"), "an arrow down and leaning left keeps its labels");
+  assert.ok(kind("reaction", [1.5, 0], [6.5, 0]).compact.includes("}[0,3.4]"), "a long arrow is longer");
+  // An unbalanced equilibrium: chemfig's arrow with the short back half, or the short forward half.
+  assert.ok(check("ratio 2", { ...two, captions: [], arrows: [{ id: 9, kind: "equilibrium", ratio: 2, from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] }).compact.includes("\\arrow{<->>}[0,1.6]"));
+  const back = check("ratio 0.5", { ...two, captions: [], arrows: [{ id: 9, kind: "equilibrium", ratio: 0.5, from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] });
+  assert.ok(back.compact.includes("\\arrow{<<->}[0,1.6]"));
+  assert.equal(back.notice, "", "an unbalanced equilibrium is in the code as it is");
+  // < > and | in text are \textless, \textgreater and \textbar (OT1 sets the bare characters as ¡ ¿ and a dash).
+  const lt = check("less than", { ...two, captions: [{ id: 5, text: "pH < 7 | > 95%", x: 2.5, y: 0.5 }], arrows: [{ id: 9, kind: "reaction", from: [1.5, 0], to: [3.5, 0] }] } as Mol, 0.02, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map() }] });
+  assert.ok(lt.compact.includes("\\arrow{->[{pH \\textless{} 7 \\textbar{} \\textgreater{} 95\\%}]}"), lt.compact);
   // Names under structures (\chemname*): a name and a bold number under one; a salt with one name is one \chemfig;
   // hostile text is escaped and stays text.
   const named: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("Na", 3, 0, { charge: 1 }), A("Cl", 4, 0, { charge: -1 })], bonds: [B(0, 1)],

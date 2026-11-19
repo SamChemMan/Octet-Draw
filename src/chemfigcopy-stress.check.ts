@@ -494,18 +494,19 @@ function steps(n: number) {
 }
 await kase("ST21", "J20 a two-step scheme with text above and a structure below: \\schemestart, \\+, \\arrow with both labels, valid in both layouts, nothing named", () => {
   const { m, schemes } = steps(2), r = strict("two steps", m, { schemes });
-  assert.match(r.compact, /^\\schemestart\\chemfig\{-\[:0\]\}\\arrow\{->\[\{step 1\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.2\]\\chemfig\{-\[:30\]-\[:-30\]\}\\arrow\{<=>\[\{step 2\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.2\]\\chemfig\{-\[:30\]-\[:-30\]\}\\schemestop$/);
+  assert.match(r.compact, /^\\schemestart\\chemfig\{-\[:0\]\}\\arrow\{->\[\{step 1\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.6\]\\chemfig\{-\[:30\]-\[:-30\]\}\\arrow\{<=>\[\{step 2\}\]\[\{\\chemfig\{-\[:0,,,1\]OH\}\}\]\}\[0,1\.6\]\\chemfig\{-\[:30\]-\[:-30\]\}\\schemestop$/);
   assert.equal(r.notice, "");
   assert.ok(r.code.startsWith("\\schemestart%\n\t\\chemfig{\n\t\t-[:0]\n\t}%\n\t\\arrow{") && r.code.endsWith("%\n\\schemestop"), "readable: a piece a line, each ended by %");
 });
-await kase("ST22", "J21 every straight arrow kind in a scheme; a leftward arrow swaps its labels; the kinds chemfig lacks named", () => {
+await kase("ST22", "J21 every straight arrow kind in a scheme; a downward arrow swaps its labels; the kinds chemfig lacks named", () => {
   const m: Mol = { atoms: [A("C", 0, 0), A("C", 1, 0), A("C", 4, 0), A("C", 5, 0)], bonds: [B(0, 1), B(2, 3)], captions: [{ id: 5, text: "a", x: 2.5, y: 0.5 }] };
   const one = (kind: string, from: P = [1.5, 0], to: P = [3.5, 0]) => strict(kind, { ...m, arrows: [{ id: 9, kind: kind as never, from, to }] }, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map([[9, [{ caption: 5 }]]]), below: new Map() }] });
   const kinds: Record<string, string> = { reaction: "->", equilibrium: "<=>", resonance: "<->", nogo: "-/>", hash: "-/>", retro: "->", dipole: "->", block: "->" };
   for (const [k, type] of Object.entries(kinds)) assert.ok(one(k).compact.includes(`\\arrow{${type}[{a}]}`), k);
   assert.equal(one("dipole").notice, "The code shows dipole arrows as plain arrows.");
-  assert.ok(one("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[][{a}]}[180,1.2]"), "leftward: above goes second");
-  assert.ok(one("reaction", [2.5, 1], [2.5, -1]).compact.includes("\\arrow{->[{a}]}[-90,1.2]"), "downward: above stays first");
+  assert.ok(one("reaction", [3.5, 0], [1.5, 0]).compact.includes("\\arrow{->[{a}]}[180,1.6]"), "leftward: above stays first (TikZ keeps the label upright, above the arrow)");
+  assert.ok(one("reaction", [2.5, 1], [2.5, -1]).compact.includes("\\arrow{->[][{a}]}[-90,1.6]"), "downward: above goes second (chemfig's first label is on the page's right)");
+  assert.ok(one("reaction", [2.5, -1], [2.5, 1]).compact.includes("\\arrow{->[{a}]}[90,1.6]"), "upward: above stays first");
 });
 await kase("ST23", "J22 hostile text in names and conditions (%, #, $, \\input, braces, control characters, 中): escaped or left out and named; valid at TeX's level", () => {
   const evil = "50% #1 $x$ \\input{/etc/passwd} } { ^_~ &\u0007中\nline two";
@@ -553,7 +554,7 @@ await kase("ST26", "J25 names: a name and a number under one structure, two name
   assert.equal(r.compact, "\\chemname*{\\chemfig{-[:0]}}{ethane\\\\\\textbf{1}}\\qquad\\chemname*{\\chemfig{Na^{+}(-[:0,1,,,draw=none]Cl^{-})}}{salt}\\qquad\\chemfig{-[:0]}");
   assert.equal(r.notice, "");
   const s = strict("named in a scheme", { ...m, arrows: [{ id: 9, kind: "reaction", from: [1.5, 0], to: [2.5, 0] }] }, { schemes: [{ row: [{ atoms: [0, 1] }, { arrow: 9 }, { atoms: [2, 3] }], above: new Map(), below: new Map() }] });
-  assert.match(s.compact, /^\\schemestart\\chemname\*\{\\chemfig\{-\[:0\]\}\}\{ethane\\\\\\textbf\{1\}\}\\arrow\{->\}\[0,0\.6\]\\chemname\*\{\\chemfig\{Na\^\{\+\}\(-\[:0,1,,,draw=none\]Cl\^\{-\}\)\}\}\{salt\}\\schemestop\\par\\chemfig\{-\[:0\]\}$/);
+  assert.match(s.compact, /^\\schemestart\\chemname\*\{\\chemfig\{-\[:0\]\}\}\{ethane\\\\\\textbf\{1\}\}\\arrow\{->\}\[0\]\\chemname\*\{\\chemfig\{Na\^\{\+\}\(-\[:0,1,,,draw=none\]Cl\^\{-\}\)\}\}\{salt\}\\schemestop\\par\\chemfig\{-\[:0\]\}$/);
 });
 await kase("ST27", "J26 atom numbers in the gaps the page uses, on a chain and a ring; map numbers where the page draws them, on a label and a skeletal carbon", () => {
   const ring = { atoms: hex.map((a, k) => ({ ...a, number: String(k + 1) })), bonds: kekule };
