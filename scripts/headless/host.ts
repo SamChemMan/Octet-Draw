@@ -26,9 +26,7 @@ import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
-import { refusal } from "../../src/notice.ts";
-import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles } from "../../src/names.ts";
-import { checkedName, setComplexNamer, setNamer } from "../../src/naming.ts";
+import { refusal } from "../../src/notice.ts";import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles, setPseudoReader } from "../../src/names.ts";import { checkedName, namerName, setCageCheck, setComplexNamer, setNamer } from "../../src/naming.ts";import { pseudoReader } from "../../src/pseudo.ts";
 import { onTop } from "../../src/order.ts";
 import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
@@ -41,6 +39,8 @@ import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
+setPseudoReader(pseudoReader({ mol: (s) => parseStructure(s, false), inchi: toInchi, cip: cipOf, name: namerName }));
+setCageCheck(toInchiAux);
 
 // Indigo, then OPSIN (its data pack read as names.ts reads it), Octet's name index, drug names and abbreviations, and
 // the names dictionary. Once for each process (or worker).

@@ -438,15 +438,18 @@ await chem.ready;
 const opsin = await loadOpsin();
 const json = (file: string) => JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"));
 const { DRUGS } = await import("./drugs.ts");
-const { abbreviationOf, attachOpsin, knownName, nameToAtoms, nameToSmiles } = await import("./names.ts");
+const { abbreviationOf, attachOpsin, knownName, nameToAtoms, nameToSmiles, setPseudoReader } = await import("./names.ts");
 attachOpsin(opsin, readFileSync(new URL("names.txt", opsinDir), "utf8"), json("./nameindex.json"), DRUGS, json("./abbreviations.json"));
-const { checkedName, setComplexNamer, setNamer, withAbbreviation, withoutRingEZ } = await import("./naming.ts");
+const { checkedName, namerName, setCageCheck, setComplexNamer, setNamer, withAbbreviation, withoutRingEZ } = await import("./naming.ts");
+const { pseudoReader } = await import("./pseudo.ts");
 const { iupacName } = await import("./namer.ts");
 const { complexName } = await import("./complexes.ts");
 const { sandwichIons } = await import("./metals.ts");
 const { messy } = await import("./check.ts");
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: chem.toInchi, aux: chem.toInchiAux, cip: chem.cipOf }));
+setPseudoReader(pseudoReader({ mol: (s) => chem.parseStructure(s, false), inchi: chem.toInchi, cip: chem.cipOf, name: namerName }));
+setCageCheck(chem.toInchiAux);
 // As the editor takes them (Editor.tsx nameFor): a name's structure drawn as Octet draws SMILES, and a metallocene
 // drawn with π ligands named as its ions.
 const inchiOf = (s: Mol | string) => { try { return chem.toInchi(typeof s === "string" ? chem.parseStructure(s) : s); } catch { return undefined; } };
@@ -521,13 +524,16 @@ for (const t of molecular.filter((x) => !CAGES.has(x.name))) {
 console.log(`templates: ${stereo} templates with stereocentres or E/Z bonds are their compounds, by CIP label and InChI ok`);
 
 // Names: Structure to Name as the editor runs it. Each name is read back to the template's own structure, and the
-// templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; r and s centres;
-// a cage; a base pair, two molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake). The drawn sets
-// have no structure. The calixarenes, pillar[5]arene and [2.2]paracyclophane take von Baeyer names with compound
-// locants: pentacyclo[19.3.1.1³,⁷.1⁹,¹³.1¹⁵,¹⁹]octacosa-1(25),3,5,7(28),…-dodecaene.
-const UNNAMED = new Set(["cis-Decalin", "trans-Decalin", "Cubane", "IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
+// templates no name is given to are these (an R group, M or L; a carbene; a metal the namer leaves; a base pair, two
+// molecules held by hydrogen bonds; a fullerene, nanotube or graphene flake). The drawn sets have no structure. The
+// calixarenes, pillar[5]arene and [2.2]paracyclophane take von Baeyer names with compound locants:
+// pentacyclo[19.3.1.1³,⁷.1⁹,¹³.1¹⁵,¹⁹]octacosa-1(25),3,5,7(28),…-dodecaene. The decalins cite r and s, read back by
+// Octet's reader (pseudo.ts), and the Cubane template, drawn in 3D, is a cage whose bridgeheads its name need not cite.
+const UNNAMED = new Set(["IMes", "IPr", "Cp2TiCl2", "Cp2ZrCl2", "CpMn(CO)3",
   "Rh2(O2CR)4", "Rh2(O2CR)4L2", "Mo2(OAc)4", "A·T base pair", "G·C base pair", "A·U base pair",
-  ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))]);
+  ...LIBRARY.filter((c) => ["Functional groups", "Cp and arene rings", "Side chains", "Peptides", "Polyhedra", "Carbon"].includes(c.name)).flatMap((c) => c.items.map((t) => t.name))
+    // Polyhedra of carbon atoms drawn in 3D that are cages of one stereoisomer: named as their hydrocarbons.
+    .filter((n) => !["Trigonal bipyramid", "Square pyramid", "Cube", "Tetrahedrane"].includes(n))]);
 let named = 0;
 for (const t of molecular) {
   const name = nameFor(t.mol);
@@ -539,8 +545,13 @@ for (const t of molecular) {
   named++;
   // A coordination compound's name with κ or η, which OPSIN does not read, was checked in parts (complexes.ts).
   if (!smiles && /[κη]/.test(name!)) continue;
-  assert.equal(withoutRingEZ(inchiOf(smiles!)), withoutRingEZ(inchiOf(p)), `${t.name}: "${name}" is its structure`);
+  // A cage drawn in 3D (Cubane, the Cube) has its bridgeheads' configurations from its atoms' places; its name cites
+  // none for them (checkedName compares the rest of its stereo).
+  const key = (i: string | undefined) => (t.mol.atoms.some((a) => a.location[2]) ? i?.split("/").filter((l, k) => k < 2 || !/^[tms]/.test(l)).join("/") : withoutRingEZ(i));
+  assert.equal(key(inchiOf(smiles!)), key(inchiOf(p)), `${t.name}: "${name}" is its structure`);
 }
+for (const [name, want] of [["cis-Decalin", "(4as,8as)-decahydronaphthalene"], ["trans-Decalin", "(4ar,8ar)-decahydronaphthalene"], ["Cubane", "cubane"], ["Cube", "cubane"], ["Tetrahedrane", "tricyclo[1.1.0.0²,⁴]butane"]])
+  assert.equal(nameFor(libraryItem(`lib:${name}`)!.mol), want, name);
 for (const [name, want] of [["Ferrocene", "ferrocene"], ["Decamethylferrocene", "1,1',2,2',3,3',4,4',5,5'-decamethylferrocene"], ["Rh2(OAc)4", "tetrakis(μ-acetato-κO:κO')dirhodium(Rh—Rh)"],
   ["Newman projection, gauche", "butane"], ["Cyclohexane chair", "cyclohexane"], ["β-D-Glucopyranose (chair)", "(2R,3R,4S,5S,6R)-6-(hydroxymethyl)oxane-2,3,4,5-tetraol"],
   ["D-Glucose (Fischer)", "(2R,3S,4R,5R)-2,3,4,5,6-pentahydroxyhexanal"], ["dppf", "[1'-(diphenylphosphanyl)ferrocenyl](diphenyl)phosphane (dppf)"]])

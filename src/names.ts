@@ -6,6 +6,8 @@ import { COMMON, commonKey } from "./common.ts";
 import { beforeOpsinSmiles, casNumber, completeName, dictionarySmiles, dictionaryStarting, loadDictionary, nameList, nearNames } from "./dictionary.ts";
 // endo, exo, syn and anti on a bicycle, which OPSIN does not read (endoexo.ts).
 import { endoExoSmiles } from "./endoexo.ts";
+// r and s, which OPSIN does not read (pseudo.ts).
+import { citesPseudo } from "./pseudo.ts";
 // Peptides typed as one-letter codes after "peptide:" (peptide.ts).
 import { PEPTIDE, peptideText } from "./peptide.ts";
 // RNA and DNA typed as one-letter codes after "rna:" or "dna:" (nucleic.ts).
@@ -220,7 +222,26 @@ function one(s: string): string | undefined {
   const known = common.get(commonKey(s));
   if (known) return known.startsWith("smiles:") ? known.slice(7) : read(known);
   const tidied = tidy(s);
-  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read) ?? familySmiles(s);
+  // A name with r or s goes to Octet's reader before OPSIN, which reads no r or s on a pseudoasymmetric centre. A name
+  // the reader does not read goes on as before: OPSIN reads a lower-case descriptor on an ordinary centre as upper case
+  // ((2s)-butan-2-ol, (2rs)-, names in the dictionary written in lower case), and fails on a pseudoasymmetric one.
+  return hoopSmiles(s) ?? beforeOpsinSmiles(s) ?? (citesPseudo(s) ? pseudoRead(s) : undefined) ?? read(s) ?? (tidied !== s ? read(tidied) : undefined) ?? endoExoSmiles(s, nameToAtoms, read) ?? dictionarySmiles(s, read) ?? familySmiles(s);
+}
+
+// The reader of names with r and s (pseudo.ts), once Editor.tsx has given it Indigo and the namer. It is given OPSIN.
+// The last 16 readings are kept by name, so the name field's reads as the user types cost nothing again.
+let pseudo: ((name: string, read: (name: string) => string | undefined) => string | undefined) | undefined;
+const readings = new Map<string, string | undefined>();
+export const setPseudoReader = (r: typeof pseudo) => { pseudo = r; readings.clear(); };
+function pseudoRead(s: string): string | undefined {
+  if (!pseudo) return undefined;
+  if (readings.has(s)) { const v = readings.get(s); readings.delete(s); readings.set(s, v); return v; }
+  let v: string | undefined;
+  // A reading that fails (Indigo not ready yet) is not kept.
+  try { v = pseudo(s, (n) => read(n) ?? (tidy(n) !== n ? read(tidy(n)) : undefined)); } catch { return undefined; }
+  readings.set(s, v);
+  if (readings.size > 16) readings.delete(readings.keys().next().value!);
+  return v;
 }
 
 // [n]cycloparaphenylene: n benzene rings joined para in one ring, C(6n)H(4n). OPSIN does not read it, and the

@@ -31,9 +31,14 @@ export function graphOf(m: Mol, cip?: Cip, isotopes = false): Graph | undefined 
 // The namer, once it is loaded.
 let namer: ((g: Graph) => string | undefined) | undefined;
 export const setNamer = (n: typeof namer) => { namer = n; };
+// The namer's name for a structure with these labels, unchecked: for the reader of r and s (pseudo.ts).
+export const namerName = (m: Mol, cip: Cip): string | undefined => { const g = namer && graphOf(m, cip, true); return g ? namer!(g) : undefined; };
 // Names for coordination compounds (complexes.ts), with κ that OPSIN does not read: checked there in parts instead.
 let complexNamer: ((expanded: Mol) => string | undefined) | undefined;
 export const setComplexNamer = (n: typeof complexNamer) => { complexNamer = n; };
+// Standard InChI with its AuxInfo (chem.ts toInchiAux), for the cages below. Without it, no cage is named that way.
+let inchiAux: ((expanded: Mol) => string | undefined) | undefined;
+export const setCageCheck = (aux: typeof inchiAux) => { inchiAux = aux; };
 
 // A checked name for a structure: the namer's name, if OPSIN's reading of it has the same InChI as the drawing. Else
 // a name from Octet's own tables (known), checked the same way. Else a coordination compound's name (complexNamer).
@@ -41,6 +46,8 @@ export const setComplexNamer = (n: typeof complexNamer) => { complexNamer = n; }
 // own bonds are the ones its name implies (21H,23H-porphyrin cites none): they are left out of the namer's graph and of
 // both InChIs. Drawn any other way, they count as every E and Z does: the name must cite them, as an N-confused
 // porphyrin's von Baeyer name does.
+// A cage drawn in 3D (lockedAtoms) has its locked bridgeheads' configurations in its InChI, from the atoms' places,
+// and a name cites none for them: there they are left out of the comparison.
 export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => string | undefined, inchi: (s: Mol | string) => string | undefined, cip?: (m: Mol) => Cip | undefined, known?: (inchi: string) => string | undefined): string | undefined {
   const raw = inchi(drawn);
   if (!raw) return undefined;
@@ -48,11 +55,85 @@ export function checkedName(drawn: Mol, expanded: Mol, read: (name: string) => s
   let labels = cip?.(expanded);
   if (inward && labels) labels = { atoms: labels.atoms, bonds: labels.bonds.map((c, k) => (ring!.bonds.has(k) ? undefined : c)) };
   const g = namer && graphOf(expanded, labels, true);
-  const reads = (name: string | undefined) => { const smiles = name && read(name); return !!smiles && key(inchi(smiles)) === want; };
+  // A cage drawn in 3D: worked out once, when a name's InChI differs.
+  let cage: Set<string> | undefined | null = stereoLayers(raw)?.t && inchiAux ? null : undefined;
+  const caged = (got: string) => { if (cage === null) cage = lockedAtoms(expanded, inchiAux!, labels); return !!cage && !inward && sameCage(raw, got, cage); };
+  const reads = (name: string | undefined) => { const smiles = name && read(name), got = smiles && key(inchi(smiles)); return !!got && (got === want || caged(got)); };
   const name = g && namer!(g);
   if (name && reads(name)) return name;
   const other = known?.(raw);
   return other && reads(other) ? other : complexNamer?.(expanded);
+}
+
+// ——— Cages drawn in 3D: cubane, adamantane ———
+// A cage drawn with depth has its bridgeheads' configurations in its InChI (/t), from the atoms' places, where its name
+// cites none: the cage can be made only one way. The name's InChI then leaves them open (? or no /t at all). Such a
+// bridgehead is drawn with depth and locked by short bridges: with some other atom, it is joined by three paths that
+// share no atom, each through 1 to 3 atoms, or by a bond and two paths each through 1 or 2 atoms (bicyclo[x.y.z] with
+// x, y, z from 1 to 3; bicyclo[x.y.0] with x and y 1 or 2). It has no CIP label (a label the name would cite), and the
+// bonds of its bridges are drawn 0.6 to 1.6 times the median bond (none stretched, as a flat drawing turned in 3D
+// would have). The InChI numbers of such atoms, or undefined.
+type Layers = { t?: string; m?: string; b?: string; i?: string };
+function stereoLayers(inchi: string | undefined): Layers | undefined {
+  if (!inchi || inchi.length > 20000) return undefined;
+  const out: Layers = {};
+  for (const l of inchi.split("/").slice(2)) { const k = l[0] as keyof Layers; if ("tmbi".includes(k) && out[k] === undefined) out[k] = l.slice(1); }
+  return out;
+}
+const withoutStereo = (inchi: string) => inchi.split("/").filter((l, k) => k < 2 || !/^[tms]/.test(l)).join("/");
+const signs = (t: string | undefined) => new Map((t ? t.split(",") : []).map((x) => [x.slice(0, -1), x.slice(-1)]));
+export function lockedAtoms(m: Mol, aux: (m: Mol) => string | undefined, labels?: Cip): Set<string> | undefined {
+  if (m.atoms.length > 200 || m.atoms.some((a) => a.text) || !m.atoms.some((a) => a.location[2])) return undefined;
+  const [line, info] = (aux(m) ?? "").split("\n"), layers = stereoLayers(line);
+  const order = /\/N:([\d,]+)(?:\/|$)/.exec(info ?? "")?.[1].split(",").map((x) => Number(x) - 1);
+  if (!layers?.t || !order || line.split("/")[1]?.includes(".")) return undefined;
+  const adj: number[][] = m.atoms.map(() => []);
+  for (const b of m.bonds) { adj[b.atoms[0]].push(b.atoms[1]); adj[b.atoms[1]].push(b.atoms[0]); }
+  const at = (i: number) => m.atoms[i].location, len = (i: number, j: number) => Math.hypot(at(i)[0] - at(j)[0], at(i)[1] - at(j)[1], (at(i)[2] ?? 0) - (at(j)[2] ?? 0));
+  const lengths = m.bonds.map((b) => len(b.atoms[0], b.atoms[1])).sort((x, y) => x - y), median = lengths[lengths.length >> 1];
+  if (!median) return undefined;
+  const fair = (i: number, j: number) => len(i, j) >= 0.6 * median && len(i, j) <= 1.6 * median;
+  const out = new Set<string>();
+  for (const n of signs(layers.t).keys()) {
+    const a = order[Number(n) - 1];
+    if (a === undefined || !adj[a] || adj[a].length < 3 || labels?.atoms[a] || !adj[a].some((j) => Math.abs((at(j)[2] ?? 0) - (at(a)[2] ?? 0)) >= 0.2 * median)) continue;
+    // Every path from a through at most 3 atoms, by the atom it ends on.
+    const ways = new Map<number, number[][]>();
+    const walk = (path: number[]) => {
+      for (const w of adj[path[path.length - 1]]) {
+        if (path.includes(w)) continue;
+        ways.set(w, [...(ways.get(w) ?? []), path.slice(1)]);
+        if (path.length < 4) walk([...path, w]);
+      }
+    };
+    walk([a]);
+    const apart = (ps: number[][]) => ps.every((p, k) => ps.slice(k + 1).every((q) => !p.some((x) => q.includes(x))));
+    const fairPath = (b: number, p: number[]) => [a, ...p, b].every((x, k, all) => !k || fair(all[k - 1], x));
+    const locked = [...ways].some(([b, ps]) => {
+      const inner = ps.filter((p) => p.length >= 1 && fairPath(b, p)), direct = ps.some((p) => p.length === 0) && fair(a, b);
+      for (let x = 0; x < inner.length; x++) for (let y = x + 1; y < inner.length; y++) {
+        if (!apart([inner[x], inner[y]])) continue;
+        if (direct && inner[x].length <= 2 && inner[y].length <= 2) return true;
+        for (let z = y + 1; z < inner.length; z++) if (apart([inner[x], inner[y], inner[z]])) return true;
+      }
+      return false;
+    });
+    if (locked) out.add(n);
+  }
+  return out.size ? out : undefined;
+}
+// Whether two standard InChIs of one constitution (drawn, and a name's) are one structure when the drawing's locked
+// bridgeheads (lockedAtoms's InChI numbers) are left open in the name's: every other layer the same, every other /t
+// atom the same, and the same /m. With no /m (neither is chiral) a structure is its own mirror image, and InChI may
+// give it with every sign turned: so may the name's.
+function sameCage(drawn: string, named: string, locked: Set<string>): boolean {
+  const d = stereoLayers(drawn), r = stereoLayers(named);
+  if (!d?.t || !r || d.i !== undefined || r.i !== undefined || d.m !== r.m || withoutStereo(drawn) !== withoutStereo(named)) return false;
+  const ds = signs(d.t), rs = signs(r.t), turn = { "+": "-", "-": "+" } as Record<string, string>;
+  return [false, ...(d.m === undefined ? [true] : [])].some((turned) => {
+    const sign = (n: string) => { const x = rs.get(n) ?? "?"; return turned ? (turn[x] ?? x) : x; };
+    return [...rs.keys()].every((n) => sign(n) === "?" || ds.get(n) === sign(n)) && [...ds].every(([n, x]) => sign(n) === x || (sign(n) === "?" && locked.has(n)));
+  });
 }
 
 // ——— Fused macrocycles: porphyrin, phthalocyanine, corrole ———

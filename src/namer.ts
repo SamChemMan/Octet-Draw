@@ -1412,6 +1412,14 @@ class Namer {
     const alpha = [...new Set(counted.map((x) => x.name.text))].sort((a, b) => alphaKey(a).localeCompare(alphaKey(b)));
     for (const t of alpha) nums = this.lowest(nums, (num) => counted.filter((x) => x.name.text === t).map((x) => loc(num, x.atom)));
     if (opts.tiebreak) nums = opts.tiebreak(nums);
+    // Then the stereodescriptors (P-31.1.4.3.4): lower locants to Z before E, then R before S, then r before s. A double
+    // bond counts at its lower locant, or at the parent atom for one to a prefix: (2R,4S)-pentane-2,4-diol,
+    // (2R,3r,4S)-pentane-1,2,3,4,5-pentol, (1R,3r,5S)-8-azabicyclo[3.2.1]octan-3-ol.
+    if (nums.length > 1) {
+      const zs = (num: number[]) => atoms.flatMap((a) => this.adj[a].filter((b) => this.cipBond.get(this.key(a, b)) === "Z" && (!inParent.has(b) || loc(num, a) < loc(num, b))).map(() => loc(num, a)));
+      nums = this.lowest(nums, zs);
+      for (const x of ["R", "r"]) nums = this.lowest(nums, (num) => atoms.filter((a) => this.cip[a] === x).map((a) => loc(num, a)));
+    }
     const num = nums[0];
 
     // Assemble (P-14, P-16): prefixes in alphabetical order, then the parent, unsaturation and suffix.
@@ -1445,7 +1453,7 @@ class Namer {
     // diphenylethenone; or one prefix and one kind of place on a chain acid, nitrile and the like (P-14.3.4.3):
     // chlorobutanedioic acid, but 2-methylpropanediamide and 1-ethyl 4-methyl 2-hydroxybutanedioate. A stereo
     // descriptor tells those places apart: (2S)-2-aminobutanedioic acid.
-    const stereoOn = atoms.some((a) => this.cip[a] === "R" || this.cip[a] === "S" || this.adj[a].some((b) => /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")));
+    const stereoOn = atoms.some((a) => /^[RSrs]$/.test(this.cip[a] ?? "") || this.adj[a].some((b) => /^[EZ]$/.test(this.cipBond.get(this.key(a, b)) ?? "")));
     const compound = plain && !nH && cPrefixes.length > 0 && ((places.length === 1 && (size === 2 || !multiple(num).length)) ||
       (cPrefixes.length === 1 && !p.ring && !stereoOn && ["acid", "nitrile", "aldehyde", "halide", "carboxylate"].includes(kind!) && places.every((a) => orbit(bySites, cPrefixes[0].atom).has(a))));
     // One prefix in every place (P-14.3.4.5): hexachlorobenzene, pentafluoropropanoic acid, tetrafluoroethene.
@@ -1516,10 +1524,11 @@ class Namer {
     // but 2-[(4-bromophenyl)methyl]pyridine.
     const benzyl = !!opts.attach && /^phenylmethyl(idene|idyne)?$/.test(text);
     if (benzyl) text = text.replace("phenylmethyl", "benzyl");
-    // Stereodescriptors (P-91, P-93): R and S on the parent's atoms, E and Z on its double bonds, in locant order,
+    // Stereodescriptors (P-91, P-93): R, S, r and s on the parent's atoms, E and Z on its double bonds, in locant order,
     // in front of everything they belong to.
     const stereo: { at: number; text: string }[] = [];
-    for (const a of atoms) if (this.cip[a] === "R" || this.cip[a] === "S") stereo.push({ at: loc(num, a), text: `${label(num, a)}${this.cip[a]}` });
+    // r and s (pseudoasymmetric centres) are cited with them, in locant order: (2R,3r,4S), (1r,4r), (4ar,8ar).
+    for (const a of atoms) if (/^[RSrs]$/.test(this.cip[a] ?? "")) stereo.push({ at: loc(num, a), text: `${label(num, a)}${this.cip[a]}` });
     // E and Z on an imine's C=N, at the carbon's locant: (1E)-N-hydroxyethanimine.
     if (kind === "imine") for (const st of sites) { const c = this.cipBond.get(this.key(st.atom, this.imineN(st.atom)!)); if (c === "E" || c === "Z") stereo.push({ at: loc(num, st.atom), text: `${label(num, st.atom)}${c}` }); }
     // Likewise on the C=N of an amidine, imidic acid, imidate or imidoyl halide that ends a chain: (1Z)-N'-hydroxyethanimidamide.
@@ -2021,8 +2030,8 @@ class Namer {
         text += ` ${MULT[xs.length]}${word(xs[0])}`;
       }
     }
-    // Every stereo label must be cited (P-91): a name that drops one would be wrong, and labels other than R, S, E
-    // and Z are not covered.
+    // Every stereo label must be cited (P-91): a name that drops one would be wrong, and labels other than R, S, r, s,
+    // E and Z are not covered.
     // Several azaniumyl groups are bis(azaniumyl): OPSIN reads diazaniumyl as a diazane.
     text = text?.replace(/\b(di|tri|tetra)azaniumyl/g, (_, m: string) => `${MULT_COMPLEX[MULT.indexOf(m)]}(azaniumyl)`);
     const cited = citedLabels(text ?? "");
@@ -2360,7 +2369,7 @@ function citedLabels(text: string): number {
     if (ch !== "(" && ch !== "[" && ch !== "{") continue;
     const m = text.slice(0, i).match(/(bis|tris|tetrakis|pentakis|hexakis|heptakis|octakis)$/), here = times[times.length - 1];
     const d = ch === "(" ? text.slice(i).match(/^\(([^()]*)\)-/) : null;
-    if (d) n += here * d[1].split(",").filter((t) => /^(\d+[a-z]?'*)?[RSEZ]$/.test(t)).length;
+    if (d) n += here * d[1].split(",").filter((t) => /^(\d+[a-z]?'*)?[RSEZrs]$/.test(t)).length;
     times.push(here * (m ? MULT_COMPLEX.indexOf(m[1]) : 1));
   }
   return n;
@@ -2372,7 +2381,7 @@ function alphaKey(t: string): string {
   // and a fusion name's leading locants too: [1,2,4]triazolo[4,3-a]pyridin-3-yl is under t.
   // Isotope descriptors do not count either (P-82): [(²H₃)methyl] is under m.
   let k = t.replace(/\([^()]*\)/g, (d) => (NUCLIDE.test(d) ? "" : d)).replace(/^[([{]*\[[\d',]+\](?=[a-z])/, "").replace(/[()[\]{}]/g, "");
-  for (const lead = /^(tert|sec|N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZH]?|[RSEZ])(,(N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZH]?|[RSEZ]))*-/; lead.test(k); ) k = k.replace(lead, "");
+  for (const lead = /^(tert|sec|N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZHrs]?|[RSEZ])(,(N\d*'*|\d+[a-z]?'*(λ[¹²³⁴⁵⁶])?[RSEZHrs]?|[RSEZ]))*-/; lead.test(k); ) k = k.replace(lead, "");
   return k;
 }
 // Substituents on a parent without locants (amino, phosphane): phenyl, diphenyl, methyl(diphenyl), in alphabetical order.

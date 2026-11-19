@@ -8,8 +8,8 @@ import { homedir } from "node:os";
 import { browser, loadOpsin, needOpsin, norender, opsinDir } from "./checkkit.ts";
 import { COMMON } from "../src/common.ts";
 import { DRUGS } from "../src/drugs.ts";
-import { graphOf } from "../src/naming.ts";
-import { iupacNameWhy } from "../src/namer.ts";
+import { graphOf, namerName, setNamer } from "../src/naming.ts";
+import { iupacName, iupacNameWhy } from "../src/namer.ts";
 import type { Mol } from "../src/render.ts";
 
 needOpsin("namer.check: skipped (no OPSIN build)");
@@ -141,6 +141,9 @@ const complexOf = (smiles: string): string | undefined => {
     return complexName(m, opsinApi);
   } catch { return undefined; }
 };
+const { citesPseudo, pseudoSmiles } = await import("../src/pseudo.ts");
+setNamer(iupacName);
+const pseudoApi = { mol: (s: string) => chem.parseStructure(s, false), inchi: chem.toInchi, cip: chem.cipOf, name: namerName };
 let tried = 0, named = 0;
 for (const input of inputs) {
   let smiles: string | null = null;
@@ -159,6 +162,8 @@ for (const input of inputs) {
   }
   let back: string | null = null;
   try { back = opsin.parseToSmiles(r.name); } catch { back = null; }
+  // A name with r or s is read back by Octet's reader (pseudo.ts), as the app reads it.
+  if (!back && citesPseudo(r.name)) { try { back = pseudoSmiles(r.name, (n) => opsin.parseToSmiles(n) ?? undefined, pseudoApi) ?? null; } catch { back = null; } }
   if (back && convert(back, "inchi") === convert(smiles, "inchi")) { named++; right.push(input); }
   else if (hydrogensOf(smiles) !== g.atoms.reduce((t, a) => t + a.h + (a.el === "H" ? 1 : 0), 0)) { otherH.push(`${input} -> ${r.name}`); tried--; }
   // A name OPSIN cannot parse is not shown in the app (naming.ts checkedName), so it is not a wrong name. It is

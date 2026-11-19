@@ -97,7 +97,8 @@ run("von Baeyer", [
   "adamantene = tricyclo[3.3.1.1³,⁷]dec-1-ene", "tricyclo[4.2.2.2^{2,5}]dodecane = tricyclo[4.2.2.2²,⁵]dodecane",
   "11-chlorotricyclo[4.2.2.2^{2,5}]dodecane = 3-chlorotricyclo[4.2.2.2²,⁵]dodecane", "tricyclo[2.2.1.0^{2,6}]heptane = tricyclo[2.2.1.0²,⁶]heptane",
   "pentacyclo[4.3.0.0^{2,5}.0^{3,8}.0^{4,7}]nonane = pentacyclo[4.3.0.0²,⁵.0³,⁸.0⁴,⁷]nonane",
-  "smiles:CN1[C@@H]2CC(C[C@H]1[C@H]1[C@@H]2O1)OC(=O)[C@H](CO)c1ccccc1 = (1S,2S,4R,5R)-9-methyl-3-oxa-9-azatricyclo[3.3.1.0²,⁴]nonan-7-yl (2S)-3-hydroxy-2-phenylpropanoate",
+  // Numbered by its stereodescriptors after every other rule: lower locants to R (P-31.1.4.3.4), as PubChem names it.
+  "smiles:CN1[C@@H]2CC(C[C@H]1[C@H]1[C@@H]2O1)OC(=O)[C@H](CO)c1ccccc1 = (1R,2R,4S,5S)-9-methyl-3-oxa-9-azatricyclo[3.3.1.0²,⁴]nonan-7-yl (2S)-3-hydroxy-2-phenylpropanoate",
   "ajmalene = (1R,9R,10S,12S,13S,16S)-13-ethyl-8-methyl-8,15-diazahexacyclo[14.2.1.0¹,⁹.0²,⁷.0¹⁰,¹⁵.0¹²,¹⁷]nonadeca-2,4,6,17-tetraene",
   // A double bond from a bridgehead takes a compound locant (P-31.1.4.2.4) where the benzene ring drawn the other way
   // round does not avoid it; galantamine has the same name drawn either way round.
