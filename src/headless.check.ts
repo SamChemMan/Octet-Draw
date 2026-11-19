@@ -189,6 +189,19 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.ok(Math.abs(b[0] - left) < 0.11 && Math.abs(b[3] - top) < 0.11, `${b}, ${[left, top]}`);
 }
 {
+  // Live values with Octet's own calculators and dictionary (issue 77): add_values with and without names, a predicted
+  // value marked, the CAS number, and run_command caption.names worked out at once.
+  d = drawing("paper", "Values");
+  assert.ok(!(await call("draw", { kind: "structures", structures: [{ text: "benzene" }] })).isError);
+  let o = await call("advanced", { tool: "add_values", args: { ids: ["s1"], rows: ["formula", "cas", "weight", "tpsa", "logp"], names: false } });
+  assert.ok(!o.isError, o.content[0].text);
+  const value = d.host.doc().captions!.at(-1)!;
+  assert.match(value.text, /^C6H6\n71-43-2\n78\.11\n0\.00 Å²\n1\.\d\d \(predicted\)$/, value.text);
+  o = await call("advanced", { tool: "run_command", args: { command: "caption.names", ids: [`t${value.id}`] } });
+  assert.ok(!o.isError, o.content[0].text);
+  assert.match(d.host.doc().captions!.at(-1)!.text, /^Formula: C6H6\nCAS number: 71-43-2\nMolecular weight: 78\.11\ntPSA: 0\.00 Å²\nlogP \(predicted\): 1\.\d\d$/);
+}
+{
   // New work starts under a reagent table too. On an experiment page with its Procedure heading and box deleted, the
   // table under the scheme is the lowest thing drawn.
   d = drawing("experiment", "A table");

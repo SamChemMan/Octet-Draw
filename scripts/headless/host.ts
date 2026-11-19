@@ -8,16 +8,17 @@
 import "./browser.ts";
 import { readFileSync } from "node:fs";
 import { loadOpsin, opsinDir } from "../checkkit.ts";
-import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, type RxnStep } from "../../src/chem.ts";
+import { analyse, analyseCompound, keptInchi, keptSmiles, smilesWeight, cipOf, cleanUp, expandLabels, mapReaction, measurer, parseStructure, ready as indigoReady, stereoFacts, STYLE, textExtent, textWidth, toInchi, toInchiAux, toInchiKey, toMolfile, toReaction, toSdf, toSmiles, toCml, chiralFlagOnly, structures, drawnInchiKey, type RxnStep, type Structure } from "../../src/chem.ts";
 import { onCaptions, problems, showWarnedHydrogens, WARNING_TYPES } from "../../src/check.ts";
 import { toBase64, xmlToCdx } from "../../src/cdx.ts";
 import { fromCdxml, parseXml, toCdxml } from "../../src/cdxml.ts";
 import { complexName } from "../../src/complexes.ts";
 import { centreText, dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle, textOn, type Cycle } from "../../src/cycle.ts";
-import { loadDictionary, nameList } from "../../src/dictionary.ts";
+import { dictionaryCas, loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
-import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
+import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
+import { calculated, liveValues, nameValues, propertyValues, withCas } from "../../src/proprows.ts";
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
 import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
@@ -276,6 +277,13 @@ export function drawing(purpose = "paper", title = "Untitled") {
     },
     "risk.update": () => { if (!riskGroup(doc)) return false; set(withSubstances(doc, riskList().map(({ inchi: _, ...x }) => x), sheet())); return true; },
     "risk.hazards": () => !!riskGroup(doc),
+    // Hide or show the picked live values' property names, their text worked out at once (as the editor's).
+    "caption.names": () => {
+      const { mol, changed } = nameValues(doc, new Set(picked.items));
+      if (!changed.size) return false;
+      set(liveValues(mol, (atoms, places) => host.values(mol, atoms, places, true), changed));
+      return true;
+    },
     "risk.remove": () => { const g = riskGroup(doc); if (!g) return false; set(deleteGraphics(doc, new Set(g.items))); return true; },
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };
@@ -296,6 +304,15 @@ export function drawing(purpose = "paper", title = "Untitled") {
     ink: (atoms) => drawn(doc).ink(atoms), textBox: (id) => drawn(doc).captionBox(id),
     labelBox: (i) => { const b = drawn(doc).drawing.label[i]; return b && toDoc(b); },
     reagent, tables, fileText,
+    // As the editor's live values: Octet's calculators, and the CAS number from Octet's dictionary.
+    values: (m, atoms, places, cas) => {
+      try {
+        const part = subset(m, new Set(atoms)), found = structures(part)?.filter((s): s is Structure => !!s);
+        if (!found?.length) return undefined;
+        const values = propertyValues(found, calculated, places), key = cas && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
+        return key ? withCas(values, [dictionaryCas(key)]) : values;
+      } catch { return undefined; }
+    },
     inchi: (m) => { try { const e = expandLabels(m); return { inchi: toInchi(e), key: toInchiKey(e) }; } catch { return {}; } },
     problems: () => {
       const chem = withCaptionAtoms(doc, style().interpret);

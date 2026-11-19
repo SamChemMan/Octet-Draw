@@ -155,7 +155,7 @@ export function octet(program = process.env.OCTET) {
 | `change` | Changes the drawing with a list of operations: `draw`, `edit`, `replace`, `number`, `delete`, `move`, `arrange`, `text`, `arrow`, `shape`, `select`, `set_style`, `place_template`, `add_file` and `fill_experiment` |
 | `read` | Reads the drawing: its structures, numbers, reactions, warnings and layout check. With `format`, it gives the drawing as a file |
 | `drawings` | Lists the open drawings (`list`), uses one (`use`), opens a new one (`new`) or closes one that the script opened (`close`). With `text`, the new drawing opens a file's text |
-| `advanced` | Gives Octet's other tools: `run_command`, `set_style`, `place_template`, `add_file`, `fill_experiment`, `draw_route` and `help`. `export` opens Octet's Export dialog, so Octet refuses it with no window: use `read` with `format` |
+| `advanced` | Gives Octet's other tools: `run_command`, `set_style`, `place_template`, `add_file`, `fill_experiment`, `add_values` (Properties > Add to drawing), `draw_route` and `help`. `export` opens Octet's Export dialog, so Octet refuses it with no window: use `read` with `format` |
 | `set_brief` | Sets the style and page: a journal and its column, a page size, or the style of a drawing |
 
 To get the arguments of a tool or an operation, call `advanced` with `help`:
