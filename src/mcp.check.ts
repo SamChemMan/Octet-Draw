@@ -191,7 +191,7 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
         for (const x of own) within(q, x, `steps.${key}`);
       }
     }
-  assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment"]);
+  assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment", "add_values"]);
   assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "add_values", "draw_route", "help"]);
   // help of draw_route gives what each scheme and step must have, and keep_orientation (true unless set false).
   const route = (await call("advanced", { tool: "help", args: { of: "draw_route" } })).structuredContent, scheme = route.arguments.properties.schemes.items;
@@ -2916,8 +2916,19 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal((await call("read", {})).structuredContent.properties.comment, `${"c".repeat(999)}…`, "cut between characters");
   o = await call("advanced", { tool: "set_style", args: { properties: { comment: "c".repeat(10_001) } } });
   assert.ok(o.isError && /properties\.comment: longer than 10000 characters/.test(text(o)), text(o));
+  // 10,000 emoji are 10,000 code points (the schema's count) and 20,000 UTF-16 units (Octet's, the files'): the refusal
+  // says how it counts.
+  o = await call("advanced", { tool: "set_style", args: { properties: { comment: "😀".repeat(10_000) } } });
+  assert.ok(o.isError && /properties\.comment: longer than 10000 characters \(an emoji counts as 2\)/.test(text(o)), text(o));
   await call("advanced", { tool: "set_style", args: { properties: { comment: "" } } });
   assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { keywords: "k1" });
+  // add_values is an op of change too, so one call draws a series and adds their values.
+  fresh();
+  steps = [];
+  o = await call("change", { operations: [{ op: "draw", kind: "structures", structures: [{ text: "ethanol" }, { text: "benzene" }] }, { op: "add_values", ids: ["$1.s"], rows: ["weight"], names: false }] });
+  assert.ok(!o.isError, text(o));
+  assert.equal(steps.length, 1);
+  assert.deepEqual(m.captions!.filter((c) => c.property).map((c) => [c.text, c.property!.attrs.rows]), [["46.07", "weight -names"], ["78.11", "weight -names"]]);
   fresh();
 }
 

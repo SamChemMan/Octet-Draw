@@ -158,7 +158,8 @@ function check(s: Schema | Prop, v: unknown, at: string): string | undefined {
   }
   if (s.type === "string") {
     if (typeof v !== "string") return `${where}: not text`;
-    if (v.length > s.maxLength) return `${where}: longer than ${s.maxLength} characters`;
+    // Counted in UTF-16 units, the files' unit, where a JSON Schema validator counts code points: say so when they differ.
+    if (v.length > s.maxLength) return `${where}: longer than ${s.maxLength} characters${/[\uD800-\uDBFF]/.test(v) ? " (an emoji counts as 2)" : ""}`;
     if (s.enum && !s.enum.includes(v)) return `${where}: not one of ${s.enum.join(", ")}`;
     return undefined;
   }
@@ -354,7 +355,7 @@ const ADVANCED = ["run_command", "set_style", "export", "place_template", "add_f
 const opName = (tool: string) => (tool === "draw_route" ? "route" : tool);
 // The advanced tools a change can run as an operation, as it can a draw, so that one call draws and then annotates.
 // Not the ones that open dialogs or run Undo.
-const ALSO_OPS = ["set_style", "place_template", "add_file", "fill_experiment"] as const;
+const ALSO_OPS = ["set_style", "place_template", "add_file", "fill_experiment", "add_values"] as const;
 // A batch (F1): a change of more than one operation, at most 40.
 const BATCHABLE = [...KINDS, ...CHANGE_OPS, ...ALSO_OPS] as const;
 const MOST_STEPS = 40;
