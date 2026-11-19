@@ -236,9 +236,12 @@ fn types(s: System, object: bool, svg: Option<&str>, dpi: f32, cdxml: Option<&st
     if let Some(svg) = svg.filter(|_| s != System::Mac) {
         if s == System::Windows {
             // The EMF is made on a thread of its own while the bitmap is drawn, so Copy takes about what the bitmap
-            // takes. If the system gives no thread, it is made after.
+            // takes. If the system gives no thread, it is made after. With the object or without it, the picture is the
+            // EMF+ dual EMF (issues 166 and 167): Word draws a GDI-only EMF without anti-aliasing, and drops a bond
+            // outline thinner than a pixel, so 1.1.2's plain picture lost parts of bonds at 100%.
             let tree = crate::export::tree(svg)?;
-            let emf = || if object { crate::vector::make_office_emf(&tree, cdxml) } else { crate::vector::make_emf(&tree, cdxml, None) };
+            let emf = || crate::vector::make_office_emf(&tree, cdxml);
+            let _ = object;
             let (made, bitmap) = std::thread::scope(|t| {
                 let made = std::thread::Builder::new().spawn_scoped(t, emf).ok();
                 let bitmap = crate::export::clipboard_pixels(&tree, true, dpi, None);
@@ -902,12 +905,12 @@ pub(crate) mod tests {
         assert_eq!(names(&plain), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
         assert_eq!(names(&office), names(&plain));
         let tree = crate::export::tree(svg).unwrap();
-        assert!(plain[0].1 == crate::vector::make_emf(&tree, Some(x), None) && office[0].1 == crate::vector::make_office_emf(&tree, Some(x)));
-        assert_eq!(&office[0].1[120..124], b"EMF+", "the object's picture has EMF+ records");
-        assert!(plain[1..] == office[1..], "only the EMF differs");
+        assert!(plain[0].1 == crate::vector::make_office_emf(&tree, Some(x)) && office[0].1 == plain[0].1, "with the object or without it, the picture is the EMF+ dual EMF (issues 166, 167)");
+        assert_eq!(&plain[0].1[120..124], b"EMF+", "the plain picture has EMF+ records too");
+        assert!(plain == office, "the object changes nothing on the clipboard here: the object is made where Windows asks for it");
         assert_eq!(Some(&plain[1].1), crate::export::clipboard_pixels(&tree, true, 600.0, None).unwrap().1.as_ref());
         let all: Vec<u8> = plain.iter().filter(|(n, _)| *n != DIB).flat_map(|(n, b)| [n.as_bytes(), &b[..]].concat()).collect();
-        assert_eq!((all.len(), crc32fast::hash(&all)), (1_254, 0x3536_9BE5), "Copy on Windows without the object has changed since 1.1.2");
+        assert_eq!((all.len(), crc32fast::hash(&all)), (1_634, 0xEAD1_656C), "Copy on Windows without the object has changed since 1.1.3 (1.1.2's was 1_254, 0x3536_9BE5: a GDI-only EMF)");
         for t in [&plain, &office] {
             assert_eq!(clip(System::Windows, |n| (n == ENHMETAFILE).then(|| t[0].1.clone())).cdxml.as_deref(), Some(x));
         }

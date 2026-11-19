@@ -607,7 +607,9 @@ pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
         "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "bmp" => make_bmp(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
         "3mf" => make_3mf(e.model.as_deref().unwrap_or_default())?,
-        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref(), None),
+        // The EMF+ dual EMF, as the clipboard's (issues 166, 167): Office draws it anti-aliased, and a program that
+        // reads no EMF+ draws its GDI records.
+        "emf" => crate::vector::make_office_emf(&tree(e.svg.as_deref().unwrap_or_default())?, e.cdxml.as_deref()),
         "eps" => crate::vector::make_eps(&tree(e.svg.as_deref().unwrap_or_default())?),
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),

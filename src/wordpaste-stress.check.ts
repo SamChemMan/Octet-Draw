@@ -85,25 +85,25 @@ const cases: Case[] = [
     },
   },
   {
-    id: "S14", what: "plain copies: Office object off, the class not registered, Export as EMF, Quick export, --convert, the MCP's read emf, the Mac's Office copy [S13, S14, S15, M11, M17]",
+    id: "S14", what: "plain copies: Office object off, the class not registered, Export as EMF, Quick export, --convert, the MCP's read emf, the Mac's Office copy [S13, S14, S15, M11, M17]; since 1.1.3 (issue 167) every Windows copy and Export as EMF are the EMF+ dual EMF too",
     rust: ["windows_copy_with_and_without_the_object", "mac_copy_puts_offices_copy_first"],
     here: () => {
-      // The object goes on only with the picture and the switch (the page), and when Windows has the class (Rust),
-      // and the EMF is chosen by that same flag.
+      // The object goes on only with the picture and the switch (the page), and when Windows has the class (Rust).
+      // The EMF is the EMF+ dual EMF with the object and without it (issue 167: Word dropped thin bond outlines of the
+      // GDI-only EMF, Office object off or on).
       assert.match(editor, /const object = WINDOWS && on\.office !== false && on\.pdf;/);
       assert.match(clipboard, /let object = oct\.filter\(\|o\| text\.is_none\(\) && o\.len\(\) <= MAX_TYPE && crate::ole::win::offered\(\)\);/);
-      assert.match(clipboard, /if object \{ crate::vector::make_office_emf\(&tree, cdxml\) \} else \{ crate::vector::make_emf\(&tree, cdxml, None\) \}/);
+      assert.match(clipboard, /let emf = \|\| crate::vector::make_office_emf\(&tree, cdxml\);/);
       // The switch the reporter asked for (D9): Settings > Import and export > Copy > Office object, Windows only, on
       // by default, found by "word".
       assert.match(settingsUi, /\["office", "Office object", "[^"]*\bword\b[^"]*"\]/);
       assert.match(settingsUi, /clipboard: \{ office: true,/);
       assert.match(settingsUi, /\.\.\.\(WINDOWS \? \[\["office", "Office object"/, "Windows only");
-      // Export writes make_emf; make_office_emf is made only for the object: the Windows copy with the object, and the
-      // object window's picture.
-      assert.match(exportRs, /"emf" => crate::vector::make_emf\(/, "Export writes make_emf");
+      // Export writes the EMF+ dual EMF too (issue 167), as the Windows copy and the object window's picture do.
+      assert.match(exportRs, /"emf" => crate::vector::make_office_emf\(/, "Export writes make_office_emf");
       const users = [["export.rs", exportRs], ["objects.rs", objects], ["clipboard.rs", clipboard.slice(0, clipboard.indexOf("mod tests"))], ["ole_windows.rs", oleWin.slice(0, oleWin.indexOf("mod tests"))]]
         .filter(([, s]) => s.includes("make_office_emf")).map(([n]) => n);
-      assert.deepEqual(users, ["clipboard.rs", "ole_windows.rs"]);
+      assert.deepEqual(users, ["export.rs", "clipboard.rs", "ole_windows.rs"]);
       assert.match(fnBody(oleWin, /pub async fn update\(/), /make_office_emf\(&crate::export::tree\(&svg\)\?, Some\(&cdxml\)\)/);
       // The Mac's copy for Office keeps its picture (PDF comment, no EMF+).
       assert.match(clipboard, /Some\(svg\) if s == System::Mac => mac_picture\(svg, cdxml\)\?/);
