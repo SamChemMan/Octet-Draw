@@ -5,7 +5,7 @@
 // ChemDraw users expect it (menus and keys).
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  ListChecks, SealWarning, ShieldSlash, ShieldWarning,
+  ListChecks, SealWarning, ShieldSlash, ShieldWarning, NotePencil,
   AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, CodeBlock, Quotes, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
@@ -72,7 +72,8 @@ export type CycleSide = { ends: "both" | "in" | "out"; inside?: boolean; moved: 
 // kind, and self when it is within one state.
 export type ChartLook = { whole: boolean } & ({ kind: "energy"; join: "line" | "dashed" | "curve"; axis: boolean; key: boolean; paths: { name: string; colour: string }[] } | { kind: "radar"; zones: boolean; min: number; max: number; step: number }
   | { kind: "jablonski"; axis: boolean; vib?: number; links?: { to: string; name: string; kind: JablonskiKind }[]; transition?: JablonskiKind; self?: boolean });
-export type Context =
+// annotate: Annotate… applies (the drawing, or something selected that takes a note; annotate.ts).
+export type Context = ({ annotate?: true }) & (
   // risk: an experiment page with no risk assessment yet, so it can have one (riskassess.ts).
   | { kind: "empty"; risk?: boolean }
   | { kind: "drawing"; nameable: boolean; generic?: boolean; risk?: boolean }
@@ -118,7 +119,7 @@ export type Context =
   | { kind: "atom"; text?: LabelText; label: string; charge: number; circled?: boolean; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string } // unit: a gel's band, its sizes' unit
-  | { kind: "part"; region: boolean }; // a plasmid map's region (or marker) picked on it
+  | { kind: "part"; region: boolean }); // a plasmid map's region (or marker) picked on it
 
 type Props = {
   open: boolean;
@@ -627,6 +628,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       }
       break;
   }
+  // Object > Annotate… (ChemDraw's), for the drawing or the objects selected: the Notes panel, to type the note.
+  if (context.annotate) items.push(small(it(<NotePencil size={18} />, "Annotate…", "annotate")));
   // A lone atom or bond that is a whole molecule (ethane, H2O) gets every action its structure gets, after its own.
   if ((context.kind === "atom" || context.kind === "bond") && context.molecule) {
     const own = new Set(items.map((i) => i.command));

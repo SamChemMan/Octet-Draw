@@ -162,8 +162,8 @@ assert.equal(onWholePoints('<svg width="72pt" height="36pt" viewBox="0 0 72 36">
 assert.equal(onWholePoints("<svg/>"), "<svg/>");
 // Copy, Update in Word and the Office object take that picture on every system; Export takes the tight one and its
 // own margin.
-assert.match(editor, /copyToClipboard\(\{ dpi: settings\.files\.dpi, svg: on\.pdf \? copyPicture\(part\) : undefined,/);
-assert.equal((editor.match(/invoke\("ole_update", \{ oct(: "")?, svg(: copyPicture\((sent|doc)\) \?\? BLANK_SVG)?,/g) ?? []).length, 3, "each ole_update sends copyPicture");
+assert.match(editor, /copyToClipboard\(\{ dpi: settings\.files\.dpi, svg: on\.pdf \? copyPicture\(bare\) : undefined,/);
+assert.equal((editor.match(/invoke\("ole_update", \{ oct(: "")?, svg(: copyPicture\((sent|doc|bare)\) \?\? BLANK_SVG)?,/g) ?? []).length, 3, "each ole_update sends copyPicture");
 assert.ok(!/ole_update", \{[^}]*pictureOf/.test(editor) && !/const svg = pictureOf\(doc\);\s*if \(svg\) invoke\("ole_update"/.test(editor), "no ole_update sends pictureOf");
 assert.ok(!body("openExport").includes("copyPicture") && body("quickExport").includes("svg = pictureOf(part)"), "Export and Quick export are as they were");
 // Issue 23: a paste that finds nothing it can use says so when the clipboard holds something (a ChemDraw picture

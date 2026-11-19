@@ -237,11 +237,11 @@ function rejoin(old: Map<string, Leader>, captions: Caption[], arrows: Arrow[], 
   return change.size ? arrows.map((a) => change.get(a.id) ?? a) : arrows;
 }
 
-// The props of a part the user can change, which a rebuild keeps.
-const CAPTION_KEEP = ["colour", "font", "bold", "italic", "underline", "text", "runs", "angle", "align", "lineHeight", "chemical", "order"] as const;
+// The props of a part the user can change, which a rebuild keeps. notes: a part's notes (annotate.ts).
+const CAPTION_KEEP = ["colour", "font", "bold", "italic", "underline", "text", "runs", "angle", "align", "lineHeight", "chemical", "order", "notes"] as const;
 const TWIN_KEEP = ["colour", "font", "bold", "italic", "underline", "order"] as const;
 // kind: a chart's line made a reaction arrow stays one (D14).
-const ARROW_KEEP = ["kind", "colour", "style", "width", "start", "end", "head", "headSize", "fill", "order"] as const;
+const ARROW_KEEP = ["kind", "colour", "style", "width", "start", "end", "head", "headSize", "fill", "order", "notes"] as const;
 // wrote: the part as Octet made it last, when the record's data changed: a prop the user left as Octet made it takes
 // the new record's (a value typed in Edit Data shows), and one the user changed stays.
 // A caption's text and its runs are one prop: text the user left takes the new text and runs; text the user changed

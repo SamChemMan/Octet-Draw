@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, Storefront, FirstAidKit, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
+  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, Storefront, FirstAidKit, TextTSlash, NotePencil, Note, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -21,6 +21,8 @@ import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { parse, serialize } from "./file";
+import { allNotes, annotationsOf, isNote, NOTE, noteTargets, withNote, withoutNotes, type Target } from "./annotate";
+import { Notes, type NoteField, type NoteRow } from "./Notes";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
@@ -120,7 +122,7 @@ import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
 import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
 import { nameRuns } from "./nametype";
-import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
+import { atomText, bondText, changeText, describe, groupTitle, nounOf, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
@@ -419,6 +421,16 @@ async function clipboardText(): Promise<string | undefined> {
 // Typing in a text field, or in a caption's rich text box (contentEditable): keys and Select All are the text's, not the
 // drawing's. A focused slider (Line width) or button does not count (textEntry).
 const typing = () => textEntry(document.activeElement as HTMLElement | null);
+// The Notes panel's field for a target's note (Notes.tsx): its keyword and which one of that keyword.
+const NOTE_KEY = `${NOTE}:0`;
+// A note being typed is used before then runs (Save, Close, Quit, Export…), so it finds the note in the drawing: the
+// field is left, and then runs once the drawing has it.
+const afterNote = (then: () => void) => {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el?.closest(".note-panel")) return then();
+  el.blur();
+  setTimeout(then);
+};
 // A dialog or Settings is open: the drawing behind it takes no keys, menu commands, paste, copy or cut.
 const modal = () => document.querySelector('[aria-modal="true"]') !== null;
 
@@ -668,6 +680,8 @@ export default function Editor() {
   const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursors, setCursors] = useState<Record<"black" | "white", Cursors>>();
   const [settings, setSettings] = useState(loadSettings);
+  // The field Annotate… put the cursor in, each time it is chosen (Notes.tsx).
+  const [noteFocus, setNoteFocus] = useState<{ key: string; n: number }>();
   const drawingPrefs = useMemo(() => ({ sequenceLabels: settings.sequenceLabels, fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
     autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen, massUnit: settings.massUnit, riskNew: settings.riskNew }),
   [settings.sequenceLabels, settings.riskNew, settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen, settings.massUnit]);
@@ -687,7 +701,7 @@ export default function Editor() {
   // Template tool's, from its library) in hand now. ring: it goes in the Ring menu too (saved from the Ring tool, its
   // strip or its library, or with the Ring tool in hand); the user pins any other there.
   function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring", ring = tool === "ring") {
-    const t = newTemplate(name, mol);
+    const t = newTemplate(name, withoutNotes(mol)); // a note stays on its own drawing
     setSettings((s) => ({ ...ringed(s, addTo(s, t, set), ring), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
     setTool(tool);
     return t;
@@ -1528,7 +1542,9 @@ export default function Editor() {
   const filePrefs = settings.files;
   // What Export sends the app for `mol` in f.format, its picture `svg` (pictureOf) as the format saves it: only what the
   // format needs. A PDF, PNG or EMF carries the CDXML, so it opens and pastes back as the drawing.
-  const exportRequest = (mol: Mol, svg: string | undefined, f: ExportSettings & { width?: number }) => {
+  // A picture has no notes, nor has the CDXML in it (annotate.ts); a drawing file keeps them.
+  const exportRequest = (all: Mol, svg: string | undefined, f: ExportSettings & { width?: number }) => {
+    const mol = PICTURES.includes(f.format) || f.format === "bmp" ? withoutNotes(all) : all;
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
     const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
     return { format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) };
@@ -1760,8 +1776,9 @@ export default function Editor() {
     if (templateEdit) { setNotice("Save or cancel the template first.", "info"); return false; }
     if (o.gone) { setNotice(`${o.host} is closed. Save a copy to keep this drawing.`); return false; }
     try {
-      const sent = doc, oct = writeOct({ ...sent, guides }, savedStyle(), cdxmlOptions());
-      await invoke("ole_update", { oct, svg: copyPicture(sent) ?? BLANK_SVG, cdxml: formatOf(sent, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
+      // An object holds no notes: on the Mac and Linux it is its picture, and a note there would be gone at the next edit.
+      const sent = doc, bare = withoutNotes(sent), oct = writeOct({ ...bare, guides }, savedStyle(), cdxmlOptions());
+      await invoke("ole_update", { oct, svg: copyPicture(bare) ?? BLANK_SVG, cdxml: formatOf(bare, "cdxml") ?? "", send: true, seq: ++officeSeq.current });
       setFile({ saved: sent, name: o.title });
       return true;
     } catch (e) {
@@ -1821,12 +1838,15 @@ export default function Editor() {
   }, [settings.updates === true]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!TAURI) return;
-    const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); commands.current.close(); });
+    const off = getCurrentWindow().onCloseRequested((e) => { e.preventDefault(); afterNote(() => commands.current.close()); });
     return () => void off.then((f) => f());
   }, []);
   // With unsaved changes, the Dock's Quit, a logout or a restart waits and sends Quit here (src-tauri/src/quit.rs).
-  // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first.
-  const unsaved = mainDirty || !!templateEdit;
+  // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first. So does a note
+  // being typed, which is in the drawing only once its field is left: Quit (Octet's own, too) asks this window, whose
+  // Quit puts the note in the drawing first (afterNote) and then asks to save it.
+  const [noteTyped, setNoteTyped] = useState(false);
+  const unsaved = mainDirty || !!templateEdit || noteTyped;
   useEffect(() => { if (TAURI) invoke("set_edited", { edited: unsaved }).catch(() => {}); }, [unsaved]);
   // Home's window is on the list while it holds a drawing, so the drawing is not opened again elsewhere.
   const listed = DRAW_WINDOW || (homeWindow && holds);
@@ -1962,7 +1982,7 @@ export default function Editor() {
   // On an experiment page, its text is kept too (experiment.ts templateOf): the details' names and values but the
   // date, the headings and boxes. New experiment pages start with it.
   const keepForNew = (d: DocStyle) => {
-    const start = expPage ? serialize(templateOf(doc)) : undefined;
+    const start = expPage ? serialize(templateOf(withoutNotes(doc))) : undefined;
     setSettings((s) => {
       const id = purposeOf(s, d.purpose) ? d.purpose! : QUICK, { purpose: _, ...plain } = d, kept = id === QUICK ? plain : { ...d, purpose: id };
       return s.ownPurposes.some((p) => p.id === id) ? { ...s, ownPurposes: s.ownPurposes.map((p) => (p.id === id ? { ...p, style: kept, ...(start && p.kind === "experiment" ? { start } : {}) } : p)) }
@@ -1981,7 +2001,7 @@ export default function Editor() {
   // another template keeps that template's.
   const savePurpose = (name: string, from: DocStyle = style) => {
     const same = settings.ownPurposes.find((p) => p.name.toLowerCase() === name.toLowerCase()), id = same?.id ?? `u${Date.now().toString(36)}`;
-    const kind = purposeOf(settings, from.purpose)?.kind ?? "paper", start = kind !== "experiment" ? undefined : from === style ? serialize(templateOf(doc)) : settings.ownPurposes.find((p) => p.id === from.purpose)?.start;
+    const kind = purposeOf(settings, from.purpose)?.kind ?? "paper", start = kind !== "experiment" ? undefined : from === style ? serialize(templateOf(withoutNotes(doc))) : settings.ownPurposes.find((p) => p.id === from.purpose)?.start;
     const own = { id, name, kind, style: { ...from, purpose: id }, ...(start ? { start } : {}) };
     setSettings((s) => ({ ...s, ownPurposes: s.ownPurposes.some((p) => p.id === id) ? s.ownPurposes.map((p) => (p.id === id ? own : p)) : [...s.ownPurposes, own].slice(0, MAX_PURPOSES) }));
     return id;
@@ -2197,11 +2217,13 @@ export default function Editor() {
   // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). keepSteps: Revert to Saved, after
   // which Undo brings the changes back; any other drawing opened starts with nothing to undo. Gives why it did not open,
   // or what it left out.
-  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string, keepSteps = false): { failed?: string; lost?: string } {
+  // bare: the drawing opens with no notes (an object window, annotate.ts).
+  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string, keepSteps = false, bare = false): { failed?: string; lost?: string } {
     drawingColours.current = [];
     passing.current.clear();
     try {
       const read = readFile(path, text);
+      if (bare) read.mol = withoutNotes(read.mol);
       const lost = read.lost, { guides: saved, ...kept } = read.mol;
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style.
       const opened = withFields(wholeGroups(asOpened(read.foreign && !settings.files.keepStyle ? { ...kept, style: undefined } : kept, "", !!read.foreign)));
@@ -3044,6 +3066,14 @@ export default function Editor() {
       set({ ...doc, grids: has ? doc.grids!.filter((g) => !reactionOf(g.arrow)?.arrows.includes(arrow)) : [...(doc.grids ?? []), ...made] }, true);
     },
     properties: () => setSettings((s) => ({ ...s, properties: !s.properties })),
+    // View > Show or Hide Notes, and Object > Annotate… (ChemDraw's): the Notes panel, with the cursor in the selection's
+    // note, or the drawing's when nothing that takes a note is selected. Not in an object window (annotate.ts).
+    notes: () => (officeRef.current ? undefined : setSettings((s) => ({ ...s, notesPanel: !s.notesPanel }))),
+    annotate: () => {
+      if (officeRef.current) return;
+      setSettings((s) => (s.notesPanel ? s : { ...s, notesPanel: true }));
+      setNoteFocus((f) => ({ key: noteTargets(doc, selection, picked).length ? `s:${NOTE_KEY}` : `d:${NOTE_KEY}`, n: (f?.n ?? 0) + 1 }));
+    },
     ...Object.fromEntries(NUCLEUS_LIST.map((n) => [`predict_${n.toLowerCase()}`, () => openSpectrum(n)])),
     mass_spec: () => massSpecOf(),
     // View > Show or Hide Spectrum: the panel shown goes to its pill, or the last one minimised comes back.
@@ -3318,7 +3348,9 @@ export default function Editor() {
     // A Ctrl shortcut the page already ran (off the Mac, below) can arrive from the menu too: run it once.
     const ran = pageRan.current;
     if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
-    if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.();
+    // (Undo, Redo, Select All, Cut, Copy and Paste work on the note's own text.)
+    const go = () => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.(); };
+    if (["undo", "redo", "select_all", "cut", "copy", "paste"].includes(e.payload)) go(); else afterNote(go);
   });
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
   // shows its address and key.
@@ -3433,7 +3465,7 @@ export default function Editor() {
       else if ("picked" in s) openPicked(s.picked);
       else if ("object" in s) {
         // The object's drawing, read as a file from Open is: an empty one is a new object (Insert > Object).
-        if (s.oct) load(undefined, s.oct);
+        if (s.oct) load(undefined, s.oct, undefined, undefined, false, true);
         const o = { host: s.host, title: s.title, gone: false, app: s.app };
         setOffice(o);
         setFile((f) => ({ ...f, name: s.title }));
@@ -3449,8 +3481,9 @@ export default function Editor() {
   useEffect(() => {
     if (!officePrime.current || !office) return;
     officePrime.current = false;
-    const svg = copyPicture(doc);
-    if (svg) invoke("ole_update", { oct: "", svg, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
+    // An object holds no notes (officeUpdate), so neither does what is kept for it.
+    const bare = withoutNotes(doc), svg = copyPicture(bare);
+    if (svg) invoke("ole_update", { oct: "", svg, cdxml: formatOf(bare, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   }, [office, doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Then, while the user draws, the newest drawing goes to Octet's side too (still not to Word), half a second after
   // each change and at once when the window loses focus. So when Word closes the document, Octet gives Word the
@@ -3463,8 +3496,8 @@ export default function Editor() {
     const o = officeRef.current;
     if (!o || o.gone || templateEdit || officeKept.current.doc === doc) return;
     officeKept.current.doc = doc;
-    const oct = mainDirty ? writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()) : "";
-    invoke("ole_update", { oct, svg: copyPicture(doc) ?? BLANK_SVG, cdxml: formatOf(doc, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
+    const bare = withoutNotes(doc), oct = mainDirty ? writeOct({ ...bare, guides }, savedStyle(), cdxmlOptions()) : "";
+    invoke("ole_update", { oct, svg: copyPicture(bare) ?? BLANK_SVG, cdxml: formatOf(bare, "cdxml") ?? "", send: false, seq: ++officeSeq.current }).catch(() => {});
   };
   // Word closed the document. sent: Word has the drawing Octet last kept. If that is this drawing, the window closes
   // with no question. If not (a change too new, or Word asked for nothing to be saved), the window stays, says the
@@ -4565,7 +4598,7 @@ export default function Editor() {
   const revealNext = useRef<boolean | Set<number>>(false);
   // A part just inserted (insertMol's result) lands: one undo step, selected, and in view.
   const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { set(r.mol, true, undefined, drop); revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
-  const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
+  const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties, .note-panel:not(.leaving)")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
   // What the scroll bars span: the drawing (drawnBox, with every object) and its pages, drawing px at 100%, y down.
   const scrollBox = useMemo((): Span => {
     const items = new Set([...placed.map((c) => c.id), ...arrows.map((a) => a.id), ...cycleArrows.map((a) => a.cycle), ...(shown.shapes ?? []).map((sh) => sh.id)]);
@@ -7097,7 +7130,13 @@ export default function Editor() {
     });
   }
   // What is picked, for the Actions panel. A chart picked whole, or one of its captions or lines, also has Edit data.
+  // Annotate… is on the empty page and the drawing (the drawing's note), and on a selection with something that takes
+  // a note; not on a reagent table, nor in an object window (annotate.ts).
   const contextOf = (): Context => {
+    const c = chartContext(), notes = !office && c.kind !== "grid" && (c.kind === "empty" || c.kind === "drawing" || noteTargets(doc, selection, picked).length > 0);
+    return notes ? { ...c, annotate: true } : c;
+  };
+  const chartContext = (): Context => {
     const c = contextBase(), g = (c.kind === "caption" && c.mode === "picked") || c.kind === "arrow" || c.kind === "selection" ? pickedChart() : undefined, p = g?.plot as Chart | undefined;
     if (!g || !p) return c;
     const whole = g.items.every((id) => picked.has(id));
@@ -7263,6 +7302,63 @@ export default function Editor() {
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
   const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The Notes panel (Notes.tsx, annotate.ts): the drawing's notes, then the selection's (one field for several targets),
+  // then a row for each other object or group with a note. Worked out only while the panel is open.
+  const noteName = (m: Mol, t: Target): string => {
+    if (t === "drawing") return "Drawing";
+    const g = m.groups?.find((x) => x.id === t), c = !g ? m.captions?.find((x) => x.id === t) : undefined;
+    if (g) return groupTitle(m, g);
+    if (c) { const line = c.text.split("\n")[0].trim(); return line.length > 24 ? `${line.slice(0, 23)}…` : line || "Text"; }
+    const n = nounOf(m, t) ?? "object";
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  };
+  const noteView = useMemo(() => {
+    if (!settings.notesPanel || office) return undefined;
+    const targets = noteTargets(doc, selection, picked), fields: NoteField[] = [];
+    // One target's notes: its note first (empty when it has none), then each other one with its keyword.
+    const each = (prefix: string, t: Target, label: string, on: string) => {
+      const list = (annotationsOf(doc, t) ?? []).filter(isNote), first = list.find((a) => a.keyword === NOTE), seen = new Map<string, number>();
+      fields.push({ key: `${prefix}:${NOTE_KEY}`, label, name: `Note on ${on}`, keyword: NOTE, nth: 0, targets: [t], value: first?.content ?? "" });
+      for (const a of list) {
+        const n = seen.get(a.keyword) ?? 0;
+        seen.set(a.keyword, n + 1);
+        if (a !== first) fields.push({ key: `${prefix}:${a.keyword}:${n}`, label: a.keyword, name: `${a.keyword} on ${on}`, keyword: a.keyword, nth: n, targets: [t], value: a.content });
+      }
+    };
+    each("d", "drawing", "Drawing", "the drawing");
+    if (targets.length === 1) each("s", targets[0], noteName(doc, targets[0]), noteName(doc, targets[0]).toLowerCase());
+    else if (targets.length) {
+      const values = new Set(targets.map((t) => annotationsOf(doc, t)?.find((a) => a.keyword === NOTE)?.content ?? ""));
+      fields.push({ key: `s:${NOTE_KEY}`, label: `${targets.length} objects`, name: "Note on the selected objects", keyword: NOTE, nth: 0, targets, value: values.size === 1 ? [...values][0] : "", ...(values.size > 1 ? { mixed: true } : {}) });
+    }
+    const shown = new Set<Target>(targets), rows: NoteRow[] = [];
+    for (const r of allNotes(doc)) {
+      if (r.on === "drawing" || shown.has(r.on)) continue;
+      shown.add(r.on);
+      rows.push({ id: r.on, name: noteName(doc, r.on), text: r.text.split("\n")[0] });
+    }
+    return { fields, rows };
+  }, [settings.notesPanel, office, doc, selection, picked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What the panel does, on the drawing as it is when it is done (an AI app's change or an undo may have come since).
+  // A note typed goes on the targets its field was opened for, as one undo step of its own.
+  const noteActs = useRef({ note: (_t: Target[], _k: string, _n: number, _v: string) => {}, row: (_id: number) => {} }), noteSteps = useRef(0);
+  noteActs.current = {
+    note: (targets, keyword, nth, text) => {
+      try {
+        const next = withNote(now.current, targets, text, keyword, nth);
+        if (next !== now.current) set(next, true, `note ${++noteSteps.current}`);
+      } catch (e) { setNotice(e instanceof Error ? e.message : String(e)); }
+    },
+    row: (id) => {
+      const g = doc.groups?.find((x) => x.id === id);
+      choose(g ? g.atoms : [], g ? g.items : [id]);
+      revealNext.current = true;
+    },
+  };
+  const notePanel = useRef({
+    note: (t: Target[], k: string, n: number, v: string) => noteActs.current.note(t, k, n, v), row: (id: number) => noteActs.current.row(id),
+    close: () => setSettings((s) => ({ ...s, notesPanel: false })),
+  }).current;
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
@@ -8326,6 +8422,7 @@ export default function Editor() {
     // As File > Close (src-tauri/src/mcp.rs mcp_close). A client with no session opened nothing. This window's unsaved
     // changes go with it: the page tells the window list after it draws, which can be after a change call's reply.
     close: async (session, drawing) => (TAURI && session ? invoke<"closed" | "unsaved" | "theirs" | "none">("mcp_close", { session, drawing, edited: unsaved && drawing === getCurrentWindow().label }) : "theirs"),
+    office: () => !!officeRef.current,
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
     dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id) || id === "add_to_libreoffice",
@@ -8410,7 +8507,8 @@ export default function Editor() {
     const part = selectedPart() ?? doc;
     if (what === "cdxml") {
       if (!part.atoms.length && !part.captions?.length && !part.arrows?.length && !part.shapes?.length) return setNotice("There is nothing to copy.", "info");
-      const cdxml = formatOf(part, "cdxml");
+      // Text for another app: no notes (annotate.ts), as Copy.
+      const cdxml = formatOf(withoutNotes(part), "cdxml");
       return cdxml ? copyPlain(cdxml) : setNotice("Octet cannot write this drawing as CDXML.");
     }
     const [name, write] = COPY_AS[what], mol = withCaptionAtoms(part, style.interpret).mol;
@@ -8499,7 +8597,9 @@ export default function Editor() {
     map_reaction: ["Map atoms", "", <FlowArrow size={18} />], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
-    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />], aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
+    properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />],
+    // Notes (annotate.ts), not in an object window.
+    ...(office ? {} : { notes: [settings.notesPanel ? "Hide the Notes panel" : "Show the Notes panel", "", <Note size={18} />], annotate: ["Annotate…", "", <NotePencil size={18} />] } as Record<string, [string, string, React.ReactNode]>), aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_jablonski: ["Jablonski diagram", "", <JablonskiGlyph />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
     group: ["Group", `${MOD}G`, <BoundingBox size={18} />], ungroup: ["Ungroup", `⇧${MOD}G`, <SelectionSlash size={18} />], group_integral: ["Pick as one", "", <Unite size={18} />],
@@ -9613,7 +9713,8 @@ export default function Editor() {
           if (!menuRuns(cmd, over)) return;
           e.preventDefault();
           pageRan.current = { id: cmd, at: performance.now() };
-          return commands.current[cmd]?.();
+          // A note being typed goes into the drawing first, as from the menu (Ctrl+S, Ctrl+W).
+          return afterNote(() => commands.current[cmd]?.());
         }
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
@@ -9870,21 +9971,22 @@ export default function Editor() {
     };
     const copyOut = (part: Mol, e?: ClipboardEvent): Promise<boolean> => {
       saw("copy");
-      const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style });
+      // Octet's own form keeps the notes; what other apps read has none (annotate.ts).
+      const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style }), bare = withoutNotes(part);
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
       // PDF, with Office's own copy of it before it for Word, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
       // structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form. The CDXML goes in the picture too.
       if (NATIVE_CLIP) {
-        const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(part, f) : undefined);
+        const ask = (yes: boolean, f: PartFormat) => (yes ? formatOf(bare, f) : undefined);
         // Windows: an Octet Drawing object first, for Word, PowerPoint and Excel (decision 0023). It needs the picture,
         // which Office shows for it, so it goes on only with the picture.
         const object = WINDOWS && on.office !== false && on.pdf;
-        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? copyPicture(part) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
+        return copyToClipboard({ dpi: settings.files.dpi, svg: on.pdf ? copyPicture(bare) : undefined, cdxml: ask(on.cdxml || on.pdf, "cdxml"), cdxmlType: on.cdxml, cdx: ask(on.cdx, "cdx"), molfile: ask(on.mol, "molfile"), smiles: ask(on.smiles, "smiles"), octetJson, oct: ask(object, "oct") })
           .then(() => { ackCopy(page); return true; }, (err) => { setNotice(failure("Octet cannot copy this.", err)); return false; });
       }
       // A browser (dev only): its own clipboard, with Octet's form and SMILES (or the text) as text. After Check Structure
       // there is no copy event, so the text alone goes on.
-      const text = (on.smiles ? formatOf(part, "smiles") : undefined) ?? (part.captions ?? []).map((c) => c.text).join("\n");
+      const text = (on.smiles ? formatOf(bare, "smiles") : undefined) ?? (part.captions ?? []).map((c) => c.text).join("\n");
       if (!e) return (navigator.clipboard?.writeText(text) ?? Promise.reject(new Error("no clipboard"))).then(() => { ackCopy(page); return true; }, (err) => { setNotice(failure("Octet cannot copy this.", err)); return false; });
       e.clipboardData?.setData(OCTET_CLIP, octetJson);
       if (text) e.clipboardData?.setData("text/plain", text);
@@ -11449,6 +11551,7 @@ export default function Editor() {
           onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
         />
       )}</Live>}</Exit>
+      <Exit>{noteView && <Notes fields={noteView.fields} rows={noteView.rows} onNote={notePanel.note} onRow={notePanel.row} onClose={notePanel.close} onTyped={setNoteTyped} focus={noteFocus} />}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();
         return (
