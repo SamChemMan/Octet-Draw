@@ -129,14 +129,29 @@ await W.askName(water, []).result;
 assert.deepEqual(made[0].posted.at(-1)!.own, [], "a changed dictionary is sent");
 assert.equal(W.namingBusy(), false);
 
+let t: number;
+// warmNaming loads the worker before the first request, which then does not wait for the load; once there, it is kept.
+made.length = 0;
+fakes({ load: 60 });
+W.warmNaming();
+W.warmNaming();
+assert.equal(made.length, 1, "one worker");
+await sleep(80);
+t = performance.now();
+const warm = await W.askName(water, []).result;
+assert.ok(warm.done && warm.answer.bare === "water");
+assert.ok(performance.now() - t < 40, "no wait for the load");
+assert.equal(made.length, 1, "the warm worker answers");
+
 // A request past its time: the worker ends and the answer is late; the next request starts a new worker and is answered.
 made.length = 0;
 fakes({ load: 5 });
-let t = performance.now();
+t = performance.now();
 const slow = await W.askName(stuck, []).result;
 assert.deepEqual(slow, { done: false, why: "late" });
 assert.ok(performance.now() - t >= 95 && performance.now() - t < 1000, "past the deadline, not before");
 assert.ok(made[0].ended, "the worker is ended");
+assert.equal(made.length, 2, "a fresh worker loads at once");
 const after = await W.askName(water, []).result;
 assert.ok(after.done && after.answer.bare === "water");
 assert.equal(made.length, 2, "a new worker");
