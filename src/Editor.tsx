@@ -5767,7 +5767,7 @@ export default function Editor() {
       case "pivot": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         if (!drag.moved) setDrag({ ...drag, moved: true });
-        const a = atomAt(doc, p, 8 / (L * views.get().zoom));
+        const a = atomAt(doc, p, (8 * reach.current) / (L * views.get().zoom));
         return setPivot(a !== undefined ? pos(doc, a) : p);
       }
       case "turn": {
@@ -6664,9 +6664,9 @@ export default function Editor() {
     }
     return undefined;
   };
-  // The table line under a point (drawing units): within 3 px of one that shows.
+  // The table line under a point (drawing units): within 3 px of one that shows (further for a pen or a finger).
   const gridLineAt = (p: P) => {
-    const tol = 3 / (views.get().zoom * L);
+    const tol = (3 * reach.current) / (views.get().zoom * L);
     for (const v of gridViews) {
       const l = v.rulings.find((x) => !v.goneLines?.includes(x.id) && p[0] >= x.a && p[0] <= x.b && Math.abs(p[1] - x.y) < tol);
       if (l) return { arrow: v.arrow, line: l.id };

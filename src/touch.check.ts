@@ -412,6 +412,13 @@ const H = 350;
     assert.ok(at > 0, site);
     assert.match(editor.slice(at, editor.indexOf("\n  }", at) > 0 ? Math.min(editor.indexOf("\n  };", at), at + 900) : at + 900), /reach\.current/, `${site} takes the reach`);
   }
+  // No px value over the zoom is left without the reach, so a hit test added later (a new tool's, a merged branch's)
+  // fails here until it takes it. These few snap, place a mark or start a drag, and do not hit anything.
+  const NOT_HITS = ["pad = 4 / zoom", "+ 14 / zoom", "Math.hypot(d[0], d[1]) * L * views.get().zoom < 3", "resizeBy(drag.frame", "snapBoxes(boxes.moving", "const tol = 6 / (views.get().zoom * L);"];
+  const px = [/(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \(?(L \* )?(views\.get\(\)\.zoom|zoom\b)/, /zoom\)? < \d+(\.\d+)?(?! \* reach)\b/, /(?<![\w.)*] ?)\b\d+ \/ L \/ views\.get\(\)\.zoom/];
+  const bare = editor.split("\n").filter((l) => px.some((r) => r.test(l)) && !l.includes("reach.current") && !NOT_HITS.some((n) => l.includes(n)));
+  assert.deepEqual(bare.map((l) => l.trim()), [], "a px tolerance without the pen's and the finger's reach");
+  assert.ok(editor.includes("const tol = (3 * reach.current) / (views.get().zoom * L);"), "a reagent table's line takes the reach");
   // The page never zooms with a pinch: the canvas takes raw touches, and the root pans only, so menus and cards on body
   // are covered too (touch-action is not inherited: the chain up to the root decides).
   const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");
