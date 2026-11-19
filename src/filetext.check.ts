@@ -3,7 +3,9 @@
 // paste, the name field and an AI app's add_file. Or if a reader's own reason for a refusal (a limit, a damaged file)
 // does not reach the user while Indigo's words do, if the test costs a paste or the name field time, or if a file
 // Octet cannot read (an ISIS sketch, ISIS transportable graphics, a ChemNote or ChemDraw 3.5 file) is not refused
-// safely. Every file here is written by the check itself.
+// safely. Every file here is written by the check itself. add_file runs here (the headless host). File > Open, a drop,
+// a paste and the name field need the page, so this check reads their lines in Editor.tsx; the plan's acceptance list
+// has the dev-server paste.
 import "../scripts/headless/browser.ts"; // (chem.ts loads Indigo as a browser does)
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
@@ -37,6 +39,8 @@ const cell = (name: string, atoms: [string, number, number, number][]) => [`data
 const CIF = ["# Written for Octet's checks", "", cell("ethanol", [["C1", 0, 0, 0], ["C2", 1.52, 0, 0], ["O1", 2.0, 1.35, 0]]), cell("chloroform", [["C1", 0, 0, 0], ["Cl1", 1.77, 0, 0], ["Cl2", -0.59, 1.67, 0], ["Cl3", -0.59, -0.83, 1.45]])].join("\n");
 const DAMAGED = "data_x\nloop_\n_atom_site_label\n_atom_site_cartn_x\n_atom_site_cartn_y\n_atom_site_cartn_z\nC1 0 0 0\nC2 1.5 0\n";
 const OVER = ["data_x", "loop_", "_atom_site_label", "_atom_site_type_symbol", "_atom_site_Cartn_x", "_atom_site_Cartn_y", "_atom_site_Cartn_z", ...Array.from({ length: 1001 }, (_, k) => `C${k} C ${(k % 10) * 1.5} ${Math.floor(k / 10) % 10 * 1.5} ${Math.floor(k / 100) * 1.5}`), ""].join("\n");
+// 1,000 carbons 0.5 Å apart in a cube (hostile): each is near hundreds, which would make 77,000 bonds by distance.
+const DENSE = OVER.replace(/^C(\d+) C (\S+) (\S+) (\S+)$/gm, (_, k, x, y, z) => `C${k} C ${+x / 3} ${+y / 3} ${+z / 3}`).replace(/^C1000 .*\n/m, "");
 const MOLFILE = toMolfile(parseStructure("CC(=O)Oc1ccccc1C(=O)O"), true);
 // Paclitaxel, as many times as an SD file holds in just under 300,000 characters, the most Octet reads.
 const taxol = toMolfile(parseStructure("CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C"), true);
@@ -66,7 +70,9 @@ assert.equal(refusal(damaged), "This CIF file is damaged: a table's last row is 
 assert.equal(refusal(over), "It has a structure of more than 1,000 atoms.");
 assert.equal(refusal(tooLong), "It has more than 300,000 characters.");
 // Indigo's own words, and faults, keep the general words.
-for (const e of [says(() => importStructure("not a structure\nat all\n")), new RangeError("Maximum call stack size exceeded"), new RangeError("Invalid array length"), new Error("This CIF file is damaged: forged."), new TypeError("x is undefined")]) assert.equal(refusal(e), undefined, String(e));
+// The engine's own RangeErrors as V8 and as JavaScriptCore (the Mac app's engine, which ends them with a full stop) word
+// them are faults too.
+for (const e of [says(() => importStructure("not a structure\nat all\n")), new RangeError("Maximum call stack size exceeded"), new RangeError("Maximum call stack size exceeded."), new RangeError("Array length must be a positive integer of safe magnitude."), new RangeError("Invalid array length"), new Error("This CIF file is damaged: forged."), new TypeError("x is undefined")]) assert.equal(refusal(e), undefined, String(e));
 // A damaged file's reason can quote the file: it is never read as a system error, and a long or odd one is not shown.
 assert.equal(refusal(new DamagedFile("This CIF file is damaged: the value no such file has no tag.")), "This CIF file is damaged: the value no such file has no tag.");
 assert.equal(reason(new Error("no such file")), "The file or folder is not there.");
@@ -84,6 +90,8 @@ const body = (src: string, start: string) => { const i = src.indexOf(start); ass
 // Paste and the name field (structureFromText): text of several lines that is Octet's own goes to importStructure
 // before any name or Indigo, and only text of several lines is tested (typing a name costs nothing more).
 const fromText = body(editor, "const structureFromText = ");
+// (An old Mac file's text has CR line ends only: it is text of several lines too.)
+assert.match(fromText, /const s = text\.trim\(\), lines = \/\[\\r\\n\]\/\.test\(s\);/);
 assert.match(fromText, /if \(lines && isOwnFormat\(s\)\) \{ try \{ const m = importStructure\(text\); return m\.atoms\.length \? asOpened\(m, text\) : undefined; \} catch \(err\) \{ return why\(err\); \} \}/);
 assert.ok(fromText.indexOf("isOwnFormat") < fromText.indexOf("structureFor(") && fromText.indexOf("isOwnFormat") < fromText.indexOf("parseStructure("));
 assert.match(fromText, /const why = \(err: unknown\) => \{ const r = refusal\(err\); if \(r\) refused\?\.\(r\); return undefined; \};/);
@@ -94,7 +102,8 @@ assert.match(editor, /try \{ mol = importStructure\(text\); \} catch \(e\) \{ th
 assert.match(editor, /\} catch \(e\) \{\n\s+const why = refusal\(e\);\n\s+setNotice\(`Octet cannot read the structures in \$\{f\.name\}\.\$\{why \? ` \$\{why\}` : ""\}`\);/);
 assert.match(editor, /try \{ frag = asOpened\(importStructure\(source\), source\); \} catch \(err\) \{ frag = undefined; const why = refusal\(err\); if \(why\) refused\(why\); \}/);
 // An AI app's add_file, in the window and with no window: a CIF file before names and SMILES, its refusal thrown.
-assert.match(body(editor, "    file: (text) => {"), /if \(\/V\[23\]000\|\^\\\$RXN\|\^\\\$RDFILE\/m\.test\(text\) \|\| isOwnFormat\(text\)\) \{ try \{ const m = importStructure\(text\); return m\.atoms\.length \? asOpened\(m, text, true\) : undefined; \} catch \(e\) \{ if \(refusal\(e\)\) throw e; return undefined; \} \}\n\s+return structureFromText\(text\);/);
+// A CIF file takes no aromatic step there, as File > Open, a drop and a paste take none; a MOL file takes File > Import's.
+assert.match(body(editor, "    file: (text) => {"), /const own = isOwnFormat\(text\);\n\s+if \(own \|\| \/V\[23\]000\|\^\\\$RXN\|\^\\\$RDFILE\/m\.test\(text\)\) \{ try \{ const m = importStructure\(text\); return m\.atoms\.length \? asOpened\(m, text, !own\) : undefined; \} catch \(e\) \{ if \(refusal\(e\)\) throw e; return undefined; \} \}\n\s+return structureFromText\(text\);/);
 assert.match(host, /if \(isOwnFormat\(text\)\) \{ const m = importStructure\(text\); return m\.atoms\.length \? m : undefined; \}\n\s+return structure\(text\);/);
 assert.match(stdio, /catch \(e\) \{ const why = refusal\(e\); if \(why\) return \{ failed: `Octet cannot open this file\. \$\{why\}` \}; \}/);
 assert.match(mcp, /name: "add_file",[^\n]*\n\s+description: "Adds a drawing from a file's text: CDXML, MOL, SDF, RXN, CIF, SMILES or InChI\./);
@@ -130,6 +139,8 @@ if (existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) {
   const call = async (d: ReturnType<typeof drawing>, args: unknown, who = "filetext"): Promise<Reply> =>
     JSON.parse(await handle(JSON.stringify({ jsonrpc: "2.0", id: ++n, method: "tools/call", params: { name: "advanced", arguments: { tool: "add_file", args } } }), () => d.host, "1", session("Check", who)));
   const text = (r: Reply) => r.result?.content[0]?.text ?? r.error?.message ?? "";
+  // The schema's refusal of text over 1,000,000 characters (mcp.ts str(1_000_000)).
+  const SCHEMA = /text.*(1,?000,?000|too long|at most)/i;
   const failed = (r: Reply) => !!(r.error || r.result?.isError);
   for (const file of [ACY, CIF]) {
     const d = drawing(), r = await call(d, { text: file });
@@ -147,7 +158,9 @@ if (existsSync(new URL("./vendor/opsin/opsin.js", import.meta.url))) {
     [{ text: OVER }, /^Octet cannot read this file\. It has a structure of more than 1,000 atoms\./],
     [{ text: "" }, /^Octet cannot read this as a drawing\. Give CDXML, a MOL, SDF, RXN or CIF file, SMILES or InChI\./],
     [{ text: "not a structure\nat all\n" }, /^Octet cannot read this as a drawing\. Give CDXML, a MOL, SDF, RXN or CIF file/],
-    [{ text: "C".repeat(1_000_001) }, /text/],
+    [{ text: "C".repeat(1_000_001) }, SCHEMA],
+    // A MOL file over the 300,000 characters Octet reads: the limit, as in a window (headless structure() lets it through).
+    [{ text: SDF + taxol.repeat(2) }, /^Octet cannot read this file\. It has more than 300,000 characters\./],
   ] as const) {
     const r = await call(d, args);
     assert.ok(failed(r), `refused: ${text(r)}`);
@@ -222,26 +235,35 @@ for (const far of ["1e308", "-1e308", "1e30", "9".repeat(40), "1000001"]) {
   assert.equal(refusal(says(() => importStructure(NITRO.replace(/^N1 \S+/m, `N1 ${far}`)))), "This CIF file is damaged: an atom is more than 1,000,000 Å from the origin.", `${far} of a cell`);
 }
 assert.equal(importStructure(ACY.replace("0.605 1.048", "999999 1.048")).atoms.length, 4);
+// Atoms packed close: refused at the file's 20,000 bonds, fast, as one structure and as twenty (case 12).
+for (const t of [DENSE, Array.from({ length: 20 }, (_, k) => DENSE.replace("data_x", `data_x${k}`)).join("")]) {
+  const t0 = performance.now();
+  assert.equal(refusal(says(() => importStructure(t))), "It has more than 20,000 bonds.");
+  assert.ok(performance.now() - t0 < 300, `close-packed atoms refused in ${(performance.now() - t0).toFixed(0)} ms`);
+}
+// 5,000 from small files, each under 100 ms (a few milliseconds, but a pause to collect garbage on a busy machine can
+// take tens); 30 from a structure at the 1,000-atom limit (a grid of carbons 1.5 Å apart, which takes 100 to 400 ms to
+// read whole) and from close-packed atoms, each under a second.
 const outcomes = { drawn: 0, damaged: 0, limit: 0, other: 0 };
-let slowest = 0;
-for (let k = 0; k < 5000; k++) {
-  const t = mutate(pick([ACY, CIF, OVER.slice(0, 2000), NITRO]));
+const slowest = [0, 0];
+for (let k = 0; k < 5030; k++) {
+  const big = k >= 5000, t = mutate(big ? pick([OVER, DENSE]) : pick([ACY, CIF, OVER.slice(0, 2000), NITRO]));
   // (Text that is no longer CIF goes to Indigo, as it did before: not this reader's to test.)
   if (!isCif(t)) { outcomes.other++; continue; }
   const t0 = performance.now();
   try {
     const m = importStructure(t);
-    assert.ok(m.atoms.length <= 20_000 && finite(m) && m.bonds.every((b) => b.atoms.every((i) => i >= 0 && i < m.atoms.length) && b.atoms[0] !== b.atoms[1]), `a drawing that holds together: ${JSON.stringify(t.slice(0, 200))}`);
+    assert.ok(m.atoms.length <= 20_000 && m.bonds.length <= 20_000 && finite(m) && m.bonds.every((b) => b.atoms.every((i) => i >= 0 && i < m.atoms.length) && b.atoms[0] !== b.atoms[1]), `a drawing that holds together: ${JSON.stringify(t.slice(0, 200))}`);
     outcomes.drawn++;
   } catch (e) {
     if (e instanceof DamagedFile) outcomes.damaged++;
-    else if (e instanceof RangeError && /^It (has|takes) /.test(e.message)) outcomes.limit++;
+    else if (refusal(e) && e instanceof RangeError) outcomes.limit++;
     else assert.fail(`${String(e)} on ${JSON.stringify(t.slice(0, 300))}`);
   }
-  slowest = Math.max(slowest, performance.now() - t0);
+  slowest[+big] = Math.max(slowest[+big], performance.now() - t0);
 }
-assert.ok(outcomes.drawn > 500 && outcomes.damaged > 100, JSON.stringify(outcomes));
-assert.ok(slowest < 500, `the slowest fuzzed file took ${slowest.toFixed(0)} ms`);
+assert.ok(outcomes.drawn > 500 && outcomes.damaged > 100 && outcomes.limit > 5, JSON.stringify(outcomes));
+assert.ok(slowest[0] < 100 && slowest[1] < 1000, `the slowest fuzzed files took ${slowest.map((x) => x.toFixed(0)).join(" and ")} ms`);
 
 // --- Files Octet cannot read (J3) -------------------------------------------------------------------------------------
 
@@ -267,4 +289,4 @@ const test = time(() => isOwnFormat(SDF), 101), whole = time(() => importStructu
 assert.ok(test < 1 && test < whole / 100, `isOwnFormat on ${SDF.length} characters: ${test.toFixed(3)} ms (reading them: ${whole.toFixed(0)} ms)`);
 const slow = [`${"\n".repeat(150_000)}x`, `${"# comment\n".repeat(30_000)}x`, `${" ".repeat(300_000)}\n`, `data_x\n${"_cell_length_a 10\n".repeat(16_000)}`, `data_x\n${" \t".repeat(150_000)}`, `${"#".repeat(300_000)}\n`];
 for (const t of slow) { const ms = time(() => isOwnFormat(t), 11); assert.ok(ms < 20, `isOwnFormat on text made to be slow: ${ms.toFixed(1)} ms`); }
-console.log(`filetext.check: all passed (isOwnFormat ${test.toFixed(3)} ms on ${SDF.length.toLocaleString("en-GB")} characters, which read in ${whole.toFixed(0)} ms; fuzz ${JSON.stringify(outcomes)}, slowest ${slowest.toFixed(0)} ms).`);
+console.log(`filetext.check: all passed (isOwnFormat ${test.toFixed(3)} ms on ${SDF.length.toLocaleString("en-GB")} characters, which read in ${whole.toFixed(0)} ms; fuzz ${JSON.stringify(outcomes)}, slowest ${slowest.map((x) => x.toFixed(0)).join(" and ")} ms).`);

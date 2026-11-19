@@ -1307,7 +1307,7 @@ export default function Editor() {
   // reads itself (CIF) is read as File > Open reads it. refused gets the reason when the text is over Octet's limits or
   // damaged.
   const structureFromText = (text: string, refused?: (why: string) => void, smiles?: string | null): Mol | undefined => {
-    const s = text.trim(), lines = s.includes("\n");
+    const s = text.trim(), lines = /[\r\n]/.test(s);
     const why = (err: unknown) => { const r = refusal(err); if (r) refused?.(r); return undefined; };
     if (lines && isOwnFormat(s)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text) : undefined; } catch (err) { return why(err); } }
     const named = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : structureFor(s, smiles);
@@ -7906,9 +7906,11 @@ export default function Editor() {
     select: (atoms, items) => { mcpWait.current = { after: mcpRenders.current }; setSelection(new Set(atoms)); setPicked(new Set(items)); },
     file: (text) => {
       if (/<CDXML[\s>/]/.test(text.slice(0, 65536))) { const read = fromCdxml(text); return read.style ? fitSizes(read.mol, read.style, style) : read.mol; }
-      // A MOL, SDF or RXN file keeps its own drawing, as File > Import keeps it, and a CIF file is read as File > Open
-      // reads it; SMILES and names are laid out. A reader's refusal (a limit, a damaged file) is thrown, for the reply.
-      if (/V[23]000|^\$RXN|^\$RDFILE/m.test(text) || isOwnFormat(text)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text, true) : undefined; } catch (e) { if (refusal(e)) throw e; return undefined; } }
+      // A MOL, SDF or RXN file keeps its own drawing, as File > Import keeps it, and a CIF file is read as File > Open,
+      // a drop and a paste read it (no aromatic step); SMILES and names are laid out. A reader's refusal (a limit, a
+      // damaged file) is thrown, for the reply.
+      const own = isOwnFormat(text);
+      if (own || /V[23]000|^\$RXN|^\$RDFILE/m.test(text)) { try { const m = importStructure(text); return m.atoms.length ? asOpened(m, text, !own) : undefined; } catch (e) { if (refusal(e)) throw e; return undefined; } }
       return structureFromText(text);
     },
     window: () => ({ id: TAURI ? getCurrentWindow().label : "main", name }),

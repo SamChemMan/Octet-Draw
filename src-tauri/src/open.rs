@@ -179,7 +179,7 @@ pub fn read(path: &Path, name: &str) -> Result<String, String> {
         Ok(m) if !m.is_file() => Err("This is not a file.".into()),
         Ok(_) => crate::read_bytes(path).and_then(|b| crate::text_or_cdx(b, lossy)).map_err(|e| match e.kind() {
             std::io::ErrorKind::PermissionDenied => "Octet does not have permission to read it.".into(),
-            _ => format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures."),
+            _ => format!("Octet cannot open {name}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, CIF, SMILES and InChI files, JCAMP-DX spectra, and pictures."),
         }),
     }
 }
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(file("e.cif", "data_é\n".as_bytes()).as_deref(), Ok("data_é\n"));
         assert_eq!(file("f.cif", b"VjCD0100\x04\x03\x02\x01\xff").as_deref(), Ok("VmpDRDAxMDAEAwIB/w=="));
         // Other files keep the strict test: the same Latin-1 bytes named .mol are refused.
-        let general = |n: &str| format!("Octet cannot open {n}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, SMILES and InChI files, JCAMP-DX spectra, and pictures.");
+        let general = |n: &str| format!("Octet cannot open {n}. It opens Octet and ChemDraw drawings (CDX and CDXML), ChemDraw template files, MOL, SDF, RXN, CIF, SMILES and InChI files, JCAMP-DX spectra, and pictures.");
         assert_eq!(file("g.mol", latin1), Err(general("g.mol")));
         // Binary bytes (a NUL byte) are refused even named .cif.
         assert_eq!(file("h.cif", b"data_x\n\0\xff\xfe"), Err(general("h.cif")));

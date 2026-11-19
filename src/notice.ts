@@ -26,9 +26,10 @@ export function reason(e: unknown): string {
 
 // A file that Octet's own reader refuses as damaged (cif.ts). Its message says why.
 export class DamagedFile extends Error {}
-// Why a reader refused text, to show as it is: over one of Octet's limits (a RangeError) or damaged (DamagedFile).
-// undefined for any other error (Indigo's own words, a fault), which keeps the general words.
-export const refusal = (e: unknown) => ((e instanceof RangeError || e instanceof DamagedFile) && reason(e)) || undefined;
+// Why a reader refused text, to show as it is: over one of Octet's limits (a RangeError that says "It has" or "It
+// takes", chem.ts and cif.ts) or damaged (DamagedFile). undefined for any other error (Indigo's own words, the engine's
+// own RangeErrors such as a stack overflow, a fault), which keeps the general words.
+export const refusal = (e: unknown) => (((e instanceof RangeError && /^It (has|takes) /.test(e.message)) || e instanceof DamagedFile) && reason(e)) || undefined;
 
 // A failure's notice: what Octet could not do, then why. A reason that says what Octet cannot do goes alone. The raw
 // error goes to the console.
