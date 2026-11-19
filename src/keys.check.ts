@@ -274,10 +274,10 @@ console.log("keys.check: circled charges on a key ok");
   assert.deepEqual(ids.filter((id) => !ACTIONS.some((a) => a.id === `tool.${id}` && a.place === "any" && a.group === "Tools")), [], "every tool has a tool.<id> action");
   assert.deepEqual(ids.filter((id) => !(`tool.${id}` in DEFAULT_KEYS)), [], "every tool has a DEFAULT_KEYS entry");
   // No new default key: ChemDraw 22.2 has none for these.
-  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
   assert.deepEqual(added.flatMap((id) => DEFAULT_KEYS[`tool.${id}`]), []);
   assert.deepEqual(added.map((id) => ACTIONS.find((a) => a.id === `tool.${id}`)!.name), ["Sequence tool", "Catalytic cycle tool", "Gel tool", "Plasmid map tool", "Table tool",
-    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool"]);
+    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool"]);
   // A key the user sets picks the tool, over nothing and over an atom with no action for it; it clashes with a tool
   // that has it; Reset to ChemDraw keys (no changes) takes it off.
   const mine = keymap({ "tool.gel": ["shift+v"], "tool.sequence": ["g"] });

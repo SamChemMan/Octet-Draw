@@ -215,8 +215,13 @@ export type Caption = {
   // On an experiment page: the text is this detail's value (experiment.ts FIELDS: "date", "notebook"), so the detail is
   // what the text says, wherever the text is moved to.
   field?: string;
+  // A measurement (measurement.ts): the distance between 2 atoms, the angle at the middle one of 3, or the dihedral
+  // across 4, in that order. The text is its value, worked out again as the atoms move; at is where its label was put
+  // by hand, in the measurement's own frame (measureFrame), so it rides with its atoms. Unset: Octet places it.
+  measure?: Measure;
   notes?: Annotation[]; // its notes, not drawn (annotate.ts)
 };
+export type Measure = { atoms: number[]; at?: [number, number] };
 export type StepFacts = { reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string };
 // Where conditions placed by hand go (their anchor, bond lengths): undefined when they are not placed by hand, or
 // their arrow has changed length or direction since.
