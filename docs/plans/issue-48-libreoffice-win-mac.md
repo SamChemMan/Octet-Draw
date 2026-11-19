@@ -406,12 +406,12 @@ document; a cropped picture.
 - Android.
 - Real runs on Windows and the Mac: LibreOffice is not installed here and may not be. The checklist is for Sam.
 
-## 13. What's New (draft, for the orchestrator)
+## 13. What's New (for the orchestrator; changed at the finish, section 15)
 
-- To edit a structure in LibreOffice on Windows or a Mac, click Add to LibreOffice in Settings > General. Then
-  double-click the structure in Writer, Impress, Draw or Calc.
-- When you paste a structure from Octet into LibreOffice on Windows, you can double-click it to edit it in Octet.
-- To put an Octet structure into a LibreOffice spreadsheet, choose Insert > Octet Drawing in Calc.
+- To edit structures in LibreOffice on Windows or a Mac, click Add to LibreOffice in Settings > General. Then
+  double-click a structure in Writer, Impress, Draw or Calc to open it in Octet.
+- To put a new structure into a LibreOffice document, choose Insert > Octet Drawing in Writer, Impress, Draw or Calc.
+- When you copy a structure in LibreOffice and paste it into Octet on Windows or a Mac, Octet pastes the structure.
 
 ## 14. Changes during the build (17 November 2026)
 
@@ -429,3 +429,28 @@ What the build found that the plan did not say, each with the requirement it ser
   unchanged.
 - `cargo check --target x86_64-pc-windows-msvc` needs stand-in C and resource tools on the Mac (ring's C, and the
   Windows resource file); `cargo check` compiles neither, as `docs/testing/ole-manual.md` notes.
+
+## 15. Finish (19 November 2026, rebased on bd7c684 for release 1.1.3)
+
+Cut, with the reason (decision 0025, Not done):
+
+- Windows: a paste from Octet into LibreOffice that opens in Octet. LibreOffice's source shows that Writer takes Octet's
+  bitmap before the EMF, and Impress, Draw and Calc convert the EMF to their own metafile, so the CDXML is lost
+  (section 1's Windows bullet was wrong). The fix is a new Windows clipboard type in Copy, which every Windows user
+  gets: not without a real run in Word, PowerPoint and LibreOffice. Insert > Octet Drawing is the way in on Windows.
+- Calc: a paste from Octet that opens in Octet, on any system. Calc's paste has no PDF. Insert > Octet Drawing in Calc
+  works.
+
+Changed:
+
+- Insert > Octet Drawing asks for a PDF on every system (section 5, decision 2): LibreOffice on Windows keeps no
+  pasted EMF, so EMF there gained nothing, and the PDF is the kind LibreOffice was tried with (Linux, 1.1.2).
+- Section 8: paste on Windows reads every type it knows at once, SVXB included; it does not ask for SVXB only when the
+  others gave no drawing. S23: ids are checked, as for every run_command.
+
+Fixed from the stress and review findings: Undo of an Update on a picture that is gone; a document named
+`--unregister-ole` or `-Embedding` read as Octet's own option on Windows; a slow `open -b` on the Mac; the place of
+an Insert deleted before the first Update; an Update renamed between the extension's look and its read; the Mac's
+marker rule (folder name, picture no link); Octet with no window on the Mac; Update written once and in order on
+Windows; the extension's old folders on Windows and the Mac; direction marks in window titles; run_command
+add_to_libreoffice when LibreOffice cannot be opened; folders the Python check left in the temporary folder.
