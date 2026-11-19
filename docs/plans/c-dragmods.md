@@ -80,3 +80,21 @@ pressed part-way through a drag changes it.
   9.6 µs a move; now with Shift up 9.7 µs (noise); with Shift held 7.2 µs (one axis snaps).
 - `npm run look` (WebKit): every control matches; the sweep did not reach Home (the sweep's own step, no UI changed
   here).
+
+## Polish of the Shift lock (19 Nov, after Sam's ChemDraw 22.2 check)
+
+Sam tried ChemDraw 22.2 by hand. Shift pressed part-way through a drag snaps the move onto one axis, but the jump
+feels bad. Option + Shift brings a copy back in line with the original, and Sam likes that. Option at the start of a
+marquee gives a lasso, which matches item 10. Sam approved this polish:
+
+13. Glide. When the lock turns on, turns off or swaps axis, the drawing slides from where it was shown to where it
+    now belongs in `--motion-fast` (150 ms) with `--ease-out` (cubic-bezier(0.23, 1, 0.32, 1)). It does not jump.
+    Pointer moves during the glide keep it going toward the new place. With reduced motion (prefers-reduced-motion)
+    it jumps, as now. Same for a copy, a reagent table and every object that moves through "move" or "grid".
+14. No flicker. Once locked, the axis swaps only when the pointer has moved clearly further the other way: more than
+    1.5 times as far. The first lock takes the axis moved further, as now.
+15. Shift acts at once. Pressing or releasing Shift mid-drag takes effect without a pointer move, from the last
+    pointer position.
+16. A guide line. While the lock is on, a thin line along the free axis runs through where the grabbed point
+    started, so the axis is visible. It uses the snap guide's look and goes when the lock goes or the drag ends.
+17. No slower pointer move than 1.1.2. The glide runs frames only for 150 ms after a change.
