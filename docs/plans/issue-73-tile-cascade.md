@@ -1,7 +1,8 @@
 # Tile and Cascade for drawing windows (issue 73)
 
-Plan for release 1.2, 18 November 2026. Status: built on branch `item/73-tile-cascade` (from `release-1.2-mcp`
-515ed13), for Sam's review. Not merged. The Mac real run changed one rule (R5, the grain): see "Real runs".
+Plan for release 1.2, 18 November 2026. Moved to release 1.1.3 on 19 November with the other built items. Status:
+built on branch `item/73-tile-cascade`, rebased onto `release-1.1.3` (f06d1b4), for the release session to merge. The
+Mac real run changed one rule (R5, the grain): see "Real runs".
 
 ## What Octet has now (515ed13)
 
@@ -279,6 +280,13 @@ Page (`src/window-arrange.check.ts`, run with `node`, then in `npm test`):
 - The ids and labels match the Rust menu (the check reads `main.rs`), and the palette's search words name ChemDraw's
   Tile Horizontal and Tile Vertical.
 
+Stress (`src/tilecascade-stress.check.ts`, in `npm test`; added for 1.1.3): one case or more for each row of the
+stress list that node can drive. The key map and menu registry run for real (case 18: a key, a clash, and a stored key
+in a menu without the items; case 19: the palette rows only where the menu has them), and so does the MCP's
+`run_command` (case 14, with spaced and capitalised ids, and `advanced` help). Each case names its Rust tests and fails
+if one is gone; with `OCTET_STRESS_RUST=1` and `CARGO_TARGET_DIR` it runs them. The cases that need real windows on
+Windows or Linux are listed as real runs.
+
 Whole run: `npm test` (all check files, compared with the 515ed13 baseline: 161 of 161 pass), `cargo test`, and
 `cargo check --target x86_64-pc-windows-msvc --tests` with stand-in C tools, as `docs/testing/ole-manual.md` did.
 
@@ -363,7 +371,7 @@ Bring All to Front, the windows. Hold Option: Arrange in Front cascades the draw
 | Job 2; cases 1 (all minimised), 5, 6, 13, 15, 16, 17 | Mac real run (harness); Rust unit tests for order and the one-at-a-time state |
 | Job 2 on Windows; cases 9, 10 | Windows type check; Sam's Windows run |
 | Job 3; cases 1 (no drawing), 7, 19 (Wayland) | Rust unit tests (count, ids, the list of windows picked); Sam's Windows run; Linux run |
-| Job 4; cases 12, 14, 18 | `src/window-arrange.check.ts`; Rust unit test; Sam's Windows run |
+| Job 4; cases 12, 14, 18 | `src/window-arrange.check.ts`, `src/tilecascade-stress.check.ts`; Rust unit test; Sam's Windows run |
 | Job 5; case 19 (Mac) | Sam's Mac look; the release-build refusal by a unit test |
 | Job 6 | Diff of decision 0020 and THIRD_PARTY.md |
 | Cases 20, 21 | Mac real run: save before and after Tile and compare bytes; copy and paste between two tiled windows; one run with the network off and one in dark mode (palette rows on the Mac are untouched) |
@@ -377,7 +385,7 @@ Bring All to Front, the windows. Hold Option: Arrange in Front cascades the draw
 - `src-tauri/src/windows.rs`: `list` (fixed count, enabled state), `front` (the arrangement's window while it runs).
 - `src-tauri/Cargo.toml`: `Win32_Graphics_Dwm` on windows-sys.
 - `src/keys.ts`, `src/Editor.tsx`: the three commands, `menuRuns`, the palette rows.
-- `src/window-arrange.check.ts` (new).
+- `src/window-arrange.check.ts`, `src/tilecascade-stress.check.ts` (new).
 - `docs/decisions/0020-windows.md`, `THIRD_PARTY.md`.
 
 ## Not in this item
@@ -398,12 +406,18 @@ Bring All to Front, the windows. Hold Option: Arrange in Front cascades the draw
 2. Names: Tile Top to Bottom and Tile Side by Side, or ChemDraw's Tile Horizontal and Tile Vertical?
 3. Mac: add Zoom and Bring All to Front, as ChemDraw has them (this plan)?
 
-## What's New (draft, for the release session)
+## What's New (for the release session, 1.1.3)
 
 - To put the open drawings side by side, choose Window > Tile Side by Side (Windows, and Linux with X11).
 - To put the open drawings one above the other, choose Window > Tile Top to Bottom (Windows, and Linux with X11).
 - To put the open drawings in a stack with each title bar in view, choose Window > Cascade (Windows, and Linux with
   X11).
-- To make a drawing window fill the screen, or to give it its last size again, choose Window > Zoom (Mac).
+- When you tile more drawings than the screen holds at Octet's smallest window size, the windows overlap evenly.
+- To give Cascade or a Tile a keyboard shortcut, set one in Settings > Keyboard shortcuts > Window (Windows, and Linux
+  with X11).
+- When you type Tile Horizontal or Tile Vertical (ChemDraw's names) in the command palette, it finds Tile Top to Bottom
+  or Tile Side by Side (Windows, and Linux with X11).
+- To make a drawing window as large as the screen allows, or to give it its last size again, choose Window > Zoom
+  (Mac).
 - To bring all of Octet's windows in front of other apps, choose Window > Bring All to Front (Mac). To put them in a
   stack, hold Option and choose Window > Arrange in Front.

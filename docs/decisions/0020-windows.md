@@ -31,10 +31,10 @@ more than one drawing open at a time, each in a window of its own, with Home lis
 - Recovery keeps a copy for each window (`<session>z<window>`). Settings are shared through storage events.
 - Files from Finder open one window each. A file dropped on a drawing goes into that drawing.
 
-## Cascade and Tile (issue 73, release 1.2)
+## Cascade and Tile (issue 73, release 1.1.3)
 
 Plan: `docs/plans/issue-73-tile-cascade.md`. Sam first said no (9 November: the operating system already arranges
-windows), then asked for them (13 November).
+windows). They were built for 1.2 (18 November) and ship in 1.1.3 with the other built items (19 November).
 
 - Windows, and Linux under X11: Window > Cascade, Tile Top to Bottom and Tile Side by Side, after Minimize and before
   the drawings. They are ChemDraw for Windows' Cascade, Tile Horizontal and Tile Vertical, with names that say where
