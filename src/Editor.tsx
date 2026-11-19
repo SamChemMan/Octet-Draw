@@ -120,7 +120,7 @@ import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
-import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
@@ -671,17 +671,18 @@ export default function Editor() {
   const [reveal, setReveal] = useState<{ tool: TemplateTool; set: string; id?: string; n: number }>();
   const showLibrary = (tool: TemplateTool, set: string, id?: string) => setReveal((r) => ({ tool, set, id, n: (r?.n ?? 0) + 1 }));
   // A template of the user's own, at the end of a set (My templates unless one is named). It is the Ring tool's (or the
-  // Template tool's, from its library) in hand now.
-  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring") {
+  // Template tool's, from its library) in hand now. ring: it goes in the Ring menu too (saved from the Ring tool, its
+  // strip or its library, or with the Ring tool in hand); the user pins any other there.
+  function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring", ring = tool === "ring") {
     const t = newTemplate(name, mol);
-    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
+    setSettings((s) => ({ ...ringed(s, addTo(s, t, set), ring), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
     setTool(tool);
     return t;
   }
   function removeRingTemplate(id: string) {
     const kind = templateKind(id);
     setSettings((s) => ({
-      ...removeTemplate(s, id),
+      ...ringed(s, removeTemplate(s, id)),
       pinned: s.pinned.filter((k) => k !== `ring:${kind}` && k !== `template:${kind}`),
       variants: { ...s.variants, ...(s.variants.ring === kind ? { ring: "benzene" } : {}), ...(s.variants.template === kind ? { template: "lib:Alanine" } : {}) },
     }));
@@ -689,11 +690,11 @@ export default function Editor() {
   // A drawing (a selection, a structure picked, a built-in template) becomes a template of the user's own, with
   // everything in it (its text, arrows, shapes and look, as ChemDraw's templates keep them). The library opens on its
   // set with its name ready to type: Return keeps the name.
-  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string) => {
+  const addPart = (part: Mol | undefined, set = MY_SET, tool: TemplateTool = "ring", name?: string, ring = tool === "ring") => {
     if (!part) return;
     let n = templates.length + 1;
     while (templates.some((t) => t.name === `Template ${n}`)) n++;
-    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool);
+    const t = addOwnTemplate(name ?? `Template ${n}`, part, set, tool, ring);
     showLibrary(tool, set, t.id);
   };
   // What Add to templates keeps: the selection, or with one atom or bond chosen (its Actions), its whole structure.
@@ -761,7 +762,7 @@ export default function Editor() {
     // A template removed meanwhile (from a palette) is kept as a new one, so nothing drawn is lost.
     const kept = !!e.id && templates.some((t) => t.id === e.id);
     if (kept) setSettings((s) => updateTemplate(s, e.id!, mol));
-    else { const t = newTemplate(e.name, mol); setSettings((s) => addTo(s, t)); }
+    else { const t = newTemplate(e.name, mol); setSettings((s) => ringed(s, addTo(s, t), e.tool === "ring")); }
     endTemplateEdit();
     setNotice(kept ? `${e.name} is saved.` : `${e.name} is saved in My templates.`, "done");
   }
@@ -8678,8 +8679,9 @@ export default function Editor() {
       }
     }
     // Add to templates: into My templates (the Actions panel), into a set (the right-click menu), or into a new set.
-    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
-    if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
+    // It goes in the Ring menu too only with the Ring tool in hand.
+    if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET, "ring", undefined, tool === "ring");
+    if (command === "template.add.new") { const part = templatePart(), ring = tool === "ring"; return part && askSet((set) => addPart(part, set, "ring", undefined, ring)); }
     if (command === "dictionary.add") return addToDictionary();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
@@ -10969,7 +10971,7 @@ export default function Editor() {
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         onEditTemplate={editTemplate}
-        onDuplicate={(id) => setSettings((s) => duplicateTemplate(s, id))}
+        onDuplicate={(id, tool) => setSettings((s) => ringed(s, duplicateTemplate(s, id), tool === "ring"))}
         onPlace={(id, before) => setSettings((s) => placeTemplate(s, id, before))}
         onToStart={(id) => setSettings((s) => templateToStart(s, id))}
         onToEnd={(id) => setSettings((s) => templateToEnd(s, id))}

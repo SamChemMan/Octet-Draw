@@ -3571,6 +3571,13 @@ div.facts {
 .library-item[aria-checked="true"] {
   background: var(--brand-mist);
 }
+/* One of the user's own beside the Ring menu: its pin above its ×. */
+.library-cell > .variant-action:has(+ .variant-action) {
+  margin-top: calc(-1 * var(--size-action) - 1px);
+}
+.library-cell > .variant-action + .variant-action {
+  margin-top: 1px;
+}
 /* The user's template sets: × on hover removes one (in place of its count); New set under them, then the library's. */
 .library-set {
   position: relative;
