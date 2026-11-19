@@ -98,3 +98,26 @@ marquee gives a lasso, which matches item 10. Sam approved this polish:
 16. A guide line. While the lock is on, a thin line along the free axis runs through where the grabbed point
     started, so the axis is visible. It uses the snap guide's look and goes when the lock goes or the drag ends.
 17. No slower pointer move than 1.1.2. The glide runs frames only for 150 ms after a change.
+
+### How (13 to 17)
+
+- `heldAxis(raw, lock, was)`: with `was` set, the axis swaps only when the other `|raw|` is more than `SWAP` (1.5)
+  times the current one's.
+- "move" and "grid" drags keep `d` (shown), `to` (where the move goes) and `held`. A change of `held` after the first
+  move calls `glideFrom(drag.d)`: `tween` with `--motion-fast` moves `lockGlide.t`, and each frame sets the drag again
+  from `to` (`glideStep`: `moveAll` for "move", `d` for "grid"). A pointer move shows `glided(to)`. Reduced motion: no
+  glide. `release`, Escape, `startMove` and `grabTable` stop it; a release during a glide lands at `to`.
+- A keydown or keyup of Shift (not a repeat, not while typing) during a moved "move" or "grid" drag runs
+  `onPointerMove` again from `lastMove` with the new Shift.
+- `lockLine` gives a `Guide` along the free axis through `drag.from`, across the window, drawn with the snap guides.
+
+### Results (13 to 17)
+
+- `snap.check.ts` asserts the hysteresis and reads Editor.tsx for the glide, reduced motion, the stops, the Shift
+  re-run and the line. Timing in the same file: the snap and lock step, 2000 moves on 50 boxes, 31 interleaved runs,
+  median: 0.57 to 0.61 µs a move now, 0.58 to 0.60 µs with 2d16aac5's `heldAxis`.
+- Dev server (Chromium pane, scripted pointer events): an ethane dragged 100 px across and 30 down, then Shift down
+  with no pointer move: it went partway (y 384 of 402 to 372) a few frames in, and to 372 after. The line showed while
+  Shift was down and went when it came up. Let go part-way through a glide, it landed at 372. Shift-dragged up 120 px:
+  a vertical line through the press; at 130 across it stayed vertical, at 200 across it swapped. Escape took the line
+  away. No console errors.

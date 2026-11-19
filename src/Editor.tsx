@@ -270,7 +270,9 @@ type Drag =
   // captions: where each moving caption starts (drawing coordinates), for captions that do not simply follow their structure.
   // base and atoms: what is moved, when it is not the drawing and the selection (Option-drag moves new copies).
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; alone?: true }
+  // d: the offset shown; to: where the move goes (d is part of the way there while the Shift lock glides); held: the
+  // axis the Shift lock holds (snap.ts heldAxis).
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; to?: P; held?: 0 | 1; alone?: true }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
@@ -297,8 +299,8 @@ type Drag =
   | { kind: "mark"; atom: number; key: string; start: [number, number]; base: Mol; working: Mol }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
-  // A reagent table moved on its own with Select, by d (drawing units) from where it is drawn.
-  | { kind: "grid"; arrow: number; from: P; start: [number, number]; d: P; moved: boolean; guides: Guide[]; snap: () => { moving: number[]; targets: number[][] } | undefined }
+  // A reagent table moved on its own with Select, by d (drawing units) from where it is drawn. to and held: as for "move".
+  | { kind: "grid"; arrow: number; from: P; start: [number, number]; d: P; to?: P; held?: 0 | 1; moved: boolean; guides: Guide[]; snap: () => { moving: number[]; targets: number[][] } | undefined }
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
@@ -5046,8 +5048,51 @@ export default function Editor() {
     ].filter((b): b is Box => !!b) : [];
     return movingBox ? { moving: movingBox, targets } : undefined;
   };
+  // The Shift lock's glide: when the lock turns on, turns off or swaps axis, what is shown slides from where it was to
+  // where it now goes in --motion-fast, with the brand's ease-out. A move during the glide changes where it goes.
+  // Reduced motion: it jumps. Frames run only while it glides.
+  const lockGlide = useRef<{ from: P; t: number; stop: () => void }>(undefined);
+  const stopGlide = () => { lockGlide.current?.stop(); lockGlide.current = undefined; };
+  const glided = (to: P): P => { const g = lockGlide.current; return g ? [g.from[0] + (to[0] - g.from[0]) * g.t, g.from[1] + (to[1] - g.from[1]) * g.t] : to; };
+  const glideStep = (dr: Drag | undefined): Drag | undefined => {
+    if ((dr?.kind !== "move" && dr?.kind !== "grid") || !dr.to) return dr;
+    const d = glided(dr.to);
+    return dr.kind === "grid" ? { ...dr, d } : { ...dr, d, working: moveAll(dr.base ?? doc, d, dr.captions, dr.arrows, dr.cycles, dr.atoms ?? selection) };
+  };
+  // Starts a glide from the offset shown (a glide going on starts again from where it is).
+  const glideFrom = (shown: P) => {
+    stopGlide();
+    if (reduced()) return;
+    const g = { from: shown, t: 0, stop: () => {} };
+    lockGlide.current = g;
+    g.stop = tween((t) => {
+      if (lockGlide.current !== g) return;
+      g.t = t;
+      if (t === 1) lockGlide.current = undefined;
+      setDrag(glideStep);
+    }, "--motion-fast");
+  };
+  useEffect(() => stopGlide, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The Shift lock's line: along the free axis through where the grabbed point started, across the window.
+  const lockLine = (dr: { from: P; held?: 0 | 1 }, view: { x: number; y: number; zoom: number }): Guide => {
+    const s = view.zoom * L;
+    return dr.held === 1 ? { axis: "y", at: dr.from[1], from: -view.x / s, to: (innerWidth - view.x) / s } : { axis: "x", at: dr.from[0], from: (view.y - innerHeight) / s, to: view.y / s };
+  };
+  // The pointer's last move, so Shift pressed or let go during a drag acts from there at once.
+  const lastMove = useRef<{ clientX: number; clientY: number; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }>(undefined);
+  useEffect(() => {
+    const onShift = (e: KeyboardEvent) => {
+      const last = lastMove.current, down = e.type === "keydown";
+      if (e.key !== "Shift" || e.repeat || !last || last.shiftKey === down || (drag?.kind !== "move" && drag?.kind !== "grid") || !drag.moved || typing()) return;
+      onPointerMove({ clientX: last.clientX, clientY: last.clientY, shiftKey: down, altKey: last.altKey, metaKey: last.metaKey, ctrlKey: last.ctrlKey } as React.PointerEvent<SVGSVGElement>);
+    };
+    addEventListener("keydown", onShift);
+    addEventListener("keyup", onShift);
+    return () => { removeEventListener("keydown", onShift); removeEventListener("keyup", onShift); };
+  });
   // alone: the atoms move without becoming the selection (a bond tool's Shift-drag).
   const startMove = (p: P, screen: [number, number], t: Hover, picks = picked, atoms = selection, copy = false, alone = false) => {
+    stopGlide();
     // Option-drag moves copies, made now and kept only if the pointer moves.
     let base = doc, copies: Map<number, number> | undefined;
     const atoms0 = atoms, picks0 = picks;
@@ -5152,6 +5197,7 @@ export default function Editor() {
     // A table in a wider selection (Select All, an area) moves the whole selection.
     if (table && !shift && picked.has(TABLE(table.arrow)) && (selection.size || picked.size > 1)) return startMove(p, screen, t);
     const grabTable = (arrow: number) => {
+      stopGlide();
       let boxes: ReturnType<typeof objectBoxes> | null = null;
       return setDrag({ kind: "grid", arrow, from: p, start: screen, d: [0, 0], moved: false, guides: [], snap: () => (boxes !== null ? boxes : (boxes = objectBoxes(new Set(), new Set([TABLE(arrow)])))) });
     };
@@ -5638,6 +5684,7 @@ export default function Editor() {
     }
     const p = toDoc(e.clientX, e.clientY);
     pointer.current = p;
+    lastMove.current = e;
     if (guides.rulers) pointers.set(p);
     if (hold.current && holdFrom.current && Math.hypot(e.clientX - holdFrom.current[0], e.clientY - holdFrom.current[1]) >= 4) stopHold();
     if (tool === "erase") setBrush(p);
@@ -5938,7 +5985,7 @@ export default function Editor() {
       case "grid": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         // Shift keeps it to one axis (snap.ts heldAxis): the other is held at 0 before the snaps, which snap the free axis only.
-        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey), raw = oneAxis(d0, held), boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey, drag.held), raw = oneAxis(d0, held), boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
         const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L), held) : { d: raw, guides: [] as Guide[] };
         // Snap to Grid, on each axis an object snap left free: the nearest corner or middle of the table.
         const b = snapGrid && !e.metaKey ? drag.snap()?.moving : undefined;
@@ -5947,7 +5994,10 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        return setDrag({ ...drag, d: oneAxis(snapped.d, held), guides: snapped.guides, moved: true });
+        // A change of lock glides (glideFrom); release puts it at to.
+        const to = oneAxis(snapped.d, held);
+        if (held !== drag.held && drag.moved) glideFrom(drag.d);
+        return setDrag({ ...drag, d: glided(to), to, held, guides: snapped.guides, moved: true });
       }
       case "box": {
         // As ChemDraw's Marquee: only the atoms inside the box (atomsInArea). The highlight shows what stays selected on release.
@@ -5970,7 +6020,7 @@ export default function Editor() {
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
         // Shift keeps it to one axis, a copy too (snap.ts heldAxis), but for a bond tool's Shift-drag of an atom (alone).
         // The other axis is held at 0 before the snaps, which snap the free axis only.
-        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey && !drag.alone), raw = oneAxis(d0, held), base = drag.base ?? doc, moving = drag.atoms ?? selection;
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey && !drag.alone, drag.held), raw = oneAxis(d0, held), base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text, arrows and shapes moving without atoms snap the same way.
         const tol = 6 / (views.get().zoom * L);
         const boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
@@ -5989,10 +6039,12 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        // Snap to Grid may have moved the held axis.
-        const d = oneAxis(snapped.d, held);
+        // Snap to Grid may have moved the held axis. A change of lock glides (glideFrom); release puts it at to.
+        const to = oneAxis(snapped.d, held);
+        if (held !== drag.held && drag.moved) glideFrom(drag.d ?? [0, 0]);
+        const d = glided(to);
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d });
+        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d, to, held });
       }
     }
   }
@@ -9032,7 +9084,8 @@ export default function Editor() {
   function release() {
     stopHold();
     if (spring) { setTool(spring); setSpring(undefined); }
-    const over = dropOver.current;
+    const over = dropOver.current, gliding = !!lockGlide.current;
+    stopGlide();
     markDrop(undefined);
     if (!drag) return;
     setDrag(undefined);
@@ -9138,7 +9191,7 @@ export default function Editor() {
         // A Shift-click on a table adds it to the selection or takes it out (click).
         if (!drag.moved && pressMods.current?.shift) return click({}, drag.from);
         // Moved by hand, the table keeps its place on the page from now on (Grid.free), until Attach to reaction.
-        const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.d);
+        const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.to ?? drag.d);
         return at && changeGrid(drag.arrow, () => ({ at, free: true }));
       }
       case "pen":
@@ -9202,8 +9255,10 @@ export default function Editor() {
         if (!drag.moved && addPoint.current !== undefined) return set(updateArrow(doc, addPoint.current, { point: true }), true);
         if (!drag.moved) return click(drag.target, drag.from);
         saw("move");
-        // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then.
-        const { mol, joined } = joinOverlaps(drag.working, drag.atoms ?? selection);
+        // An atom dropped exactly on another joins it. Joining renumbers atoms, so the selection clears then. Let go
+        // during a glide, it lands where the glide was going.
+        const working = gliding && drag.to ? moveAll(drag.base ?? doc, drag.to, drag.captions, drag.arrows, drag.cycles, drag.atoms ?? selection) : drag.working;
+        const { mol, joined } = joinOverlaps(working, drag.atoms ?? selection);
         return set(mol, !joined, undefined, !drag.skip);
       }
     }
@@ -9357,6 +9412,7 @@ export default function Editor() {
         if (hovers.get().key) setHover(pointer.current ? hit(pointer.current) : {});
         setGridPick(undefined);
         stopHold();
+        stopGlide();
         setDrag(undefined);
         if (spring) { setTool(spring); setSpring(undefined); }
         setPicked(new Set());
@@ -10522,7 +10578,7 @@ export default function Editor() {
             );
           })()}
           <Live store={brushes}>{(brush) => tool === "erase" && brush && <circle className="brush" cx={brush[0] * L} cy={-brush[1] * L} r={settings.eraser * L} vectorEffect="non-scaling-stroke" />}</Live>
-          {(drag?.kind === "move" || drag?.kind === "grid") && drag.guides.map((g, i) => {
+          {(drag?.kind === "move" || drag?.kind === "grid") && (drag.held === undefined ? drag.guides : [...drag.guides, lockLine(drag, view)]).map((g, i) => {
             // A space made equal: a line across it with a tick at each end.
             const tick = 4 / view.zoom, ends = g.gap ? [g.from, g.to] : [];
             return g.axis === "x"
