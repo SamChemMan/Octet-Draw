@@ -1693,6 +1693,9 @@ export default function Editor() {
     const fresh = set(EMPTY);
     setFile({ saved: fresh }); setHome(true); setOverDrawing(false); setCoach(0);
   });
+  // Settings > General > Add to LibreOffice (libreoffice.rs), on every system: LibreOffice's Extension Manager asks the
+  // user. The notice when LibreOffice cannot be opened, which an AI app's run_command hears too.
+  const addToLibreOffice = () => invoke("add_to_libreoffice").then(() => undefined, (e) => { const text = failure("Octet cannot open LibreOffice.", e); setNotice(text); return text; });
   // Updates (decision 0010, src-tauri/src/update.rs): a check when Octet opens, only if the user said yes to it, and
   // Check for Updates…. An update found asks before it installs, but never over another question: then it asks at the
   // next check. asked: the user chose Check for Updates, so the result shows also when there is no update or no network.
@@ -2614,6 +2617,7 @@ export default function Editor() {
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
     ...(AI ? { connect_ai: () => setSettingsOpen("ai") } : {}),
     report_problem: () => void invoke("open_link", { name: "issues" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))),
+    add_to_libreoffice: () => void addToLibreOffice(),
     check_updates: () => checkUpdates(true),
     import: () => void importFile(),
     ...(settings.moreFormats ? Object.fromEntries(moreFormats.map(([id, , , run]) => [id, run])) : {}),
@@ -7906,6 +7910,7 @@ export default function Editor() {
     turnNow: async () => { const { pick } = turnNext.current!, to = turnProducts(pick); turnNext.current = undefined; if (to) { mcpWait.current = { after: mcpRenders.current }; glideTo(to); await mcpHost.current!.settle(); } },
     cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) { mcpWait.current = { after: mcpRenders.current }; glideTo(spread(doc, c)); } },
+    libreoffice: () => addToLibreOffice(),
     command: (id) => { const run = commands.current[id], was = turnNext.current; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); if (turnNext.current && turnNext.current !== was) turnNext.current.call = true; return true; },
     // Any menu command or Actions panel action by its id, on the selection (run_command): mcp.ts checks the id
     // against its catalogue first.
@@ -7978,7 +7983,7 @@ export default function Editor() {
     close: async (session, drawing) => (TAURI && session ? invoke<"closed" | "unsaved" | "theirs" | "none">("mcp_close", { session, drawing, edited: unsaved && drawing === getCurrentWindow().label }) : "theirs"),
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
-    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id),
+    dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id) || id === "add_to_libreoffice",
     opens: async (text) => {
       if (!isDrawingText(text)) await ready;
       try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
@@ -10845,7 +10850,7 @@ export default function Editor() {
           onCheckUpdates={() => checkUpdates(true)}
           mcp={mcpInfo} onMcp={(on, newKey) => { setSettings((s) => ({ ...s, mcp: on, mcpChosen: true })); void invoke<McpInfo | null>("mcp_set", { on, newKey }).then(setMcpInfo, (e) => setNotice(failure("Octet cannot let AI apps in.", e))); }}
           aiApps={aiApps} onAiApp={(id, on) => (on ? connectAi([id]) : disconnectAi(id))}
-          onAddToLibreOffice={() => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e)))}
+          onAddToLibreOffice={() => commands.current.add_to_libreoffice()}
           onClose={() => { setSettingsOpen(undefined); setAddingColour(false); setMaking(undefined); }}
         />
       )}</Exit>

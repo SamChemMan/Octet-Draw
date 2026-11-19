@@ -34,6 +34,8 @@ mod eyedropper;
 #[cfg(feedback)]
 mod feedback;
 mod home;
+// Settings > General > Add to LibreOffice, on every system (libreoffice.rs, decision 0025).
+mod libreoffice;
 // Octet from an AppImage, and the programs Octet starts on Linux (linux.rs).
 #[cfg(target_os = "linux")]
 mod linux;
@@ -577,20 +579,6 @@ fn reveal_file(picked: State<'_, Picked>, exported: State<'_, export::Exported>,
 async fn open_licences(app: AppHandle) -> Result<(), String> {
     let path = app.path().resolve("licences/third-party.txt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
     open_external(&path).map_err(|e| e.to_string())
-}
-
-// Settings > General > Add to LibreOffice (Linux): Octet's extension for LibreOffice (tools/libreoffice) in
-// LibreOffice's Extension Manager, which asks the user to confirm. `unopkg gui` shows the manager on its own when
-// LibreOffice is closed, so no restart is needed, and in LibreOffice when it is open. The .oxt opened as a file
-// starts a closed LibreOffice with the file as its argument, and the restart after the install opens it again: a
-// second install prompt. A Flatpak Octet has no unopkg and opens the file through the system's portal. Octet writes
-// its path again for the extension (linux::note_path).
-#[cfg(target_os = "linux")]
-#[tauri::command]
-async fn add_to_libreoffice(app: AppHandle) -> Result<(), String> {
-    let path = app.path().resolve("libreoffice/octet-draw.oxt", tauri::path::BaseDirectory::Resource).map_err(|e| e.to_string())?;
-    linux::note_path(&app);
-    linux::spawn(std::process::Command::new("unopkg").arg("gui").arg(&path)).or_else(|_| open_external(&path)).map_err(|e| e.to_string())
 }
 
 // Import a structure or reaction from another program's file (MOL, SDF, RXN, RDF, CML, SMILES, InChI, CDXML, CDX).
@@ -1239,14 +1227,9 @@ fn absolute(dir: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
 // --app open an object in a file (the LibreOffice extension, objects.rs): the word after each is its value, never an
 // option (a document named --convert is only a name). Any other option (--x) is refused: only file paths (from
 // Explorer and file managers) open in the app.
-#[derive(Debug, PartialEq)]
-enum Start {
-    App,
-    Relay,
-    Headless,
-    Convert(convert::Job),
-}
-fn start(args: &[String]) -> Result<Start, String> {
+// The arguments that can be Octet's own options: each word after --object, --host or --app is that flag's value, so a
+// document named --unregister-ole or -Embedding is only a name (the LibreOffice extension passes the document's name).
+fn own(args: &[String]) -> Vec<&str> {
     let mut options = vec![];
     let mut words = args.iter();
     while let Some(x) = words.next() {
@@ -1255,6 +1238,18 @@ fn start(args: &[String]) -> Result<Start, String> {
         }
         options.push(x.as_str());
     }
+    options
+}
+
+#[derive(Debug, PartialEq)]
+enum Start {
+    App,
+    Relay,
+    Headless,
+    Convert(convert::Job),
+}
+fn start(args: &[String]) -> Result<Start, String> {
+    let options = own(args);
     let has = |a: &str| options.contains(&a);
     if has("--convert") {
         return convert::parse(&args.iter().filter(|x| *x != "--convert").cloned().collect::<Vec<_>>()).map(Start::Convert);
@@ -1313,10 +1308,10 @@ fn main() {
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
     #[cfg(windows)]
-    for a in std::env::args_os().skip(1) {
-        match a.to_str() {
-            Some("--register-ole") => std::process::exit(match std::env::current_exe() { Ok(me) if ole::win::register(&me) => 0, _ => 1 }),
-            Some("--unregister-ole") => {
+    for a in own(&args) {
+        match a {
+            "--register-ole" => std::process::exit(match std::env::current_exe() { Ok(me) if ole::win::register(&me) => 0, _ => 1 }),
+            "--unregister-ole" => {
                 ole::win::unregister();
                 std::process::exit(0)
             }
@@ -1324,7 +1319,7 @@ fn main() {
         }
     }
     // Started by Windows for Word (-Embedding, decision 0023): Octet serves an Octet Drawing object and opens no Home.
-    let embedding = cfg!(windows) && ole::embedding(std::env::args_os());
+    let embedding = cfg!(windows) && ole::embedding(&own(&args));
     // Started for Word, Home's window is made hidden. Every other start (and the Mac and Linux) is as in 1.1.1: Home
     // is made visible by tauri.conf.json, so no start can leave Octet with no window.
     let mut context = tauri::generate_context!();
@@ -1374,7 +1369,7 @@ fn main() {
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, #[cfg(target_os = "linux")] add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1442,6 +1437,11 @@ fn main() {
                 // An object in a file (--object, objects.rs), once its window can have a menu bar.
                 objects::open_file(handle, file, host, program);
             }
+            // The Mac: pictures from LibreOffice that came while Octet started open now (objects::opened).
+            #[cfg(target_os = "macos")]
+            if !headless {
+                objects::ready(handle);
+            }
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
             // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
             // window with unsaved changes (quit.rs).
@@ -1502,9 +1502,10 @@ fn main() {
         .build(context)
         .expect("error while running Octet")
         .run(|_app, event| match event {
-            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
+            // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon). A picture that
+            // LibreOffice's extension opened is an object (objects::marked).
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Opened { urls } => open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None),
+            tauri::RunEvent::Opened { urls } => open::offer(_app, objects::opened(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok())), None),
             // A window closed: it leaves Home's list, and a quit that waits goes on to the next window (quit.rs).
             // After a quit from the Dock or a logout, AppKit ends Octet, so Tauri does not end it first.
             tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => {
@@ -1580,6 +1581,16 @@ mod tests {
         for line in ["--object a.pdf --host --convert", "--object a.pdf --host --headless", "--object a.pdf --host --mcp", "--object --colour"] {
             assert_eq!(start(line), Ok(Start::App), "{line}");
         }
+        // Nor are they Windows' own options for Octet: a document named --unregister-ole removes no keys, and one named
+        // -Embedding does not start Octet for Word.
+        let words = |line: &str| line.split(' ').map(String::from).collect::<Vec<_>>();
+        for name in ["--unregister-ole", "--register-ole", "-Embedding", "/Embedding"] {
+            let args = words(&format!("--object a.emf --app Writer --host {name}"));
+            assert!(!own(&args).contains(&name), "{name}");
+            assert!(!ole::embedding(&own(&args)));
+        }
+        assert_eq!(own(&words("--register-ole")), ["--register-ole"]);
+        assert!(ole::embedding(&own(&words("-Embedding"))));
     }
 
     #[test]

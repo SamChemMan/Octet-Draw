@@ -137,8 +137,8 @@ pub fn repair(registered: Option<&str>, me: &Path, exists: impl Fn(&Path) -> boo
 // Windows starts a local server with -Embedding (or /Embedding) when Word needs one. Octet then opens no Home window
 // and gives none of its arguments to open::from_args.
 // https://learn.microsoft.com/windows/win32/com/localserver32 ("-Embedding")
-pub fn embedding<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> bool {
-    args.into_iter().skip(1).any(|a| a.eq_ignore_ascii_case("-embedding") || a.eq_ignore_ascii_case("/embedding"))
+pub fn embedding(options: &[&str]) -> bool {
+    options.iter().any(|a| a.eq_ignore_ascii_case("-embedding") || a.eq_ignore_ascii_case("/embedding"))
 }
 
 // The picture's size in hundredths of a millimetre (HIMETRIC), from the EMF header's frame (rclFrame, already in
@@ -294,7 +294,9 @@ pub fn host_name(name: &str) -> String {
 // The program's name for the Update button (Update in Word), cleaned as host_name cleans a document's name. Empty when
 // there is none: the button then names the document.
 pub fn program_name(name: &str) -> String {
-    name.chars().filter(|c| !c.is_control()).take(MAX_HOST).collect::<String>().trim().into()
+    // Nor marks that turn the text's direction: one in a document's name would turn the rest of the title round.
+    let shown = |c: &char| !c.is_control() && !matches!(c, '\u{61C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    name.chars().filter(shown).take(MAX_HOST).collect::<String>().trim().into()
 }
 
 // The object window's title, as Windows' guidelines for objects opened in a window give it.
@@ -406,12 +408,10 @@ mod tests {
 
     #[test]
     fn embedding_launches() {
-        let args = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
-        assert!(embedding(args(&["octet.exe", "-Embedding"])));
-        assert!(embedding(args(&["octet.exe", "/Embedding"])));
-        assert!(embedding(args(&["octet.exe", "-embedding"])));
-        assert!(!embedding(args(&["octet.exe", "aspirin.oct"])));
-        assert!(!embedding(args(&["-Embedding"])), "the program's own path is not an argument");
+        assert!(embedding(&["-Embedding"]));
+        assert!(embedding(&["/Embedding"]));
+        assert!(embedding(&["-embedding"]));
+        assert!(!embedding(&["aspirin.oct"]));
     }
 
     #[test]
@@ -509,6 +509,7 @@ mod tests {
         assert_eq!(host_name(&"x".repeat(1000)).len(), 260);
         assert_eq!(program_name(" Writer\u{7}"), "Writer");
         assert_eq!(program_name("\u{7} "), "", "no name: the button names the document");
+        assert_eq!(host_name("\u{202e}right to left\u{200f}.odt\u{2066}"), "right to left.odt", "no direction marks");
     }
 
     #[test]

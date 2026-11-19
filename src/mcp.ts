@@ -55,6 +55,9 @@ export type Host = {
   cleanReactions: (arrows: Set<number>) => number; // Clean Up Reaction on the reactions of these arrows
   tidyCycle: (id: number) => void; // Clean Up on a catalytic cycle (Tidy the cycle)
   command: (id: string) => boolean; // a menu command by its id
+  // Settings > General > Add to LibreOffice: LibreOffice's Extension Manager asks the user. The text the window showed
+  // when LibreOffice cannot be opened, else undefined.
+  libreoffice: () => Promise<string | undefined>;
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
@@ -292,6 +295,7 @@ const MENU_COMMANDS = [
   "text_bold", "text_italic", "text_underline", "text_plain", "text_sub", "text_super", "text_formula", "text_markup", "align_left", "align_centre", "align_right", "align_justify", "align_above", "align_auto", "colour_by_element",
   "zoom_in", "zoom_out", "zoom_actual", "zoom_fit", "centre_view", "show_page", "grid", "rulers", "crosshair", "snap", "snap_grid", "fixed_lengths", "fixed_angles", "warnings", "show_warnings", "hide_warnings", "interpretation", "actions",
   "number", "numbers.roman", "pairs", "delete", "save", "save_as", "print", "export", "insert_file", "image_to_structure", "recognise_structures", "rotate_dialog", "scale_dialog", "atom_properties", "bond_properties", "bracket_properties", "document", "page_setup", "experiment_details",
+  "add_to_libreoffice",
 ] as const;
 // The actions, as the Actions panel's buttons and menus run them: a value goes in the id (scale.120, halo.#FFD6A5).
 const ACTIONS = new RegExp(["^(halo|ringfill|colour)\\.(none|#[0-9a-fA-F]{6})$", "^scale\\.\\d{1,4}$", "^rotate\\.(cw|ccw)(15|1)$", "^(charge\\.(plus|minus|circledPlus|circledMinus|circled)|repeat_label|caption\\.add|template\\.add|dictionary\\.add|reaction\\.map|reaction\\.unmap)$",
@@ -2766,6 +2770,10 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
     const sel = host.selection(), m = host.doc(), frees = (m.shapes ?? []).some((x) => sel.items.includes(x.id) && symbolCharge(x) !== undefined);
     if (id === "charge.circled" ? !sel.atoms.some((i) => m.atoms[i]?.charge) && !frees : !sel.atoms.length && !frees)
       return { text: `${id} did not fit: ${id === "charge.circled" ? "nothing picked has a charge" : "pick an atom or a free charge"} (give ids).`, error: true };
+  }
+  if (id === "add_to_libreoffice") {
+    const failed = await host.libreoffice();
+    return failed ? { text: `${failed} Octet did not add its extension.`, error: true } : { text: "Ran add_to_libreoffice. LibreOffice's Extension Manager asks the user to add Octet's extension." };
   }
   const ran = (MENU_COMMANDS as readonly string[]).includes(id) ? host.command(id) || host.act(id) : host.act(id);
   await host.settle();

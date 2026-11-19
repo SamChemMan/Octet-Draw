@@ -26,7 +26,7 @@
   },
   "bundle": {
     "active": true,
-    "resources": { "../src/vendor/opsin/NOTICES.txt": "licences/opsin.txt", "../data/nmr/LICENCE.txt": "licences/nmrshiftdb2.txt", "licences/third-party.txt": "licences/third-party.txt" },
+    "resources": { "../src/vendor/opsin/NOTICES.txt": "licences/opsin.txt", "../data/nmr/LICENCE.txt": "licences/nmrshiftdb2.txt", "licences/third-party.txt": "licences/third-party.txt", "gen/octet-draw.oxt": "libreoffice/octet-draw.oxt" },
     "targets": ["app", "dmg", "nsis", "deb", "rpm", "appimage"],
     "publisher": "Sam Ellis",
     "copyright": "© 2026 Sam Ellis",

@@ -39,7 +39,6 @@ export type FilePrefs = {
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
   quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
 };
-// LINUX also gates Add to LibreOffice, Octet's extension for LibreOffice (tools/libreoffice).
 const MAC = navigator.platform.startsWith("Mac"), LINUX = navigator.platform.startsWith("Linux");
 // Office object: on Windows only, Copy puts an Octet Drawing object first, which Word, PowerPoint and Excel keep and
 // open in Octet (decision 0023).
@@ -119,7 +118,7 @@ type Props = {
   // AI apps (decision 0021): the server's address and key while it is on, and the switch.
   mcp: { port: number; token: string; program: string; args?: string[] } | null; onMcp: (on: boolean, newKey?: boolean) => void;
   aiApps: AiApp[]; onAiApp: (id: string, on: boolean) => void; // the AI apps on this computer, and Octet in each
-  onAddToLibreOffice: () => void; // Linux: opens Octet's extension for LibreOffice, and says so when it cannot
+  onAddToLibreOffice: () => void; // opens Octet's extension for LibreOffice, and says so when it cannot
   // The user's own dictionary (Add to dictionary): each name to change or remove here, and the whole list exported or
   // imported as a SMILES file.
   dictionary: { name: string; smiles: string }[];
@@ -631,11 +630,11 @@ export function SettingsWindow(p: Props) {
       ...(MAC ? [d("general", "Word", "Double-click opens a structure in Octet", "microsoft word double click open edit structure picture drawing object office ole", (
         <Switch on={p.wordClick} label="Double-click opens a structure in Octet" onChange={p.onWordClick} />
       ))] : []),
-      // Opens Octet's extension, which LibreOffice's Extension Manager adds: a double-click on a structure in Writer,
-      // Impress or Draw then opens it in Octet.
-      ...(LINUX ? [d("general", "LibreOffice", "Edit structures in LibreOffice", "libreoffice writer impress draw extension oxt add install double click edit office document", (
+      // Opens Octet's extension, which LibreOffice's Extension Manager adds, on every system: a double-click on a
+      // structure in Writer, Impress, Draw or Calc then opens it in Octet.
+      d("general", "LibreOffice", "Edit structures in LibreOffice", "libreoffice writer impress draw calc extension oxt add install double click edit office document", (
         <button className="text-button" onClick={p.onAddToLibreOffice}>Add to LibreOffice</button>
-      ))] : []),
+      )),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("ai", "AI apps", "Let AI apps use Octet", "ai apps mcp claude chatgpt assistant model context protocol connect draw", <Switch on={!!p.mcp} label="Let AI apps use Octet" onChange={(on) => p.onMcp(on)} />),
       ...(p.mcp ? [
