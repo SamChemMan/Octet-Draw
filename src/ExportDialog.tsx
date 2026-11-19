@@ -20,7 +20,7 @@ import type { FilePrefs } from "./SettingsWindow";
 export const BACKDROPS: [FilePrefs["background"], string][] = [["transparent", "Transparent"], ["white", "White"], ["page", "Page colour"]];
 // A PDF's pages: one page cropped to the drawing, or a page for each page of the document's paper it covers, as File >
 // Print lays them out.
-export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "Document pages"]];
+export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "All pages"]];
 
 // The resolution, in Export… and Settings: any dpi typed, or one of the usual ones from the list beside it.
 export function DpiField({ value, onChange }: { value: number; onChange: (dpi: number) => void }) {
@@ -91,7 +91,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, paper, sheets, pa
   const backdrop = backdrops.some(([b]) => b === prefs.background) ? prefs.background : "white";
   // A saved format this drawing has nothing for stays in the list, so the list shows it and Export… is off.
   const ok = usable.some(([f]) => f === format);
-  // PDF > Pages > Document pages: how many, too many (Print's limit), and the preview as the pages, the drawing where it
+  // PDF > Pages > All pages: how many, too many (Print's limit), and the preview as the pages, the drawing where it
   // sits on them (the picture's viewBox is its place in pt, as the pages are).
   const fixed = paged && part === "all", pages = format === "pdf" && (fixed ? "document" : prefs.pdfPages);
   const sheet = pages === "document" ? sheets[part] : undefined, many = !!sheet && sheet.count > MAX_PRINT_PAGES;
@@ -154,7 +154,7 @@ export function ExportDialog({ prefs, onPrefs, pictures, page, paper, sheets, pa
   );
 }
 
-// Document pages' preview: the pages at their size, the drawing (a standaloneSvg, its viewBox in pt) where it sits on
+// All pages' preview: the pages at their size, the drawing (a standaloneSvg, its viewBox in pt) where it sits on
 // them. The picture comes in as an <image>, so it is drawn as the export's <img> is.
 function sheetsPreview(picture: string, sheet: Sheets, paper: { w: number; h: number }) {
   const [w, h] = [(paper.w * 72) / 25.4, (paper.h * 72) / 25.4], box = (/viewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/.exec(picture) ?? []).slice(1).map(Number);

@@ -5629,7 +5629,7 @@ line.attach-hit[aria-checked="true"] {
   height: 150px;
   object-fit: contain;
 }
-/* Document pages: the pages as paper, each edged, the drawing on them. */
+/* All pages: the pages as paper, each edged, the drawing on them. */
 .export-sheets {
   width: 100%;
   height: 150px;

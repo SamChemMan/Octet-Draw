@@ -1548,7 +1548,7 @@ export default function Editor() {
     return (partKept.current = { doc, selection, picked, part: extractSelection(doc, selection, picked, drawnAt, drawnAlign) }).part;
   };
   // Export… (⌃⌘E, and the Export button): the settings first, with the whole drawing's picture and, when something is
-  // selected, the selection's, and the document pages each covers (PDF > Pages > Document pages). The chosen format is
+  // selected, the selection's, and the document pages each covers (PDF > Pages > All pages). The chosen format is
   // made when the dialog shows it. Then the Save dialog for that format.
   function openExport() {
     const sel = selectedPart(), [, w, h] = pages[0], sheets: NonNullable<typeof exportView>["sheets"] = {};
@@ -1589,7 +1589,7 @@ export default function Editor() {
       return;
     }
     const path = await exportAs(() => {
-      // PDF > Pages > Document pages (always, for an experiment page): the pages, as Print gives them.
+      // PDF > Pages > All pages (always, for an experiment page): the pages, as Print gives them.
       const paged = f.format === "pdf" && ((part === "all" && expPage) || f.pdfPages === "document"), sheets = paged ? pagePictures(mol) : undefined;
       if (paged && !sheets) return;
       return { ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts };

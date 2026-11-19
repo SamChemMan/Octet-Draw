@@ -222,7 +222,7 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.match(editor, /const structureInk = useMemo\([^\n]*structurePaths\(d, !!exporting\)[^\n]*\[drawing, exporting\]\)/, "structures apart when exporting");
   assert.match(editor, /if \(exporting\) each\.push\(\[key, path\]\);/, "arrows apart when exporting");
 }
-// Export… > PDF > Pages (ported from PR #156): One page, cropped to the drawing, or Document pages, a page for each page
+// Export… > PDF > Pages (ported from PR #156): One page, cropped to the drawing, or All pages, a page for each page
 // of the document's paper the part covers, as Print lays them out (pagePictures). The choice is kept; only "document"
 // turns it on. Quick export and the clipboard PDF stay one cropped page.
 {
@@ -238,7 +238,7 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.equal(MAX_PRINT_PAGES, 64, "Rust's MAX_PAGES");
   assert.ok(readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8").includes("pub const MAX_PAGES: usize = 64;"));
   // The dialog: the row only for PDF, its two choices, the count and paper under the preview, Export off past 64.
-  assert.ok(dialog.includes('export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "Document pages"]];'));
+  assert.ok(dialog.includes('export const PDF_PAGES: [FilePrefs["pdfPages"], string][] = [["one", "One page"], ["document", "All pages"]];'));
   assert.match(dialog, /\{format === "pdf" && \(\n\s*<div className="dialog-row"><span>Pages<\/span>/);
   assert.ok(dialog.includes('disabled={!ok || big || many}'), "Export is off past the limit");
   assert.ok(dialog.includes('{`Too many pages. Octet exports ${MAX_PRINT_PAGES} at most.`}'));
