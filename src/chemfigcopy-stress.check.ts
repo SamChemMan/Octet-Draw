@@ -746,8 +746,13 @@ else {
   };
   const { measurer } = chem, { DEFAULT_STYLE, fontStack, frameStyle, readStyle } = await import("./docstyle.ts");
   const style = readStyle(DEFAULT_STYLE), frame = frameStyle(style, chem.STYLE.bond), measure = measurer(fontStack(style.labelFont), frame.size);
-  // Where the page draws each mark: its atom and its angle (degrees, y up, as chemfig.ts reads render()'s electrons).
-  const MARKS = (d: { scale: number; electrons: { atom: number; at: number[] }[] }, m: Mol) => d.electrons.map((e) => Math.round((Math.atan2(-(e.at[1] + m.atoms[e.atom].location[1] * d.scale), e.at[0] - m.atoms[e.atom].location[0] * d.scale) * 180) / Math.PI)).sort((x, y) => x - y);
+  // Where the page draws each mark the code writes as a \charge: its atom and its angle (degrees, y up, as chemfig.ts
+  // reads render()'s electrons). Not a mark: a label's own sign that is not circled, moved or a radical ion's (the
+  // code writes it in the label), and a radical ion's second electron at its dot (the page's handle for a drag).
+  const MARKS = (d: { scale: number; label: unknown[]; electrons: { atom: number; at: number[]; key?: string }[] }, m: Mol) => d.electrons.filter((e, k, all) => {
+    const a = m.atoms[e.atom], same = all.findIndex((f) => f.atom === e.atom && f.at[0] === e.at[0] && f.at[1] === e.at[1]);
+    return same === k && !(e.key === "charge" && d.label[e.atom] && !a.circled && a.angles?.charge === undefined && !all.some((f) => f.atom === e.atom && f.key === undefined));
+  }).map((e) => Math.round((Math.atan2(-(e.at[1] + m.atoms[e.atom].location[1] * d.scale), e.at[0] - m.atoms[e.atom].location[0] * d.scale) * 180) / Math.PI)).sort((x, y) => x - y);
   const headless = Object.fromEntries(Object.entries(SAME).map(([k, m]) => [k, { code: chemfig(m, frame, measure, { compact: true }).code, marks: MARKS(render(m, frame, measure), m) }]));
   writeFileSync(page, `${UI_LIB}\nconst SAME = ${JSON.stringify(SAME)};\nconst MARKS = ${MARKS.toString()};\n${UI_CASES}`);
   const run = spawnSync("swift", [new URL("../scripts/look/webkit.swift", import.meta.url).pathname, UI, page], { encoding: "utf8", timeout: 290_000 });

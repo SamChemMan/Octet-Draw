@@ -587,7 +587,7 @@ function chemfigNotice(mol: Mol, left: Set<string>, inSyntax: Set<string>): stri
   const shapes = mol.shapes ?? [], kinds = (k: string) => shapes.some((x) => x.kind === k);
   // Each kind in a fixed order, named once.
   const missing: [boolean, string][] = [
-    [!!mol.arrows?.length, "arrows"], [!!mol.captions?.length, "text"], [shapes.some(isBracket), "brackets"],
+    [!!mol.arrows?.length, "arrows"], [!!mol.captions?.length, "text"], [kinds("symbol"), "free symbols"], [shapes.some(isBracket), "brackets"],
     [kinds("box") || kinds("rounded") || kinds("oval"), "shapes"], [kinds("picture"), "pictures"], [kinds("table") || !!mol.grids?.length, "tables"],
     [kinds("tlc"), "TLC plates"], [kinds("gel"), "gels"], [kinds("plasmid"), "plasmid maps"], [!!mol.cycles?.length, "catalytic cycles"], [!!mol.spectra?.length, "spectra"],
     [kinds("highlight") || atoms.some((a) => a.halo) || bonds.some((b) => b.halo), "highlights"], [!!mol.fills?.length, "ring fills"],

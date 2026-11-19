@@ -537,6 +537,8 @@ const kekule = [0, 1, 2, 3, 4, 5].map((k) => B(k, (k + 1) % 6, k % 2 ? 1 : 2));
   assert.equal(say({}), "", "structures only: nothing more to say");
   assert.equal(say({ arrows: [{ id: 1, kind: "reaction", from: [0, 0], to: [1, 0] }], captions: [{ id: 2, text: "x", x: 0, y: 0 }], shapes: [{ id: 3, kind: "highlight", from: [0, 0], to: [1, 1] }] } as Partial<Mol>), "The code does not have the arrows, text and highlights.");
   assert.equal(say({ cycles: [{}] } as Partial<Mol>), "The code does not have the catalytic cycles.");
+  // A charge, radical or lone pair placed on its own with the Symbols tool (#164) is not the atom's: it is named.
+  assert.equal(say({ captions: [{ id: 2, text: "x", x: 0, y: 0 }], shapes: [{ id: 3, kind: "symbol", symbol: "plus", from: [1.2, 0.2], to: [1.5, 0.5] }] } as Partial<Mol>), "The code does not have the text and free symbols.");
   assert.equal(say({ shapes: [{ id: 3, kind: "brackets", from: [0, 0], to: [1, 1] }] } as Partial<Mol>), "The code does not have the brackets.");
   assert.equal(say({}, [B(0, 1, 14)]), "The code shows quadruple bonds as triple bonds.");
   assert.equal(say({ captions: [{ id: 2, text: "x", x: 0, y: 0 }] } as Partial<Mol>, [B(0, 1, 14)]), "The code does not have the text. It shows quadruple bonds as triple bonds.");

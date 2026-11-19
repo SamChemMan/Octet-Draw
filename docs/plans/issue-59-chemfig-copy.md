@@ -239,6 +239,15 @@ says. The review's findings fixed in the same pass:
 - Unicode's ε and φ are TeX's `\varepsilon` and `\varphi` (`\epsilon` and `\phi` are the other glyphs, ϵ and ϕ).
 - The timing checks take the fastest of 9 runs for growth and measure a budget up to 3 times, so one pause on a busy
   computer does not fail `npm test`.
+- The notice names free symbols (#164: charges, radicals and lone pairs placed on their own with the Symbols tool),
+  which the code does not have: "The code does not have the text and free symbols."
+- X12 counts only the marks the code writes as `\charge`. Since #163 and #164, `render()` also gives a label's own
+  sign and a radical ion's dot a second time (handles for a drag); the code writes a label's own sign in the label.
+
+Into release-1.1.3 (44472d7, AI off): one conflict, in `src/SettingsWindow.tsx`, the end of the Settings rows. Keep
+1.1.3's `].filter((x) => AI || x.module !== "ai");` and add `p.chemfigCompact` after `p.moreFormats` in its list of
+dependencies. Checked with AI off on 19 November: `features.check.ts`, the type check, the chemfig checks and the
+stress check in WebKit (20 of 20) pass, and `npm run look` finds every control matching.
 
 ## Merge notes (for the integration session)
 
