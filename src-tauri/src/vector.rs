@@ -570,10 +570,86 @@ impl Figures {
     }
 }
 
+// The figures of a nonzero fill (point ranges of `kinds`), in groups that every reader fills the same. LibreOffice reads
+// no fill mode and fills each EMF+ path even-odd, so where two figures of one path overlap (a double bond's line over
+// the next bond) it leaves a white notch. So figures go in paths of their own, and the overlap is ink in any reader,
+// except: figures with a point in common, to 0.05 px (bonds that meet at a mitred join), stay in one path, so no
+// anti-aliased seam shows where they meet; and a figure whose box holds another's, or sits in it, within 8 figures (a
+// letter and its holes).
+// Returns the figures in the order of their groups, and where each group ends in that list.
+fn fill_groups(points: &[f32], kinds: &[u8]) -> (Vec<std::ops::Range<usize>>, Vec<usize>) {
+    let mut figures: Vec<std::ops::Range<usize>> = Vec::new();
+    for (i, k) in kinds.iter().enumerate() {
+        if k & 0x7F == 0 {
+            if let Some(f) = figures.last_mut() {
+                f.end = i;
+            }
+            figures.push(i..kinds.len());
+        }
+    }
+    let n = figures.len();
+    if n < 2 {
+        return (figures, vec![n]);
+    }
+    // Union-find; a group's root is its first figure.
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut union = |a: usize, b: usize| {
+        let (a, b) = (root(&mut parent, a), root(&mut parent, b));
+        parent[a.max(b)] = a.min(b);
+    };
+    // Each point's first figure, by the 0.1 px cell it is in (a table with open addressing, at most half full). A point
+    // looks in the 4 cells nearest it, so figures with points within 0.05 px of each other are joined: the arc of a
+    // cycle in short pieces, each starting where the last ends to 0.02 px, is one path.
+    let bits = (2 * kinds.len()).next_power_of_two().trailing_zeros();
+    let mut table: Vec<(u64, u32)> = vec![(0, 0); 1 << bits]; // a cell's key, and its figure + 1 (0: empty)
+    let key = |x: i32, y: i32| (u64::from(x as u32) << 32) | u64::from(y as u32);
+    let mut boxes: Vec<[f32; 4]> = Vec::with_capacity(n);
+    let inside = |a: &[f32; 4], b: &[f32; 4]| a != b && a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3];
+    for (i, f) in figures.iter().enumerate() {
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for j in f.clone() {
+            let (x, y) = (points[2 * j], points[2 * j + 1]);
+            b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+            let (cx, cy) = ((x * 10.0).floor(), (y * 10.0).floor());
+            let (nx, ny) = (if x * 10.0 - cx < 0.5 { -1 } else { 1 }, if y * 10.0 - cy < 0.5 { -1 } else { 1 });
+            let (cx, cy) = (cx as i32, cy as i32);
+            for (k, own) in [(key(cx, cy), true), (key(cx.saturating_add(nx), cy), false), (key(cx, cy.saturating_add(ny)), false), (key(cx.saturating_add(nx), cy.saturating_add(ny)), false)] {
+                let mut slot = (k.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - bits)) as usize;
+                loop {
+                    match table[slot] {
+                        (_, 0) => break if own { table[slot] = (k, i as u32 + 1) },
+                        (t, other) if t == k => break if other as usize != i + 1 { union(i, other as usize - 1) },
+                        _ => slot = (slot + 1) & (table.len() - 1),
+                    }
+                }
+            }
+        }
+        for (k, c) in boxes.iter().enumerate().skip(i.saturating_sub(8)) {
+            if inside(&b, c) || inside(c, &b) {
+                union(i, k);
+            }
+        }
+        boxes.push(b);
+    }
+    let mut order: Vec<(usize, usize)> = (0..n).map(|i| (root(&mut parent, i), i)).collect();
+    order.sort_unstable();
+    let mut ends: Vec<usize> = (1..n).filter(|&k| order[k].0 != order[k - 1].0).collect();
+    ends.push(n);
+    (order.into_iter().map(|(_, i)| figures[i].clone()).collect(), ends)
+}
+
 // A shape as EMF+: its outline as a path object, then filled with its colour (EmfPlusFillPath) and drawn with a pen
 // object (EmfPlusDrawPath). Points are floats; each figure starts with a start point and a closed one has the close
 // flag on its last point. A nonzero fill sets PathPointFlags 0x2000, as GDI+ writes a path with winding fill (MS-EMFPLUS
-// names no fill mode; the Windows CI test ole_plus_fill_mode checks it). None for a shape with no points or no paint.
+// names no fill mode; the Windows CI test ole_plus_fill_mode checks it), and goes in fill_groups' paths. None for a
+// shape with no points or no paint.
 fn plus_shape(sh: &Shape) -> Option<Plus> {
     let mut f = Figures::default();
     for seg in &sh.segs {
@@ -592,16 +668,39 @@ fn plus_shape(sh: &Shape) -> Option<Plus> {
     if types.is_empty() || (sh.fill.is_none() && sh.stroke.is_none()) {
         return None;
     }
-    let mut path = Vec::with_capacity(12 + 9 * types.len());
-    le(&mut path, &[PLUS_VERSION, types.len() as u32, if matches!(sh.fill, Some((_, false))) { 0x2000 } else { 0 }]);
-    lef(&mut path, &points);
-    path.extend(&types);
+    let winding = matches!(sh.fill, Some((_, false)));
+    // EmfPlusObject: a path of these figures, written in place (Plus::record's layout).
+    let object = |p: &mut Plus, figures: &[std::ops::Range<usize>]| {
+        let n: usize = figures.iter().map(|f| f.len()).sum();
+        let size = 12 + (12 + 9 * n).next_multiple_of(4);
+        p.0.reserve(size);
+        p.0.extend(0x4008u16.to_le_bytes());
+        p.0.extend(((3u16 << 8) | PLUS_PATH).to_le_bytes());
+        le(&mut p.0, &[size as u32, size as u32 - 12, PLUS_VERSION, n as u32, if winding { 0x2000 } else { 0 }]);
+        for f in figures {
+            lef(&mut p.0, &points[2 * f.start..2 * f.end]);
+        }
+        for f in figures {
+            p.0.extend(&types[f.clone()]);
+        }
+        p.0.resize(p.0.len() + (4 - (12 + 9 * n) % 4) % 4, 0);
+    };
+    let all = [0..types.len()];
     let mut p = Plus::default();
-    p.record(0x4008, (3 << 8) | PLUS_PATH, &path); // EmfPlusObject: a path
+    let (figures, ends) = if winding { fill_groups(&points, &types) } else { (all.to_vec(), vec![1]) };
     if let Some((c, _)) = sh.fill {
-        p.record(0x4014, 0x8000 | PLUS_PATH, &argb(c).to_le_bytes()); // EmfPlusFillPath, the colour inline (S)
+        let mut from = 0;
+        for &end in &ends {
+            object(&mut p, &figures[from..end]);
+            p.record(0x4014, 0x8000 | PLUS_PATH, &argb(c).to_le_bytes()); // EmfPlusFillPath, the colour inline (S)
+            from = end;
+        }
     }
     if let Some(st) = &sh.stroke {
+        // The pen draws the whole outline: the fill's path if it had one.
+        if sh.fill.is_none() || ends.len() > 1 {
+            object(&mut p, &all);
+        }
         p.record(0x4008, (2 << 8) | PLUS_PEN, &pen(st)); // EmfPlusObject: a pen
         p.record(0x4015, PLUS_PATH, &u32::from(PLUS_PEN).to_le_bytes()); // EmfPlusDrawPath
     }
@@ -611,8 +710,10 @@ fn plus_shape(sh: &Shape) -> Option<Plus> {
 // An EMF+ pen (EmfPlusPen): its width in world units (px here), the caps and join, the miter limit, the dashes, then
 // a solid brush of its colour. GDI+ measures dashes in pen widths. The SVG's miter join turns to a bevel past the
 // limit: in GDI+ that is LineJoinMiterClipped. GDI+ has no square dash cap, so with square caps each dash is a width
-// longer and starts half a width earlier, which draws the same. A dash or gap is at least 1/20 pt, as in the GDI pen.
+// longer and starts half a width earlier, which draws the same. The pen, a dash and a gap are at least 1/20 pt, as in
+// the GDI pen, and the dashes are in widths of the pen as written.
 fn pen(st: &Stroke) -> Vec<u8> {
+    let width = st.width.max(1.0 / UNIT);
     let cap = [0u32, 2, 1][usize::from(st.cap.min(2))]; // flat, round, square
     let join = [3u32, 2, 1][usize::from(st.join.min(2))]; // miter clipped, round, bevel
     let mut flags = 0x02 | 0x04 | 0x08 | 0x10; // start cap, end cap, join, miter limit
@@ -621,7 +722,6 @@ fn pen(st: &Stroke) -> Vec<u8> {
     lef(&mut extra, &[st.miter.max(1.0)]);
     if !st.dash.is_empty() {
         flags |= 0x20 | 0x40 | 0x80 | 0x100; // line style, dash cap, dash offset, dashes
-        let width = st.width.max(1.0 / UNIT);
         let least = 1.0 / UNIT / width;
         let square = st.cap == 2;
         let dashes: Vec<f32> = st.dash.iter().enumerate().map(|(i, d)| {
@@ -639,7 +739,7 @@ fn pen(st: &Stroke) -> Vec<u8> {
     }
     let mut out = Vec::with_capacity(40 + extra.len());
     le(&mut out, &[PLUS_VERSION, 0, flags, 0]); // version, type, flags, UnitWorld
-    lef(&mut out, &[st.width * PX]);
+    lef(&mut out, &[width * PX]);
     out.extend(extra);
     le(&mut out, &[PLUS_VERSION, 0, argb(st.rgb)]); // EmfPlusBrush: solid, its colour
     out
@@ -688,7 +788,7 @@ fn emf(tree: &usvg::Tree, cdxml: Option<&str>, plus: bool) -> Vec<u8> {
     let px = |pt: f32| (((pt * UNIT).ceil().max(1.0) as i32).saturating_add(PER_PX - 1)) / PER_PX;
     let (dw, dh) = (px(w), px(h));
     let (lw, lh) = (dw * PER_PX, dh * PER_PX);
-    let (fw, fh) = ((w * 2540.0 / 72.0).round() as i32, (h * 2540.0 / 72.0).round() as i32);
+    let (fw, fh) = ((w * 2540.0 / 72.0).round().max(1.0) as i32, (h * 2540.0 / 72.0).round().max(1.0) as i32);
     let mut e = Emf { out: Vec::new(), records: 0 };
     // EMR_HEADER (filled in at the end with the totals): bounds, frame, " EMF", version, bytes, records, handles,
     // reserved, description, palette, device, millimetres, pixel format, OpenGL, micrometres.

@@ -53,7 +53,10 @@ const cases: Case[] = [
   { id: "S5", what: "a 500-residue peptide: one path of about 25,000 points, a record over 65,020 bytes [S4, M13]", rust: ["stress_large_drawings_sizes"], windows: ["ole_plus_large_path", "ole_plus_large_path_continued"] },
   { id: "S6", what: "photos: 12 megapixels; turned 30 and 45 degrees [S5, S7]", rust: ["stress_photos_are_getdc_sections", "plus_bytes_are_steady_and_small"], windows: ["ole_plus_photo"] },
   { id: "S7", what: "a structure turned 30 degrees and flipped, with labels [S6]", rust: ["plus_draws_each_case"] },
-  { id: "S8", what: "fills: overlapping subpaths in one nonzero path; an even-odd orbital lobe [S8, S9]", rust: ["plus_draws_each_case"], windows: ["ole_plus_fill_mode"] },
+  {
+    id: "S8", what: "fills: overlapping subpaths in one nonzero path, the same in a reader that fills even-odd (LibreOffice); an even-odd orbital lobe [S8, S9]",
+    rust: ["plus_draws_each_case", "plus_fills_draw_the_same_in_any_fill_mode"], windows: ["ole_plus_fill_mode"],
+  },
   {
     id: "S9", what: "pens: dashed bonds, a dashed curved arrow with round caps, 0.1 pt and 10 pt lines, odd dash lists, a negative offset, 1/1000 pt dashes [S10, M5]",
     rust: ["stress_pens_and_dashes", "plus_pens_carry_caps_joins_and_dashes"], windows: ["ole_plus_ink_box_and_gdi_pixels"],

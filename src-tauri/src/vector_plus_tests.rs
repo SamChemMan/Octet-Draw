@@ -236,6 +236,7 @@ fn plus_ops(emf: &[u8]) -> Vec<Op> {
     let mut objects: Vec<Option<(u16, Vec<u8>)>> = vec![None; 64];
     let mut out = Vec::new();
     let (mut headers, mut ended) = (0, false);
+    let mut fill_in = None; // the comment of the last op, if it is a fill
     let comments: Vec<_> = all.iter().filter(|r| is_plus(emf, r)).collect();
     for (n, r) in comments.iter().enumerate() {
         let (_, at, size) = **r;
@@ -325,13 +326,20 @@ fn plus_ops(emf: &[u8]) -> Vec<Op> {
                     let points = (0..count).map(|i| (f64::from(f32_at(p, 12 + 8 * i)) * 15.0, f64::from(f32_at(p, 16 + 8 * i)) * 15.0, p[12 + 8 * count + i])).collect();
                     if kind == 0x4014 {
                         assert!(flags & 0x8000 != 0 && dsize == 4, "the fill's colour inline");
-                        out.push(Op::Fill { points, rgb: u32_at(d, 0) & 0xFF_FFFF, winding: u32_at(p, 8) & 0x2000 != 0 });
+                        let (rgb, winding) = (u32_at(d, 0) & 0xFF_FFFF, u32_at(p, 8) & 0x2000 != 0);
                         assert_eq!(u32_at(d, 0) >> 24, 255, "opaque");
+                        // A shape's fill in more than one path (fill_groups) is one fill, as in GDI.
+                        match out.last_mut() {
+                            Some(Op::Fill { points: all, rgb: c, winding: w }) if fill_in == Some(n) && (*c, *w) == (rgb, winding) => all.extend(points),
+                            _ => out.push(Op::Fill { points, rgb, winding }),
+                        }
+                        fill_in = Some(n);
                     } else {
                         assert_eq!((flags & 0xFF00, dsize), (0, 4));
                         let pen = objects[u32_at(d, 0) as usize].clone().filter(|o| o.0 == 2).expect("a pen defined before it is used").1;
                         let colour = u32_at(&pen, pen.len() - 4);
                         assert_eq!(colour >> 24, 255);
+                        fill_in = None;
                         out.push(Op::Stroke { points, rgb: colour & 0xFF_FFFF, width: f64::from(f32_at(&pen, 16)) * 15.0 });
                     }
                 }
@@ -345,10 +353,12 @@ fn plus_ops(emf: &[u8]) -> Vec<Op> {
                     let chars = (0..n).map(|i| u16_at(d, 16 + 2 * i)).collect();
                     let at = (0..n).map(|i| (f64::from(f32_at(d, 16 + 2 * n + 8 * i)) * 15.0, f64::from(f32_at(d, 20 + 2 * n + 8 * i)) * 15.0)).collect();
                     let style = u32_at(&font, 12);
+                    fill_in = None;
                     out.push(Op::Text { face: String::from_utf16(&face).unwrap(), height: f64::from(f32_at(&font, 4)) * 15.0, bold: style & 1 != 0, italic: style & 2 != 0, rgb: u32_at(d, 0) & 0xFF_FFFF, chars, at, end: 0.0 });
                 }
                 0x4004 => {
                     assert_eq!((flags, dsize), (0, 0));
+                    fill_in = None;
                     out.push(Op::Picture);
                 }
                 0x4002 => {
@@ -378,10 +388,30 @@ fn same_picture(name: &str, emf: &[u8]) {
             assert!(near(p.0, q.0) && near(p.1, q.1) && p.2 == q.2, "{name}: GDI {p:?}, EMF+ {q:?}");
         }
     };
+    // A fill's figures: each EMF+ figure is one of GDI's, in any order (fill_groups puts them in more than one path).
+    let figures = |a: &[(f64, f64, u8)], b: &[(f64, f64, u8)]| {
+        let split = |p: &[(f64, f64, u8)]| -> Vec<std::ops::Range<usize>> {
+            let starts: Vec<usize> = (0..p.len()).filter(|&i| p[i].2 & 0x7F == 0).chain([p.len()]).collect();
+            starts.windows(2).map(|w| w[0]..w[1]).collect()
+        };
+        let (fa, fb) = (split(a), split(b));
+        assert_eq!((fa.len(), a.len()), (fb.len(), b.len()), "{name}: figures and points");
+        let mut by_start: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
+        for (i, f) in fa.iter().enumerate() {
+            by_start.entry((a[f.start].0.round() as i64, a[f.start].1.round() as i64)).or_default().push(i);
+        }
+        let mut used = vec![false; fa.len()];
+        for f in &fb {
+            let (x, y) = (b[f.start].0.round() as i64, b[f.start].1.round() as i64);
+            let same = |i: usize| !used[i] && fa[i].len() == f.len() && a[fa[i].clone()].iter().zip(&b[f.clone()]).all(|(p, q)| near(p.0, q.0) && near(p.1, q.1) && p.2 == q.2);
+            let i = (-1..=1).flat_map(|dx| (-1..=1).map(move |dy| (x + dx, y + dy))).filter_map(|k| by_start.get(&k)).flatten().copied().find(|&i| same(i));
+            used[i.unwrap_or_else(|| panic!("{name}: the EMF+ figure from {:?} is none of GDI's", b[f.start]))] = true;
+        }
+    };
     for (g, p) in gdi.iter().zip(&plus) {
         match (g, p) {
             (Op::Fill { points: a, rgb: c, winding: w }, Op::Fill { points: b, rgb: d, winding: v }) => {
-                points(a, b);
+                figures(a, b);
                 assert_eq!((c, w), (d, v), "{name}: fill");
             }
             (Op::Stroke { points: a, rgb: c, width: w }, Op::Stroke { points: b, rgb: d, width: v }) => {
@@ -514,6 +544,135 @@ fn plus_draws_each_case() {
     // S25: a poster's points are floats, as far out as the GDI ones.
     let points = of("a poster 2 m wide").iter().find_map(|o| if let Op::Stroke { points, .. } = o { Some(points) } else { None }).unwrap();
     assert!((points[1].0 - 5659.0 * 20.0).abs() <= 1.0, "{points:?}");
+}
+
+// The review of issue 166: LibreOffice reads no fill mode and fills each EMF+ path even-odd. So for every shape, at
+// points on a grid, the whole outline filled nonzero (GDI's fill, and Octet's) and its EMF+ paths filled nonzero
+// (GDI+) cover the same points, and so do the paths filled even-odd, to under 1 in 200 points (specks where pieces of
+// a cycle's arc overlap or cross). No two paths of a fill share an edge, where GDI+'s anti-aliasing would leave a light
+// seam. On L-proline the bonds that meet at joins are one path and each line of the C=O double bond, which overlaps
+// the next bond, a path of its own (in one path, 1.5% of its ink is white even-odd); letters keep their holes; the
+// cycle starter's arc of 68 pieces is a few paths.
+#[test]
+fn plus_fills_draw_the_same_in_any_fill_mode() {
+    // Each comment's nonzero fills (an even-odd one is even-odd in every reader): the points of each path's figures,
+    // closed, with Béziers as 8 lines, in px.
+    fn fills(emf: &[u8]) -> Vec<Vec<Vec<Vec<(f64, f64)>>>> {
+        let mut out = Vec::new();
+        for r in emf_records(emf).iter().filter(|r| is_plus(emf, r)) {
+            let d = &emf[r.1 + 16..r.1 + r.2];
+            let (mut k, mut path, mut paths) = (0, Vec::new(), Vec::new());
+            while k < d.len() {
+                let (kind, flags, size) = (u16_at(d, k), u16_at(d, k + 2), u32_at(d, k + 4) as usize);
+                let o = &d[k + 12..k + size];
+                if kind == 0x4008 && (flags >> 8) & 0x7F == 3 {
+                    let n = u32_at(o, 4) as usize;
+                    let (mut figures, mut j): (Vec<Vec<(f64, f64)>>, usize) = (Vec::new(), 0);
+                    while j < n {
+                        let at = |i: usize| (f64::from(f32_at(o, 12 + 8 * i)), f64::from(f32_at(o, 16 + 8 * i)));
+                        match o[12 + 8 * n + j] & 0x7F {
+                            0 => figures.push(vec![at(j)]),
+                            1 => figures.last_mut().unwrap().push(at(j)),
+                            _ => {
+                                let f = figures.last_mut().unwrap();
+                                let (p0, p1, p2, p3) = (*f.last().unwrap(), at(j), at(j + 1), at(j + 2));
+                                for s in 1..=8 {
+                                    let t = f64::from(s) / 8.0;
+                                    let u = 1.0 - t;
+                                    let c = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+                                    f.push((c[0] * p0.0 + c[1] * p1.0 + c[2] * p2.0 + c[3] * p3.0, c[0] * p0.1 + c[1] * p1.1 + c[2] * p2.1 + c[3] * p3.1));
+                                }
+                                j += 2;
+                            }
+                        }
+                        j += 1;
+                    }
+                    path = if u32_at(o, 8) & 0x2000 != 0 { figures } else { Vec::new() };
+                } else if kind == 0x4014 && !path.is_empty() {
+                    paths.push(path.clone());
+                }
+                k += size;
+            }
+            if !paths.is_empty() {
+                out.push(paths);
+            }
+        }
+        out
+    }
+    // The winding number at (x, y), and whether a line from it crosses the figures' edges an odd number of times.
+    fn wind(figures: &[Vec<(f64, f64)>], x: f64, y: f64) -> (i32, bool) {
+        let (mut w, mut odd) = (0, false);
+        for f in figures {
+            for (i, a) in f.iter().enumerate() {
+                let b = f[(i + 1) % f.len()];
+                let cross = (b.0 - a.0) * (y - a.1) - (x - a.0) * (b.1 - a.1);
+                if a.1 <= y && b.1 > y && cross > 0.0 {
+                    w += 1;
+                    odd = !odd;
+                } else if b.1 <= y && a.1 > y && cross < 0.0 {
+                    w -= 1;
+                    odd = !odd;
+                }
+            }
+        }
+        (w, odd)
+    }
+    let page = |w: f32, h: f32, body: &str| format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}pt" height="{h}pt" viewBox="0 0 {w} {h}">{body}</svg>"##);
+    // Whether figures a and b have edges on one line that overlap by 0.05 px or more.
+    fn share_edge(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        let edges = |f: &[(f64, f64)]| (0..f.len()).map(|i| (f[i], f[(i + 1) % f.len()])).collect::<Vec<_>>();
+        let eb = edges(b);
+        edges(a).iter().any(|&(p, q)| {
+            let l = ((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2)).sqrt();
+            l > 1e-6 && eb.iter().any(|&(r, s)| {
+                let off = |t: (f64, f64)| ((q.0 - p.0) * (t.1 - p.1) - (q.1 - p.1) * (t.0 - p.0)) / l;
+                let along = |t: (f64, f64)| ((t.0 - p.0) * (q.0 - p.0) + (t.1 - p.1) * (q.1 - p.1)) / l;
+                off(r).abs() < 0.02 && off(s).abs() < 0.02 && along(r).max(along(s)).min(l) - along(r).min(along(s)).max(0.0) > 0.05
+            })
+        })
+    }
+    let mut cases = drawings();
+    cases.push(("bonds, double bonds and hashed wedges that overlap at joins", octet_drawing(1, 24, 4, 8)));
+    cases.push(("the structure starter", include_str!("../../src/starters/structure.svg").to_string()));
+    cases.push(("the cycle starter", include_str!("../../src/starters/cycle.svg").to_string()));
+    cases.push(("letters with holes, turned", page(120.0, 50.0, r#"<text x="10" y="35" font-family="Arial, Helvetica, sans-serif" font-size="24" transform="rotate(5 60 25)">B8%@&#xC5;</text>"#)));
+    for (name, svg) in &cases {
+        let emf = make_office_emf(&crate::export::tree(svg).unwrap(), None);
+        for paths in fills(&emf) {
+            let whole: Vec<Vec<(f64, f64)>> = paths.iter().flatten().cloned().collect();
+            let points = whole.iter().flatten();
+            let (x0, y0, x1, y1) = points.fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)));
+            let step = ((x1 - x0) * (y1 - y0) / 250_000.0).sqrt().max(0.1);
+            let (mut y, mut ink, mut other, mut odd) = (y0 + 0.37 * step, 0, 0, 0);
+            while y < y1 {
+                let mut x = x0 + 0.37 * step;
+                while x < x1 {
+                    let nonzero = wind(&whole, x, y).0 != 0;
+                    let parts = paths.iter().any(|p| wind(p, x, y).0 != 0);
+                    let even_odd = paths.iter().any(|p| wind(p, x, y).1);
+                    ink += usize::from(nonzero);
+                    other += usize::from(parts != nonzero);
+                    odd += usize::from(even_odd != nonzero);
+                    x += step;
+                }
+                y += step;
+            }
+            assert!(other * 200 < ink.max(1), "{name}: {other} of {ink} points of ink differ in GDI+ from the GDI record");
+            assert!(odd * 200 < ink.max(1), "{name}: {odd} of {ink} points of ink differ when the paths are filled even-odd");
+            for (i, a) in paths.iter().enumerate() {
+                for b in &paths[i + 1..] {
+                    assert!(!a.iter().any(|f| b.iter().any(|g| share_edge(f, g))), "{name}: two paths of a fill share an edge");
+                }
+            }
+        }
+    }
+    let emf = make_office_emf(&crate::export::tree(include_str!("../../src/starters/cycle.svg")).unwrap(), None);
+    let arc = fills(&emf).into_iter().find(|p| p.iter().map(Vec::len).sum::<usize>() > 60).expect("the cycle's arc");
+    assert!(arc.len() <= 12, "the cycle's arc in {} paths", arc.len());
+    // L-proline: its bonds' path, and the two lines of C=O.
+    let emf = make_office_emf(&crate::export::tree(PROLINE).unwrap(), None);
+    let counts: Vec<Vec<usize>> = fills(&emf).iter().map(|p| p.iter().map(Vec::len).collect()).collect();
+    assert_eq!(counts[0], [7, 1, 1], "L-proline's paths of figures");
 }
 
 // The dashes in pen widths: round dashes as SVG gives them with round dash caps; square ones a width longer from half
@@ -836,17 +995,19 @@ fn ole_plus_photo() {
     }
 }
 
-// T5: the fill mode. Two squares wound the same way, overlapping, in one path. With the winding flag (a nonzero fill)
-// GDI+ fills their overlap; even-odd, it leaves it white.
+// T5: the fill mode. Two squares wound the same way, overlapping, in one path (they share the point (20, 35), so
+// fill_groups keeps them together). With the winding flag (a nonzero fill) GDI+ fills their overlap; even-odd, it
+// leaves it white.
 #[cfg(windows)]
 #[test]
 fn ole_plus_fill_mode() {
     use windows::*;
     for (rule, filled) in [("nonzero", true), ("evenodd", false)] {
-        let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="60pt" height="60pt" viewBox="0 0 60 60"><path d="M5 5h30v30h-30z M20 20h30v30h-30z" fill="#000" fill-rule="{rule}"/></svg>"##);
+        let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="60pt" height="60pt" viewBox="0 0 60 60"><path d="M5 5h30v30h-15h-15z M20 20h30v30h-30v-15z" fill="#000" fill-rule="{rule}"/></svg>"##);
         let tree = crate::export::tree(&svg).unwrap();
         let (w, h) = px(&tree, 4.0);
         let emf = make_office_emf(&tree, None);
+        assert_eq!(emf_records(&emf).iter().filter(|r| is_plus(&emf, r) && u16_at(&emf, r.1 + 16) == 0x4008).count(), 1, "{rule}: one path");
         // The overlap's middle is (27.5, 27.5) pt; a part of a square alone is (10, 10) pt.
         let (plus, gdi) = (draw(&emf, w, h, true), draw(&emf, w, h, false));
         for d in [&plus, &gdi] {
@@ -857,18 +1018,19 @@ fn ole_plus_fill_mode() {
     }
 }
 
-// T6: a path of 30,000 points (a 500-residue peptide's bonds are one path of about 25,000) in one EmfPlusObject
-// record of 270 KB, as the writer makes it: GDI+ draws it as GDI does.
+// T6: a path of 30,000 points (a 500-residue peptide's bonds, which meet at mitred joins, are one path of about
+// 25,000) in one EmfPlusObject record of 270 KB, as the writer makes it: GDI+ draws it as GDI does.
 #[cfg(windows)]
 fn large_path() -> (usvg::Tree, Vec<u8>) {
-    // 7,500 squares of 3 pt, 4 pt apart, in one path: 30,000 points.
+    // 7,500 squares of 3 pt as a chessboard, each square's corners shared with the next ones', so fill_groups keeps
+    // them in one path: 30,000 points.
     let mut d = String::new();
-    for j in 0..75 {
-        for i in 0..100 {
-            d += &format!("M{} {}h3v3h-3z", 5 + 4 * i, 5 + 4 * j);
+    for j in 0..100 {
+        for i in (j % 2..150).step_by(2) {
+            d += &format!("M{} {}h3v3h-3z", 5 + 3 * i, 5 + 3 * j);
         }
     }
-    let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="410pt" height="310pt" viewBox="0 0 410 310"><path d="{d}" fill="#000"/></svg>"##);
+    let svg = format!(r##"<svg xmlns="http://www.w3.org/2000/svg" width="460pt" height="310pt" viewBox="0 0 460 310"><path d="{d}" fill="#000"/></svg>"##);
     let tree = crate::export::tree(&svg).unwrap();
     let emf = make_office_emf(&tree, None);
     (tree, emf)

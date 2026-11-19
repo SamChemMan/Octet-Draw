@@ -154,31 +154,39 @@ Proof. There is no Windows computer on the Mac where this was built.
   `ole_plus_zoom` (0.25 to 40 px a pt), and `ole_stress_gdiplus_draws_every_drawing` (every stress drawing, its ink box
   GDI's). Not run yet: they run on the next push.
 - Where MS-EMFPLUS is silent, a CI test decides. Fill mode: a nonzero fill sets `PathPointFlags` bit 0x2000, as GDI+
-  writes a path with winding fill (`ole_plus_fill_mode`). It matters: Octet's bond outlines overlap a little where
-  bonds meet, and drawn even-odd, 42 of L-proline's 4,918 ink pixels at 4 px a pt would be white. Size: a 500-residue peptide's bonds are one path object of
-  about 230 KB in one record (`ole_plus_large_path` also prints whether GDI+ takes it continued over records). If
-  either fails, the fallbacks are in `docs/plans/issue-166-word-paste-sharp.md` ("If CI says no").
+  writes a path with winding fill (`ole_plus_fill_mode`). Octet's bond outlines overlap a little where a double bond's
+  line meets the next bond: drawn even-odd in one path, 42 of L-proline's 4,918 ink pixels at 4 px a pt would be
+  white. LibreOffice reads no fill mode (it fills every EMF+ path even-odd), and on Windows it pastes this EMF. So a
+  nonzero fill's figures go in paths of their own, and their overlaps are ink in every reader. Figures that share a
+  point (bonds that meet at a mitred join) stay in one path, so no anti-aliased seam shows where they meet, and so do
+  a letter and its holes (a figure in another's box, within 8 figures). `plus_fills_draw_the_same_in_any_fill_mode`
+  checks that each fill covers the same points nonzero, even-odd and as GDI's one path. Size: a 500-residue peptide's
+  bonds, mitred, are one path object of about 230 KB in one record (`ole_plus_large_path` also prints whether GDI+
+  takes it continued over records). If either fails, the fallbacks are in `docs/plans/issue-166-word-paste-sharp.md`
+  ("If CI says no").
 - By hand on Windows: `docs/testing/ole-manual.md`, test 16.
 
 Speed (decision 0024; `cargo test --release --bin octet windows_copy_time -- --ignored --nocapture`; Apple M1 Pro,
-with other work running, load average 14 to 23 on 10 cores; the middle of 9 runs taken in turn; 600 dpi, Settings'
-default):
+with other work running, load average about 12 on 10 cores; the middle of 9 runs taken in turn; 600 dpi, Settings'
+default; measured again on 19 November with the fill groups):
 
 | Drawing | Copy with the object | Without it | 1.1.2's Copy | `make_office_emf` | `make_emf` | EMF+ EMF | GDI EMF |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| L-proline | 1.84 ms | 1.82 ms | 1.71 ms | 0.010 ms | 0.009 ms | 4,184 B | 3,120 B |
-| 40 paclitaxels | 223.6 ms | 222.4 ms | 223.2 ms | 1.00 ms | 0.74 ms | 964 KB | 705 KB |
-| A 500-residue peptide | 331.3 ms | 333.3 ms | 329.7 ms | 1.55 ms | 1.14 ms | 1.51 MB | 1.13 MB |
+| L-proline | 1.80 ms | 1.82 ms | 1.74 ms | 0.014 ms | 0.009 ms | 4,264 B | 3,120 B |
+| 40 paclitaxels | 227.4 ms | 228.3 ms | 229.0 ms | 1.48 ms | 0.74 ms | 1.13 MB | 705 KB |
+| A 500-residue peptide | 321.2 ms | 319.1 ms | 319.3 ms | 2.05 ms | 1.10 ms | 1.73 MB | 1.13 MB |
 
 Copy is within 1.1.2's time plus a tenth and 2 ms: reading the SVG and drawing the bitmap are most of it, and the EMF
-is made beside the bitmap. The object window's picture (after each change, off the main thread) takes 1.3 to 1.4
-times `make_emf`'s time, and 1 ms for 40 paclitaxels. The EMF+ EMF is 1.3 to 1.4 times the GDI EMF; a photo adds
+is made beside the bitmap. The object window's picture (after each change, off the main thread) takes 1.5 to 2 times
+`make_emf`'s time, and 1.5 ms for 40 paclitaxels. The EMF+ EMF is 1.4 to 1.6 times the GDI EMF; a photo adds
 under 1 KB. The drawings other than L-proline are made by a generator with Octet's export's shapes and counts
 (`octet_drawing`): paclitaxel 69 bonds and 20 labels, the peptide 3,500 bonds and 1,500 labels in one path of about
-24,000 points.
+24,000 points. The generator's bonds do not share points, so each is a fill of its own: more records than a real
+drawing, whose mitred bonds are one path.
 
-Not checked: LibreOffice reads EMF+ records with its own reader, which may not take the winding fill flag. A copy
-pasted into LibreOffice on Windows with the object on may show that. The LibreOffice item (issue 48) owns it.
+Not checked on Windows: LibreOffice drawing the object's EMF. The review read LibreOffice's source: it plays only the
+EMF+ records of a dual EMF, and fills each path even-odd. The fill groups above give it the same ink. The LibreOffice
+item (issue 48) owns the rest.
 
 ## Threads
 

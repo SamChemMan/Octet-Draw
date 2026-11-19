@@ -89,6 +89,21 @@ Gap confirmed: the core is built, and these five things stop it from going into 
 - Full `npm test` on c3b834b: 162 of 162 check files pass (5 min 37 s; the base b30f413 had 161 of 161). Workflow
   files parse. `npm run look` (WebKit, port 1460): 22 places, every control matches. This item changes no UI.
 
+### Finish (19 November 2026)
+
+Rebased onto `release-1.2-mcp` bd7c684 (no conflicts) for release 1.1.3. The review and stress findings:
+
+- LibreOffice on Windows pastes CF_ENHMETAFILE, plays only the EMF+ records and fills each path even-odd, so the
+  bond overlaps came out white. Fixed (D3): a nonzero fill's figures go in paths of their own, except figures that
+  share a point (mitred bonds: no anti-aliased seam) and a figure in another's box within 8 figures (a letter's
+  holes). New test `plus_fills_draw_the_same_in_any_fill_mode`. T5 and T6 draw shapes that stay one path.
+- An EMF+ pen under 1/20 pt: the pen is now at least 1/20 pt, as the GDI pen, so its dashes match.
+- A picture under 0.014 pt: its frame is at least 0.01 mm each way, so Word gets a size (both EMFs).
+- S12 (right-to-left text) was J6; the Windows tests on every push were J8.
+- Left: the MCP's `run_command` cut and paste (gap 2, the MCP session's; no MCP in 1.1.3); EMF+ records over 65,020
+  bytes for one mitred structure of over about 7,000 points (T6 decides); usvg's own stack on deep nesting (not this
+  item).
+
 ## ChemDraw cross-check
 
 Sources: `~/octet-research/notes/chemdraw26-inventory.md` (Preferences > General: "Use antialiasing: n/a" on the
@@ -151,6 +166,7 @@ pt × 20 logical units, 15 to a device pixel. So every EMF+ coordinate × 15 equ
 
 A path object with float points (start, line, Bézier, close flags). Fill: EmfPlusFillPath with the colour inline. A
 nonzero fill sets PathPointFlags bit 0x2000, as GDI+ writes its winding paths; even-odd leaves it clear (T5 decides).
+A nonzero fill's figures are in more than one path where that makes even-odd readers draw the same (Finish, above).
 Stroke: a pen object with width, caps, join (miter clipped, as SVG), miter limit and dashes in pen widths; then
 EmfPlusDrawPath. Each object id is used again for the next shape.
 
@@ -364,7 +380,7 @@ Old ids (S and M, from the 46-case list) in brackets, so the tests that already 
 | S5 | A 500-residue peptide: one path of about 25,000 points, a record over 65,020 bytes [S4, M13] | GDI+ draws the one record (else the continued layout T6 found) | `stress_large_drawings_sizes`, T6 |
 | S6 | Photos: 12 megapixels; turned 30 and 45 degrees [S5, S7] | One GetDC section each; under 1 KB more; GDI+ draws it in GDI's box | `stress_photos_are_getdc_sections`, T4 |
 | S7 | A structure turned 30 degrees and flipped, with labels [S6] | Turned labels outlines in both streams; points match | `plus_draws_each_case` |
-| S8 | Fills: overlapping subpaths in one nonzero path (a crowded atom, two ring fills); an even-odd orbital lobe [S8, S9] | Overlap filled; the lobe's hole stays | `plus_draws_each_case`, T5 |
+| S8 | Fills: overlapping subpaths in one nonzero path (a crowded atom, two ring fills); an even-odd orbital lobe [S8, S9] | Overlap filled, also by a reader that fills even-odd; the lobe's hole stays | `plus_draws_each_case`, `plus_fills_draw_the_same_in_any_fill_mode`, T5 |
 | S9 | Pens: dashed bonds; a dashed curved arrow with round caps; 0.1 pt and 10 pt lines; odd dash lists, a negative offset, 1/1000 pt dashes [S10, M5] | Dashes in pen widths, as many as the GDI pen's; ink box as GDI's | `stress_pens_and_dashes`, `plus_pens_carry_caps_joins_and_dashes`, T2 |
 | S10 | Colour by Element; a highlight at 40% opacity; Copy in dark mode [S11, S26] | EMF+ colours equal the GDI colours, alpha 255; dark mode gives the light mode's bytes | `plus_draws_each_case`, the check's export code test |
 | S11 | Hostile pictures copied: deep nesting, 200,000 points, a scale of 1e-30, control characters, a broken image, 10,000 labels, a poster 2 m wide, a picture 10 km wide [M3, S25] | No panic; valid by the specs; GDI coordinates in range; size limits kept | `stress_hostile_pictures`, `plus_draws_each_case` |
