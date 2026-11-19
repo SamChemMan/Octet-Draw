@@ -8756,7 +8756,8 @@ export default function Editor() {
             const at = moves.get(c.id);
             if (!at) return c;
             if (what === "detach") { const { under: _, measure: _m, ...free } = c; return { ...free, x: at[0], y: at[1] }; }
-            const under = structureAbove(at, 4);
+            // A measurement already follows its own atoms.
+            const under = !c.measure && structureAbove(at, 4);
             return under ? { ...c, under, align: undefined } : c;
           }),
         }, true);

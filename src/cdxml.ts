@@ -388,7 +388,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
   }
   for (const c of mol.captions ?? []) {
-    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(c.measure.atoms[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
     if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
@@ -1018,7 +1018,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Arrows: each written twice, as ChemDraw 22 does (spec 11): the arrow, and a legacy line or arc graphic that
   // points at it with SupersededBy. Curved arrows store their circle as a frame and a signed sweep (spec 10.2).
   const legacyOf = new Map<number, number>();
-  const arrowOut = (a: Arrow, derived: boolean) => {
+  // host: the item whose group a derived line goes in (a measurement's caption).
+  const arrowOut = (a: Arrow, derived: boolean, host?: number) => {
     const id = derived ? fresh() : idOf.get(a.id)!, S = at(a.from), T = at(a.to);
     // Head sizes in hundredths of the line width (HeadSize, ArrowheadCenterSize, ArrowheadWidth).
     const hs = headSize(a), h100 = (x: HeadSize) => [x.length, x.centre, x.width].map((v) => Math.round(v * 100));
@@ -1048,7 +1049,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
     const f = scaleOf(a), lines = ownLines(f, a.width), box = boxOf(path, head || tail ? (sizes[a.kind === "block" ? 1 : 2] * line * f) / 100 : (line * f) / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
     // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
-    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
+    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = host ?? (derived ? cycle : a.id);
     const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle), branch: (a as Arrow & { branch?: number }).branch }) : DERIVED;
     legacyOf.set(a.id, legacy);
     // The legacy copy: a line from head to tail, or an arc from the head round its centre, with the old arrow type.
@@ -1085,12 +1086,12 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     if (!c.measure) continue;
     zOrder = c.order;
     const ink = measureInk(mol, c.measure.atoms, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
-    for (const [from, to] of ink.lines) arrowOut({ id: -1, kind: "line", style: "dashed", from, to, ...(c.colour ? { colour: c.colour } : {}) }, true);
+    for (const [from, to] of ink.lines) arrowOut({ id: -1, kind: "line", style: "dashed", from, to, ...(c.colour ? { colour: c.colour } : {}) }, true, c.id);
     if (ink.arc) {
       const { centre: o, r, start, sweep } = ink.arc, end = start + sweep, from: P = [o[0] + r * Math.cos(start), o[1] + r * Math.sin(start)], to: P = [o[0] + r * Math.cos(end), o[1] + r * Math.sin(end)];
       // Its middle sits off the chord by r(1 − cos(sweep/2)), to the right of it for an anticlockwise sweep.
       const chord = 2 * r * Math.abs(Math.sin(sweep / 2));
-      if (chord > 1e-6) arrowOut({ id: -1, kind: "arc", from, to, bend: (-Math.sign(sweep) * r * (1 - Math.cos(sweep / 2))) / chord, ...(c.colour ? { colour: c.colour } : {}) }, true);
+      if (chord > 1e-6) arrowOut({ id: -1, kind: "arc", from, to, bend: (-Math.sign(sweep) * r * (1 - Math.cos(sweep / 2))) / chord, ...(c.colour ? { colour: c.colour } : {}) }, true, c.id);
     }
   }
 

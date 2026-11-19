@@ -897,6 +897,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
     ])?;
+    section.replace("Structure › Measure".into());
     let measure = Submenu::with_items(app, "Measure", true, &[
         &item("measure_distance", "Distance", "")?,
         &item("measure_angle", "Angle", "")?,

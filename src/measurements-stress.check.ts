@@ -241,4 +241,33 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.ato
   console.log("measurements-stress: labels apart ok");
 }
 
+// Groups: in a structure's group, a measurement's label and its dashed lines go in the group too, so ChemDraw moves
+// them with the structure. Tie to structure leaves a measurement alone (it follows its own atoms, and an under of its
+// own would keep stale atom numbers after a delete). Structure > Measure has its own heading in Keyboard shortcuts.
+{
+  const { readFileSync } = await import("node:fs");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  let m = clean3d(chain(6), [0, 1, 2, 3, 4, 5]);
+  m = made(addMeasure(m, [0, 5])).mol;
+  m = made(addMeasure(m, [1, 2, 3])).mol;
+  const gid = Math.max(0, ...(m.captions ?? []).map((c) => c.id)) + 100;
+  m = { ...m, groups: [{ id: gid, atoms: [0, 1, 2, 3, 4, 5], items: [] }] };
+  const cdxml = toCdxml(m, DEFAULT_STYLE), open = cdxml.indexOf("<group"), close = cdxml.lastIndexOf("</group>");
+  assert.ok(open > 0 && close > open, "the group is written");
+  const inside = cdxml.slice(open, close), outside = cdxml.slice(0, open) + cdxml.slice(close);
+  assert.ok((inside.match(/LineType="Dashed"/g) ?? []).length >= 2, "groups: the distance's dashed line, and its legacy copy, in the group");
+  assert.ok(!/LineType="Dashed"/.test(outside), "groups: no dashed line outside it");
+  assert.ok(/GraphicType="Arc"/.test(inside), "groups: the angle's arc in the group");
+  for (const c of measures(m)) assert.ok(inside.includes(`>${c.text}</s>`), `groups: ${c.text} in the group`);
+  const back = fromCdxml(cdxml).mol;
+  assert.equal(measures(back).length, 2, "groups: both measurements read back");
+  assert.equal(back.arrows?.length ?? 0, 0, "groups: the lines are not read back as lines");
+  assert.deepEqual(back.groups?.map((g) => [...g.atoms].sort((p, q) => p - q)), [[0, 1, 2, 3, 4, 5]], "groups: the group read back with its atoms");
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /const under = !c\.measure && structureAbove\(at, 4\);/, "Tie to structure skips a measurement");
+  const rust = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+  assert.match(rust, /section\.replace\("Structure › Measure"\.into\(\)\);\s*let measure = Submenu/, "Structure > Measure has its own heading");
+  console.log("measurements-stress: groups, tie and heading ok");
+}
+
 console.log("measurements-stress.check: every case ok");
