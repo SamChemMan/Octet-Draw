@@ -17,7 +17,7 @@ import type { Annotation } from "./render";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
 import { EXPORT_FORMATS, PICTURES, copyToClipboard, type ExportFormat } from "./export";
-import { BACKDROPS, DpiField } from "./ExportDialog";
+import { BACKDROPS, DpiField, PDF_PAGES } from "./ExportDialog";
 import { BACKGROUNDS, COLOURS, elementColours, FONTS, GRID_IN, GRID_MM, LIMITS, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import type { ObjectSettings } from "./edit";
 import type { AiApp } from "./Editor";
@@ -39,6 +39,7 @@ export type FilePrefs = {
   clipboard: { office: boolean; pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
   quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
+  pdfPages: "one" | "document"; // Export… > PDF > Pages: one page cropped to the drawing, or a page for each document page it covers
 };
 const MAC = navigator.platform.startsWith("Mac"), LINUX = navigator.platform.startsWith("Linux");
 // Office object: on Windows only, Copy puts an Octet Drawing object first, which Word, PowerPoint and Excel keep and
@@ -47,7 +48,7 @@ const WINDOWS = navigator.platform.startsWith("Win");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
 const PICTURE = MAC ? "PDF, with the structure inside" : LINUX ? "PDF, PNG and SVG" : "EMF, with the structure inside";
 // 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides).
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { office: true, pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png" };
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, quality: 95, clipboard: { office: true, pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png", pdfPages: "one" };
 
 type Props = {
   module: ModuleId;
@@ -623,6 +624,7 @@ export function SettingsWindow(p: Props) {
       d("files", "Export", "Resolution", "png tiff jpeg gif image resolution dpi ppi scale pixels size", <DpiField value={files.dpi} onChange={(dpi) => setFiles({ dpi })} />),
       d("files", "Export", "Background", "background transparent white page colour color png tiff jpeg gif", <Select label="Background" value={files.background} options={BACKDROPS} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "JPEG quality", "jpeg jpg quality compression", <NumberField label="JPEG quality" unit="%" min={1} max={100} step={5} value={files.quality} onChange={(n) => setFiles({ quality: Math.round(n) })} />),
+      d("files", "Export", "PDF pages", "pdf pages page document sheets multipage multi-page one page paper a4 letter", <Select label="PDF pages" value={files.pdfPages} options={PDF_PAGES} onChange={(v) => setFiles({ pdfPages: v as FilePrefs["pdfPages"] })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
       // What Copy puts on the clipboard for other programs (Octet's own form always goes on). The picture is Office's
       // own copy of it (a zip with an EMF) and a PDF on the Mac, an EMF on Windows, and a PDF, a PNG and an SVG on
