@@ -8,6 +8,7 @@ import { fullMol, quickMol, smilesAtoms } from "./chem.ts";
 import { looksLikeSmiles } from "./names.ts";
 import type { Mol } from "./render.ts";
 import { isSeqText, seqBuilt, type SeqAsk } from "./helm.ts";
+import type { Own } from "./monomers.ts";
 
 // Above this many atoms Octet no longer tidies a layout without stereochemistry (chem.ts MOST_TIDIED).
 export const PREVIEW_ATOMS = 100;
@@ -74,9 +75,11 @@ export function fullLayout(pieces: string[], ions: boolean): { result: Promise<M
 }
 // The field's sequence, built in the worker, for its preview and for Return alike (one path): the structure, or a
 // problem, or undefined when it does not build. The last few are kept, so Return after the preview draws at once.
+// own: the monomers its codes may name besides Octet's (the document's, then the user's); only those it names go.
 const builtSeqs = new Map<string, Mol | { problem: string } | undefined>();
-export function seqLayout(text: string, labels: boolean): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
-  const ask: SeqAsk = { build: text.trim(), labels }, key = JSON.stringify(ask);
+export function seqLayout(text: string, labels: boolean, own: Own = []): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
+  const used = own.filter((m) => text.includes(`[${m.code}]`));
+  const ask: SeqAsk = { build: text.trim(), labels, ...(used.length ? { own: used } : {}) }, key = JSON.stringify(ask);
   const keep = (m: Mol | { problem: string } | undefined) => { if (builtSeqs.size >= 8) builtSeqs.delete(builtSeqs.keys().next().value!); builtSeqs.set(key, m); return m; };
   if (builtSeqs.has(key)) return { result: Promise.resolve(builtSeqs.get(key)), cancel: () => {} };
   if (typeof Worker === "undefined") {

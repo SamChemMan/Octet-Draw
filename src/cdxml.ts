@@ -29,6 +29,7 @@ import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as read
 import { readPart, readPlot, type Plot } from "./pageplot.ts";
 import { readRisk, type Risk } from "./riskassess.ts";
 import { cleanComment, COMMENT, MAX_COMMENT } from "./experiment.ts";
+import { readMonomers } from "./monomers.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -1243,7 +1244,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ChemPropGibbs: "Gibbs Energy: ", ChemPropLogP: "Log P: ", ChemPropMR: "MR: ", ChemPropHenry: "Henry's Law: ", ChemPropEForm: "Heat of Form: ", ChemProptPSA: "tPSA: ", ChemPropID: "", ChemPropFragmentLabel: "",
     color: doc, bgcolor: bg, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
     Octet: priv({ v: 1, app: pkg.version, xyz: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid === "bond" ? undefined : style.grid, scale: style.scale !== 1 ? style.scale : undefined, purpose: style.purpose,
-      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined, circled: style.circled ? 1 : undefined }),
+      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined, circled: style.circled ? 1 : undefined, monomers: mol.monomers?.length ? mol.monomers : undefined }),
   }, tables + pageXml);
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n${root}\n`;
 }
@@ -2777,6 +2778,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));
   if (octet && top!.guides !== undefined) mol.guides = readGuides(top!.guides);
   if (octet && top!.fields === 1) mol.fields = true;
+  // The user's monomers the drawing uses (issue 27), each checked as a defined one; never added to the user's own.
+  if (octet && top!.monomers !== undefined) { const own = readMonomers(top!.monomers); if (own.length) mol.monomers = own; }
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
   return { mol: settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, lost };

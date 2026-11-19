@@ -465,7 +465,7 @@ const editorSource = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"
 const copyOf = (part: Mol) => serialize({ ...part, style: DEFAULT_STYLE });
 const pasteInto = (doc: Mol, json: string) => insertMol(doc, parse(json), [0, -20]).mol;
 await check("S17", "Copy a bridged label chain to another drawing, paste: the same picture, the bracket kept, HELM the same", () => {
-  assert.match(editorSource, /octetJson = serialize\(\{ \.\.\.part, style \}\)/, "the editor's copy is the part as a file");
+  assert.match(editorSource, /octetJson = serialize\(\{ \.\.\.part, style, \.\.\.\(carried\.length \? \{ monomers: carried \} : \{\}\) \}\)/, "the editor's copy is the part as a file");
   const h = "PEPTIDE1{C.[dF].Y.C.A}$PEPTIDE1,PEPTIDE1,1:R3-4:R3$$$V2.0", l = labels(h);
   const there = pasteInto({ atoms: [], bonds: [] }, copyOf(l));
   assert.equal(brackets(there).length, 1, "the bracket kept");
@@ -1056,7 +1056,7 @@ await check("N35", "The longest chains in full: 249 Gly, 71 Trp, 52 dC, 45 dG, 5
   assert.ok(peptideSmiles(`peptide: ${"G".repeat(249)}`), "249 Gly as SMILES");
   assert.ok(peptideSmiles(`peptide: ${"ACDEFGHIKLMNPQRSTVWY".repeat(50)}`), "1,000 residues as SMILES");
   assert.equal(peptideSmiles(`peptide: ${"G".repeat(1001)}`), undefined, "over 1,000");
-  assert.ok(editorSource.includes("if (isSequence(s)) {\n      let r: ReturnType<typeof seqBuilt>;\n      try { r = seqBuilt({ build: s, labels: seqLabels }); }"), "structureFromText builds a sequence as the field does");
+  assert.ok(editorSource.includes("if (isSequence(s)) {\n      let r: ReturnType<typeof seqBuilt>;\n      try { r = seqBuilt({ build: s, labels: seqLabels, own: ownMonomers }); }"), "structureFromText builds a sequence as the field does");
 });
 
 await check("N36", "Expand Label on a whole residue-label chain: along one straight backbone as Sequences > Atoms draws it, the same InChI, HELM and brackets; at its scale; one label left keeps the places", () => {

@@ -127,6 +127,11 @@ type Props = {
   onRemoveName: (name: string) => void;
   onExportNames: () => void;
   onImportNames: () => void;
+  monomers: { code: string; name?: string; smiles: string }[]; // the user's own peptide monomers (Structure > Define Monomer…)
+  onRenameMonomer: (from: string, to: string) => void;
+  onRemoveMonomer: (code: string) => void;
+  onExportMonomers: () => void;
+  onImportMonomers: () => void;
   onClose: () => void;
 };
 
@@ -209,20 +214,21 @@ function OwnTemplates({ list, onRename, onRemove }: { list: { id: string; name: 
 }
 
 // The user's own dictionary: each name to change (it is kept when the field is left, if no other entry has it), its
-// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one.
-function OwnDictionary({ list, onRename, onRemove }: { list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void }) {
+// SMILES, and its remove button, as the user's colours and templates. With no names, how to add one. The user's
+// monomers (issue 27) are listed the same way, by their codes.
+function OwnDictionary({ list, onRename, onRemove, label = "Name", most = 80, empty = "To add a name, select a structure. Then right-click it and choose Add to dictionary." }: { list: { name: string; smiles: string }[]; onRename: (from: string, to: string) => void; onRemove: (name: string) => void; label?: string; most?: number; empty?: string }) {
   const [names, setNames] = useState<Record<string, string>>({});
   const keep = (from: string) => {
     const to = names[from];
     if (to !== undefined) onRename(from, to);
     setNames(({ [from]: _, ...rest }) => rest);
   };
-  if (!list.length) return <p className="dictionary-empty">To add a name, select a structure. Then right-click it and choose Add to dictionary.</p>;
+  if (!list.length) return <p className="dictionary-empty">{empty}</p>;
   return (
     <div className="palette-editor dictionary-list">
       {list.map((n) => (
         <div key={n.name} className="palette-line">
-          <input className="palette-name" aria-label="Name" value={names[n.name] ?? n.name} maxLength={80} spellCheck={false}
+          <input className="palette-name" aria-label={label} value={names[n.name] ?? n.name} maxLength={most} spellCheck={false}
             onChange={(e) => setNames((x) => ({ ...x, [n.name]: e.target.value }))} onBlur={() => keep(n.name)}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); setNames(({ [n.name]: _, ...rest }) => rest); } }} />
           <span className="dictionary-smiles" data-tip={n.smiles}>{n.smiles}</span>
@@ -690,8 +696,11 @@ export function SettingsWindow(p: Props) {
       ...(p.moreFormats ? [d("pro", "File menu", "Compact chemfig code", "compact chemfig latex tex code one line readable indent copy export", <Switch on={p.chemfigCompact} label="Compact chemfig code" onChange={p.onChemfigCompact} />)] : []),
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
+      // Structure > Define Monomer… keeps peptide monomers by their codes; here they are renamed, removed, exported and
+      // imported as HELM monomer libraries (issue 27).
+      d("dictionary", "Monomers", "Your monomers", "monomers monomer peptide sequence helm code custom amino acid define rename remove export import library", <OwnDictionary list={p.monomers.map((x) => ({ name: x.code, smiles: x.smiles }))} label="Code" most={12} empty="To add a monomer, label its links R1 and R2 on a structure. Then right-click it and choose Define monomer." onRename={p.onRenameMonomer} onRemove={p.onRemoveMonomer} />, true),
     ].filter((x) => AI || x.module !== "ai");
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.moreFormats, p.chemfigCompact, p.selection, p.rulerUnit, p.selectColour, p.outlines, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.mcp, p.aiApps, p.wordClick, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.cursor, p.dictionary, p.monomers, p.annotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));
@@ -730,6 +739,8 @@ export function SettingsWindow(p: Props) {
     return <>{sections(module, list).map((s) => <Section key={s} title={s} defs={list.filter((x) => x.module === module && x.section === s)}
       aside={s === "Updates" ? <button className="text-button" onClick={p.onCheckUpdates}>Check Now</button> : s === "Names" && !query ? (
         <span className="section-buttons"><button className="text-button" onClick={p.onImportNames}>Import…</button><button className="text-button" onClick={p.onExportNames} disabled={!p.dictionary.length}>Export…</button></span>
+      ) : s === "Monomers" && !query ? (
+        <span className="section-buttons"><button className="text-button" onClick={p.onImportMonomers}>Import…</button><button className="text-button" onClick={p.onExportMonomers} disabled={!p.monomers.length}>Export…</button></span>
       ) : s === "Selection" && !query && p.selection ? (
         // Reset to document: the selection takes the document's settings, with none of its own (ChemDraw's Apply Object
         // Settings from > Current Document).

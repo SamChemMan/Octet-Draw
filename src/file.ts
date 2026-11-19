@@ -1,6 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
+import { readMonomers } from "./monomers.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
@@ -87,7 +88,7 @@ export function serialize(mol: Mol): string {
   const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}), ...(g.annotations?.length ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
   const grids = (mol.grids ?? []).map((g) => ({ ...g, arrow: arrowList.findIndex((a) => a.id === g.arrow) })).filter((g) => g.arrow >= 0);
-  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}) }, null, 1) + "\n";
+  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}), ...(mol.monomers?.length ? { monomers: mol.monomers } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // A page spectrum's part (pageplot.ts): its role and where Octet put it. Octet 1.1.0 leaves both out.
@@ -167,7 +168,7 @@ function copySet(to: object, from: Record<string, unknown>, keys: string[]) {
 export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
-  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown };
+  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown; monomers?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
@@ -277,6 +278,8 @@ export function parse(text: string): Mol {
   if (d.style !== undefined) out.style = readStyle(d.style);
   if (d.guides !== undefined) out.guides = readGuides(d.guides);
   if (d.fields === true) out.fields = true;
+  // The user's monomers the drawing uses (issue 27), each checked as a defined one; never added to the user's own.
+  if (d.monomers !== undefined) { const own = readMonomers(d.monomers); if (own.length) out.monomers = own; }
   // Arrows take ids after the captions'.
   const captionCount = Array.isArray(d.captions) ? d.captions.length : 0;
   if (d.arrows !== undefined) {

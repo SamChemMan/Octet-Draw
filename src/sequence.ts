@@ -6,7 +6,7 @@ import type { Mol } from "./render.ts";
 import { pickAtoms } from "./edit.ts";
 import { CODES, residueSmiles } from "./peptide.ts";
 import { PHOSPHATE, unit } from "./nucleic.ts";
-import { D_CODES } from "./monomers.ts";
+import { D_CODES, elementKey } from "./monomers.ts";
 
 type P = [number, number];
 
@@ -46,8 +46,8 @@ export function sequenceText(s: SeqParts): { text: string; caret: number } {
 // the free compound has it (OH on a C=O or a phosphate's P, H on an N or O) against each amino acid's, nucleoside's
 // and phosphate's. The labels are the ones the Sequence tool draws.
 // A link's cap (monomers.ts): OH on an acyl carbon or a P, H anywhere else. more: other residues to try (the D amino
-// acids), each as SMILES with its links capped so, and its label.
-export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly [string, string][] = []): string | undefined {
+// acids, the user's monomers; seqbuild.ts monomerRefs), each tried only when its residue has as many heavy atoms.
+export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly { label: string; key: string; smiles: () => string | undefined }[] = []): string | undefined {
   const caps = new Map<number, string>();
   const acyl = (i: number) => m.atoms[i].label === "P" || (m.atoms[i].label === "C" && m.bonds.some((b) => b.type === 2 && b.atoms.includes(i) && m.atoms[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]].label === "O"));
   for (const b of m.bonds) {
@@ -63,7 +63,10 @@ export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string)
   const seen = residueInchis.get(inchi) ?? residueInchis.set(inchi, new Map()).get(inchi)!;
   if (seen.size > 2000) seen.clear();
   const want = seen.has(key) ? seen.get(key) : seen.set(key, inchi(capped)).get(key);
-  return want ? [...residueTexts(), ...more].find(([smiles]) => (refs.has(smiles) ? refs : refs.set(smiles, inchi(smiles))).get(smiles) === want)?.[1] : undefined;
+  if (!want) return undefined;
+  const same = (smiles: string | undefined) => !!smiles && (refs.has(smiles) ? refs : refs.set(smiles, inchi(smiles))).get(smiles) === want;
+  const elements = elementKey([...group].map((i) => m.atoms[i]));
+  return residueTexts().find(([smiles]) => same(smiles))?.[1] ?? more.find((x) => x.key === elements && same(x.smiles()))?.label;
 }
 // Each residue's InChI, read once (Copy As HELM reads every residue of a chain), and each drawn residue's.
 const refs = new Map<string, string | undefined>(), residueInchis = new WeakMap<object, Map<string, string | undefined>>();

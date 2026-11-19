@@ -106,7 +106,8 @@ import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE } from "./peptide";
 import { relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
 import { fieldSeq, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
-import { monomerRefs } from "./seqbuild";
+import { helmLibrary, monomerOf, monomerRefs } from "./seqbuild";
+import { codeProblem, MOST_OWN_MONOMERS, readHelmLibrary, withMonomer, type Own } from "./monomers";
 import { NUCLEIC } from "./nucleic";
 import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, seqLayout, warmLayout } from "./namepreview";
 import { commonKey } from "./common";
@@ -185,10 +186,12 @@ const tick = () => new Promise((r) => { const c = new MessageChannel(); c.port1.
 const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
 // A bond from a residue label joins at its free link (helm.ts linkResidues); a residue with none says so (linkNotice).
 const linkNotice: { show?: (problem: string) => void } = {};
+// The monomers a code may name besides Octet's in this window's drawing (the drawing's, then the user's), for the hooks.
+const ownNow: { list: Own } = { list: [] };
 // A residue label renamed to another residue (Ala to Gly) takes that residue's atoms (sequence.ts relabel); one joined
 // by its side chain keeps its name, and says why.
 labelHooks.relabel = (m, i, text) => { const r = relabel(m, i, text, parseStructure); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
-labelHooks.link = (m, i, j) => { const r = linkResidues(m, i, j); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
+labelHooks.link = (m, i, j) => { const r = linkResidues(m, i, j, ownNow.list); if (r && "problem" in r) { linkNotice.show?.(r.problem); return m; } return r; };
 const HOME_WINDOW = TAURI && !DRAW_WINDOW && !new URLSearchParams(location.search).has("editor");
 // The computer user's name, a new drawing's author (Settings > Document > Properties). Asked for once as the window
 // loads, before the window asks what it opens, so a new window's first drawing has it.
@@ -860,6 +863,39 @@ export default function Editor() {
       setNotice(failure("Octet cannot import this file.", e));
     }
   }
+  // Define Monomer (Structure > Define Monomer…, right-click a structure; issue 27): the selected structure, with R1, R2
+  // and maybe R3 labels on its links, as a peptide monomer of the user's own (seqbuild.ts monomerOf), by a code.
+  function defineMonomer() {
+    const part = templatePart();
+    if (!part?.atoms.length) return setNotice("Select a structure first.", "info");
+    const made = monomerOf(part);
+    if ("problem" in made) return setNotice(made.problem);
+    setDialog({ kind: "monomer", code: "", name: "", smiles: made.smiles });
+  }
+  // Settings > Dictionary > Monomers: Export… writes the user's monomers as a HELM monomer library; Import… reads one
+  // and adds the monomers whose codes the user does not have. A monomer Octet could not define is left out.
+  async function exportMonomers() {
+    if (!TAURI) return;
+    try { await invoke("export_file", { export: { name: "Octet monomers", format: "json", json: helmLibrary(settings.monomers) } }); }
+    catch (e) { setNotice(failure("Octet cannot export the monomers.", e)); }
+  }
+  async function importMonomers() {
+    if (!TAURI) return;
+    try {
+      const picked = await invoke<[string, string] | null>("import_monomers");
+      if (!picked) return;
+      const read = readHelmLibrary(picked[1]);
+      if ("problem" in read) return setNotice(read.problem);
+      // New codes only, as many as there is room for (up to MOST_OWN_MONOMERS): a monomer the user has stays as it is.
+      const fresh = read.monomers.filter((m) => !settings.monomers.some((x) => x.code === m.code)), add = fresh.slice(0, Math.max(0, MOST_OWN_MONOMERS - settings.monomers.length));
+      if (!add.length) return setNotice(!read.monomers.length ? `There are no peptide monomers in ${picked[0]} that Octet can use.` : fresh.length ? `You have ${MOST_OWN_MONOMERS} monomers, the most Octet keeps.` : `Your monomers have every code in ${picked[0]} already.`, "info");
+      setSettings((st) => ({ ...st, monomers: add.reduce((list, m) => withMonomer(list, m), st.monomers) }));
+      const left = read.left + fresh.length - add.length;
+      setNotice(`Added ${add.length} monomer${add.length === 1 ? "" : "s"}.${left ? ` Octet left out ${left}.` : ""}`, "done");
+    } catch (e) {
+      setNotice(failure("Octet cannot import this file.", e));
+    }
+  }
   // A name from the user's own dictionary draws with the name under it, as ChemDraw's does.
   const withOwnCaption = (name: string, frag: Mol): Mol => {
     const own = casNumber(name) ? undefined : ownName(name); // a CAS number draws with no caption, as one from Octet's dictionary does
@@ -1086,9 +1122,12 @@ export default function Editor() {
   const lastSet = useRef<Mol>(undefined);
   // How this document shows sequences (issue 27): its style's Sequences, else as Residue labels was last chosen.
   const seqLabels = (doc.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels";
+  // The monomers a code may name besides Octet's (issue 27): the drawing's own copies first, then the user's.
+  const ownMonomers = useMemo<Own>(() => [...(doc.monomers ?? []), ...settings.monomers.filter((m) => !doc.monomers?.some((d) => d.code === m.code))], [doc.monomers, settings.monomers]);
+  ownNow.list = ownMonomers;
   // A sequence an AI app gives (mcp.ts draw), built on the spot as the drawing m shows sequences; undefined when not.
   const builtSeq = (text: string, m: Mol): Mol | undefined => {
-    try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels" }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
+    try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels", own: ownMonomers }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
   };
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
@@ -1326,7 +1365,7 @@ export default function Editor() {
     // sequences, so a paste or a text made a structure is the same drawing as Return gives.
     if (isSequence(s)) {
       let r: ReturnType<typeof seqBuilt>;
-      try { r = seqBuilt({ build: s, labels: seqLabels }); } catch { r = undefined; }
+      try { r = seqBuilt({ build: s, labels: seqLabels, own: ownMonomers }); } catch { r = undefined; }
       if (r && "problem" in r) refused?.(r.problem);
       return r && !("problem" in r) ? r : undefined;
     }
@@ -1415,8 +1454,8 @@ export default function Editor() {
     if (f === "cml") return toCml(part);
     if (f === "ct") return toCt(part, name);
     if (f === "sln") return toSln(part);
-    if (f === "helm") return toHelm(part);
-    if (f === "fasta") return toFasta(part);
+    if (f === "helm") return toHelm(part, undefined, undefined, ownMonomers);
+    if (f === "fasta") return toFasta(part, undefined, ownMonomers);
     if (f === "molfile" || kind === "mol") return toMolfile(part, f === "molfile" || v2000);
     if (kind === "sdf") return toSdf(part, v2000);
     const steps = stepsIn(part);
@@ -2497,7 +2536,7 @@ export default function Editor() {
   // says why. False for any other text. bare: FASTA with no ">" line too (helm.ts bareFasta), for a paste nothing else
   // reads.
   function pasteSequence(text: string, field = false, bare = false): boolean {
-    const read = readSequence(text, bare);
+    const read = readSequence(text, bare, ownMonomers);
     if (read && "problem" in read) setNotice(read.problem);
     else if (read) { (field ? setNaming : insertSequence)(read.text); if (read.notes) setNotice(read.notes.join(" "), "info"); }
     return !!read;
@@ -2509,7 +2548,7 @@ export default function Editor() {
   // selection goes.
   function setSequences(to: "atoms" | "labels", next: DocStyle = style) {
     setSettings((st) => ({ ...st, sequenceLabels: to === "labels" }));
-    const drawn = withSequences(doc, to);
+    const drawn = withSequences(doc, to, ownMonomers);
     if (drawn === doc && next === style && style.sequences === undefined) return;
     set({ ...drawn, style: { ...next, sequences: to } }, drawn === doc);
   }
@@ -2534,7 +2573,7 @@ export default function Editor() {
       if (seqNote || !seqRead) return false;
       if (placing === naming) return true;
       placingJob.current?.cancel();
-      const built = seqLayout(seqText, seqLabels);
+      const built = seqLayout(seqText, seqLabels, ownMonomers);
       const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
       placingJob.current = job;
       setPlacing(naming);
@@ -2978,7 +3017,7 @@ export default function Editor() {
       // phosphate, with each outside bond capped as the free compound has it (OH on C or P, H on N or O).
       if (links.length > 1) {
         const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1];
-        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi, monomerRefs()) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
+        return setDialog({ kind: "contract", text: residueName(doc, group, toInchi, monomerRefs(ownMonomers)) ?? analyse(subset(doc, group))?.[0]?.formula ?? "R", keep, group: [...group] });
       }
       const keep = group.has(links[0].atoms[0]) ? links[0].atoms[0] : links[0].atoms[1], outside = links[0].atoms[0] === keep ? links[0].atoms[1] : links[0].atoms[0];
       // The group with xenon in place of the rest of the structure, as an InChI, against each abbreviation's.
@@ -3026,6 +3065,8 @@ export default function Editor() {
     ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => insertSequence(`${k}: `)])),
     // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
     dictionary_add: () => addToDictionary(),
+    // Structure > Define Monomer…: the selected structure as a peptide monomer of the user's own (issue 27).
+    define_monomer: () => defineMonomer(),
     // View > Templates: a set's floating palette shown or hidden (the user's sets, then Octet's, as the menu lists them).
     ...Object.fromEntries(menuSets.map((set, k) => [`templates_${k}`, () => togglePalette(set)])),
     // File > Save Templates for ChemDraw: a set as a ChemDraw template file (the sets in View > Templates' order).
@@ -3661,7 +3702,7 @@ export default function Editor() {
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
-    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "image"; then: "file" | "selected"; busy?: string } | { kind: "ai" }>();
+    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "monomer"; code: string; name: string; smiles: string } | { kind: "image"; then: "file" | "selected"; busy?: string } | { kind: "ai" }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
@@ -3765,8 +3806,8 @@ export default function Editor() {
   const seqParts = naming === undefined ? undefined : sequenceParts(naming);
   // A sequence (issue 27): read on each keystroke (a long HELM in well under a frame), its problem shown under the field.
   const seqText = naming !== undefined && isSequence(naming.trim()) ? naming.trim() : undefined;
-  const seqRead = useMemo(() => (seqText === undefined ? undefined : fieldSeq(seqText)), [seqText]);
-  const seqNote = !seqRead ? undefined : "problem" in seqRead ? seqRead.problem : seqProblem(seqRead.seq, seqLabels);
+  const seqRead = useMemo(() => (seqText === undefined ? undefined : fieldSeq(seqText, ownMonomers)), [seqText, ownMonomers]);
+  const seqNote = !seqRead ? undefined : "problem" in seqRead ? seqRead.problem : seqProblem(seqRead.seq, seqLabels, ownMonomers);
   const nameNote = naming === undefined ? undefined : asking === naming.trim() ? "Searching PubChem" : casProblem(naming) ?? seqNote;
   // The text read as a name, once a keystroke (a sequence is never read here: OPSIN takes up to 0.3 s over a peptide).
   const typedSmiles = useMemo(() => (naming === undefined || !loaded || isSequence(naming.trim()) ? undefined : nameToSmiles(naming)), [naming, namesLoaded, loaded]);
@@ -3793,7 +3834,7 @@ export default function Editor() {
     if (naming === undefined) setSeqPreview(undefined);
     if (!seqKey || seqPreview?.key === seqKey) return;
     let gone = false;
-    const t = setTimeout(() => void seqLayout(seqText!, seqLabels).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
+    const t = setTimeout(() => void seqLayout(seqText!, seqLabels, ownMonomers).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
     return () => { gone = true; clearTimeout(t); };
   }, [seqKey, naming === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownNamed = seqText !== undefined ? (seqKey ? seqPreview?.mol : undefined) : later ? quickPreview?.mol : named;
@@ -8124,7 +8165,7 @@ export default function Editor() {
   const COPY_AS: Record<string, [string, (m: Mol) => string]> = {
     smiles: ["SMILES", (m) => chemistryOf(m, "smiles") ?? ""], inchi: ["InChI", (m) => toInchi(m) ?? ""], inchikey: ["an InChIKey", toInchiKey],
     mol: ["MOL text", (m) => toMolfile(m)], mol_v2000: ["MOL V2000 text", (m) => toMolfile(m, true)], sln: ["SLN", (m) => toSln(m) ?? ""],
-    helm: ["HELM", (m) => toHelm(m) ?? ""], fasta: ["FASTA", (m) => toFasta(m) ?? ""],
+    helm: ["HELM", (m) => toHelm(m, undefined, undefined, ownMonomers) ?? ""], fasta: ["FASTA", (m) => toFasta(m, undefined, ownMonomers) ?? ""],
   };
   const copyAs = (what: string) => {
     const part = selectedPart() ?? doc;
@@ -8182,7 +8223,7 @@ export default function Editor() {
     // shows sequences, and landed when it comes.
     if (isSequence(entry.name)) {
       placingJob.current?.cancel();
-      const text = entry.name, built = seqLayout(text, seqLabels);
+      const text = entry.name, built = seqLayout(text, seqLabels, ownMonomers);
       const job = { result: built.result.then((m) => { if (m && "problem" in m) setNotice(m.problem); return m && !("problem" in m) ? [m] : undefined; }), cancel: built.cancel };
       placingJob.current = job;
       setNaming(text);
@@ -8691,6 +8732,7 @@ export default function Editor() {
     if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET);
     if (command === "template.add.new") { const part = templatePart(); return part && askSet((set) => addPart(part, set)); }
     if (command === "dictionary.add") return addToDictionary();
+    if (command === "monomer.define") return defineMonomer();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
       const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
@@ -9555,7 +9597,9 @@ export default function Editor() {
     };
     const copyOut = (part: Mol, e?: ClipboardEvent): Promise<boolean> => {
       saw("copy");
-      const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style });
+      // The drawing's monomers its residue labels name go with it (issue 27), so it pastes the same anywhere.
+      const codes = new Set(part.atoms.flatMap((a) => (a.inner && a.text ? [a.text] : []))), carried = (doc.monomers ?? []).filter((x) => codes.has(x.code));
+      const page = !selection.size && !picked.size, on = settings.files.clipboard, octetJson = serialize({ ...part, style, ...(carried.length ? { monomers: carried } : {}) });
       // In the app: as ChemDraw copies, for Word, PowerPoint and Keynote (a picture at true size: on the Mac a vector
       // PDF, with Office's own copy of it before it for Word, on Windows an EMF and on Linux a PNG, each with the structure hidden in it, so it pastes back as a
       // structure), then CDX, CDXML, a molfile and SMILES, then Octet's own form. The CDXML goes in the picture too.
@@ -10887,6 +10931,11 @@ export default function Editor() {
           onRemoveName={(name) => setSettings((s) => ({ ...s, dictionary: withoutOwnName(s.dictionary, name) }))}
           onExportNames={() => void exportNames()}
           onImportNames={() => void importNames()}
+          monomers={settings.monomers}
+          onRenameMonomer={(from, to) => setSettings((st) => (codeProblem(to.trim()) || st.monomers.some((x) => x.code === to.trim()) ? st : { ...st, monomers: st.monomers.map((x) => (x.code === from ? { ...x, code: to.trim() } : x)) }))}
+          onRemoveMonomer={(code) => setSettings((st) => ({ ...st, monomers: st.monomers.filter((x) => x.code !== code) }))}
+          onExportMonomers={() => void exportMonomers()}
+          onImportMonomers={() => void importMonomers()}
           onApplyFile={TAURI && !madeTemplate ? () => void applyStyleFile() : undefined}
           onSaveFile={TAURI && !madeTemplate ? () => void saveStyleFile() : undefined}
           annotations={doc.annotations}
@@ -11341,6 +11390,26 @@ export default function Editor() {
             <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
             {there && <p className="dialog-note">Your dictionary has “{there.name}” already. Replace gives it this structure.</p>}
             {octets && <p className="dialog-note">Octet reads this name already. Your structure comes first.</p>}
+          </Dialog>
+        );
+      })()}</Exit>
+      <Exit>{dialog?.kind === "monomer" && (() => {
+        // Define Monomer (issue 27): the code the monomer is typed by (1 to 12 letters, digits or _) and a name. A code the
+        // user has already is replaced, as Add to dictionary replaces a name; the dialog says so first.
+        const code = dialog.code.trim(), problem = code ? codeProblem(code) : undefined, there = code && !problem ? settings.monomers.find((x) => x.code === code) : undefined;
+        const define = () => {
+          if (!code || problem) return;
+          const d = dialog;
+          setDialog(undefined);
+          setSettings((st) => ({ ...st, monomers: withMonomer(st.monomers, { code, smiles: d.smiles, ...(d.name.trim() ? { name: d.name.trim().slice(0, 80) } : {}) }) }));
+          setNotice(`[${code}] is in your monomers.`, "done");
+        };
+        return (
+          <Dialog title="Define monomer" action={there ? "Replace" : "Define"} disabled={!code || !!problem} onClose={() => setDialog(undefined)} onAction={define}>
+            <label className="dialog-row"><span>Code</span><span className="unit-field text"><input aria-label="Code" value={dialog.code} maxLength={12} spellCheck={false} onChange={(e) => setDialog({ ...dialog, code: e.target.value })} /></span></label>
+            <label className="dialog-row"><span>Name</span><span className="unit-field text"><input aria-label="Name" value={dialog.name} maxLength={80} spellCheck={false} onChange={(e) => setDialog({ ...dialog, name: e.target.value })} /></span></label>
+            {problem && <p className="dialog-note">{problem}</p>}
+            {there && <p className="dialog-note">Your monomers have [{code}] already. Replace gives it this structure.</p>}
           </Dialog>
         );
       })()}</Exit>

@@ -5,10 +5,10 @@
 // it. As residue labels, each monomer is a label that keeps its atoms, bonded to the next by its links (Bond.ports),
 // in rows. A 60-residue peptide takes milliseconds, where laying out its SMILES took Indigo about a second.
 import type { Atom, Mol } from "./render.ts";
-import { fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
+import { canonicalSmiles, fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
 import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
-import { byLabel, monomer, peptideMonomers, smilesLinks, type PolymerKind } from "./monomers.ts";
+import { byLabel, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
 import { labelLayout } from "./sequence.ts";
 import type { End, Seq, SeqUnit } from "./helm.ts";
 
@@ -52,11 +52,19 @@ export function cappedSmiles(smiles: string): string | undefined {
   if (!p) return undefined;
   return smiles.replace(/\(\[\*:([1-3])\]\)|\[\*:([1-3])\]/g, (_, a, b) => { const cap = p.cap[Number(a ?? b)]; return cap === "O" ? (a ? "(O)" : "O") : ""; });
 }
-// The residues Contract Label and Copy As HELM name besides the natural ones: the D set, each as its capped SMILES
-// and its label, worked out once.
-let dRefs: [string, string][] | undefined;
-export function monomerRefs(): [string, string][] {
-  return (dRefs ??= peptideMonomers().filter((x) => x.code.startsWith("d")).flatMap((m): [string, string][] => { const c = cappedSmiles(m.smiles); return c ? [[c, m.label]] : []; }));
+// The residues Contract Label and Copy As HELM name besides the natural ones: the D set, then own (a document's
+// monomers, then the user's), each by its label, its residue's elements (monomers.ts smilesKey) and its capped SMILES,
+// which is worked out only for a residue with the same elements (sequence.ts residueName).
+export type Ref = { label: string; key: string; smiles: () => string | undefined };
+const refOf = (label: string, smiles: string): Ref => ({ label, key: smilesKey(smiles), smiles: () => cappedSmiles(smiles) });
+let dRefs: Ref[] | undefined;
+const ownRefs = new WeakMap<Own, Ref[]>();
+export function monomerRefs(own: Own = []): Ref[] {
+  dRefs ??= peptideMonomers().filter((x) => /^d[A-Z]$/.test(x.code)).map((m) => refOf(m.label, m.smiles));
+  if (!own.length) return dRefs;
+  let refs = ownRefs.get(own);
+  if (!refs) ownRefs.set(own, refs = [...dRefs, ...own.map((m) => refOf(m.code, m.smiles))]);
+  return refs;
 }
 // The signed volume of four points: a centre's hand from its neighbours in order.
 function volume([a, b, d, e]: number[][]): number {
@@ -81,15 +89,15 @@ function alpha(p: Prepared): boolean {
 // What a sequence's units are, and what each link joins.
 type Units = { kind: PolymerKind; unit: SeqUnit; smiles: string; label: string; prep: Prepared }[][];
 const keyOf = (e: End) => `${e.chain} ${e.unit} ${e.r}`;
-function unitsOf(seq: Seq): { units: Units; partner: Map<string, End> } | { problem: string } {
+function unitsOf(seq: Seq, own: Own): { units: Units; partner: Map<string, End> } | { problem: string } {
   const units: Units = [];
   for (const c of seq.chains) {
     const row: Units[number] = [];
     for (const u of c.units) {
-      const m = u.smiles ? undefined : monomer(c.kind, u.code), smiles = u.smiles ?? m?.smiles;
+      const m = u.smiles ? undefined : monomer(c.kind, u.code, own), smiles = u.smiles ?? m?.smiles;
       const prep = smiles ? prepare(smiles) : undefined;
       if (!smiles || !prep) return { problem: u.smiles ? "Octet cannot read a monomer's SMILES." : `Not a monomer: [${u.code}]` };
-      if (u.smiles && c.kind === "peptide" && !alpha(prep)) return { problem: "A peptide's monomer must be an α-amino acid, with R1 on its N and R2 on its C=O carbon." };
+      if ((u.smiles || !monomer(c.kind, u.code)) && c.kind === "peptide" && !alpha(prep)) return { problem: "A peptide's monomer must be an α-amino acid, with R1 on its N and R2 on its C=O carbon." };
       row.push({ kind: c.kind, unit: u, smiles, label: m?.label ?? "", prep });
     }
     units.push(row);
@@ -125,12 +133,12 @@ export const TOO_MANY_ATOMS = `Up to ${MOST_BUILT_ATOMS.toLocaleString("en-GB")}
 // Whether a sequence has more atoms than Octet draws in full, as buildAtoms counts them, for the field before Return.
 // Octet's own monomers are read once each; a monomer's own SMILES is counted from its text, so typing never waits
 // for Indigo (each of its R atoms counted as gone).
-export function tooManyAtoms(seq: Seq): boolean {
+export function tooManyAtoms(seq: Seq, own: Own = []): boolean {
   const linked = new Set(seq.links.flatMap((l) => l.map((e) => keyOf(e))));
   let count = 0;
   seq.chains.forEach((c, k) => c.units.forEach((u, n) => {
     if (u.smiles) { const l = smilesLinks(u.smiles); count += l ? l.atoms - l.r.filter((d) => d !== undefined).length : 0; return; }
-    const p = prepare(monomer(c.kind, u.code)?.smiles ?? "");
+    const p = prepare(monomer(c.kind, u.code, own)?.smiles ?? "");
     const joined = (r: number) => linked.has(`${k} ${n} ${r}`) || (r === 1 && n > 0) || (r === 2 && n < c.units.length - 1);
     if (p) count += p.mol.atoms.length - p.r.filter((d, r) => d !== undefined && (joined(r) || p.cap[r] === "H")).length;
   }));
@@ -138,8 +146,8 @@ export function tooManyAtoms(seq: Seq): boolean {
 }
 // look: what each unit's atoms are drawn with (a colour, a highlight), by chain and unit, when it is drawn again.
 type Look = (chain: number, unit: number) => Partial<Atom> | undefined;
-export function buildAtoms(seq: Seq, look?: Look): { mol: Mol } | { problem: string } {
-  const read = unitsOf(seq);
+export function buildAtoms(seq: Seq, look?: Look, own: Own = []): { mol: Mol } | { problem: string } {
+  const read = unitsOf(seq, own);
   if ("problem" in read) return read;
   const { units, partner } = read;
   if (countOf(read) > MOST_BUILT_ATOMS) return { problem: TOO_MANY_ATOMS };
@@ -184,7 +192,13 @@ export function buildAtoms(seq: Seq, look?: Look): { mol: Mol } | { problem: str
       if (Math.abs(v) > 1e-6) hands.set(here, Math.sign(v));
     }
   }));
-  return { mol: laidOut({ atoms, bonds }, hands) };
+  return { mol: withUsed(laidOut({ atoms, bonds }, hands), seq, own) };
+}
+// A built sequence with a copy of each of own's monomers it uses, so the drawing it lands in keeps them (edit.ts
+// withMonomers): it opens the same on a computer that does not have them.
+function withUsed(m: Mol, seq: Seq, own: Own): Mol {
+  const used = own.filter((o) => !monomer("peptide", o.code) && seq.chains.some((c) => c.kind === "peptide" && c.units.some((u) => !u.smiles && u.code === o.code)));
+  return used.length ? { ...m, monomers: used.map(({ code, name, smiles }) => ({ code, smiles, ...(name ? { name } : {}) })) } : m;
 }
 
 // Each structure along its straight backbone (chain.ts), its brackets on its links and its wedges set by hand; one the
@@ -217,8 +231,8 @@ function laidOut(m: Mol, hands: Map<number, number>): Mol {
 // A residue label for each monomer, in rows (labelLayout). A peptide's ends are labels of their own (H, Ac, OH, NH2)
 // with no atoms kept; every other cap is kept with its residue's atoms. A bond says which kept atom it joins at each
 // labelled end (Bond.ports): a residue's N and C=O for its neighbours, its R3 atom for a link.
-export function buildLabels(seq: Seq, look?: Look): { mol: Mol } | { problem: string } {
-  const read = unitsOf(seq);
+export function buildLabels(seq: Seq, look?: Look, own: Own = []): { mol: Mol } | { problem: string } {
+  const read = unitsOf(seq, own);
   if ("problem" in read) return read;
   const { units, partner } = read;
   if (residueCount(seq) > MOST_LABELS) return { problem: `Up to ${MOST_LABELS.toLocaleString("en-GB")} residues.` };
@@ -313,7 +327,7 @@ export function buildLabels(seq: Seq, look?: Look): { mol: Mol } | { problem: st
     parts.push(place({ atoms: frag.map((i) => mol.atoms[i]), bonds: mineBonds.map((b) => ({ ...b, atoms: [local.get(b.atoms[0])!, local.get(b.atoms[1])!] as [number, number] })) },
       { at: new Map([...laid.at].filter(([i]) => local.has(i)).map(([i, q]) => [local.get(i)!, q])), routes: new Map([...laid.routes].map(([k, r]) => [mineBonds.indexOf(mol.bonds[k]), r])) }));
   }
-  return { mol: stacked(parts) };
+  return { mol: withUsed(stacked(parts), seq, own) };
 }
 // Structures one under another, each centred on the first's middle.
 function stacked(parts: Mol[]): Mol {
@@ -337,10 +351,60 @@ const place = (m: Mol, laid: { at: Map<number, P>; routes: Map<number, number> }
 // Which kept atom of a residue label (its text and kept atoms) is its R3, for a bond to an atom of another structure:
 // the atom its monomer links there, where that link caps H (a Cys's S, a Lys's N), so the atoms kept stay as they are.
 // Undefined for a residue with no such R3, or whose kept atoms are not the monomer's.
-export function r3Port(text: string, inner: Mol): number | undefined {
-  const m = byLabel("peptide", text), p = m && prepare(m.smiles);
+export function r3Port(text: string, inner: Mol, own: Own = []): number | undefined {
+  const m = byLabel("peptide", text, own), p = m && prepare(m.smiles);
   if (!p || p.r[3] === undefined || p.at[3] === undefined || p.cap[3] !== "H") return undefined;
   const kept = p.mol.atoms.map((_, k) => k).filter((k) => !p.r.includes(k));
   if (inner.atoms.length !== kept.length || kept.some((k, n) => inner.atoms[n].label !== p.mol.atoms[k].label)) return undefined;
   return kept.indexOf(p.at[3]);
+}
+
+// ——— Defining a monomer (J10) ———
+// Structure > Define Monomer…: a drawn structure as a peptide monomer, written as SMILES with its links. Its links are
+// labels R1 (on the N side), R2 (on the C=O side) and maybe R3 (a side chain's), each on one single bond; R1's atom is an
+// N and R2's an acyl carbon one carbon from it, so the chain reader finds it in a chain again (an α-amino acid: Aib, an
+// N-methyl or a peptoid residue too). The problem says what to change.
+export function monomerOf(part: Mol): { smiles: string } | { problem: string } {
+  const at = (i: number) => part.bonds.filter((b) => b.atoms.includes(i)).map((b) => ({ b, j: b.atoms[0] === i ? b.atoms[1] : b.atoms[0] }));
+  const rs: (number | undefined)[] = [undefined, undefined, undefined, undefined];
+  if (fragments(part).length !== 1) return { problem: "Select one structure." };
+  for (const [i, a] of part.atoms.entries()) {
+    const m = /^R([1-3])$/.exec((a.text ?? a.label).trim());
+    if (!m) continue;
+    if (rs[+m[1]] !== undefined) return { problem: `Label one atom R${m[1]}.` };
+    rs[+m[1]] = i;
+  }
+  if (rs[1] === undefined || rs[2] === undefined) return { problem: "Label the links R1 and R2." };
+  for (const n of [1, 2, 3]) {
+    const i = rs[n];
+    if (i === undefined) continue;
+    const bonds = at(i);
+    if (bonds.length !== 1 || bonds[0].b.type !== 1 || bonds[0].b.stereo) return { problem: `R${n} joins one atom by a single bond.` };
+  }
+  if (part.atoms.some((a, i) => !rs.includes(i) && (a.text || a.inner))) return { problem: "Expand every label but R1, R2 and R3." };
+  const n = at(rs[1])[0].j, c = at(rs[2])[0].j, el = (i: number) => part.atoms[i].label;
+  const acyl = el(c) === "C" && at(c).some(({ b, j }) => b.type === 2 && el(j) === "O");
+  if (el(n) !== "N" || !acyl || !at(n).some(({ j }) => el(j) === "C" && at(j).some((x) => x.j === c))) return { problem: "Put R1 on the N and R2 on the C=O carbon, one carbon apart." };
+  if (part.atoms.length > 256) return { problem: "A monomer has up to 256 atoms." };
+  // Each R as a neon atom marked 1 to 3, so the SMILES keeps each stereocentre, then as [*:n].
+  const marked: Mol = { ...part, atoms: part.atoms.map((a, i) => { const k = rs.indexOf(i); return k > 0 ? { label: "Ne", location: a.location, isotope: k } : a; }) };
+  let smiles: string;
+  try { smiles = canonicalSmiles(marked).replace(/\[([123])Ne\]/g, "[*:$1]"); } catch { return { problem: "Octet cannot write this structure as SMILES." }; }
+  if (/[\s.]/.test(smiles) || smiles.length > 2000) return { problem: "Octet cannot read this structure as a monomer." };
+  const p = prepare(smiles);
+  if (!p || !alpha(p)) return { problem: "Octet cannot read this structure as a monomer." };
+  return { smiles };
+}
+// Settings > Dictionary > Monomers > Export…: the user's monomers as a HELM monomer library (JSON), each a peptide
+// backbone monomer with its symbol, name, SMILES and a cap for each R (H, or OH on an acyl carbon), as HELM libraries
+// write them. FASTA has no letter for them (X).
+export function helmLibrary(list: Own): string {
+  return JSON.stringify(list.map((m) => {
+    const p = prepare(m.smiles);
+    const rgroups = [1, 2, 3].filter((n) => p?.r[n] !== undefined).map((n) => {
+      const oh = p!.cap[n] === "O";
+      return { label: `R${n}`, capGroupName: oh ? "OH" : "H", capGroupSMILES: oh ? `O[*:${n}]` : `[*:${n}][H]`, alternateId: `R${n}-${oh ? "OH" : "H"}` };
+    });
+    return { symbol: m.code, name: m.name ?? m.code, polymerType: "PEPTIDE", monomerType: "Backbone", naturalAnalog: "X", smiles: m.smiles, rgroups };
+  }), null, 1) + "\n";
 }

@@ -144,7 +144,7 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), men
 assert.equal(editor.match(/if \(text && pasteSequence\(text\)\) return/g)?.length, 2, "both paste paths");
 assert.match(editor, /onPaste=\{\(e\) => \{ if \(pasteSequence\(e\.clipboardData\.getData\("text\/plain"\), true\)\) e\.preventDefault\(\); \}\}/);
 assert.match(editor, /el === nameField\.current && pasteSequence\(c\.text, true\)/, "Edit > Paste on Linux too");
-assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m\) \?\? ""\]/);
+assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m, undefined, undefined, ownMonomers\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m, undefined, ownMonomers\) \?\? ""\]/);
 assert.match(menu, /item\("copy_helm", "HELM", if cfg!\(target_os = "macos"\) \{ "Alt\+CmdOrCtrl\+E" \} else \{ "" \}\)/);
 assert.match(menu, /item\("copy_fasta", "FASTA", ""\)/);
 

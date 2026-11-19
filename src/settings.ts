@@ -12,6 +12,7 @@
 // selection. A new user has every section open.
 import { readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
 import type { OwnName } from "./names";
+import { readMonomers, type OwnMonomer } from "./monomers";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
 import { DPI_MIN, DPI_MAX, PICTURES } from "./export";
@@ -99,11 +100,12 @@ export type Settings = {
   cursor: CursorInk; // Settings > General > Cursor: Octet's cursors black, white, or the one that shows on the page
   selectColour: string; // Settings > General > Selection: the selection's colour, #RRGGBB (selectcolour.ts)
   sequenceLabels: boolean; // how sequences show in a new document (its style's Sequences): as residue labels, H–Ala–Cys–OH
+  monomers: OwnMonomer[]; // the user's own peptide monomers (Structure > Define Monomer…), up to 500, in the order defined
 };
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false, monomers: [] };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -119,6 +121,7 @@ export function loadSettings(): Settings {
       libraryRings: list<string>(saved.libraryRings, (k) => typeof k === "string"),
       templateSets: list<string>(saved.templateSets, (k) => typeof k === "string" && !!k.trim() && k.length <= 40).slice(0, 50),
       palettes: readPalettes(saved.palettes),
+      monomers: readMonomers(saved.monomers),
       librarySize: readSize(saved.librarySize),
       dictionary: list<OwnName>(saved.dictionary, (n) => typeof n === "object" && n !== null && typeof (n as OwnName).name === "string" && !!(n as OwnName).name.trim() && (n as OwnName).name.length <= 80
         && typeof (n as OwnName).smiles === "string" && !!(n as OwnName).smiles && (n as OwnName).smiles.length <= 4000 && ((n as OwnName).inchi === undefined || typeof (n as OwnName).inchi === "string")).slice(0, 2000),

@@ -570,7 +570,10 @@ export const HIGHLIGHT = "#DCE4F6";
 export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?: Arrow[]; shapes?: Shape[]; cycles?: Cycle[]; groups?: Group[]; grids?: Grid[]; fills?: RingFill[]; annotations?: Annotation[]; style?: DocStyle; guides?: Guides; spectra?: Measured[];
   // An experiment page whose details are text on the page (Octet 1.1.2; experiment.ts withHeader). A page without it,
   // from Octet 1.1.1, gets that text when it opens.
-  fields?: true };
+  fields?: true;
+  // The user's own monomers the drawing's sequences use (monomers.ts, issue 27), so it opens the same on any computer. A
+  // code is looked up in the drawing first.
+  monomers?: { code: string; name?: string; smiles: string }[] };
 // A ring fill (ChemDraw's Ring Fill colours, its ColoredMolecularArea): one ring, by its atoms in ring order, filled
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.
