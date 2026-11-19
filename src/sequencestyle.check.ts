@@ -15,7 +15,7 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { parseHelm, toHelm, withSequences, linkResidues } = await import("./helm.ts");
+const { parseHelm, toHelm, withSequences, linkResidues, chainText, fieldSeq } = await import("./helm.ts");
 const { buildAtoms } = await import("./seqbuild.ts");
 const { fragments, insertMol } = await import("./edit.ts");
 const { serialize, parse } = await import("./file.ts");
@@ -83,6 +83,26 @@ assert.equal(withSequences(labels, "labels"), labels, "already labels: the same 
   assert.equal(toHelm(linked), OXYTOCIN);
   assert.deepEqual(linked.captions?.map((c) => [c.text, c.under?.length]), [["2", linked.atoms.length]], "the number stays under it");
   assert.deepEqual(linked.groups?.map((g) => [g.atoms.length, g.items]), [[linked.atoms.length, [1]]], "and it stays in its group");
+}
+// A chain's ends are read by their bonds, charges and isotopes: a carboxylate, an 18O acid, a 15N or charged amide, a
+// 13C or 18O acetyl, an enol and an N-hydroxyethyl or N-methoxymethyl are no Ac, NH2 or OH end. Each goes with its
+// residue in full, so Residue labels and the Sequence field's text draw the same compound; a plain end is still read.
+{
+  const ala = "N[C@@H](C)C(=O)N[C@@H](C)C(=O)N[C@@H](C)C(=O)", acAla = `CC(=O)${ala}`;
+  for (const s of [`${ala}[O-]`, `${ala}[18OH]`, `${ala}[15NH2]`, `${ala}[NH3+]`, `[13CH3]C(=O)${ala}O`, `CC(=[18O])${ala}O`, `C=C(O)${ala}O`, `OCC${ala}O`, `COC${ala}O`]) {
+    const m = chem.fullMol(s), l = withSequences(m, "labels"), h = toHelm(m)!;
+    assert.equal(chem.toInchi(l), chem.toInchi(m), `${s}: as labels, the same compound`);
+    assert.equal(chem.toInchi(withSequences(l, "atoms")), chem.toInchi(m), `${s}: and as atoms again`);
+    assert.doesNotMatch(h, /\[ac\]|\[am\]|^PEPTIDE1\{A\.A\.A\}/, `${s}: no Ac, NH2 or OH end in ${h}`);
+    const field = chainText(m, m.atoms.map((_, i) => i))!, read = fieldSeq(field);
+    assert.ok(read && !("problem" in read), `${s}: the field reads ${field}`);
+    assert.equal(chem.toInchi(buildAtoms((read as { seq: Parameters<typeof buildAtoms>[0] }).seq).mol), chem.toInchi(m), `${s}: Return draws the same compound`);
+  }
+  for (const [s, want] of [[`${acAla}N`, "peptide: Ac-AAA-NH2"], [`${ala}O`, "peptide: AAA"], [`${acAla}OC`, "peptide: Ac-AAA-OMe"]]) {
+    const m = chem.fullMol(s);
+    assert.equal(chainText(m, m.atoms.map((_, i) => i)), want);
+    assert.equal(chem.toInchi(withSequences(m, "labels")), chem.toInchi(m), `${s}: as labels`);
+  }
 }
 // The style keeps the choice, in the file too; a file without it opens as it was drawn.
 assert.equal(readStyle({ ...DEFAULT_STYLE, sequences: "labels" }).sequences, "labels");

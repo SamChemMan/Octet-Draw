@@ -326,9 +326,11 @@ function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own):
     const base = chains.length, found: Chain[] = [];
     c.chains.forEach((ch) => {
       // A peptide's ends: Ac and NH2 ([ac], [am]), and the others Octet has (Boc, OMe; monomers.ts N_ENDS, C_ENDS) by their
-      // structure. An end Octet does not know (an ester of another alcohol) joins its residue.
-      const ac = ch.start.length === 3 && ch.start.map((i) => mol.atoms[i].label).sort().join() === "C,C,O" ? "ac" : undefined, amide = ch.end.length === 1 && mol.atoms[ch.end[0]].label === "N" ? "am" : undefined;
-      const free = ch.end.length === 1 && mol.atoms[ch.end[0]].label === "O";
+      // structure. An end Octet does not know (an ester of another alcohol) joins its residue. Ac, NH2 and the free acid's
+      // OH are read by their bonds (acetyl), with no charge, isotope or radical: a carboxylate, an 18O acid, a 15N amide
+      // or an N-hydroxyethyl is no such end, so the chain is written and drawn again as the same compound.
+      const ac = acetyl(mol, ch.start) ? "ac" : undefined, amide = ch.end.length === 1 && tip(mol, ch.end[0], "N", 2) ? "am" : undefined;
+      const free = ch.end.length === 1 && tip(mol, ch.end[0], "O", 1);
       const start = ac ?? (ch.start.length && !c.nucleic ? endOf(mol, ch.start, "N", inchi) : undefined), end = amide ?? (ch.end.length && !free && !c.nucleic ? endOf(mol, ch.end, "C", inchi) : undefined);
       const residues = ch.residues.map((r) => [...r]);
       if (ch.start.length && !start) residues[0].push(...ch.start);
@@ -352,6 +354,24 @@ function read(m: Mol, inchi: (x: Mol | string) => string | undefined, own: Own):
     }
   }
   return { mol, from, chains, links };
+}
+// An atom of an element with h hydrogens and no charge, isotope or radical.
+function plain(mol: Mol, i: number, label: string, h: number): boolean {
+  const a = mol.atoms[i];
+  return a.label === label && !a.charge && !a.isotope && !a.radical && (a.implicitHCount ?? h) === h;
+}
+const bondsOf = (mol: Mol, i: number) => mol.bonds.filter((b) => b.atoms.includes(i));
+// Such an atom with one bond, of that type.
+function tip(mol: Mol, i: number, label: string, h: number, type = 1): boolean {
+  const b = bondsOf(mol, i);
+  return plain(mol, i, label, h) && b.length === 1 && b[0].type === type;
+}
+// An acetyl on a peptide's N: CH3–C(=O)– joined by a single bond.
+function acetyl(mol: Mol, atoms: number[]): boolean {
+  const c = atoms.find((i) => bondsOf(mol, i).length === 3);
+  if (atoms.length !== 3 || c === undefined || !plain(mol, c, "C", 0)) return false;
+  const rest = atoms.filter((i) => i !== c), out = bondsOf(mol, c).filter((b) => !b.atoms.every((i) => atoms.includes(i)));
+  return out.length === 1 && out[0].type === 1 && rest.some((i) => tip(mol, i, "O", 0, 2)) && rest.some((i) => tip(mol, i, "C", 3));
 }
 // A peptide's end (its atoms off the first N or the last C=O carbon): the code of the end Octet has with its structure.
 function endOf(mol: Mol, atoms: number[], side: "N" | "C", inchi: (x: Mol | string) => string | undefined): string | undefined {
