@@ -7,9 +7,9 @@ You can write the script in any language. This page gives a client and four exam
 (Node). You do not need to install a package.
 
 Scripts need the AI features, which are in Octet Draw 1.2 and later. This is true for every section from "How it
-works" to "What a script cannot do". In Octet Draw 1.1.3, `--headless --mcp` gives an error and exit code 2. To
-convert files with no script, use `--convert` (see [Convert many files](#convert-many-files)). It works in 1.1.3 and
-later.
+works" to "Example 4", and for "What a script cannot do". In Octet Draw 1.1.3, `--headless --mcp` gives an error and
+exit code 2. To convert files with no script, use `--convert` (see [Convert many files](#convert-many-files)). It
+works in 1.1.3 and later.
 
 ## Where the program is
 
@@ -522,6 +522,8 @@ Converted 2 of 2 files into compounds.sdf.
 - `--into` names the file, so it does not take `--out`. Add `--recursive`, `--style` and `--overwrite` as before.
 - Octet does not read the `--into` file, or a copy of it with a number (`compounds 2.sdf`), when it is in a folder
   that it converts.
+- Octet reads the other SDF files in a folder. Move the SDF files from an earlier `--each` out of the folder first,
+  or their compounds are in the new file twice.
 - `--to sdf2000` writes the records as V2000.
 
 On Windows, `octet.exe` is a window program. PowerShell and the Command Prompt do not wait for a window program to

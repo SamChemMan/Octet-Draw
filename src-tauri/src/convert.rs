@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::export::{file_of, Export, FORMATS, PICTURES};
 
-const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each | --into FILE] [--recursive] [--overwrite]";
+const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--into FILE] [--recursive] [--overwrite]";
 
 #[derive(Debug, PartialEq, Default)]
 pub struct Job {
@@ -83,12 +83,15 @@ fn files(job: &Job) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
     for input in &job.inputs {
         match fs::metadata(input) {
             Ok(m) if m.is_dir() => folder(input, job.recursive, &mut found, &mut wrong),
+            Ok(m) if m.is_file() && written(job, input) => wrong.push((input.clone(), "Octet writes this file, so it does not read it.".into())),
             Ok(m) if m.is_file() => found.push(input.clone()),
             Ok(_) => wrong.push((input.clone(), "This is not a file.".into())),
             Err(e) => wrong.push((input.clone(), reason(&e))),
         }
     }
-    found.retain(|p| !written(job, p));
+    // A file named and also in a folder named is converted once.
+    let mut seen = HashSet::new();
+    found.retain(|p| !written(job, p) && seen.insert(fs::canonicalize(p).unwrap_or_else(|_| p.clone())));
     (found, wrong)
 }
 // The --into file and its numbered copies (si.sdf, si 2.sdf), which a run writes: never read, or a run would take an
@@ -96,8 +99,10 @@ fn files(job: &Job) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
 fn written(job: &Job, p: &Path) -> bool {
     let Some(into) = &job.into else { return false };
     let folder = |p: &Path| p.parent().map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }).and_then(|d| fs::canonicalize(d).ok());
-    let (stem, ext) = (into.file_stem().unwrap_or_default().to_string_lossy(), into_ext(into));
-    let name = p.file_stem().unwrap_or_default().to_string_lossy();
+    // The Mac and Windows file systems take SI.sdf and si.sdf as one file.
+    let fold = |s: &std::ffi::OsStr| if cfg!(target_os = "linux") { s.to_string_lossy().into_owned() } else { s.to_string_lossy().to_lowercase() };
+    let (stem, ext) = (fold(into.file_stem().unwrap_or_default()), into_ext(into));
+    let name = fold(p.file_stem().unwrap_or_default());
     let numbered = name.strip_prefix(&format!("{stem} ")).is_some_and(|n| n.parse::<u32>().is_ok());
     (name == stem || numbered) && p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) && folder(p) == folder(into)
 }
@@ -239,7 +244,7 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
     }
     // --into: one file at the end, when a file gave it records, never written over without --overwrite.
     let mut into = String::new();
-    if let Some(path) = job.into.as_deref().filter(|_| done > 0) {
+    if let Some(path) = job.into.as_deref().filter(|_| !sdf.is_empty()) {
         let to = target(path, None, into_ext(path), job.overwrite, &kept);
         match crate::write_atomic(&to, &sdf) {
             Ok(_) => into = format!(" into {}", to.display()),
@@ -441,10 +446,14 @@ mod tests {
         for f in ["a.cdxml", "si.sdf", "si 2.sdf", "si 2b.sdf", "si.cdx", "inner/a.cdx", "inner/si.sdf"] {
             fs::write(dir.join(f), "x").unwrap();
         }
-        let job = Job { inputs: vec![dir.clone(), dir.join("inner/a.cdx")], to: "sdf".into(), into: Some(dir.join("si.sdf")), recursive: true, ..Default::default() };
-        let (found, _) = files(&job);
-        assert_eq!(found, ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx", "inner/a.cdx"].map(|f| dir.join(f)));
-        assert_eq!(found.iter().map(|p| source(&job, p)).collect::<Vec<_>>(), ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx", "inner/a.cdx"]);
+        // A file named and in a folder named is read once. The --into file, named, is said with its reason.
+        let job = Job { inputs: vec![dir.clone(), dir.join("inner/a.cdx"), dir.join("si.sdf")], to: "sdf".into(), into: Some(dir.join("si.sdf")), recursive: true, ..Default::default() };
+        let (found, wrong) = files(&job);
+        assert_eq!(found, ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx"].map(|f| dir.join(f)));
+        assert_eq!(found.iter().map(|p| source(&job, p)).collect::<Vec<_>>(), ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx"]);
+        assert_eq!(wrong, [(dir.join("si.sdf"), "Octet writes this file, so it does not read it.".to_string())]);
+        // SI.sdf is si.sdf on the Mac and Windows.
+        assert_eq!(written(&job, &dir.join("SI 4.SDF")), !cfg!(target_os = "linux"));
         assert_eq!(source(&Job { inputs: vec![dir.join("a.cdxml")], ..Default::default() }, &dir.join("a.cdxml")), "a.cdxml");
         // Two drawings' records, one after the other: the file every reader takes (each record ends $$$$).
         let combined = [record(mol, &[("Number", Some("7")), ("File", Some("a.cdxml"))]), record(mol, &[("Number", None), ("File", Some("inner/a.cdx"))])].concat();

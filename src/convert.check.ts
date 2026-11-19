@@ -50,8 +50,8 @@ assert.ok(converts.some((s) => /--into/.test(s) && /Linux/.test(s.split("\n")[0]
 
 // The page: --into is documented as the program takes it, the AI sections say they need AI apps, and Convert many
 // files says it works in every build.
-assert.match(rust, /\[--each \| --into FILE\]/);
+assert.match(rust, /\[--each\] \[--into FILE\]/);
 assert.match(page, /--into/);
 assert.match(page, /## Convert many files\n\nThis works in Octet Draw 1\.1\.3 and later, with or without the AI features\./);
-assert.match(page, /Scripts need the AI features, which are in Octet Draw 1\.2 and later\./);
+assert.match(page, /Scripts need the AI features, which are in Octet Draw 1\.2 and later\. This is true for every section from "How it\nworks" to "Example 4", and for "What a script cannot do"\./);
 console.log("convert.check: --convert in every build, the AI steps only with AI on, and --into on the page ok");
