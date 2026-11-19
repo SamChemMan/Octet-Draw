@@ -1,5 +1,6 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
+import { readGap } from "./conditions.ts";
 import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
@@ -77,7 +78,7 @@ export function serialize(mol: Mol): string {
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
     ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { atoms: c.measure.atoms, ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
-    ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side } } : {}),
+    ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side, ...(c.on.gap !== undefined ? { gap: c.on.gap } : {}) } } : {}),
     ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side, ...(c.cycle.branch !== undefined ? { branch: c.cycle.branch } : {}), ...(c.cycle.at !== undefined ? { at: c.cycle.at } : {}), ...(c.cycle.reach !== undefined ? { reach: c.cycle.reach } : {}), ...(c.cycle.off ? { off: c.cycle.off } : {}) } } : {}),
     ...partOf(c), ...notesOut(c),
@@ -458,7 +459,8 @@ function readCaptions(raw: unknown, out: Mol) {
     if (role) caption.role = role;
     Object.assign(caption, notesIn(c.notes));
     if (under) caption.under = under as number[];
-    if (on) caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below" };
+    // A gap of its own from 0 to 100 pt; anything else is left out (the document's).
+    if (on) { const gap = readGap((on as { gap?: unknown }).gap); caption.on = { arrow: out.arrows![on.arrow as number].id, side: on.side as "above" | "below", ...(gap !== undefined ? { gap } : {}) }; }
     if (placed) caption.placed = { at: placed.at as [number, number], arrow: placed.arrow as [number, number] };
     if (cyc) caption.cycle = { cycle: out.cycles![cyc.cycle as number].id, step: cyc.step as number, side: cyc.side as "in" | "out" | "centre" | "node" | "name", ...(cyc.branch !== undefined ? { branch: cyc.branch as number } : {}), ...(cyc.off !== undefined && cyc.side === "centre" ? { off: cyc.off as [number, number] } : {}), ...(num(cyc.at) && (cyc.at as number) >= 0 && (cyc.at as number) <= 1 ? { at: cyc.at as number } : {}), ...(num(cyc.reach) && Math.abs(cyc.reach as number) <= 1000 ? { reach: cyc.reach as number } : {}), ...(typeof cyc.through === "boolean" ? { through: cyc.through } : {}),
       ...(num(cyc.meet) && (cyc.meet as number) >= 0 && (cyc.meet as number) <= 1 ? { meet: cyc.meet as number } : {}), ...(pair(cyc.tail) && (cyc.tail as number[])[0] >= 0 && (cyc.tail as number[])[0] <= 1 && Math.abs((cyc.tail as number[])[1]) <= 1000 ? { tail: cyc.tail as [number, number] } : {}) } as CycleText;

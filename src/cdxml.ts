@@ -10,6 +10,7 @@
 
 import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
+import { readGap } from "./conditions.ts";
 import {
   HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, symbolCharge, signOf, isChargeKind, reKind, DIGIT, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
@@ -1136,8 +1137,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const basis = (atoms: Set<number>) => [...[...atoms].sort((p, q) => p - q).map((i) => nodeId.get(i)), ...mol.bonds.flatMap((b, n) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? [bondId[n]] : []))].join(" ");
   // Conditions placed by hand stay where they are (placedAt), and the others on their side stack out past them. Those
   // stack away from their arrow in the order Octet draws them (placeCaptions): compound numbers first, then by id.
-  // Each one's distance (pt) past the gap.
-  const besides = new Map<string, number>(), further = new Map<number, number>();
+  // Each one's distance (pt) from its arrow: its gap, or past the text before it on its side, whichever is further.
+  const besides = new Map<string, number>(), further = new Map<number, number>(), arrowGap = style.arrowGap ?? GAP_ARROW_PT;
   for (const c of captions) {
     const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
     if (!arrow || !hand) continue;
@@ -1146,14 +1147,15 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const w = Math.max(...c.text.split("\n").map((l) => widthOf(l, size))), offs = lineOffsets(c, size, 1), own = c.align === "justify" ? "left" : c.align ?? "centre";
     const left = own === "left" ? q[0] : own === "right" ? q[0] - w : q[0] - w / 2, key = `${arrow.id} ${c.on!.side}`;
     const reach = Math.abs(d[0]) >= 0.5 * len(d) ? (above ? mid[1] - (q[1] - ASCENT * size) : q[1] + offs[offs.length - 1] + DESCENT * size - mid[1]) : above ? mid[0] - left : left + w - mid[0];
-    besides.set(key, Math.max(besides.get(key) ?? 0, reach + 0.2 * size - GAP_ARROW_PT * scaleOf(arrow)));
+    besides.set(key, Math.max(besides.get(key) ?? 0, reach + 0.2 * size));
   }
   for (const c of [...captions].sort((p, q) => Number(isNumber(q)) - Number(isNumber(p)) || p.id - q.id)) {
-    if (!c.on || !mol.arrows?.some((a) => a.id === c.on!.arrow) || placedAt(c, mol.arrows)) continue;
-    const size = c.size ?? style.captionSize, key = `${c.on.arrow} ${c.on.side}`, used = besides.get(key) ?? 0;
-    further.set(c.id, used);
+    const arrow = c.on && mol.arrows?.find((a) => a.id === c.on!.arrow);
+    if (!c.on || !arrow || placedAt(c, mol.arrows)) continue;
+    const size = c.size ?? style.captionSize, key = `${c.on.arrow} ${c.on.side}`, gap = Math.max((c.on.gap ?? arrowGap) * scaleOf(arrow), besides.get(key) ?? 0);
+    further.set(c.id, gap);
     const offs = lineOffsets(c, size, 1);
-    besides.set(key, used + offs[offs.length - 1] + (LINE + 0.2) * size);
+    besides.set(key, gap + offs[offs.length - 1] + (LINE + 0.2) * size);
   }
   for (const c of captions) {
     zOrder = c.order;
@@ -1169,9 +1171,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       y = Math.min(...atoms.map((i) => mol.atoms[i].location[1])) - 0.3 - (15 + 0.905 * size + k * 1.2 * size) / B;
     } else if (arrow) {
       // As Octet draws conditions: centred over an arrow within 60° of level, else ending left of it (above) or starting
-      // right of it (below), GAP_ARROW_PT clear, each further out than the last on its side (REL-15).
+      // right of it (below), their gap clear, each further out than the last on its side (REL-15).
       const mid: P = [(arrow.from[0] + arrow.to[0]) / 2, (arrow.from[1] + arrow.to[1]) / 2], d = sub(arrow.to, arrow.from), flat = Math.abs(d[0]) >= 0.5 * len(d);
-      const above = c.on!.side === "above", gap = GAP_ARROW_PT * scaleOf(arrow) + (further.get(c.id) ?? 0), offs = lineOffsets(c, size, 1), block = offs[offs.length - 1];
+      const above = c.on!.side === "above", gap = further.get(c.id) ?? arrowGap * scaleOf(arrow), offs = lineOffsets(c, size, 1), block = offs[offs.length - 1];
       align = flat ? "centre" : above ? "right" : "left";
       x = flat ? mid[0] : mid[0] + ((above ? -1 : 1) * gap) / B;
       y = mid[1] + (flat ? (above ? gap + DESCENT * size + block : -(gap + ASCENT * size)) : (DESCENT * size) / 2 - (ASCENT * size - block) / 2) / B;
@@ -1194,7 +1196,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // Line spacing as ChemDraw writes it: a text's LineHeight is auto or pt, and Variable is its caption style's.
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
-      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
+      Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined, gap: c.on?.gap,
         measure: c.measure && { atoms: c.measure.atoms.map((i) => nodeId.get(i)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("") + notes(c.notes)), 2, box, c.id);
     if (c.property && !live) {
@@ -1293,7 +1295,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     ChemPropGibbs: "Gibbs Energy: ", ChemPropLogP: "Log P: ", ChemPropMR: "MR: ", ChemPropHenry: "Henry's Law: ", ChemPropEForm: "Heat of Form: ", ChemProptPSA: "tPSA: ", ChemPropID: "", ChemPropFragmentLabel: "",
     color: doc, bgcolor: bg, RxnAutonumberStart: 1, RxnAutonumberConditions: "no", RxnAutonumberStyle: "Roman", RxnAutonumberFormat: "(#)",
     Octet: priv({ v: 1, app: pkg.version, xyz: 1, page: style.page, custom: style.custom, landscape: style.landscape || undefined, edges: style.edges ? undefined : false, grid: style.grid === "bond" ? undefined : style.grid, scale: style.scale !== 1 ? style.scale : undefined, purpose: style.purpose,
-      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined, circled: style.circled ? 1 : undefined }),
+      background: style.background === "white" ? undefined : style.background, cycles: cycles.length ? cycles : undefined, palette: style.palette, guides: mol.guides, fields: mol.fields ? 1 : undefined, circled: style.circled ? 1 : undefined, arrowGap: style.arrowGap }),
   }, tables + pageXml);
   return `<?xml version="1.0" encoding="UTF-8" ?>\n<!DOCTYPE CDXML SYSTEM "http://www.cambridgesoft.com/xml/cdxml.dtd" >\n${root}\n`;
 }
@@ -1528,7 +1530,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
   const style = readStyle({
     page: paper?.[0] ?? "Custom", landscape: !!paper && mm[0] > mm[1] + 1, custom: mm.map((v) => Math.round(Math.min(2000, Math.max(10, v)) * 100) / 100),
-    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose, palette: top!.palette, circled: top!.circled === 1 } : {}),
+    ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose, palette: top!.palette, circled: top!.circled === 1, arrowGap: top!.arrowGap } : {}),
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
     labelFont: fontOf(fonts.get(int(r.LabelFont) ?? -1)).font, labelSize: real(r.LabelSize), captionFont: fontOf(fonts.get(int(r.CaptionFont) ?? -1)).font, captionSize: real(r.CaptionSize),
     colour: colourOf(r.color) ?? "#000000",
@@ -1589,7 +1591,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // characters differ.
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number | undefined>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G; count?: number; free?: true }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], measures: { c: Caption; m: Record<string, unknown> }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G; count?: number; free?: true }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], measures: { c: Caption; m: Record<string, unknown> }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>(), gaps = new Map<number, number>();
   // Formula runs read back as plain text (issue 31), kept in case the text is not drawn as a formula after all.
   const asFormula = new Map<Caption, TextRun[]>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -2206,6 +2208,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (p?.live && typeof p.live === "object") lives.push({ c, live: p.live as Record<string, unknown> });
     // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
     if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
+    // Conditions with a gap of their own (Octet's files).
+    const gap = octet ? readGap(p?.gap) : undefined;
+    if (gap !== undefined) gaps.set(c.id, gap);
     const cyc = p?.cycle as Record<string, unknown> | undefined;
     if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre", "node", "name"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in", ...(isNum(cyc.at, 0, 1) ? { at: cyc.at as number } : {}), ...(isNum(cyc.reach, -1000, 1000) ? { reach: cyc.reach as number } : {}), ...(typeof cyc.through === "boolean" ? { through: cyc.through } : {}),
       ...(isNum(cyc.meet, 0, 1) ? { meet: cyc.meet as number } : {}), ...(Array.isArray(cyc.tail) && cyc.tail.length === 2 && isNum(cyc.tail[0], 0, 1) && isNum(cyc.tail[1], -1000, 1000) ? { tail: cyc.tail as [number, number] } : {}),
@@ -2736,7 +2741,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
         for (const cid of idList(s.attrs[side === "above" ? "ReactionStepObjectsAboveArrow" : "ReactionStepObjectsBelowArrow"])) {
           const c = captions.find((x) => x.id === objectOf.get(cid));
           if (!c || c.cycle || c.on || c.angle || unders.some((u) => u.c === c)) continue;
-          c.on = { arrow: arrow.id, side };
+          c.on = { arrow: arrow.id, side, ...(gaps.has(c.id) ? { gap: gaps.get(c.id) } : {}) };
           const q = anchors.get(c.id), d: P = [arrow.to[0] - arrow.from[0], arrow.to[1] - arrow.from[1]];
           if (q) c.placed = { at: [q[0] - (arrow.from[0] + arrow.to[0]) / 2, q[1] - (arrow.from[1] + arrow.to[1]) / 2], arrow: d };
         }
