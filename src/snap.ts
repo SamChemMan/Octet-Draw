@@ -204,5 +204,12 @@ export function snapBoxes(moving: number[], boxes: number[][], d: P, tol: number
 // Shift held on a move: it keeps to one axis, the one the pointer has gone further along from the press (raw), so it
 // can change as the pointer goes. heldAxis is the other axis, which oneAxis holds at 0. The caller holds it before the
 // snaps and passes it to them, so they snap the free axis only, and again after Snap to Grid.
-export const heldAxis = (raw: P, lock: boolean): 0 | 1 | undefined => (lock ? (Math.abs(raw[0]) >= Math.abs(raw[1]) ? 1 : 0) : undefined);
+// was: the axis held at the last move. Once locked, the axis changes only when the pointer has gone more than SWAP
+// times as far the other way, so a pointer near the diagonal does not flick between the two.
+export const SWAP = 1.5;
+export const heldAxis = (raw: P, lock: boolean, was?: 0 | 1): 0 | 1 | undefined => {
+  if (!lock) return undefined;
+  const x = Math.abs(raw[0]), y = Math.abs(raw[1]);
+  return was === 1 ? (y > SWAP * x ? 0 : 1) : was === 0 ? (x > SWAP * y ? 1 : 0) : x >= y ? 1 : 0;
+};
 export const oneAxis = (d: P, held?: 0 | 1): P => (held === 0 ? [0, d[1]] : held === 1 ? [d[0], 0] : d);
