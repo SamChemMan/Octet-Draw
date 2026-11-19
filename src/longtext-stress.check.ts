@@ -225,6 +225,8 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
   const chain: Mol = { atoms: Array.from({ length: 300 }, (_, k) => ({ label: "C", location: [k, 0, 0] as [number, number, number] })), bonds: Array.from({ length: 299 }, (_, k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })) };
   assert.ok(groupTooBig(chain, new Set(Array.from({ length: 257 }, (_, k) => k + 1))));
   assert.ok(!groupTooBig(chain, new Set(Array.from({ length: 256 }, (_, k) => k + 1))));
+  // Any caller (Contract Label, a nickname defined on a group): a larger group is not contracted.
+  assert.equal(contractLabel(chain, 1, new Set(Array.from({ length: 257 }, (_, k) => k + 1)), "Pg"), chain);
   const contracted = contractLabel(chain, 1, new Set(Array.from({ length: 256 }, (_, k) => k + 1)), "z".repeat(50));
   assert.equal(contracted.atoms[1].text, "z".repeat(MAX_LABEL));
   assert.equal(parse(serialize(contracted)).atoms[1].inner?.atoms.length, 256);

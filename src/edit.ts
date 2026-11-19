@@ -1444,9 +1444,11 @@ export function labelPlacer(m: Mol, i: number, frag: Mol, way?: P): (q: [number,
 // The group stays with the label (inner), so Expand Label gives it back whatever the label says. A group bonded to the
 // rest more than once (a residue in a chain: its N on one side, its C=O on the other) keeps each bond, moved onto the
 // label with the kept atom it joins (its port), as a residue label is drawn (sequence.ts).
-// A label keeps a group of at most 256 atoms and 512 bonds, as a ChemDraw file's (file.ts innerIn).
+// A label keeps a group of at most 256 atoms and 512 bonds, as a ChemDraw file's (file.ts innerIn). A larger group is
+// not contracted: the drawing comes back unchanged, and the caller says why (groupTooBig).
 export const groupTooBig = (m: Mol, group: Set<number>) => group.size > 256 || m.bonds.filter((b) => group.has(b.atoms[0]) && group.has(b.atoms[1])).length > 512;
 export function contractLabel(m: Mol, keep: number, group: Set<number>, given: string): Mol {
+  if (groupTooBig(m, group)) return m;
   const text = keptLabel(given), order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
   const inner: Mol = {
     atoms: order.map((k) => { const { inner: _, text: __, ...a } = m.atoms[k]; return a; }),

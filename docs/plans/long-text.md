@@ -44,7 +44,7 @@ made to keep it.
 | Reagent table text cell | 200 (`oneLine`) | stoich.ts cuts | `writeGridCell` cut with no notice | Kept, with the notice |
 | Experiment detail on the page | 200 (`oneLine`) | experiment.ts cuts the detail | A detail's text typed on the page was cut with no notice | Kept: the text is cut to 200 with the notice |
 | Chart label | 80 | charts.ts drops the chart record | Text typed over a chart's label, and names in the chart dialog, were cut with no notice | Kept: cut with the notice on the page; the dialog's name cells take 80 |
-| Kept group (Contract Label) | 256 atoms, 512 bonds | file.ts refuses; cdxml.ts drops the group | Contract Label took any group | Kept: Contract Label says "Select a group of 256 atoms or fewer." |
+| Kept group (Contract Label) | 256 atoms, 512 bonds | file.ts refuses; cdxml.ts drops the group | Contract Label took any group | Kept: Contract Label says "Select a group of 256 atoms or fewer." `contractLabel` contracts no larger group, for any caller (Define Nickname in release-1.1.3 too). |
 | Cycle steps | 64 | file.ts refuses | A click on an arc adds a step, with no cap | Kept: `resplice` adds none past 64; the click says "A cycle holds up to 64 steps." |
 | Side arrow's structure | 512 atoms | cycle.ts refuses the cycle, so the file | A larger structure at a side arrow | Raised to 100,000 (every index is checked; reading stays linear) |
 | Pen curve | 1,000 points | file.ts refuses; cdxml.ts drops | Each click adds a point | Kept: the Pen stops at 1,000 with "A curve holds up to 1,000 points." |
