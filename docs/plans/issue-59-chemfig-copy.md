@@ -1,6 +1,8 @@
 # Issue 59: Copy as LaTeX (chemfig), and readable chemfig code
 
-Branch `item/59-chemfig-copy`, from `release-1.2-mcp` b30f413. For release 1.2 (Friday 20 November 2026).
+Branch `item/59-chemfig-copy`, from `release-1.2-mcp` b30f413, rebased on bd7c684 (19 November). For release 1.1.3
+(Friday 20 November 2026: `release-1.2-mcp` with the AI features off) and 1.2. In 1.1.3 an AI app's `read` is off with
+the rest of the AI features; Copy, Export and the setting work in full.
 
 Revision 2, 18 November 2026. The first plan (83aec72) was built in fd3846e, 0313822, a1017d7 and d2a3660, with
 decision 0028. The stress run (963eac8) had 58 cases and 10 failed. This revision says what stands, what fails and
@@ -223,6 +225,20 @@ this line (J17, J19).
 - **J19 Stress check regrouped (D25), and merge notes (D26).** Done: the stress check reports ST1 to ST20 only;
   `git merge-tree` against `origin/release-1.2-mcp` lists only the two known conflicts, and the plan's resolution is
   in the hand-over to the integration session.
+
+Revision 3 (19 November): the branch is rebased on `release-1.2-mcp` bd7c684, with the two conflicts resolved as D26
+says. The review's findings fixed in the same pass:
+
+- The notice names the aromatic circles when a circled ring is written bond by bond because it starts too deep or
+  nests too deep (p-sexiphenyl's sixth ring). The notice reads the rings written in ring syntax, not the rings found.
+- A ring bond by bond closes on a plain bond where it can, then on a coloured or styled single bond (a hook takes
+  its TikZ options), and on a double bond or wedge only where nothing else is left: a hook's double bond has no side,
+  so a red Kekulé ring closed on its double bond drew it across the ring's edge.
+- A ring's last side takes no arrival atom (chemfig ends it where the ring's first bond left): piperidine is
+  `HN*6(-[,,2]-----)`, which the strict reader passes.
+- Unicode's ε and φ are TeX's `\varepsilon` and `\varphi` (`\epsilon` and `\phi` are the other glyphs, ϵ and ϕ).
+- The timing checks take the fastest of 9 runs for growth and measure a budget up to 3 times, so one pause on a busy
+  computer does not fail `npm test`.
 
 ## Merge notes (for the integration session)
 

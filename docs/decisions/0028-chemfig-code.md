@@ -1,9 +1,10 @@
 # 0028: chemfig code
 
-Status: built 17 November 2026 for release 1.2 (issue 59). The plan is `docs/plans/issue-59-chemfig-copy.md`.
+Status: built 17 November 2026 for release 1.1.3 and 1.2 (issue 59). 1.1.3 ships with the AI features off, so an AI
+app's `read` comes with 1.2. The plan is `docs/plans/issue-59-chemfig-copy.md`.
 
 Octet writes structures as code for LaTeX's chemfig package in three places: File > More Formats > Export LaTeX
-(chemfig)… (a `.tex` file, since 1.1.2), File > More Formats > Copy as LaTeX (chemfig) (the clipboard, new in 1.2),
+(chemfig)… (a `.tex` file, since 1.1.2), File > More Formats > Copy as LaTeX (chemfig) (the clipboard, new in 1.1.3),
 and an AI app's `read` with format `chemfig`. Much of the writer is from konokonekonoko's pull request 127.
 
 ## What was decided
@@ -41,7 +42,10 @@ and an AI app's `read` with format `chemfig`. Much of the writer is from konokon
    hostile file has one) is bond by bond. Each branch and ring is a TeX group, and pdfTeX stops at 255, so the code
    nests at most log2(atoms) + 24 levels.
 10. **The notice names what is not in the code**, in a fixed order ("The code does not have the arrows, text and
-   highlights."), and what it shows another way ("It shows quadruple bonds as triple bonds.").
+   highlights."), and what it shows another way ("It shows quadruple bonds as triple bonds."). A circled ring written
+   bond by bond (too deep for ring syntax) has no circle, so the notice names the aromatic circles.
+11. **A ring bond by bond closes on a plain bond where it can.** A hook takes a coloured or styled bond's TikZ options,
+   but a double bond on a hook has no side, so a double bond or wedge closes a ring only where nothing else is left.
 
 ## Not in this release
 

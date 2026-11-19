@@ -30,6 +30,8 @@ export type ChemfigOptions = { compact?: boolean; trace?: number[] };
 // Greek by TeX's names (escapes.ts), and the capitals TeX has no command for as their Latin letters.
 const GREEK = new Map<string, string>();
 for (const [name, c] of Object.entries(ESCAPES)) if (/[\u0370-\u03ff]/.test(c) && !GREEK.has(c)) GREEK.set(c, `\\${name}`);
+// (ESCAPES names ε and φ twice; Unicode's ε and φ are TeX's \varepsilon and \varphi, as \epsilon is ϵ and \phi ϕ.)
+GREEK.set("ε", "\\varepsilon").set("φ", "\\varphi");
 for (const [g, l] of Object.entries({ Α: "A", Β: "B", Ε: "E", Ζ: "Z", Η: "H", Ι: "I", Κ: "K", Μ: "M", Ν: "N", Ο: "O", Ρ: "P", Τ: "T", Χ: "X", ο: "o", ς: "\\varsigma" })) GREEK.set(g, l);
 // Signs chemistry uses, in TeX's maths mode, with no package that chemfig does not load.
 const SIGNS: Record<string, string> = {
@@ -385,10 +387,11 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
   const opening = (ring: number[]) => { const key = ringKey(ring); if (!circles.has(key)) return `*${ring.length}(`; const c = circles.get(key); return `**${c ? `[0,360,color=${tikzColour(c)}]` : ""}${ring.length}(`; };
   const allRings = syntaxRings(at, nbrs.map((list) => list.map(({ to, covalent }) => ({ to, covalent }))));
   const off = new Set<string>(); // ring systems written bond by bond, as they would start too deep (DEEPEST)
-  let lines: [number, string][] = [], trace: number[] = [], wavy = false;
+  let lines: [number, string][] = [], trace: number[] = [], wavy = false, written = new Set<string>(); // written: rings in ring syntax
   // (A fifth pass, if one is needed, writes every ring bond by bond, so the nesting stays within rule 8.)
   for (let pass = 0; ; pass++) {
     const rings = pass >= 4 ? [] : allRings.filter((r) => !off.has(ringKey(r)));
+    written = new Set();
     const ringsOf = new Map<number, number[][]>();
     for (const r of rings) for (const i of r) ringsOf.set(i, [...(ringsOf.get(i) ?? []), r]);
     const bondOf = (p: number, q: number) => nbrs[p].find((x) => x.to === q)!.k;
@@ -397,17 +400,19 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
     // = (on the left going round anticlockwise).
     const round = (p: number, q: number) => ringsOf.get(p)!.some((r) => r.includes(q) && circles.has(ringKey(r)));
     // (=_ puts it outside, as chemfig's manual has it.)
-    const sideCode = (p: number, q: number) => {
+    // (A ring's last side takes no arrival atom: chemfig ends it where the ring's first bond left.)
+    const sideCode = (p: number, q: number, last = false) => {
       const k = bondOf(p, q), { char, tikz } = look(k, p);
-      return (round(p, q) ? "-" : char === "=^" ? "=" : char) + fieldsOf(["", "", letter(p), letter(q), tikz.join(",")]);
+      return (round(p, q) ? "-" : char === "=^" ? "=" : char) + fieldsOf(["", "", letter(p), last ? "" : letter(q), tikz.join(",")]);
     };
     // A side chemfig can draw as the page does: chemfig has no centred double bond in a ring, unless it is circled.
     const sideFits = (p: number, q: number) => { const k = bondOf(p, q), b = mol.bonds[k]; return round(p, q) || !(b.type === 2 || (b.type === AROMATIC && !b.stereo)) || leftOf(k, p) !== 0; };
 
-    // The tree each structure is written as. Bonds chemfig cannot write on a hook as they are (wedges, double bonds,
-    // styles) are taken first, so a ring closes on a plain bond where it can. A walk with no recursion.
+    // The tree each structure is written as. Bonds chemfig cannot write on a hook as they are (wedges, double bonds)
+    // are taken first, then styled and coloured bonds (a hook takes their TikZ options), so a ring closes on a plain
+    // bond where it can. A walk with no recursion.
     const seen = atoms.map(() => false), kids: number[][] = atoms.map(() => []), via: number[] = [], done = new Set<number>(), closes: [number, number, number][] = [];
-    const plain = (k: number) => { const b = mol.bonds[k]; return b.type === 1 && !b.stereo && !b.display && !b.colour; };
+    const rank = (k: number) => { const b = mol.bonds[k]; return b.type === 2 || (b.type === AROMATIC && !b.stereo) || b.stereo || b.display === "hollow" ? 0 : b.type === 1 && !b.display && !b.colour ? 2 : 1; };
     // A ring system in ring syntax is taken whole where the walk first meets it (never at a fusion atom): its first
     // ring's atoms anticlockwise from there (ringAt), each fused ring nested at the atom where it shares that ring's next
     // side (nestedAt: its atoms anticlockwise from there, its last the side's other end), all its sides done. Its atoms'
@@ -435,7 +440,7 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
       ringAt.set(v, todo[0]);
       systemAt.set(v, system.filter((i) => i !== v));
       for (const [i, sub] of nest) nestedAt.set(i, sub);
-      for (const r of placed) r.forEach((i, j) => { seen[i] = true; done.add(bondOf(i, r[(j + 1) % r.length])); });
+      for (const r of placed) { written.add(ringKey(r)); r.forEach((i, j) => { seen[i] = true; done.add(bondOf(i, r[(j + 1) % r.length])); }); }
       stack.push(...system.filter((i) => i !== v).reverse());
     };
     const walk = (root: number) => {
@@ -443,7 +448,7 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
       seen[root] = true;
       enter(root, stack);
       while (stack.length) {
-        const u = stack[stack.length - 1], next = nbrs[u].filter((x) => !done.has(x.k)).sort((x, y) => Number(plain(x.k)) - Number(plain(y.k)))[0];
+        const u = stack[stack.length - 1], next = nbrs[u].filter((x) => !done.has(x.k)).sort((x, y) => rank(x.k) - rank(y.k))[0];
         if (!next) { stack.pop(); continue; }
         done.add(next.k);
         if (!seen[next.to]) { seen[next.to] = true; via[next.to] = next.k; kids[u].push(next.to); stack.push(next.to); enter(next.to, stack); continue; }
@@ -528,7 +533,7 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
               const end = open ? r.length - 1 : r.length;
               for (let k = 1; k <= end; k++) {
                 const p = r[k - 1], q = r[k % r.length];
-                const side = sideCode(p, q);
+                const side = sideCode(p, q, k === r.length);
                 lines.push([dd, side + (k < end ? text(q) : open ? phantom(q) : "")]);
                 if (k === end) break;
                 const sub = nestedAt.get(q);
@@ -570,16 +575,16 @@ export function chemfig(mol: Mol, s: Style, measure: (text: string, face?: Face)
   if (o.trace) o.trace.push(...trace);
   const body = o.compact ? `\\chemfig{${lines.map(([, t]) => t).join("")}}` : `\\chemfig{\n${lines.map(([dd, t]) => "\t".repeat(dd + 1) + t).join("\n")}\n}`;
   const code = (wavy ? `${WAVY_NOTE}\n` : "") + body;
-  return { code, notice: chemfigNotice(mol, left, allRings) };
+  return { code, notice: chemfigNotice(mol, left, written) };
 }
 
 // What the code leaves out of mol (left: characters it could not write) and what it shows otherwise, for the notice
 // after "Copied." or "Saved name.tex.": "The code does not have the arrows, text and highlights." and the like.
-function chemfigNotice(mol: Mol, left: Set<string>, rings: number[][]): string {
+// inSyntax: the rings written in ring syntax (by ringKey), the only ones with their circles.
+function chemfigNotice(mol: Mol, left: Set<string>, inSyntax: Set<string>): string {
   const shown = new Set(mol.atoms.flatMap((a, i) => (a.hidden ? [] : [i]))), atoms = [...shown].map((i) => mol.atoms[i]);
   const bonds = mol.bonds.filter((b) => b.atoms.every((i) => shown.has(i)));
   const shapes = mol.shapes ?? [], kinds = (k: string) => shapes.some((x) => x.kind === k);
-  const inSyntax = new Set(rings.map(ringKey));
   // Each kind in a fixed order, named once.
   const missing: [boolean, string][] = [
     [!!mol.arrows?.length, "arrows"], [!!mol.captions?.length, "text"], [shapes.some(isBracket), "brackets"],
