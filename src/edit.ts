@@ -1,6 +1,6 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
-import { AROMATIC, add, bandRf, bandSize, cross, dot, GEL, HBOND, H_FIRST, hydrogens, len, lonePairs, mul, orderOf, placedAt, QUADRUPLE, scaleOf, settleShape, sub, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc, circledRings } from "./render.ts";
+import { AROMATIC, add, bandRf, bandSize, chargeKind, cross, dot, GEL, HBOND, H_FIRST, hydrogens, len, lonePairs, mul, orderOf, placedAt, QUADRUPLE, reKind, scaleOf, settleShape, sub, symbolCharge, tableLayout, tableRow, type Arrow, type Head, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table, type Tlc, circledRings } from "./render.ts";
 import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -418,7 +418,18 @@ export function captionsToAtoms(m: Mol, made: { id: number; atom: Atom }[]): Mol
   });
   return deleteGraphics({ ...m, atoms: [...m.atoms, ...made.map((x) => x.atom)], ...(groups ? { groups } : {}) }, new Set(at.keys()));
 }
-export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom(m, i, { charge: (m.atoms[i].charge ?? 0) + delta || undefined }), i);
+// Charges run from −8 to +8, ChemDraw's range and the most a file holds (issue 60), on atoms and free charges.
+export const MAX_CHARGE = 8;
+export const clampCharge = (c: number) => Math.max(-MAX_CHARGE, Math.min(MAX_CHARGE, Math.round(c)));
+// An atom's charge set to c, and its look (issue 60): a charge that starts from 0 takes circled (the document's Circle
+// new charges); a charge that is there keeps its look as it goes up or down; at 0 the look goes too.
+export const chargeLook = (a: Pick<Atom, "charge" | "circled">, c: number, circled = false): Pick<Atom, "charge" | "circled"> =>
+  ({ charge: c || undefined, circled: !c ? undefined : a.charge ? a.circled : circled ? true : undefined });
+// + and − on an atom. circled: the document's Circle new charges. At ±8 nothing changes.
+export function addCharge(m: Mol, i: number, delta: number, circled = false): Mol {
+  const a = m.atoms[i], c = clampCharge((a.charge ?? 0) + delta);
+  return c === (a.charge ?? 0) ? m : trimPairs(setAtom(m, i, chargeLook(a, c, circled)), i);
+}
 
 // The Symbols tool's marks. A charge adds to the atom's charge, drawn as a superscript sign or circled beside the
 // atom. A partial charge toggles. A radical adds a second unpaired electron (a triplet) where the atom has a hydrogen
@@ -433,9 +444,11 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false, bars
   const a = m.atoms[i];
   if (kind === "pair" && bar && (a.pairs || a.radical === 3)) return setAtom(m, i, { bars: a.bars ? undefined : true });
   switch (kind) {
+    // The tool's look wins: Circled positive circles the charge, Positive charge takes the circle off. At ±8 the charge
+    // stays, and only the look can change.
     case "plus": case "minus": case "circledPlus": case "circledMinus": {
-      const charge = (a.charge ?? 0) + (kind === "plus" || kind === "circledPlus" ? 1 : -1);
-      return trimPairs(setAtom(m, i, { charge: charge || undefined, circled: charge && kind.startsWith("circled") ? true : undefined }), i);
+      const charge = clampCharge((a.charge ?? 0) + (kind === "plus" || kind === "circledPlus" ? 1 : -1)), circled = charge && kind.startsWith("circled") ? true : undefined;
+      return charge === (a.charge ?? 0) && circled === a.circled ? m : trimPairs(setAtom(m, i, { charge: charge || undefined, circled }), i);
     }
     case "radical": {
       const triplet = a.radical === 1 && !a.text && a.implicitHCount === undefined && hydrogens(a.label, a.charge ?? 0, bondOrders(m)[i], 1) > 0;
@@ -463,9 +476,50 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false, bars
     case "bead": return setAtom(m, i, { bead: !a.bead || undefined });
   }
 }
-// A charge key (charge.<arg>) on an atom: + and - add to the charge as it is drawn; the circled pair do what the
-// Symbols tool's circled marks do.
-export const keyCharge = (m: Mol, i: number, arg: string) => (arg.startsWith("circled") ? addSymbol(m, i, arg as SymbolKind) : addCharge(m, i, arg === "plus" ? 1 : -1));
+// A charge key (charge.<arg>) on an atom: + and - add to the charge as it is drawn (a new charge in the document's
+// look, circled: Circle new charges); the circled pair do what the Symbols tool's circled marks do; circled puts a
+// circle round the charge, or takes it off.
+export const keyCharge = (m: Mol, i: number, arg: string, circled = false) =>
+  (arg === "circled" ? circleCharges(m, [i]) : arg.startsWith("circled") ? addSymbol(m, i, arg as SymbolKind) : addCharge(m, i, arg === "plus" ? 1 : -1, circled));
+// A charge key on atoms and the free charges among ids together (a selection, the Actions panel, run_command), as one
+// change: + and − step each, the circled pair step each in their own look, and circled is Circle the charge.
+export function keyCharges(m: Mol, atoms: number[], ids: Iterable<number>, arg: string, circled = false): Mol {
+  if (arg === "circled") return circleCharges(m, atoms.filter((i) => i < m.atoms.length), ids);
+  return stepFrees(atoms.reduce((x, i) => (i < x.atoms.length ? keyCharge(x, i, arg, circled) : x), m), ids, arg === "plus" || arg === "circledPlus" ? 1 : -1, arg.startsWith("circled") || undefined);
+}
+// A free charge (issue 60): a free symbol of the four charge kinds, with its number (render.ts symbolCharge).
+const circledKind = (sh: Shape) => sh.symbol === "circledPlus" || sh.symbol === "circledMinus";
+// A free charge stepped by delta, plain or circled (unset: as it is), its sign where it was. The step skips 0, so only
+// Delete and the Eraser take a free charge away; at ±8 only the look can change. undefined: not a free charge, or no
+// change.
+export function stepFree(sh: Shape, delta: number, circled = circledKind(sh)): Partial<Shape> | undefined {
+  const q = symbolCharge(sh);
+  if (q === undefined) return undefined;
+  const k = chargeKind(clampCharge(q + delta || delta), circled);
+  return k.symbol === sh.symbol && (k.count ?? 1) === (sh.count ?? 1) ? undefined : reKind(sh, k.symbol, k.count);
+}
+// The free charges among ids stepped (stepFree), as one change. Nothing changed: m itself.
+export function stepFrees(m: Mol, ids: Iterable<number>, delta: number, circled?: boolean): Mol {
+  const keep = new Set(ids);
+  if (!keep.size || !m.shapes) return m;
+  let changed = false;
+  const shapes = m.shapes.map((x) => { const c = keep.has(x.id) ? stepFree(x, delta, circled) : undefined; if (c) changed = true; return c ? { ...x, ...c } : x; });
+  return changed ? { ...m, shapes } : m;
+}
+// Circle the charge (issue 60): the charged atoms among atoms and the free charges among ids all take a circle, or,
+// when every one has one, all lose it. Only the look changes. Nothing charged: m itself.
+export function circleCharges(m: Mol, atoms: number[], ids: Iterable<number> = []): Mol {
+  const at = atoms.filter((i) => m.atoms[i]?.charge), keep = new Set(ids), frees = (m.shapes ?? []).filter((x) => keep.has(x.id) && symbolCharge(x) !== undefined);
+  if (!at.length && !frees.length) return m;
+  const on = at.some((i) => !m.atoms[i].circled) || frees.some((x) => !circledKind(x)), set = new Set(at);
+  return stepFrees(at.length ? { ...m, atoms: m.atoms.map((a, i) => (set.has(i) ? { ...a, circled: on || undefined } : a)) } : m, frees.map((x) => x.id), 0, on);
+}
+// Whether what is picked (atoms, and the free charges among ids) has a charge to circle (Actions), and whether every one
+// of them has its circle already.
+export function chargesOf(m: Mol, atoms: Iterable<number>, ids: Iterable<number> = []): { circled: boolean } | undefined {
+  const keep = new Set(ids), looks = [...[...atoms].filter((i) => m.atoms[i]?.charge).map((i) => !!m.atoms[i].circled), ...(keep.size ? (m.shapes ?? []).filter((x) => keep.has(x.id) && symbolCharge(x) !== undefined).map(circledKind) : [])];
+  return looks.length ? { circled: looks.every(Boolean) } : undefined;
+}
 const SINGLETS = new Set(["C", "Si", "N", "P", "As"]);
 // The mark (a charge, radical or lone pair, by its Atom.angles key) at p: within r bond lengths of where it is drawn
 // (electrons, px at L px per bond length) and nearer it than its atom, so a press on the atom still takes the atom. A

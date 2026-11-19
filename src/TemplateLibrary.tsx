@@ -20,7 +20,7 @@ import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { Segmented } from "./Fields";
 import { ART_SETS, isArt, LIBRARY, loadMore, type LibraryItem } from "./library";
-import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, symbolSize, partialText, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
+import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labelTurn, plasmidLayout, LIPID_HEAD, membraneHeads, markAt, placeCaptions, render, scaleOf, shapeInk, shapePaths, spotPath, symbolNumber, symbolSize, partialText, tlcLayout, type Arrow, type Label, type Mol, type Placed } from "./render";
 import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor, followDrag } from "./cursor";
@@ -87,7 +87,7 @@ export const setItems = (sets: string[], key: (set: string) => string, fresh: st
 const toPath = (polys: [number, number][][]) => polys.map((poly) => "M" + poly.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L") + "Z").join("");
 // Thumbnails are drawn once for each structure and size (a template edited is a new structure, and is drawn again).
 // Small structures keep their size (the view is at least five bonds across); big ones shrink to fit.
-type Mark = ReturnType<typeof markAt> & { text: string; size: number };
+type Mark = ReturnType<typeof markAt> & { text: string; size: number; turn?: string };
 type Drawn = { mol: Mol; d: string; fills: { d: string; colour?: string }[]; labels: Label[]; words: Placed[]; marks: Mark[]; view: string; side: number; line: number };
 const thumbs = new Map<string, Drawn>();
 const Thumb = ({ item, px }: { item: LibraryItem; px?: number }) => <StructureThumb id={item.kind} mol={item.mol} px={px} />;
@@ -110,6 +110,11 @@ function drawThumb(mol: Mol, style: typeof STYLE): Drawn {
   const words = placeCaptions(mol, drawing, (t, c) => textWidth(t, (c.size ?? CAPTION_PT) * (4 / 3), c.bold, c.italic, fontStack(c.font ?? "Arial")), arrows);
   const marks: Mark[] = [...(mol.shapes ?? []).filter((x) => x.mark && isBracket(x)).map((x) => ({ ...markAt(x, L), text: x.mark!, size: CAPTION_PT * (4 / 3) * scaleOf(x) })),
     ...(mol.shapes ?? []).flatMap((x) => { const t = x.kind === "symbol" && partialText(x); return t ? [{ x: Math.min(x.from[0], x.to[0]) * L, y: -Math.min(x.from[1], x.to[1]) * L, anchor: "start" as const, text: t, size: symbolSize(x) * L }] : []; })];
+  // A free charge's number (issue 60), as the canvas draws it.
+  for (const x of mol.shapes ?? []) {
+    const n = x.count ? symbolNumber(x, L, measure, style.size) : undefined;
+    if (n) marks.push({ x: n.x, y: n.y, anchor: "start", text: n.text, size: n.size, ...(n.angle ? { turn: `rotate(${-n.angle} ${n.at[0]} ${n.at[1]})` } : {}) });
+  }
   const points = [...ink, ...fills, ...words.map((w): [number, number][] => [[w.box[0], w.box[1]], [w.box[2], w.box[3]]]), marks.map((m): [number, number] => [m.x, m.y])].flat();
   const xs = points.map((q) => q[0]), ys = points.map((q) => q[1]);
   const [x0, y0, x1, y1] = mol.atoms.length || !xs.length ? [Math.min(drawing.box[0], ...xs), Math.min(drawing.box[1], ...ys), Math.max(drawing.box[2], ...xs), Math.max(drawing.box[3], ...ys)] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -139,7 +144,7 @@ export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: num
           {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y}>{l.runs ? richSpans(l.runs, c.size, 4 / 3, false) : l.text}</tspan>)}
         </text>
       ))}
-      {t.marks.map((m, i) => <text key={`m${i}`} x={m.x} y={m.y} textAnchor={m.anchor} fill="currentColor" style={{ font: `${m.size}px ${fontStack("Arial")}` }}>{m.text}</text>)}
+      {t.marks.map((m, i) => <text key={`m${i}`} x={m.x} y={m.y} textAnchor={m.anchor} transform={m.turn} fill="currentColor" style={{ font: `${m.size}px ${fontStack("Arial")}` }}>{m.text}</text>)}
     </svg>
   );
 }

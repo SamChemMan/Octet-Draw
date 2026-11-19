@@ -62,6 +62,10 @@ export type DocStyle = {
   // ChemDraw's Interpret Chemically When Possible (Document Settings > Text Captions; InterpretChemically on the
   // document in CDXML): captions that read as chemistry count as chemistry. On for new documents.
   interpret: boolean;
+  // Circle new charges (issue 60): a charge that + and −, the Charge commands and the AI tools put on an atom with
+  // none is circled. Each atom keeps the look it was drawn with, so turning it on or off changes nothing drawn. ACS
+  // 1996 is plain, so it is off for new documents. ChemDraw has no such setting.
+  circled?: true;
   // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
   // when it was saved. Another computer shows them in the drawing's colour row.
   palette?: { name: string; hex: string }[];
@@ -200,7 +204,7 @@ export function readStyle(v: unknown): DocStyle {
     labelFont: text("labelFont", fontName), labelSize: num("labelSize", ...LIMITS.labelSize),
     captionFont: text("captionFont", fontName), captionSize: num("captionSize", ...LIMITS.captionSize),
     colour: text("colour", (t) => /^#[0-9a-f]{6}$/i.test(t)),
-    terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true, interpret: s.interpret !== false,
+    terminalLabels: s.terminalLabels === true, carbonLabels: s.carbonLabels === true, hideH: s.hideH === true, interpret: s.interpret !== false, ...(s.circled === true ? { circled: true as const } : {}),
     chainAngle: num("chainAngle", 90, 179),
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),

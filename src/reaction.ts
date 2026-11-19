@@ -28,8 +28,8 @@ export type Reaction = { steps: Step[]; arrows: number[]; atoms: number[]; capti
 
 // A plus sign placed with the Symbols tool (a free symbol) is a reaction's plus sign as a "+" caption is, unless it is
 // a structure's charge (mixtures.ts symbolOwners, which says so for a "+" caption too). Its box is its ink: the shape's
-// box.
-const isPlusShape = (s: Shape) => s.kind === "symbol" && s.symbol === "plus";
+// box. A plus with a number (2+) is always a charge (issue 60).
+const isPlusShape = (s: Shape) => s.kind === "symbol" && s.symbol === "plus" && !s.count;
 export const plusShapes = (m: Mol) => (m.shapes ?? []).filter(isPlusShape);
 const shapeBox = (s: Shape): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
 const plusBoxOf = (m: Mol, id: number, captionBox: (id: number) => Box | undefined) => { const s = m.shapes?.find((x) => x.id === id); return s ? (isPlusShape(s) ? shapeBox(s) : undefined) : captionBox(id); };

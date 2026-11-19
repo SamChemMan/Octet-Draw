@@ -40,7 +40,7 @@ export function symbolOwners(doc: Mol, boxes: Box[], captionBox?: (id: number) =
     if (plus && near.size > 1) return;
     if (k >= 0) out.set(id, k);
   };
-  for (const s of shapes) if (s.kind === "symbol") own(s.id, boxOf(s), s.symbol === "plus");
+  for (const s of shapes) if (s.kind === "symbol") own(s.id, boxOf(s), s.symbol === "plus" && !s.count); // (2+ is always a charge, issue 60)
   const pt = doc.style?.captionSize ?? DEFAULT_STYLE.captionSize, bond = doc.style?.bond ?? DEFAULT_STYLE.bond;
   for (const c of signs) {
     const w = widthOf(c.text.trim(), c.size ?? pt) / bond, x = c.align === "left" ? c.x : c.align === "right" ? c.x - w : c.x - w / 2;
@@ -66,7 +66,7 @@ export function withSalts(doc: Mol, all: number[][]): number[][] {
   const charges = symbolOwners(doc, box.map((b): Box => [b[0] - 0.3, b[1] - 0.3, b[2] + 0.3, b[3] + 0.3]));
   const pairs: [number, number, number][] = [], plus = [
     ...(doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && c.text.trim() === "+" && !charges.has(c.id)),
-    ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus" && !charges.has(s.id)).map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
+    ...(doc.shapes ?? []).filter((s) => s.kind === "symbol" && s.symbol === "plus" && !s.count && !charges.has(s.id)).map((s) => ({ x: (s.from[0] + s.to[0]) / 2, y: (s.from[1] + s.to[1]) / 2 })),
   ];
   const inside = (b: number[], x: number, y: number, e: number) => x > b[0] - e && x < b[2] + e && y > b[1] - e && y < b[3] + e;
   const apart = (p: number[], q: number[]) => plus.some((c) => inside([Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[2], q[2]), Math.max(p[3], q[3])], c.x, c.y, 0.5) && !inside(p, c.x, c.y, 0.2) && !inside(q, c.x, c.y, 0.2));
