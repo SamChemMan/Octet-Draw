@@ -569,6 +569,96 @@ for kind in ["com.sun.star.presentation.PresentationDocument", "com.sun.star.dra
     command, props = dispatched[0]
     assert command == ".uno:InsertGraphic" and props["AsLink"] is False and props["FileName"].endswith(".emf")
     assert not os.path.exists(props["FileName"][7:]), "the private copy goes"
+
+
+# LibreOffice's Insert > Image, as its source does it. Impress and Draw (sd FuInsertGraphic, View::InsertGraphic) put
+# the picture into one selected picture or fill one selected shape with it, else into an empty placeholder, else add it
+# last, and select it. Calc (lcl_InsertGraphic) puts it into one selected shape, else adds it last and, for a command
+# with a file name, does not select it (SdrInsertFlags::DONTMARK).
+class Page:
+    def __init__(self, *shapes):
+        self.shapes = list(shapes)
+
+    def getCount(self):
+        return len(self.shapes)
+
+    def getByIndex(self, k):
+        return self.shapes[k]
+
+
+class Selection(Shapes):
+    def supportsService(self, name):
+        return name == "com.sun.star.drawing.ShapeCollection"
+
+
+class Office(Controller):
+    def __init__(self, doc, page, selection=None, placeholder=None):
+        Controller.__init__(self, doc, selection)
+        self.page, self.placeholder, self.cleared = page, placeholder, 0
+        calc = doc.kind == "com.sun.star.sheet.SpreadsheetDocument"
+        self.getActiveSheet = lambda: types.SimpleNamespace(getDrawPage=lambda: page) if calc else None
+        if not calc:
+            self.getCurrentPage = lambda: page
+
+    def select(self, what):
+        assert what is None
+        self.cleared += 1
+        self.selection = None
+
+    def inserted(self):
+        new = Picture(None)
+        one = self.selection.getByIndex(0) if self.selection and self.selection.getCount() == 1 else None
+        if one is not None:
+            # In place of the selected picture, or as the selected shape's fill: the user's own shape changes.
+            one.Graphic = "Octet's drawing"
+            return
+        if self.placeholder in self.page.shapes:
+            self.page.shapes[self.page.shapes.index(self.placeholder)] = new
+        else:
+            self.page.shapes.append(new)
+        if self.doc.kind != "com.sun.star.sheet.SpreadsheetDocument":
+            self.selection = Shapes(new)
+
+
+Dispatcher.executeDispatch = lambda self, frame, command, target, flags, props: dispatched.append((command, {p.Name: p.Value for p in props})) or office.inserted()
+for kind in ["com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.sheet.SpreadsheetDocument"]:
+    # Nothing selected; the user's own picture, selected; a text box being edited (Impress and Draw).
+    for selected in [None, "picture", "text"]:
+        if selected == "text" and kind.endswith("SpreadsheetDocument"):
+            continue
+        mine, other = Picture(pdf), Picture(None, service="com.sun.star.drawing.TextShape")
+        kept = mine.Graphic
+        page = Page(mine, other)
+        selection = Selection(mine) if selected == "picture" else Shapes(other) if selected == "text" else None
+        office = Office(Document(kind), page, selection)
+        s = od.Session(None, office, None, "pdf")
+        dispatched.clear()
+        s.put(pdf)
+        assert s.shape is page.shapes[-1] and len(page.shapes) == 3 and not s.gone, (kind, selected)
+        assert mine.Graphic is kept and other.Graphic is None, "the user's shapes stay as they were"
+        assert office.cleared == (0 if kind.endswith("SpreadsheetDocument") and selected is None else 1), (kind, selected, office.cleared)
+        # The next Update changes that picture: it adds no second one.
+        s.put(octet_emf)
+        assert len(page.shapes) == 3 and len(dispatched) == 1 and s.shape.Graphic.data == octet_emf, (kind, selected)
+    # An empty placeholder on the slide (Impress): the picture takes its place.
+    if not kind.endswith("SpreadsheetDocument"):
+        holder = Picture(None, service="com.sun.star.presentation.GraphicObjectShape")
+        page = Page(Picture(pdf), holder, Picture(pdf))
+        office = Office(Document(kind), page, None, holder)
+        office.inserted = lambda real=office.inserted: real() or setattr(office, "selection", None)
+        s = od.Session(None, office, None, "pdf")
+        s.put(pdf)
+        assert s.shape is page.shapes[1] and holder not in page.shapes and len(page.shapes) == 3, kind
+        # An empty text box being edited goes when the edit ends, so the pictures after it move up a place.
+        empty, later = Picture(None, service="com.sun.star.drawing.TextShape"), Picture(pdf)
+        page = Page(Picture(pdf), empty, later)
+        office = Office(Document(kind), page)
+        office.inserted = lambda real=office.inserted: page.shapes.remove(empty) or real()
+        s = od.Session(None, office, None, "pdf")
+        s.put(pdf)
+        assert s.shape is page.shapes[-1] and s.shape is not later and len(page.shapes) == 3, kind
+Dispatcher.executeDispatch = lambda self, frame, command, target, flags, props: dispatched.append((command, {p.Name: p.Value for p in props}))
+dispatched.clear()
 # On Windows LibreOffice can still hold the copy: it stays, and the drawing goes on.
 unlink = os.unlink
 

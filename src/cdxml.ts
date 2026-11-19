@@ -22,6 +22,7 @@ import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
 import { fragments, groupParents, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
+import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub } from "./render.ts";
 import { kekulise, rings } from "./rings.ts";
@@ -389,7 +390,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
   }
   for (const c of mol.captions ?? []) {
-    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(c.measure.atoms[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
     if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
@@ -1040,8 +1041,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // Arrows: each written twice, as ChemDraw 22 does (spec 11): the arrow, and a legacy line or arc graphic that
   // points at it with SupersededBy. Curved arrows store their circle as a frame and a signed sweep (spec 10.2).
   const legacyOf = new Map<number, number>();
-  // own: the notes the arrow carries (a catalytic cycle's go on its first arc).
-  const arrowOut = (a: Arrow, derived: boolean, own = derived ? undefined : a.notes) => {
+  // own: the notes the arrow carries (a catalytic cycle's go on its first arc). host: the item whose group a derived
+  // line goes in (a measurement's caption).
+  const arrowOut = (a: Arrow, derived: boolean, own = derived ? undefined : a.notes, host?: number) => {
     const id = derived ? fresh() : idOf.get(a.id)!, S = at(a.from), T = at(a.to);
     // Head sizes in hundredths of the line width (HeadSize, ArrowheadCenterSize, ArrowheadWidth).
     const hs = headSize(a), h100 = (x: HeadSize) => [x.length, x.centre, x.width].map((v) => Math.round(v * 100));
@@ -1071,7 +1073,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const lineType = a.style === "dashed" ? "Dashed" : a.style === "bold" ? "Bold" : a.style === "wavy" ? "Wavy" : undefined;
     const f = scaleOf(a), lines = ownLines(f, a.width), box = boxOf(path, head || tail ? (sizes[a.kind === "block" ? 1 : 2] * line * f) / 100 : (line * f) / 2), z = Z(), legacy = fresh(), c = colour(a.colour);
     // A catalytic cycle's arrow goes in the cycle's group, and names its cycle so Octet reads the group back.
-    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = derived ? cycle : a.id;
+    const cycle = derived ? (a as Arrow & { cycle?: number }).cycle : undefined, item = host ?? (derived ? cycle : a.id);
     const tag = cycle !== undefined && idOf.has(cycle) ? priv({ d: 1, cycle: idOf.get(cycle), branch: (a as Arrow & { branch?: number }).branch }) : DERIVED;
     legacyOf.set(a.id, legacy);
     // The legacy copy: a line from head to tail, or an arc from the head round its centre, with the old arrow type.
@@ -1110,6 +1112,19 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const cycle = (a as Arrow & { cycle?: number }).cycle;
     if (cycle !== undefined && !written.has(cycle)) continue;
     zOrder = a.order; if (a.kind !== "orbital" && a.kind !== "curve") arrowOut(a, true, cycleNotes.get(a));
+  }
+  // A measurement's dashed lines and an angle's arc, for ChemDraw to show (Octet draws them from the measurement).
+  for (const c of mol.captions ?? []) {
+    if (!c.measure) continue;
+    zOrder = c.order;
+    const ink = measureInk(mol, c.measure.atoms, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
+    for (const [from, to] of ink.lines) arrowOut({ id: -1, kind: "line", style: "dashed", from, to, ...(c.colour ? { colour: c.colour } : {}) }, true, undefined, c.id);
+    if (ink.arc) {
+      const { centre: o, r, start, sweep } = ink.arc, end = start + sweep, from: P = [o[0] + r * Math.cos(start), o[1] + r * Math.sin(start)], to: P = [o[0] + r * Math.cos(end), o[1] + r * Math.sin(end)];
+      // Its middle sits off the chord by r(1 − cos(sweep/2)), to the right of it for an anticlockwise sweep.
+      const chord = 2 * r * Math.abs(Math.sin(sweep / 2));
+      if (chord > 1e-6) arrowOut({ id: -1, kind: "arc", from, to, bend: (-Math.sign(sweep) * r * (1 - Math.cos(sweep / 2))) / chord, ...(c.colour ? { colour: c.colour } : {}) }, true, undefined, c.id);
+    }
   }
 
   // Captions: style runs (spec 8.1), the caption's own style as the text's caption style, and the anchor by its
@@ -1180,7 +1195,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined,
-        align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
+        measure: c.measure && { atoms: c.measure.atoms.map((i) => nodeId.get(i)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("") + notes(c.notes)), 2, box, c.id);
     if (c.property && !live) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
@@ -1197,7 +1212,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // it is written under the atoms, below).
     const under = c?.under?.filter((i) => i < mol.atoms.length);
     if (under?.length) { const b = ink(under), w = Math.max(...c!.text.split("\n").map((l) => widthOf(l, c!.size ?? style.captionSize))) / B, x = (b[0] + b[2]) / 2; return [x - w / 2, b[1], x + w / 2, b[1]]; }
-    if (!c || c.under || c.on || c.cycle) return undefined;
+    if (!c || c.under || c.on || c.cycle || c.measure) return undefined;
     const w = widthOf(c.text, c.size ?? style.captionSize) / B, x0 = c.align === "left" ? c.x : c.align === "right" ? c.x - w : c.x - w / 2;
     return [x0, c.y - 0.2 * size, x0 + w, c.y + 0.7 * size];
   };
@@ -1297,7 +1312,7 @@ function pick(m: Mol, sel: { atoms: Iterable<number>; items: Iterable<number> })
     if (!out.under?.length) delete out.under;
     if (!out.property) delete out.property;
     if (c.on && !arrows.some((a) => a.id === c.on!.arrow)) { delete out.on; delete out.placed; }
-    return out;
+    return remapCaption(out, (i) => map.get(i));
   });
   const shapes = (m.shapes ?? []).filter((s) => items.has(s.id)), ids = new Set([...arrows, ...cycles, ...captions, ...shapes].map((x) => x.id));
   const groups = (m.groups ?? []).map((g) => ({ ...g, atoms: keep(g.atoms), items: g.items.filter((id) => ids.has(id)) }));
@@ -1574,7 +1589,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // characters differ.
   const labels: { i: number; text: string; type: string; isotope?: number; plain?: boolean; just?: string; stack?: string; turn?: string; runs?: TextRun[] }[] = [];
   const numH = new Map<number, number | undefined>(), delocalised: { k: number; order?: 1 | 2 }[] = [], ovals: { id: number; c: P; r: number }[] = [];
-  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G; count?: number; free?: true }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
+  const bondsToRead: Xml[] = [], symbols: { x: Xml; atoms: number[]; group?: G; count?: number; free?: true }[] = [], steps: Xml[] = [], unders: { c: Caption; nodes: unknown }[] = [], measures: { c: Caption; m: Record<string, unknown> }[] = [], lives: { c: Caption; live: Record<string, unknown> }[] = [], anchors = new Map<number, P>();
   // Formula runs read back as plain text (issue 31), kept in case the text is not drawn as a formula after all.
   const asFormula = new Map<Caption, TextRun[]>();
   const brackets: { x: Xml; id: number; z: number; group?: G; ends: number[] }[] = [], properties: Xml[] = [];
@@ -2187,6 +2202,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const role = readPart(p?.role);
     if (role) c.role = role;
     if (p?.under) unders.push({ c, nodes: p.under });
+    if (p?.measure && typeof p.measure === "object") measures.push({ c, m: p.measure as Record<string, unknown> });
     if (p?.live && typeof p.live === "object") lives.push({ c, live: p.live as Record<string, unknown> });
     // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
     if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
@@ -2779,6 +2795,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const under = atomsOf(nodes);
     if (under.length) c.under = under;
   }
+  // Octet's measurements: their atoms by node id, in order. One that names a node that is not an atom, or is not sound
+  // (soundMeasure), is plain text.
+  for (const { c, m: x } of measures) {
+    const atoms = Array.isArray(x.atoms) ? x.atoms.slice(0, 5).map((n) => atomOf.get(Number.isInteger(n) ? (n as number) : -1) ?? -1) : [];
+    const measure = { atoms, ...(x.at !== undefined ? { at: x.at } : {}) };
+    if (soundMeasure(measure, mol.atoms.length)) c.measure = { atoms, ...(measure.at ? { at: [...measure.at] as [number, number] } : {}) };
+  }
   // Octet's live values: their rows and decimals, for their atoms.
   for (const { c, live } of lives) {
     const atoms = atomsOf(live.atoms), attrs = Object.fromEntries(LIVE_ATTRS.filter((k) => typeof live[k] === "string").map((k) => [k, cleanText(live[k] as string).slice(0, 200)]));
@@ -2848,6 +2871,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (tied) arrows.splice(0, arrows.length, ...tied);
     for (const c of cycles) { c.nodes = c.nodes.map((n) => n.map(ix)); if (c.sides) c.sides = c.sides.map((s) => ({ ...s, atoms: s.atoms.map(ix) })); Object.assign(c, mapBranches(c, ix)); }
     for (const c of captions) if (c.property) c.property.atoms = c.property.atoms.map(ix);
+    for (const c of captions) if (c.measure) c.measure.atoms = c.measure.atoms.map(ix);
   }
   // Each object's notes, from the element it was read from (a cycle's from its first arc).
   for (const x of [...captions, ...arrows, ...shapes]) { const n = notesOf(madeFrom.get(x.id)); if (n) x.notes = n; }
@@ -2886,7 +2910,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (octet && top!.fields === 1) mol.fields = true;
   // π rings from Octet 1.0.x (no app on the root) as ligand() now orders them. Hydrogens set by hand only where they
   // are fewer than usual once delocalised bonds are made single and double (settleHydrogens).
-  const out = settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol)));
+  const out = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(octet && top!.app === undefined ? oldLigands(mol) : mol))), style, true);
   // A group of one thing goes, and its annotations with it.
   const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(out);
   if (gone > 0) lose("annotation", gone);
