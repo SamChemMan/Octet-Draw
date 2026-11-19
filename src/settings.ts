@@ -82,6 +82,8 @@ export type Settings = {
   propertyRows: string[]; // the rows Add to drawing writes under a structure
   decimals?: number; // Properties > Decimals: places for the exact mass, molecular weight and m/z (0 to 8); unset is 4, 2 and 2
   propertyNames?: false; // Properties > Names off: Add to drawing writes the values without their names (issue 77)
+  favouriteSuppliers?: string[]; // the Suppliers window's starred suppliers, by name (letter case and spaces aside), shown first
+  propertiesTab?: "hazards"; // the Properties panel's tab; unset: Properties
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
   nmrLabels: LabelTurn; // the Spectrum panel's Labels: peak labels across, turned (read bottom to top) or Auto (turned when crowded)
   nmrDecouple?: Partial<Record<"1H" | "13C" | "19F" | "31P", boolean>>; // Decouple ¹H set for a nucleus (¹⁹F, ³¹P); unset: the nucleus's default (nmr.ts NUCLEI)
@@ -180,6 +182,8 @@ export function loadSettings(): Settings {
       interpretation: saved.interpretation === true,
       decimals: Number.isInteger(saved.decimals) && saved.decimals >= 0 && saved.decimals <= 8 ? saved.decimals : undefined,
       propertyNames: saved.propertyNames === false ? false : undefined,
+      favouriteSuppliers: Array.isArray(saved.favouriteSuppliers) ? list<string>(saved.favouriteSuppliers, (k) => typeof k === "string" && k.length <= 120).slice(0, 200) : undefined,
+      propertiesTab: saved.propertiesTab === "hazards" ? "hazards" : undefined,
       propertyRows: Array.isArray(saved.propertyRows) ? list<string>(saved.propertyRows, (k) => typeof k === "string" && k.length < 20).slice(0, 30) : DEFAULTS.propertyRows,
       elementColours: Object.fromEntries(Object.entries(typeof saved.elementColours === "object" && saved.elementColours ? saved.elementColours : {}).filter(([k, v]) => /^[A-Z][a-z]?$/.test(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))) as Record<string, string>,
       colourPins: Object.fromEntries(Object.entries(typeof saved.colourPins === "object" && saved.colourPins ? saved.colourPins : {}).filter(([k, v]) => k in PIN_PRESETS && Array.isArray(v))

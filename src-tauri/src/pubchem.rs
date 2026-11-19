@@ -40,6 +40,10 @@ const SOURCES_TIME: Duration = Duration::from_secs(120);
 const MOST_NAME: usize = 120;
 const MOST_LINK: usize = 2000;
 const MOST_SUPPLIERS: usize = 1000;
+// A supplier's catalogue numbers kept while reading (MOST_SUPPLIER_CODES), given (MOST_CODES), and each one's length.
+const MOST_SUPPLIER_CODES: usize = 50;
+const MOST_CODES: usize = 3;
+const MOST_CODE: usize = 40;
 pub const UNREACHED: &str = "Octet cannot reach PubChem.";
 pub const STOPPED: &str = "Stopped.";
 // A request whose time ran out: PubChem answered too slowly, which is not a lost connection.
@@ -308,11 +312,15 @@ async fn hazards(key: &str, version: &str, stop: Option<&Stop>) -> Result<Option
 }
 
 // Find suppliers (issue 114): a compound's chemical vendors in PubChem, as Octet shows them. Each supplier once, A to
-// Z, with a link Octet may open (https, checked here). PubChem has no prices, pack sizes or purity, so neither has this.
+// Z, with a link Octet may open (https, checked here), its catalogue numbers for the compound (newest first, at most
+// MOST_CODES) and how many products PubChem lists for it. PubChem has no prices, pack sizes, purity, ratings or logos,
+// so neither has this.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Supplier {
     pub name: String,
     pub url: String,
+    pub codes: Vec<String>,
+    pub products: u32,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -353,6 +361,8 @@ struct Source {
     name: Option<String>,
     #[serde(rename = "SourceRecordURL")]
     record: Option<String>,
+    #[serde(rename = "RegistryID")]
+    code: Option<String>,
 }
 
 // Runs only when the user presses Find suppliers (or chooses it in the Search menu, the Actions panel or the palette),
@@ -401,6 +411,8 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
         name: String,
         sid: Option<u64>,
         link: Option<(u64, String)>,
+        codes: Vec<(Option<u64>, String)>,
+        products: u32,
     }
     let (mut by, mut at) = (Vec::<Found>::new(), std::collections::HashMap::<String, usize>::new());
     let vendors = answer.source_categories.categories.into_iter().filter(|c| c.category.as_deref() == Some("Chemical Vendors"));
@@ -411,12 +423,18 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
             Some(&k) => k,
             None if by.len() < MOST_SUPPLIERS => {
                 at.insert(key, by.len());
-                by.push(Found { name: name.clone(), sid: source.sid, link: None });
+                by.push(Found { name: name.clone(), sid: source.sid, link: None, codes: Vec::new(), products: 0 });
                 by.len() - 1
             }
             None => continue,
         };
         let f = &mut by[k];
+        f.products = f.products.saturating_add(1);
+        if let Some(code) = source.code.as_deref().and_then(supplier_code) {
+            if !f.codes.iter().any(|(_, c)| *c == code) && f.codes.len() < MOST_SUPPLIER_CODES {
+                f.codes.push((source.sid, code));
+            }
+        }
         if source.sid > f.sid {
             (f.name, f.sid) = (name, source.sid);
         }
@@ -426,9 +444,11 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
             }
         }
     }
-    let mut out: Vec<Supplier> = by.into_iter().map(|f| {
+    let mut out: Vec<Supplier> = by.into_iter().map(|mut f| {
         let url = f.link.map(|(_, l)| l).or_else(|| f.sid.map(|s| format!("{SUBSTANCE}{s}"))).unwrap_or_else(|| vendors_page(cid));
-        Supplier { name: f.name, url }
+        f.codes.sort_by(|a, b| b.0.cmp(&a.0));
+        let codes = f.codes.into_iter().take(MOST_CODES).map(|(_, c)| c).collect();
+        Supplier { name: f.name, url, codes, products: f.products }
     }).collect();
     out.sort_by_cached_key(|s| s.name.to_lowercase());
     Ok(out)
@@ -444,13 +464,22 @@ pub fn supplier_name(raw: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+// A supplier's catalogue number as Octet shows it: a supplier_name of at most MOST_CODE characters, else none.
+pub fn supplier_code(raw: &str) -> Option<String> {
+    supplier_name(raw).filter(|c| c.chars().count() <= MOST_CODE)
+}
+
 // A supplier's product link, kept only when it is https to a named host (no address, no localhost), with no user name
-// or password, at most MOST_LINK characters: in its parsed form (a host in other scripts as its punycode).
+// or password, at most MOST_LINK characters: in its parsed form (a host in other scripts as its punycode). An http link
+// is asked for over https instead (the same host and page), so the product page opens rather than PubChem's.
 pub fn supplier_link(raw: &str) -> Option<String> {
     if raw.len() > MOST_LINK {
         return None;
     }
-    let url = tauri::Url::parse(raw.trim()).ok()?;
+    let mut url = tauri::Url::parse(raw.trim()).ok()?;
+    if url.scheme() == "http" {
+        url.set_scheme("https").ok()?;
+    }
     let host = url.domain()?;
     let named = host.contains('.') && !host.ends_with('.') && !host.eq_ignore_ascii_case("localhost");
     (url.scheme() == "https" && named && url.username().is_empty() && url.password().is_none() && url.as_str().len() <= MOST_LINK).then(|| url.to_string())
@@ -628,13 +657,19 @@ mod tests {
             (20, "Sigma-Aldrich", Some("https://www.sigmaaldrich.com/p/20")),
             (5, "abcr GmbH", Some("https://abcr.example.com/5")),
             (7, "Yuhao Chemical", Some("http://www.chemyuhao.com/50-78-2.html")),
+            (9, "Yuhao Chemical", Some("ftp://www.chemyuhao.com/x")),
             (8, "Debye", None),
         ]);
         let got = suppliers_in(&json, 2244).unwrap();
         let names: Vec<&str> = got.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["abcr GmbH", "Debye", "sigma-aldrich", "Yuhao Chemical"], "A to Z, each once (case and spaces aside), the newest entry's name; the governments are not vendors");
-        assert_eq!(got[2].url, "https://www.sigmaaldrich.com/p/20", "the newest product with an https link");
-        assert_eq!(got[3].url, "https://pubchem.ncbi.nlm.nih.gov/substance/7", "an http link goes to the PubChem substance page");
+        assert_eq!(got[2].url, "https://www.sigmaaldrich.com/p/30", "the newest product with a link, http asked for over https");
+        assert_eq!(got[3].url, "https://www.chemyuhao.com/50-78-2.html", "an http link is asked for over https");
+        assert_eq!(got[2].products, 3, "each entry counts as a product");
+        assert_eq!(got[2].codes, ["X1"], "each catalogue number once");
+        assert_eq!(supplier_link("ftp://a.example.com/x"), None);
+        assert_eq!(supplier_code("  AB\u{202E}-12 "), Some("AB-12".into()));
+        assert_eq!(supplier_code(&"9".repeat(41)), None, "a code longer than 40 characters is left out");
         assert_eq!(got[1].url, "https://pubchem.ncbi.nlm.nih.gov/substance/8", "no link: the substance page");
         assert!(got.iter().all(|s| s.url.starts_with("https://")));
         // No vendor category: no suppliers. Another compound's answer: refused.
@@ -731,9 +766,10 @@ mod tests {
     #[test]
     fn supplier_links_are_clean_https_only() {
         assert_eq!(supplier_link("https://www.sigmaaldrich.com/GB/en/product/sial/a5376?a=1&b=2#x").as_deref(), Some("https://www.sigmaaldrich.com/GB/en/product/sial/a5376?a=1&b=2#x"));
+        assert_eq!(supplier_link("http://www.sigmaaldrich.com/p").as_deref(), Some("https://www.sigmaaldrich.com/p"), "http asked for over https");
         assert_eq!(supplier_link("https://bücher.example/p a").as_deref(), Some("https://xn--bcher-kva.example/p%20a"), "parsed form: punycode host, escaped space");
         for bad in [
-            "javascript:alert(1)", "file:///etc/passwd", "data:text/html,<script>alert(1)</script>", "http://www.sigmaaldrich.com/",
+            "javascript:alert(1)", "file:///etc/passwd", "data:text/html,<script>alert(1)</script>", "http://user@www.example.com/", "http://127.0.0.1/",
             "https://user:pass@www.example.com/", "https://user@www.example.com/", "https://127.0.0.1/admin", "https://localhost/", "https://[::1]/",
             "https://intranet/", "HTTPS:", "", "https://", "vbscript:x", "ftp://example.com/a",
         ] {

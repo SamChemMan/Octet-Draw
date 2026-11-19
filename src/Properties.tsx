@@ -1,37 +1,41 @@
 // The Properties panel: ChemDraw's Analysis and Chemical Properties windows in one, for every structure in the
-// selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does). A
-// click on a value copies its row; the boxes choose the rows Add to drawing writes under each structure. Decimals
-// sets the places of every calculated number (ChemDraw's Analysis window: 0 to 8; the elemental analysis keeps 2);
-// Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
-// groups of predicted values have a Predicted heading, and every copy of their values says (predicted). With Online
-// search on, Find hazards adds each structure's GHS hazards from PubChem (ChemDraw's PubChem GHS LCSS add-in): the
-// pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser. Find suppliers
-// (issue 114) adds each structure's suppliers from PubChem: its count opens the list, and a supplier opens its page in
-// the browser. While either lookup runs its button is Stop. Names off: Add to drawing writes the values without their
-// names (issue 77; ChemDraw's empty Property Labels word does the same).
+// selection (or the drawing; values for several structures are separated by semicolons, as ChemDraw does), and the
+// structures' GHS hazards from PubChem (ChemDraw's PubChem GHS LCSS add-in), in two tabs: Properties and Hazards.
+// Properties holds three groups in one reading order: Composition, Structure and Predicted (Octet's models; every copy
+// of their values says (predicted)). A click on a value copies its row; the boxes choose the rows Add to drawing
+// writes under each structure. Decimals sets the places of every calculated number (ChemDraw's Analysis window: 0 to
+// 8; the elemental analysis keeps 2); Copy report copies every value with the method and source it comes from
+// (ChemDraw's Report…). With names off, Add to drawing writes the values without their names (issue 77; ChemDraw's
+// empty Property Labels word does the same). Hazards opens with Find hazards (with Online search on); while it runs it
+// is Stop. Then the pictograms are drawn with the signal word, each statement is on its own line, a PubChem CID opens
+// the compound's Safety and Hazards page in the browser, and the source closes the tab. Suppliers have their own
+// window (SupplierWindow.tsx).
 import { useLayoutEffect, useMemo, useState } from "react";
-import { ArrowSquareOut, CaretDown, Check, CopySimple, FirstAidKit, Stop, Storefront } from "@phosphor-icons/react";
+import { ArrowSquareOut, Check, CopySimple, FirstAidKit, Stop } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import { useMovable } from "./movable";
 import { Select } from "./Select";
+import { Segmented } from "./Fields";
 import { propertyReport, rowLabel, type PropertyValues } from "./proprows";
 import { useLeaving } from "./motion";
 import { PICTOGRAMS } from "./ghs";
-import { Pick } from "./Menu";
-import type { Found, Lookup } from "./suppliers";
 
 const SUB = "₀₁₂₃₄₅₆₇₈₉";
 // Decimals: ChemDraw's 0 to 8, and Standard: each row's own places (4 for the exact mass, 1 for the temperatures,
 // critical volume and pKa, 2 for the rest).
 const DECIMALS: [string, string][] = [["", "Standard"], ...Array.from({ length: 9 }, (_, n): [string, string] => [String(n), String(n)])];
+// The Properties tab's groups: the rows of PROPERTY_ROWS's first group up to tPSA, the rest of it, then every predicted
+// row under one heading.
+const STRUCTURE_FROM = "tpsa";
+export type PropertiesTab = "properties" | "hazards";
+type Row = PropertyValues[number][number];
 
 type Props = {
   values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: string; // the panel it sits on, when one is open
   decimals?: number; onDecimals: (places?: number) => void; names: boolean; onNames: (on: boolean) => void;
-  online: boolean; onHazards: () => void; onOpen: (cid: string) => void;
-  // Find suppliers: each structure's suppliers as far as found, the lookups running now, a supplier's link and the
-  // compound's vendor section in PubChem.
-  suppliers: Found[]; busy: Partial<Record<Lookup, boolean>>; onSuppliers: () => void; onSupplier: (url: string) => void; onVendors: (cid: number) => void;
+  tab: PropertiesTab; onTab: (tab: PropertiesTab) => void;
+  // Find hazards: Online search on, whether it runs now, whether every structure has been looked up, and Settings.
+  online: boolean; finding: boolean; looked: boolean; onHazards: () => void; onOpen: (cid: string) => void; onSettings: () => void;
 };
 
 // A GHS pictogram: the diamond in the error colour (GHS draws it red) and the symbol in ink.
@@ -42,13 +46,13 @@ const Pictogram = ({ code }: { code: string }) => (
   </svg>
 );
 
-export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, online, onHazards, onOpen, suppliers, busy, onSuppliers, onSupplier, onVendors }: Props) {
-  // Pictograms are drawn, and hazard statements go one to a line: each structure's, in turn (from its own value, as a
-  // statement can hold a semicolon: H360FD).
-  const show = (row: PropertyValues[number][number], v: string) => (row.key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)])
-    : row.key === "ghs" ? row.values.map((one = "–", k) => <span key={k} className="ghs-set">{one.match(/GHS0[1-9]/g)?.map((c) => <Pictogram key={c} code={c} />) ?? one}</span>)
-    : row.key === "hazards" ? row.values.map((one = "–", k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>) : v);
-  const groups = useMemo(() => values.filter((g) => g.length), [values]);
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, tab, onTab, online, finding, looked, onHazards, onOpen, onSettings }: Props) {
+  const [calculated, hazards] = useMemo(() => {
+    const [first = [], ...rest] = values, at = first.findIndex((r) => r.key === STRUCTURE_FROM);
+    const predicted = rest.slice(0, -1).flat();
+    const groups: [string, Row[]][] = [["Composition", at < 0 ? first : first.slice(0, at)], ["Structure", at < 0 ? [] : first.slice(at)], ["Predicted", predicted]];
+    return [groups.filter(([, rows]) => rows.length), rest[rest.length - 1] ?? []];
+  }, [values]);
   // It opens where the Spectrum opens, along the bottom (above the Spectrum when that is open too), and moves by its
   // header.
   const move = useMovable("properties"), leaving = useLeaving();
@@ -64,59 +68,95 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
     watch.observe(el);
     return () => watch.disconnect();
   }, [stacked]);
+  const box = (row: Row) => {
+    const on = chosen.includes(row.key);
+    return (
+      <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${rowLabel(row)} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
+        {on && <Check size={12} />}
+      </button>
+    );
+  };
+  const text = (row: Row) => row.values.map((v) => (v === undefined ? "–" : v)).join("; ");
+  // A row on the Properties tab: its box, its name and its value, which copies the row. The formula's counts are drawn
+  // as subscripts.
+  const valueRow = (row: Row) => (
+    <div key={row.key} className="prop-row">
+      {box(row)}
+      <span className="prop-name">{row.name}</span>
+      <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text(row)}`)}>
+        {row.key === "formula" ? text(row).replace(/\d/g, (d) => SUB[Number(d)]) : text(row)}
+      </button>
+    </div>
+  );
+  // The Hazards tab's rows, each with its name over its value. The pictograms are drawn; each structure's statements
+  // go one to a line (from its own value, as a statement can hold a semicolon: H360FD); a CID opens PubChem.
+  const hazardValue = (row: Row) => {
+    if (row.key === "ghs") return row.values.map((one = "–", k) => <span key={k} className="ghs-set">{one.match(/GHS0[1-9]/g)?.map((c) => <Pictogram key={c} code={c} />) ?? one}</span>);
+    if (row.key === "hazards") return row.values.map((one = "–", k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>);
+    if (row.key === "precautions") return row.values.map((one = "–", k) => <span key={k} className="prop-codes">{one.split(", ").map((c, i) => <span key={i}>{c}</span>)}</span>);
+    if (row.key === "signal") return row.values.map((one = "–", k) => <span key={k} className="prop-signal">{one}</span>);
+    return text(row);
+  };
+  const source = hazards.find((r) => r.key === "ghs-source"), shown = hazards.filter((r) => r.key !== "ghs-source");
   return (
     <section className={["properties", stacked && "stacked", leaving && "leaving"].filter(Boolean).join(" ")} aria-label="Properties" inert={leaving} style={{ ...move.style, ...(stacked ? { "--below": `${below}px` } : {}) } as React.CSSProperties}>
       <header onPointerDown={move.onPointerDown}>
-        <h2>Properties</h2>
+        <Segmented label="Show" className="prop-tabs" value={tab} onChange={onTab} options={[["properties", "Properties"], ["hazards", "Hazards"]]} />
         <PanelControls close={onClose} />
       </header>
-      <div className="prop-list">
-        {groups.map((g, k) => (
-          <div key={k} className="prop-group">
-            {g.every((r) => r.predicted) && <h3 className="prop-heading">Predicted</h3>}
-            {g.map((row) => {
-              const text = row.values.map((v) => (v === undefined ? "–" : v)).join("; "), on = chosen.includes(row.key);
-              return (
-                <div key={row.key} className={`prop-row${text.length > 18 && row.key !== "ghs" ? " long" : ""}`}>
-                  {row.key === "suppliers" ? <span aria-hidden /> : (
-                    <button className="prop-check" role="checkbox" aria-checked={on} aria-label={`Add ${rowLabel(row)} to the drawing`} data-tip="Add to drawing" onClick={() => onChoose(row.key)}>
-                      {on && <Check size={12} />}
-                    </button>
-                  )}
+      {tab === "properties" ? (
+        <div className="prop-list">
+          {calculated.map(([heading, rows]) => (
+            <div key={heading} className={heading === "Predicted" ? "prop-group predicted" : "prop-group"}>
+              <h3 className="prop-heading">{heading}</h3>
+              <div className="prop-rows">{rows.map(valueRow)}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="prop-hazards">
+          {shown.length > 0 && (
+            <div className="prop-hazard-rows">
+              {shown.map((row) => (
+                <div key={row.key} className={`prop-row stack hazard-${row.key}`}>
+                  {box(row)}
                   <span className="prop-name">{row.name}</span>
-                  {row.key === "suppliers" ? (
-                    <span className="prop-links" aria-busy={!!busy.suppliers}>{row.values.map((v = "–", k) => {
-                      const f = suppliers[k];
-                      if (!f || f === "busy" || !f.suppliers.length) return <span key={k}>{v}</span>;
-                      // Each supplier once, A to Z, then the compound's vendor section. Names are text only.
-                      return (
-                        <Pick key={k} label={v} value="" className="prop-link" find="Find a supplier" title="Show the suppliers"
-                          groups={[f.suppliers.map((x, i) => ({ key: String(i), name: x.name, icon: null })), [{ key: "pubchem", name: "Open in PubChem", icon: <ArrowSquareOut size={16} /> }]]}
-                          onPick={(key) => (key === "pubchem" ? onVendors(f.cid) : onSupplier(f.suppliers[Number(key)].url))}>
-                          {v}<CaretDown size={12} aria-hidden />
-                        </Pick>
-                      );
-                    })}</span>
-                  ) : row.key === "cid" ? (
-                    <span className="prop-links">{row.values.map((v, k) => (v ? <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button> : "–"))}</span>
+                  {row.key === "cid" ? (
+                    <span className="prop-links">{row.values.map((v, k) => (v ? <button key={k} className="prop-link" aria-label={`Open CID ${v} in PubChem`} data-tip="Open in PubChem" onClick={() => onOpen(v)}>{v}<ArrowSquareOut size={12} aria-hidden /></button> : <span key={k}>–</span>))}</span>
                   ) : (
-                    <button className={row.key === "formula" ? "prop-value formula" : "prop-value"} data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text}`)}>{show(row, text)}</button>
+                    <button className="prop-value" data-tip="Copy" onClick={() => onCopy(`${rowLabel(row)}: ${text(row)}`)}>{hazardValue(row)}</button>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+              ))}
+            </div>
+          )}
+          {!online ? (
+            <div className="prop-empty">
+              <span>Online search is off.</span>
+              <button className="prop-add" onClick={onSettings}>Open Settings</button>
+            </div>
+          ) : (finding || !looked) && (
+            <div className="prop-empty">
+              {!shown.length && <span>{finding ? "Searching PubChem" : "GHS hazards from PubChem"}</span>}
+              <button className="prop-add" onClick={onHazards} aria-label={finding ? "Stop finding hazards" : undefined}>
+                {finding ? <><Stop size={16} aria-hidden /> Stop</> : <><FirstAidKit size={16} aria-hidden /> Find hazards</>}
+              </button>
+            </div>
+          )}
+          {source && <p className="prop-source">Source: {source.values.filter(Boolean).join("; ")}</p>}
+        </div>
+      )}
       <div className="prop-foot">
-        <button className="prop-add" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
-        <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
-        {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length && !busy.hazards} aria-label={busy.hazards ? "Stop finding hazards" : undefined} data-tip={busy.hazards ? "Stop finding hazards" : "Find the GHS hazards in PubChem"}>{busy.hazards ? <><Stop size={16} aria-hidden /> Stop</> : <><FirstAidKit size={16} aria-hidden /> Find hazards</>}</button>}
-        {online && <button className="prop-add" onClick={onSuppliers} disabled={!groups.length && !busy.suppliers} aria-label={busy.suppliers ? "Stop finding suppliers" : undefined} data-tip={busy.suppliers ? "Stop finding suppliers" : "Find the suppliers in PubChem"}>{busy.suppliers ? <><Stop size={16} aria-hidden /> Stop</> : <><Storefront size={16} aria-hidden /> Find suppliers</>}</button>}
+        <button className="prop-add primary" onClick={onAdd} disabled={!chosen.length}>Add to drawing</button>
+        <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!values.some((g) => g.length)} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
         <span className="prop-decimals">
-          <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>
-          <span className="prop-name">Decimals</span>
-          <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
+          <button className="prop-switch" role="checkbox" aria-checked={names} data-tip={names ? "Add the values with their names" : "Add the values without their names"} onClick={() => onNames(!names)}>
+            <span className="prop-check" aria-hidden>{names && <Check size={12} />}</span>With names
+          </button>
+          {tab === "properties" && <>
+            <span className="prop-name">Decimals</span>
+            <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
+          </>}
         </span>
       </div>
     </section>
