@@ -105,7 +105,7 @@ import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casNumber, casProblem, dictionaryCas, nameList } from "./dictionary";
 import { PEPTIDE } from "./peptide";
 import { relabel, residueName, SEQ_ENDS, sequenceParts, sequenceText, type SeqKind, type SeqParts } from "./sequence";
-import { fieldSeq, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
+import { chainText, fieldSeq, inPlaceOf, linkResidues, readSequence, seqBuilt, seqProblem, toFasta, toHelm, withSequences } from "./helm";
 import { helmLibrary, monomerOf, monomerRefs } from "./seqbuild";
 import { codeProblem, MOST_OWN_MONOMERS, readHelmLibrary, withMonomer, type Own } from "./monomers";
 import { NUCLEIC } from "./nucleic";
@@ -2525,7 +2525,22 @@ export default function Editor() {
       if (nameField.current?.value === t) nameField.current.select();
     });
   }
-  // Structure > Insert Peptide…, Insert RNA… and Insert DNA…: the name field with the prefix in it, the caret after it.
+  // A chain clicked with the Sequence tool, or selected when Structure > Sequence is chosen (issue 27): the name field
+  // with its sequence, and Return draws what the field then holds in its place (helm.ts inPlaceOf), so a residue is put
+  // in or taken out by typing, as in ChemDraw's sequence tools. False when the structures are not wholly chains.
+  const seqEdit = useRef<{ doc: Mol; atoms: number[] }>(undefined);
+  function editSequence(atoms: number[]): boolean {
+    const text = atoms.length ? chainText(doc, atoms, ownMonomers) : undefined;
+    if (!text) return false;
+    warmLayout();
+    openNaming(text);
+    seqEdit.current = { doc, atoms };
+    requestAnimationFrame(() => { const f = nameField.current; f?.setSelectionRange(f.value.length, f.value.length); });
+    return true;
+  }
+  // The whole structures the selection is part of.
+  const selectedStructures = () => fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
+  // Structure > Sequence > Peptide…, DNA… and RNA…: the name field with the prefix in it, the caret after it.
   function insertSequence(prefix: string) {
     warmLayout();
     openNaming(prefix);
@@ -2561,7 +2576,15 @@ export default function Editor() {
     requestAnimationFrame(() => { const f = nameField.current; f?.focus(); f?.setSelectionRange(caret, caret); });
   }
   // A structure from the name field lands where the field was, and the field closes.
-  const landName = (frag: Mol) => { settleFrom.current = doc.atoms.length; place(frag, doc, namingAt.current); setNaming(undefined); };
+  const landName = (frag: Mol) => {
+    // A chain opened in the field (editSequence) is drawn again in its place while the drawing is as it was.
+    const e = seqEdit.current;
+    seqEdit.current = undefined;
+    if (e && e.doc === doc && naming !== undefined && isSequence(naming.trim())) { set(inPlaceOf(doc, e.atoms, frag)); setNaming(undefined); return; }
+    settleFrom.current = doc.atoms.length;
+    place(frag, doc, namingAt.current);
+    setNaming(undefined);
+  };
   // Draws what the name field holds (or the recent name the arrow keys are on). False when it is not a name. Text
   // nothing offline reads goes to PubChem (askPubChem), and true means the answer draws when it comes.
   function drawNamed(): boolean {
@@ -3062,7 +3085,7 @@ export default function Editor() {
     ...(AI ? { image_to_structure: () => void imageToStructure(), recognise_structures: () => void recognisePictures() } : {}),
     // Structure > Insert Peptide… (issue 27), Insert RNA… and Insert DNA…: the name field, ready for one-letter codes
     // after "peptide: " (peptide.ts), "rna: " or "dna: " (nucleic.ts).
-    ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => insertSequence(`${k}: `)])),
+    ...Object.fromEntries(["peptide", "rna", "dna"].map((k) => [`insert_${k}`, () => { if (!selection.size || !editSequence(selectedStructures())) insertSequence(`${k}: `); }])),
     // Structure > Add Structure to Dictionary…: a name of the user's own for the selected structure.
     dictionary_add: () => addToDictionary(),
     // Structure > Define Monomer…: the selected structure as a peptide monomer of the user's own (issue 27).
@@ -3831,7 +3854,7 @@ export default function Editor() {
   const [seqPreview, setSeqPreview] = useState<{ key: string; mol?: Mol }>();
   const seqKey = seqText !== undefined && seqRead && !("problem" in seqRead) && !seqNote ? `${seqLabels}\n${seqText}` : undefined;
   useEffect(() => {
-    if (naming === undefined) setSeqPreview(undefined);
+    if (naming === undefined) { setSeqPreview(undefined); seqEdit.current = undefined; }
     if (!seqKey || seqPreview?.key === seqKey) return;
     let gone = false;
     const t = setTimeout(() => void seqLayout(seqText!, seqLabels, ownMonomers).result.then((m) => { if (!gone) setSeqPreview({ key: seqKey, mol: m && !("problem" in m) ? m : undefined }); }), PREVIEW_PAUSE);
@@ -8884,9 +8907,13 @@ export default function Editor() {
     // Option-click takes it out. Either way from the selection as it was before the press.
     const mods = pressMods.current;
     pressMods.current = undefined;
-    // Sequence: the name field opens with the codes' prefix, and the structure lands where the click was,
-    // also over a structure.
-    if (tool === "sequence") return insertSequence(SEQUENCES[sequenceChoice].prefix);
+    // Sequence: the name field opens with the codes' prefix, and the structure lands where the click was, also over a
+    // structure; over a chain, the field opens with its sequence, to be drawn again in its place.
+    if (tool === "sequence") {
+      const on = t.atom ?? (t.bond !== undefined ? doc.bonds[t.bond].atoms[0] : undefined), chain = on === undefined ? undefined : fragments(doc).find((g) => g.includes(on));
+      if (chain && editSequence(chain)) return;
+      return insertSequence(SEQUENCES[sequenceChoice].prefix);
+    }
     // An experiment's detail: a click on its text or in its box with the Text tool types it on the page; with every
     // other tool but the Eraser it opens Experiment details at that detail (Sam, 12 Nov 2026). A risk assessment's field
     // is typed on the page with any of them. Shift and Option keep their own clicks (Select adds to and takes from the

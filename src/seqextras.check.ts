@@ -15,13 +15,13 @@ gl.self = { location: { origin: "file://" } };
 gl.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const chem = await import("./chem.ts");
 await chem.ready;
-const { fieldSeq, parseHelm, toHelm, toFasta, readSequence, withSequences, seqOf, seqProblem, linkResidues } = await import("./helm.ts");
+const { fieldSeq, parseHelm, toHelm, toFasta, readSequence, withSequences, seqOf, seqProblem, linkResidues, chainText, inPlaceOf } = await import("./helm.ts");
 const { buildAtoms, buildLabels, monomerRefs, MOST_BUILT_ATOMS, TOO_MANY_ATOMS } = await import("./seqbuild.ts");
 const { residueName } = await import("./sequence.ts");
 const { codeProblem } = await import("./monomers.ts");
 const { readOct, writeOct, readCdx, writeCdx } = await import("./oct.ts");
 const { DEFAULT_STYLE } = await import("./docstyle.ts");
-const { fragments } = await import("./edit.ts");
+const { fragments, insertMol, addCaption } = await import("./edit.ts");
 const { unit } = await import("./nucleic.ts");
 
 type Seq = NonNullable<Extract<ReturnType<typeof fieldSeq>, { seq: unknown }>>["seq"];
@@ -204,5 +204,37 @@ for (const code of ["Cha", "Aib", "Sar"]) {
   assert.ok("mol" in buildAtoms(seqOfText(`dna: ${"[LT]*".repeat(n - 1)}[LT]`)), `${n} LNA T draw`);
   assert.deepEqual(buildAtoms(seqOfText(`dna: ${"[LT]*".repeat(n)}[LT]`)), { problem: TOO_MANY_ATOMS });
   assert.equal(seqProblem(seqOfText(`dna: ${"[LT]*".repeat(n)}[LT]`), true), undefined);
+}
+// ——— A drawn chain back in the field ———
+// A chain clicked with the Sequence tool (or selected, then Structure > Sequence) opens the field with its sequence in
+// words, or HELM when words cannot say it; what the field then holds is drawn in its place: a residue put in or taken
+// out by typing. Its caption stays with it, its centre and scale stay, and nothing else moves.
+{
+  const page = insertMol(built("peptide: Ac-[Aib]KAF-NH2", true), chem.indigoLayout("CC(=O)Oc1ccccc1C(=O)O"), [0, 20]).mol;
+  const chain = fragments(page).find((g) => g.some((i) => page.atoms[i].text === "Aib"))!, aspirin = fragments(page).find((g) => !g.includes(chain[0]))!;
+  const withCaption = addCaption(page, { text: "1", x: 0, y: -3, under: chain })[0];
+  assert.equal(chainText(withCaption, chain), "peptide: Ac-[Aib]KAF-NH2", "as labels");
+  assert.equal(chainText(withCaption, aspirin), undefined, "aspirin is no chain");
+  // Typed: a Gly put in, the Lys taken out.
+  const next = built("peptide: Ac-[Aib]GAF-NH2", true), out = inPlaceOf(withCaption, chain, next);
+  assert.equal(toHelm(out), "PEPTIDE1{[ac].[Aib].G.A.F.[am]}$$$$V2.0");
+  const mid = (m: Mol, atoms: number[]) => [0, 1].map((k) => { const v = atoms.map((i) => m.atoms[i].location[k]); return (Math.min(...v) + Math.max(...v)) / 2; });
+  const newChain = fragments(out).find((g) => g.some((i) => out.atoms[i].text === "Aib"))!;
+  assert.ok(mid(out, newChain).every((v, k) => Math.abs(v - mid(withCaption, chain)[k]) < 1e-6), "its centre kept");
+  assert.deepEqual(out.captions?.[0].under?.slice().sort((p, q) => p - q), newChain.slice().sort((p, q) => p - q), "its caption goes with it");
+  const asp = fragments(out).find((g) => !g.includes(newChain[0]))!;
+  assert.deepEqual(asp.map((i) => out.atoms[i].location), aspirin.map((i) => page.atoms[i].location), "aspirin stays");
+  // As atoms, a chain with links or a modified nucleotide: HELM when words cannot say it, words when they can.
+  const ox = (buildAtoms((parseHelm("PEPTIDE1{C.Y.I.Q.N.C.P.L.G.[am]}$PEPTIDE1,PEPTIDE1,1:R3-6:R3$$$V2.0") as { seq: Seq }).seq) as { mol: Mol }).mol;
+  assert.equal(chainText(ox, ox.atoms.map((_, i) => i)), "PEPTIDE1{C.Y.I.Q.N.C.P.L.G.[am]}$PEPTIDE1,PEPTIDE1,1:R3-6:R3$$$V2.0");
+  const gap = built("dna: [LA]*[LT]*G*C");
+  assert.equal(chainText(gap, gap.atoms.map((_, i) => i)), "dna: [LA]*[LT]*G*C");
+}
+// The editor's wiring: the Sequence tool's click over a chain, and Structure > Sequence with a chain selected.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /if \(tool === "sequence"\) \{\n\s+const on = t\.atom \?\? \(t\.bond !== undefined \? doc\.bonds\[t\.bond\]\.atoms\[0\] : undefined\), chain = [^\n]*\n\s+if \(chain && editSequence\(chain\)\) return;/);
+  assert.match(editor, /\[`insert_\$\{k\}`, \(\) => \{ if \(!selection\.size \|\| !editSequence\(selectedStructures\(\)\)\) insertSequence\(`\$\{k\}: `\); \}\]/);
+  assert.match(editor, /if \(e && e\.doc === doc && naming !== undefined && isSequence\(naming\.trim\(\)\)\) \{ set\(inPlaceOf\(doc, e\.atoms, frag\)\); setNaming\(undefined\); return; \}/);
 }
 console.log("seqextras: ok");

@@ -495,6 +495,23 @@ export function withSequences(m: Mol, to: "atoms" | "labels", own: Own = m.monom
   }
   return made.length ? redrawn(m, made) : m;
 }
+// The Sequence field's text drawn in place of chains (issue 27): a chain clicked with the Sequence tool, or selected
+// when Structure > Sequence is chosen, opens the field with its sequence (seqWords, or HELM), and Return draws what the
+// field then holds where the chain was, at its scale and centre, with what was tied to it (its caption, its group). So
+// a residue is put in or taken out by typing. gone: the chain's atoms; built: the new structure.
+export function inPlaceOf(m: Mol, gone: number[], built: Mol): Mol {
+  const part = pickAtoms(m, gone), mid = (x: Mol) => [0, 1].map((k) => { const v = x.atoms.map((a) => a.location[k]); return (Math.min(...v) + Math.max(...v)) / 2; });
+  const [ox, oy] = mid(part), [nx, ny] = mid(built), scale = gone.map((i) => m.atoms[i].scale ?? 1).sort((p, q) => p - q)[gone.length >> 1];
+  return redrawn(m, [{ gone, mol: { ...built, atoms: built.atoms.map((a) => ({ ...a, location: [ox + (a.location[0] - nx) * scale, oy + (a.location[1] - ny) * scale, 0] as [number, number, number], ...(scale !== 1 ? { scale } : {}) })) } }]);
+}
+// The Sequence field's text for chains (gone: whole structures that are only chains), or undefined when they are not.
+export function chainText(m: Mol, gone: number[], own: Own = []): string | undefined {
+  const part = pickAtoms(m, gone);
+  let read: ReturnType<typeof seqOf>;
+  try { read = seqOf(part, toInchi, canonicalSmiles, own); } catch { return undefined; }
+  if (!read || read.drawn.flat().length !== part.atoms.length) return undefined;
+  return seqWords(read.seq) ?? helmOf(read.seq);
+}
 // Structures drawn again in place of others: each part's atoms (gone) give way to its new structure (mol). The text
 // under a structure (its compound number, its name), the group it is in, a catalytic cycle's step it is on and kept
 // ChemDraw data on its atoms go with it to the new atoms: each takes them before the old atoms go.
