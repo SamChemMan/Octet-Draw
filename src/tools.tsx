@@ -513,7 +513,7 @@ type PaletteProps = {
   // A template opened on the canvas to change it (one of the user's), or a copy of a built-in one to change and keep
   // in My templates; one of the user's duplicated, or put in another place in its set (before unset: at the end).
   onEditTemplate: (kind: string, tool: TemplateTool) => void;
-  onDuplicate: (id: string) => void;
+  onDuplicate: (id: string, tool: TemplateTool) => void;
   onPlace: (id: string, before?: string) => void;
   onToStart: (id: string) => void;
   onToEnd: (id: string) => void;
@@ -619,7 +619,7 @@ export function Palette(p: PaletteProps) {
   const actions = (tool: TemplateTool): TemplateActions => ({
     sets: p.templateSets, onSets: p.onTemplateSets, onCopy: (kind, set) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
     onRemove: (kind) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); },
-    onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: p.onDuplicate, onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
+    onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: (id) => p.onDuplicate(id, tool), onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
     onKeepOpen: (set) => { setOpen(undefined); p.onKeepOpen(set, tool); }, onSaveSet: p.onSaveSet,
     ...(tool === "ring" ? { kept: p.libraryRings, onKeep: (kind: string, on: boolean) => (on ? keep("ring", kind) : unkeep("ring", kind)) } : {}),
   });

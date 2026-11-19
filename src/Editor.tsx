@@ -120,7 +120,7 @@ import { nameRuns } from "./nametype";
 import { atomText, bondText, changeText, describe, groupTitle, ringOn, type Item as AccessItem } from "./access";
 import { CanvasAccess, type HotItem } from "./CanvasAccess";
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
-import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
+import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap, inMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
@@ -671,16 +671,15 @@ export default function Editor() {
   // strip or its library, or with the Ring tool in hand); the user pins any other there.
   function addOwnTemplate(name: string, mol: Mol, set?: string, tool: TemplateTool = "ring", ring = tool === "ring") {
     const t = newTemplate(name, mol);
-    setSettings((s) => ({ ...addTo(s, t, set), variants: { ...s.variants, [tool]: templateKind(t.id) }, ...(ring ? { libraryRings: [...s.libraryRings, templateKind(t.id)] } : {}) }));
+    setSettings((s) => ({ ...ringed(s, addTo(s, t, set), ring), variants: { ...s.variants, [tool]: templateKind(t.id) } }));
     setTool(tool);
     return t;
   }
   function removeRingTemplate(id: string) {
     const kind = templateKind(id);
     setSettings((s) => ({
-      ...removeTemplate(s, id),
+      ...ringed(s, removeTemplate(s, id)),
       pinned: s.pinned.filter((k) => k !== `ring:${kind}` && k !== `template:${kind}`),
-      libraryRings: s.libraryRings.filter((k) => k !== kind),
       variants: { ...s.variants, ...(s.variants.ring === kind ? { ring: "benzene" } : {}), ...(s.variants.template === kind ? { template: "lib:Alanine" } : {}) },
     }));
   }
@@ -759,7 +758,7 @@ export default function Editor() {
     // A template removed meanwhile (from a palette) is kept as a new one, so nothing drawn is lost.
     const kept = !!e.id && templates.some((t) => t.id === e.id);
     if (kept) setSettings((s) => updateTemplate(s, e.id!, mol));
-    else { const t = newTemplate(e.name, mol); setSettings((s) => ({ ...addTo(s, t), ...(e.tool === "ring" ? { libraryRings: [...s.libraryRings, templateKind(t.id)] } : {}) })); }
+    else { const t = newTemplate(e.name, mol); setSettings((s) => ringed(s, addTo(s, t), e.tool === "ring")); }
     endTemplateEdit();
     setNotice(kept ? `${e.name} is saved.` : `${e.name} is saved in My templates.`, "done");
   }
@@ -10946,7 +10945,7 @@ export default function Editor() {
         onNewSet={askSet}
         onRemoveTemplate={removeRingTemplate}
         onEditTemplate={editTemplate}
-        onDuplicate={(id) => setSettings((s) => duplicateTemplate(s, id))}
+        onDuplicate={(id, tool) => setSettings((s) => ringed(s, duplicateTemplate(s, id), tool === "ring"))}
         onPlace={(id, before) => setSettings((s) => placeTemplate(s, id, before))}
         onToStart={(id) => setSettings((s) => templateToStart(s, id))}
         onToEnd={(id) => setSettings((s) => templateToEnd(s, id))}

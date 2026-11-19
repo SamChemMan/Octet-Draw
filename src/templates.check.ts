@@ -7,7 +7,7 @@ import { addCaption, extractSelection } from "./edit.ts";
 import type { Atom, Bond, Mol } from "./render.ts";
 import { browser, loadOpsin, needOpsin, opsinDir } from "../scripts/checkkit.ts";
 import { addSet, addSetOf, addTo, changePalette, closePalette, duplicateTemplate, freeSetName, loadTemplates, MOST_PALETTES, moveTemplate, MY_SET, newTemplate, openPalette, ownId, PALETTE_COLUMNS, placeTemplate,
-  readPalettes, readSize, keepOwnRings, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
+  readPalettes, readSize, keepOwnRings, ringed, ringStrip, removeSet, removeTemplate, renameSet, renameTemplate, TEMPLATE_SIZES, templateKind, templateToEnd, templateToStart, updateTemplate, legible, type Kept, type TemplateSize } from "./templates.ts";
 
 const atom = (label: string, x: number, y: number, more: Partial<Atom> = {}): Atom => ({ label, location: [x, y, 0], ...more });
 const bond = (a: number, b: number, type = 1, more: Partial<Bond> = {}): Bond => ({ atoms: [a, b], type, ...more });
@@ -733,11 +733,24 @@ console.log(`templates: Clean Up leaves ${kept} perspective and π templates as 
   assert.match(library, /Move to end", icon: <ArrowLineDownRight size=\{18\} \/> \}\] : \[\]\)\],\n\s*keep,\n\s*a\.onRemove/, "an own template's menu has the pin, before Remove");
   assert.match(library, /\{p\.onKeep && \(\n\s*<button className="variant-action" aria-pressed=\{kept\} aria-label=\{`Keep \$\{t\.name\} in the Ring menu`\}/, "every tile in the Ring library has the pin, own ones too, as a pressed button");
   // 3 and 5. Saved from the Ring tool (or with it in hand) it goes in the strip; removed, it leaves the strip.
+  const base = { templates: [a, b], templateSets: [] as string[], libraryRings: ["lib:Adamantane", kb] };
+  const c = newTemplate("C", { atoms: [atom("O", 0, 0)], bonds: [] }), kc = templateKind(c.id);
+  assert.deepEqual(ringed(base, addTo(base, c), true).libraryRings, ["lib:Adamantane", kb, kc], "saved from the Ring tool: at the end of the strip");
+  assert.deepEqual(ringed(base, addTo(base, c)).libraryRings, ["lib:Adamantane", kb], "saved anywhere else: library only");
+  assert.deepEqual(ringed(base, addTo(base, c), false).templates.map((t) => t.name), ["A", "B", "C"], "the template is saved either way");
+  const twin = ringed(base, duplicateTemplate(base, a.id), true), copy = twin.templates.find((t) => t.name === "A copy")!;
+  assert.deepEqual(twin.libraryRings, ["lib:Adamantane", kb, templateKind(copy.id)], "Duplicate from the Ring tool: the copy joins the strip");
+  assert.deepEqual(ringed(base, duplicateTemplate(base, a.id), false).libraryRings, base.libraryRings, "Duplicate from the Template tool: library only");
+  assert.deepEqual(ringed(base, removeTemplate(base, b.id)).libraryRings, ["lib:Adamantane"], "a removed template leaves the strip");
+  assert.deepEqual(ringed(base, removeTemplate(base, a.id)).libraryRings, base.libraryRings, "removing one not in the strip leaves the strip as it is");
+  assert.equal(ringed(base, base, true), base, "no change: the same settings");
   const editor = src("Editor.tsx");
+  assert.match(editor, /\.\.\.ringed\(s, addTo\(s, t, set\), ring\)/, "addOwnTemplate keeps it in the strip only when ring");
   assert.match(editor, /function addOwnTemplate\(name: string, mol: Mol, set\?: string, tool: TemplateTool = "ring", ring = tool === "ring"\)/, "a template saved from the Ring tool goes in the strip");
-  assert.match(editor, /\.\.\.\(ring \? \{ libraryRings: \[\.\.\.s\.libraryRings, templateKind\(t\.id\)\] \} : \{\}\)/, "addOwnTemplate keeps it in the strip only when ring");
   assert.match(editor, /addPart\(templatePart\(\), command\.slice\(13\) \|\| MY_SET, "ring", undefined, tool === "ring"\)/, "Add to templates from the canvas: in the strip only with the Ring tool in hand");
-  assert.match(editor, /e\.tool === "ring" \? \{ libraryRings:/, "a copy edited from the Ring library and saved goes in the strip");
-  assert.match(editor, /libraryRings: s\.libraryRings\.filter\(\(k\) => k !== kind\)/, "a removed template leaves the strip");
+  assert.match(editor, /ringed\(s, addTo\(s, t\), e\.tool === "ring"\)/, "a copy edited from the Ring library and saved goes in the strip");
+  assert.match(editor, /ringed\(s, duplicateTemplate\(s, id\), tool === "ring"\)/, "Duplicate from the Ring tool's library or palette goes in the strip");
+  assert.match(editor, /\.\.\.ringed\(s, removeTemplate\(s, id\)\)/, "a removed template leaves the strip");
+  assert.match(tools, /onDuplicate: \(id\) => p\.onDuplicate\(id, tool\)/, "Duplicate says which tool's library or palette it came from");
   console.log("templates: own templates in the Ring menu: pin, strip, migration and removal ok");
 }

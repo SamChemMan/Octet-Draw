@@ -19,25 +19,28 @@ place the user builds, so the pin decides.
    as it does for a built-in one; the template stays in the library and the Template tool.
    Test: ringStrip (pure) in templates.ts, asserted in templates.check.ts: no own template unless kept, kept ones in
    order, removed ones dropped. Source asserts for keepable and the strip ×.
-3. A template saved from the Ring tool (its strip: Add by name, Add selection; its library: Add, a pick, a drop, Add
-   to templates on a built-in, Save of an edited copy), or from anywhere while the Ring tool is in hand, goes into the
-   Ring menu. One saved anywhere else (Template tool, Actions panel or Edit menu Add to templates with another tool in
-   hand, a ChemDraw template file opened as a set, Duplicate) goes to the library only.
-   Test: source asserts in templates.check.ts on addOwnTemplate, addPart and the template.add commands.
+3. A template saved from the Ring tool (its strip: Add by name, Add selection; its library or a floating palette
+   opened from it: Add, a pick, a drop, Add to templates on a built-in, Duplicate, Save of an edited copy), or from
+   anywhere while the Ring tool is in hand, goes into the Ring menu. One saved anywhere else (Template tool and its
+   palettes, Duplicate there too, Actions panel or Edit menu Add to templates with another tool in hand, a ChemDraw
+   template file opened as a set) goes to the library only.
+   Test: ringed (pure) in templates.ts, asserted in templates.check.ts for add, duplicate and remove; source asserts
+   that addOwnTemplate, saveTemplateEdit, Duplicate and the template.add commands go through it.
 4. One-time migration in loadSettings: when the flag ringOwnKept is missing, every own template the user has goes
    into libraryRings, before the built-in ones, so the strip shows what it showed in 1.1.2, in the same order. The
    flag is then set, so a template unpinned later stays unpinned.
    Test: keepOwnRings (pure) in templates.ts, asserted in templates.check.ts: order, no duplicates, bad entries
    skipped; a source assert that loadSettings calls it only when the flag is missing.
 5. Removing a template (library ×, menu Remove, palette Remove) also takes it out of libraryRings.
-   Test: source assert on removeRingTemplate.
+   Test: ringed in templates.check.ts; a source assert that removeRingTemplate uses it.
 6. The pin is reached by keyboard and screen reader as for built-in ones: the tile in the Ring library has a pin
    button (aria-pressed, "Keep <name> in the Ring menu") above its ×, and the menu (Shift+F10 or the menu key) has the
    checked item. Test: source assert on the tile; npm run look for the tile.
 
 ## Design
 
-- templates.ts: `keepOwnRings(kept, templates)` and `ringStrip(kept, exists)`; both pure, both tested.
+- templates.ts: `keepOwnRings(kept, templates)`, `ringStrip(kept, exists)` and `ringed(s, next, ring)` (the strip
+  after a template change: gone ones out, new ones in when ring); all pure, all tested.
 - settings.ts: `ringOwnKept: boolean` (default true for a new user, who has nothing to move). loadSettings runs
   keepOwnRings when `saved.ringOwnKept !== true`.
 - tools.tsx: the strip's ring list is RINGS plus ringStrip(libraryRings). keepable accepts "ring:custom:". The strip
@@ -46,5 +49,5 @@ place the user builds, so the pin decides.
   for own templates too, stacked above the ×.
 - Editor.tsx: addOwnTemplate takes `ring` (default: saved from the Ring tool), addPart passes it, the template.add
   commands pass `tool === "ring"`. saveTemplateEdit keeps a new copy when it was edited from the Ring tool.
-  removeRingTemplate filters libraryRings.
+  Duplicate passes the tool of the library or palette it ran in. All of them, and removeRingTemplate, go through ringed.
 - No MCP change in 1.1.3. For 1.2 parity the MCP needs a way to keep a template in the Ring menu (see report).

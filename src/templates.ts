@@ -151,6 +151,14 @@ export const duplicateTemplate = <S extends Kept>(s: S, id: string): S => {
   return { ...s, templates: [...s.templates.slice(0, k + 1), copy, ...s.templates.slice(k + 1)] };
 };
 export const removeTemplate = <S extends Kept>(s: S, id: string): S => ({ ...s, templates: s.templates.filter((t) => t.id !== id) });
+// The Ring strip after the user's templates change (next is s changed): a template that is gone leaves the strip, and
+// a new one (added, duplicated, saved as a copy) joins its end when ring (saved from the Ring tool or with it in hand).
+export const ringed = <S extends Kept & { libraryRings: string[] }>(s: S, next: S, ring = false): S => {
+  if (next === s) return s;
+  const had = new Set(s.templates.map((t) => t.id)), has = new Set(next.templates.map((t) => t.id));
+  const added = ring ? next.templates.filter((t) => !had.has(t.id)).map((t) => templateKind(t.id)) : [];
+  return { ...next, libraryRings: [...next.libraryRings.filter((k) => { const id = ownId(k); return !id || has.has(id); }), ...added] };
+};
 // A name a new set can take: not empty, not My templates, not one the user has.
 export const freeSetName = (s: Kept, name: string) => { const n = setName(name); return !!n && n !== MY_SET && !s.templateSets.includes(n); };
 export const addSet = <S extends Kept>(s: S, name: string): S => (freeSetName(s, name) && s.templateSets.length < 50 ? { ...s, templateSets: [...s.templateSets, setName(name)] } : s);
