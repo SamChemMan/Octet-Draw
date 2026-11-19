@@ -219,6 +219,7 @@ export type Caption = {
   // across 4, in that order. The text is its value, worked out again as the atoms move; at is where its label was put
   // by hand, in the measurement's own frame (measureFrame), so it rides with its atoms. Unset: Octet places it.
   measure?: Measure;
+  notes?: Annotation[]; // its notes, not drawn (annotate.ts)
 };
 export type Measure = { atoms: number[]; at?: [number, number] };
 export type StepFacts = { reagents?: string[]; catalysts?: string[]; solvents?: string[]; temperature?: string; time?: string; atmosphere?: string; yield?: string };
@@ -263,6 +264,7 @@ export type Arrow = {
   width?: number; // the line width in points; unset uses the document's. The scale multiplies it.
   scale?: number; // the arrow's size against the document style (decision 0007); unset is 1
   role?: PlotPart; // a page spectrum's part: its role and where Octet put it (pageplot.ts)
+  notes?: Annotation[]; // its notes, not drawn (annotate.ts)
 };
 // An arrowhead's size in line widths, as CDXML keeps it in hundredths (HeadSize, ArrowheadCenterSize, ArrowheadWidth):
 // how far back from the tip it reaches, how far back its notch is, and how far each barb stands off the shaft.
@@ -447,6 +449,7 @@ export type Shape = {
   scale?: number; // the shape's size against the document style (decision 0007); unset is 1
   symbol?: FreeSymbol; // a free symbol's kind (kind "symbol")
   count?: number; // a free charge's number (issue 60): 2 to 8 on the four charge kinds, unset is 1
+  notes?: Annotation[]; // its notes, not drawn (annotate.ts)
 };
 // A free symbol: a charge, radical or lone pair that is on the page by itself, as ChemDraw's unattached chemical symbol
 // (a Symbols tool click away from an atom). It is not chemistry: no formula, mass, name or SMILES counts it. Its box
@@ -606,8 +609,8 @@ export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?:
 // with the colour at 30% opacity behind the bonds. Each ring keeps its own fill, so fused rings can differ. A fill
 // whose ring is broken is not drawn.
 export type RingFill = { atoms: number[]; colour: string };
-// A keyword and content pair on the document or a group (ChemDraw's File > Document Annotations, and the GUIDs ChemDraw
-// writes). Not drawn: Octet keeps them from a ChemDraw file and writes them back (REL-28).
+// A keyword and content pair on the document, a group, a text, an arrow, a shape or a cycle (ChemDraw's File > Document
+// Annotations and Object > Annotate, and the GUIDs ChemDraw writes). Not drawn (annotate.ts).
 export type Annotation = { keyword: string; content: string };
 // A stoichiometry grid (Structure > Analyse Stoichiometry) under the reaction an arrow belongs to: what was typed for
 // each component, in base units, and the limiting reactant. A component's key is its side and what it is ("r:C7H8O" a

@@ -398,3 +398,74 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.notEqual(up.captions![0].text, r.mol.captions![0].text);
   console.log("measurement.check: multi-centre ok");
 }
+
+// Notes (issues 101 and 102) on a measurement: its label is text, so it takes a note as any text does (Annotate…, the
+// Notes panel's list), and the note stays on it through every edit and file that keeps the measurement. The note is in
+// the label's own element in CDXML, never in its dashed lines. A picture's CDXML (withoutNotes) has the measurement and
+// no note.
+{
+  const { allNotes, NOTE, noteOf, noteTargets, withNote, withoutNotes } = await import("./annotate.ts");
+  const { duplicateSelection, extractSelection, insertMol, updateCaption } = await import("./edit.ts");
+  const { toCdxml, fromCdxml } = await import("./cdxml.ts");
+  const { parse, serialize } = await import("./file.ts");
+  const { readOct, writeOct, readCdx, writeCdx } = await import("./oct.ts");
+  const said = "Gauche in the crystal\nSI, page 4";
+  // A distance across the chain, so it has a dashed line.
+  const base = made(addMeasure(chain(5), [0, 4])).mol, id = base.captions![0].id;
+  assert.deepEqual(noteTargets(base, new Set(), new Set([id])), [id], "a picked measurement takes a note");
+  const m = withNote(base, [id], said);
+  assert.equal(noteOf(m, id), said);
+  assert.deepEqual(caption(m, id).measure, caption(base, id).measure, "and stays a measurement");
+  assert.deepEqual(allNotes(m).map((r) => r.on), [id], "the Notes panel lists it");
+  // Edits: an atom dragged (its value changes), a turn, the label moved alone, typing over it (plain text now).
+  const dragged = settleMeasures(m, { ...m, atoms: m.atoms.map((a, i) => (i === 4 ? { ...a, location: [a.location[0] + 0.4, a.location[1] - 0.3, (a.location[2] ?? 0) + 0.5] as [number, number, number] } : a)) });
+  assert.notEqual(caption(dragged, id).text, caption(m, id).text, "the value follows the atom");
+  assert.equal(noteOf(dragged, id), said, "a drag keeps the note");
+  assert.equal(noteOf(settleMeasures(m, transformParts(m, new Set(all(m)), new Set([id]), ([x, y]) => [-y, x])), id), said, "a turn");
+  const nudged = settleMeasures(m, updateCaption(m, id, { x: caption(m, id).x + 1 }));
+  assert.ok(caption(nudged, id).measure!.at, "moved alone");
+  assert.equal(noteOf(nudged, id), said, "the label moved alone");
+  const typed = updateCaption(m, id, { text: "about 60°", measure: undefined });
+  assert.equal(caption(typed, id).measure, undefined, "typed over: plain text");
+  assert.equal(noteOf(typed, id), said, "with its note");
+  // Copy and paste with its atoms, Duplicate, the label copied alone (plain text): the note comes too. An atom of it
+  // deleted: the measurement goes with its note.
+  const pasted = settleMeasures(m, insertMol(m, extractSelection(m, new Set(all(m)), new Set()), [10, 0]).mol);
+  assert.deepEqual(pasted.captions!.map((c) => [!!c.measure, noteOf(pasted, c.id)]), [[true, said], [true, said]], "pasted");
+  const dup = duplicateSelection(m, new Set(all(m)), new Set()).mol;
+  assert.deepEqual(dup.captions!.map((c) => [!!c.measure, noteOf(dup, c.id)]), [[true, said], [true, said]], "duplicated");
+  const alone = extractSelection(m, new Set(), new Set([id]));
+  assert.deepEqual([alone.captions![0].measure, alone.captions![0].notes?.[0].content], [undefined, said], "the label alone");
+  const gone = deleteAtoms(m, new Set([4]));
+  assert.equal(gone.captions?.length ?? 0, 0);
+  assert.deepEqual(allNotes(gone), [], "its note goes with it");
+  // Files: .oct, its JSON, CDXML and CDX keep both.
+  const both = (back: Mol, what: string) => {
+    const c = back.captions!.find((x) => x.measure);
+    assert.ok(c, `${what}: the measurement`);
+    assert.deepEqual(c.measure!.atoms, [0, 4], `${what}: its atoms`);
+    assert.equal(noteOf(back, c.id), said, `${what}: its note`);
+  };
+  both(parse(serialize(m)), ".oct JSON");
+  both(readOct(writeOct(m, DEFAULT_STYLE), true).mol, ".oct");
+  const cdxml = toCdxml(m, DEFAULT_STYLE);
+  both(fromCdxml(cdxml).mol, "CDXML");
+  both(readCdx(writeCdx(m, DEFAULT_STYLE)).mol, "CDX");
+  const label = /<t\n[^>]*InterpretChemically="no"[^>]*>((?:(?!<\/t>).)*)<\/t>/s.exec(cdxml);
+  assert.ok(label && label[1].includes(`Keyword="${NOTE}"`), "the note is in the label's t");
+  assert.match(cdxml, /LineType="Dashed"/);
+  assert.equal(cdxml.match(/<annotation\n Keyword="Note"/g)?.length, 1, "once: its dashed line carries none");
+  // ChemDraw's save (Octet's data gone): the label is plain text and keeps its note.
+  const chemdraw = fromCdxml(cdxml.replace(/\n Octet="[^"]*"/g, "")).mol, text = chemdraw.captions!.find((c) => c.text === caption(m, id).text)!;
+  assert.equal(text.measure, undefined);
+  assert.equal(noteOf(chemdraw, text.id), said, "ChemDraw's file: the text keeps its note");
+  // A picture, another app's clipboard, an object window: the measurement, its lines and value, and no note.
+  const bare = withoutNotes(m);
+  assert.deepEqual(caption(bare, id).measure, caption(m, id).measure);
+  assert.equal(caption(bare, id).text, caption(m, id).text);
+  assert.equal(settleMeasures(m, bare), bare, "nothing to settle again");
+  const picture = toCdxml(bare, DEFAULT_STYLE);
+  assert.ok(!picture.includes("Gauche"), "a picture's CDXML: no note");
+  assert.match(picture, /LineType="Dashed"/, "and the measurement's lines");
+  console.log("measurement.check: notes ok");
+}

@@ -379,7 +379,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     },
     export: () => false,
     // (No command here opens a dialog: the stand-in for the editor has none.)
-    dialog: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
+    dialog: () => false, office: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
     // (No windows here: drawings new with a file's text opens none, whatever the file.)
     opens: async () => ({}),
     window: () => ({ id: "headless", name: title }),

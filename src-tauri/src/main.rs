@@ -810,6 +810,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     if !AI {
         file.remove(&image)?;
     }
+    // An object window keeps no notes (src/annotate.ts): Annotate… and Show or Hide Notes go, as Revert to Saved does.
+    let notes_here = object.is_none();
     // The picture selected in Word, or a new drawing at Word's cursor, in an object window (word.rs). After Insert…
     #[cfg(target_os = "macos")]
     file.insert(&item("edit_word", "Edit Picture from Word", "")?, 8)?;
@@ -893,6 +895,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let sets_seps = [sep()?, sep()?];
     let sets_list = in_groups(&set_items, &template_sets, &sets_seps);
     let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
+    let (notes, annotate) = (item("notes", "Show or Hide Notes", "")?, item("annotate", "Annotate…", "")?);
     let view = Submenu::with_items(app, "&View", true, &[
         // ChemDraw's keys: Actual Size and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
@@ -916,6 +919,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &interpretation,
         &item("actions", "Show or Hide Actions", "")?,
         &item("properties", "Show or Hide Properties", "")?,
+        // The Notes panel: the drawing's notes and every object's (src/Notes.tsx).
+        &notes,
         // The spectrum or Mass spec panel shown goes to its pill beside its structure, or the last one comes back.
         &item("toggle_spectrum", "Show or Hide Spectrum", "")?,
         &templates,
@@ -1034,6 +1039,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &sep()?,
         &item("show_stereo", "Show Stereochemistry", "")?,
         &item("atom_numbers", "Show Atom Numbers", "")?,
+        // ChemDraw's Annotate…: the Notes panel, at the note of the selection (or of the drawing). No key, as ChemDraw.
+        &annotate,
         &sep()?,
         &item("group", "Group", "CmdOrCtrl+G")?,
         &item("ungroup", "Ungroup", "CmdOrCtrl+Shift+G")?,
@@ -1057,6 +1064,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("rotate_dialog", "Rotate…", "CmdOrCtrl+R")?,
         &item("scale_dialog", "Scale…", "CmdOrCtrl+K")?,
     ])?;
+    if !notes_here {
+        view.remove(&notes)?;
+        object.remove(&annotate)?;
+    }
     // Text commands style the caption being typed, the picked captions, or the selected atom labels. The fonts and
     // sizes are the Actions panel's (the page sends them); Other Size… types any size, and Last Typed Size uses it
     // again (ChemDraw's Other… and Set Font Size To Last One).

@@ -1160,7 +1160,8 @@ function uncross(gs: Grouped[], clean: (g: Grouped) => Grouped): Grouped[] {
         for (const i of o.atoms) g.atoms.push(i);
         for (const id of o.items) g.items.push(id);
         if (o.integral) g.integral = true;
-        if (o.annotations) g.annotations = [...(g.annotations ?? []), ...o.annotations];
+        // (At most 1000, as on any object: annotate.ts MAX_ANNOTATIONS.)
+        if (o.annotations) g.annotations = [...(g.annotations ?? []), ...o.annotations].slice(0, 1000);
         into.set(j, at);
         out[j] = undefined;
       }

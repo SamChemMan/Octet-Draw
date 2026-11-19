@@ -59,7 +59,7 @@ const host: Host = {
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
-  file: (t) => host.structure(t), export: () => true, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
+  file: (t) => host.structure(t), export: () => true, office: () => false, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
   libreoffice: async () => { commands.push("add_to_libreoffice"); return libreOfficeFails; },
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),

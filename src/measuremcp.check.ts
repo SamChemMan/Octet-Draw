@@ -42,7 +42,7 @@ const host: Host = {
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => false,
   said: () => {}, working: () => {}, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
-  file: (t) => host.structure(t), export: () => true, dialog: () => false, windowless: () => false,
+  file: (t) => host.structure(t), export: () => true, office: () => false, dialog: () => false, windowless: () => false,
   asking: () => false, dismiss: () => {},
   opens: async () => ({}), window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => "theirs",
 } as unknown as Host;
@@ -162,4 +162,19 @@ assert.ok(!measures().some((c) => c.measure!.atoms.some((i) => i >= m.atoms.leng
 r = await call("change", { operations: [{ op: "edit", ids: [tA], colour: "#000000" }] }, "s-A");
 assert.ok(r.isError && /nothing with the id|no text|not/i.test(text(r)), text(r));
 
-console.log("measuremcp.check: text measure, run_command measure, read, edit, move, delete and bad arguments ok");
+// Notes (issues 101 and 102): edit's note on a measurement's t id, as on any text. read lists it on that id; new text
+// over it makes plain text and keeps the note.
+r = await call("change", { operations: [{ op: "text", measure: [`${s}.1`, `${s}.3`] }] });
+assert.ok(!r.isError, text(r));
+const tN = `t${measures().find((c) => c.measure!.atoms.length === 2)!.id}`;
+r = await call("change", { operations: [{ op: "edit", ids: [tN], note: "From the X-ray structure" }] });
+assert.ok(!r.isError, text(r));
+assert.match(text(r), new RegExp(`^Put the note on ${tN}\\.`));
+assert.ok(measures().some((c) => `t${c.id}` === tN), "still a measurement");
+assert.deepEqual((await read()).notes, [{ on: tN, text: "From the X-ray structure" }]);
+r = await call("change", { operations: [{ op: "edit", ids: [tN], text: "about 2.5 Å" }] });
+const plainN = m.captions!.find((c) => `t${c.id}` === tN)!;
+assert.equal(plainN.measure, undefined, "plain text now");
+assert.equal(plainN.notes?.[0].content, "From the X-ray structure", "with its note");
+
+console.log("measuremcp.check: text measure, run_command measure, read, edit, move, delete, notes and bad arguments ok");

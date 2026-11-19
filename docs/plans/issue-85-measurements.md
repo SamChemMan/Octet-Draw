@@ -202,6 +202,7 @@ Each is checked for a measurement:
 | Screen readers | "Distance 2.54 Å", in its structure |
 | MCP read, edit, delete, move, text, run_command | J6 |
 | Native menu, right-click menu, Actions panel, command palette | J4 |
+| Notes (issues 101 and 102): Annotate…, the Notes panel, MCP edit's note | the label takes a note, as text; it stays through every edit and file that keeps the measurement, and in the label's `t` in CDXML, never in its lines; no picture or other app gets it |
 
 ## MCP
 

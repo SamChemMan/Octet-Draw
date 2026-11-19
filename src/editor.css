@@ -2584,8 +2584,8 @@ div.facts {
 .unit-field.text input {
   text-align: left;
 }
-/* Text of several lines (Settings > Document > Properties > Comment): the same well, as wide as its row, as high as
-   its lines. Its name stays level with the first line. */
+/* Text of several lines (Settings > Document > Properties > Comment, a note): the same well, as wide as its row,
+   growing with its text (TextField's lines). Its name stays level with the first line. */
 .unit-field.text.lines {
   width: 100%;
   height: auto;
@@ -2602,9 +2602,12 @@ div.facts {
   background: transparent;
   color: var(--ink);
   font: 13px/18px var(--font-sans);
-  resize: vertical;
+  resize: none;
   -webkit-user-select: text;
   user-select: text;
+}
+.unit-field.lines textarea::placeholder {
+  color: var(--ink-faint);
 }
 .setting-control:has(> .unit-field.lines) {
   flex: 1;
@@ -4644,6 +4647,96 @@ div.facts {
 .lane-picked {
   fill: var(--select);
   fill-opacity: 0.08;
+}
+
+/* The Notes panel (Notes.tsx): the Actions panel's look and width, on the right just above it (or its pill), as tall
+   as the room up to the Export pill; beside it, at the bottom, when that room is too small. Each field is a well of
+   several lines; the rows are the Actions panel's rows, each object's name and the first line of its note. It moves
+   by its header (movable.ts). */
+.note-panel {
+  position: absolute;
+  right: var(--space-4);
+  bottom: calc(var(--space-4) * 2 + var(--below, 0px));
+  z-index: var(--z-panel);
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  box-sizing: border-box;
+  max-height: calc(100% - var(--below, 0px) - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  transform-origin: bottom right;
+  animation: panel-in var(--motion-fast) var(--ease-out);
+}
+.note-panel.beside {
+  right: calc(var(--space-4) * 2 + 248px);
+  bottom: var(--space-4);
+  max-height: calc(100% - var(--space-4) * 4 - 32px - var(--ruler, 0px));
+}
+.note-panel.leaving {
+  animation: panel-out var(--motion-fast) var(--ease-out) forwards;
+  pointer-events: none;
+}
+.note-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  cursor: grab;
+}
+.note-panel header button {
+  cursor: default;
+}
+.note-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+}
+.note-name {
+  font: 13px/18px var(--font-sans);
+  color: var(--ink-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-rows {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--hairline);
+}
+.note-row > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.note-row-name {
+  flex: none;
+  max-width: 50%;
+}
+.note-row-text {
+  min-width: 0;
+  color: var(--ink-muted);
 }
 
 /* Properties: along the bottom, where the Spectrum opens (above it when both are open); its rows run across in
