@@ -949,6 +949,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
         // ChemDraw's 3D Clean Up (⇧⌘D): a 3D shape for the selected structures.
         &item("clean_3d", "3D Clean Up", "CmdOrCtrl+Shift+D")?,
+        // The wedges and hashes placed again from their stereocentres; no atom moves (chem.ts redrawStereo).
+        &item("redraw_stereo", "Redraw Stereo Bonds", "")?,
         &item("atom_properties", "Atom Properties…", "")?,
         &item("bond_properties", "Bond Properties…", "")?,
         &item("bracket_properties", "Bracket Properties…", "")?,
