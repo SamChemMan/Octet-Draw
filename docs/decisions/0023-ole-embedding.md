@@ -54,7 +54,8 @@ Octet, as a ChemDraw drawing is. Double-click opens it. An edit goes back into W
   process, so Octet has no compound file reader of its own.
 - The picture in the document is Octet's EMF, made as for Copy, with the CDXML in a comment. So the drawing survives
   with Octet uninstalled, and copying the picture out of Word into Octet on any computer, the Mac included, gives the
-  drawing. If Office asks for a Windows metafile, Octet gives the EMF converted by Windows.
+  drawing. If Office asks for a Windows metafile, Octet gives the EMF converted by Windows. From 1.2 the EMF also has
+  EMF+ records, so Word draws it anti-aliased (issue 166, "The object's picture" below).
 - The object window is a drawing window with a different File menu: "Update Document1" (Ctrl+S) in place of Save,
   "Save Copy As…" in place of Save As, "Close and Return to Document1" in place of Close, and no Revert to Saved. Its
   title is "Octet Drawing in Document1". Update changes the picture and the stored drawing in Word at once.
@@ -87,6 +88,97 @@ Octet, as a ChemDraw drawing is. Double-click opens it. An edit goes back into W
   back from `GetExtent`, and Word and Octet agree. The picture is not redrawn: it keeps the drawing's own aspect, and
   Word scales it into the space. An Update with a changed drawing drops Word's size, so the new drawing comes in at
   its own size. https://learn.microsoft.com/windows/win32/api/oleidl/nf-oleidl-ioleobject-setextent
+
+## The object's picture (issue 166, 17 November 2026, release 1.2)
+
+Issue 166: with 1.1.2 and default settings, a drawing pasted into Word for Windows is jagged. The reporter's
+screenshot, pixel by pixel: every bond is 1 px of solid ink with no grey edge, and the labels have grey edges. A
+plain picture (a 1.1.1 paste, or a PNG) is smooth. The reporter asked for a switch back to 1.1.1's paste.
+
+Cause. Word's default paste makes the object, and Word draws an object from its cached picture. That picture was
+`make_emf`'s EMF, with GDI records only. Word draws an object's picture through GDI+, and GDI+ draws GDI records
+without anti-aliasing: lines aliased, text smoothed, as in the screenshot. Word draws a plain picture with its own
+renderer, which smooths it. That Word uses GDI+ here is inferred from the screenshot and from ChemDraw (below); the
+Windows CI test `ole_plus_is_smooth` checks the GDI+ half.
+
+Decision:
+
+- The object's picture is an EMF+ dual EMF (`make_office_emf` in `src-tauri/src/vector.rs`): `make_emf`'s GDI records,
+  and before each mark's GDI records a comment with the same mark as EMF+ records (MS-EMFPLUS). The first record after
+  the header is the EMF+ header (dual, GDI+ 1.1, a video display at 96 dpi), with anti-aliasing on at high quality,
+  text anti-aliased, pixels offset by half, smooth scaling and page unit px. GDI+ draws the EMF+ records and skips the
+  GDI ones. GDI, and every program that reads no EMF+, skips the EMF+ comments and draws what 1.1.2 drew.
+- Shapes are EMF+ paths: filled with their colour (`EmfPlusFillPath`), and drawn with a pen (`EmfPlusDrawPath`) that
+  has the SVG's caps, join, miter limit and dashes. Labels stay text: `EmfPlusDrawDriverString` puts each character
+  where the GDI record puts it, in the same Windows font, so Word's Save as PDF and a printer get text. Text that is
+  outlines in the GDI records is outlines in EMF+ too. A photo in the drawing goes through `EmfPlusGetDC` as its GDI
+  records, so its pixels go in once.
+- Text in a right-to-left or joining script (U+0590 to U+08FF: Hebrew, Arabic, Syriac, Thaana, N'Ko and their
+  supplements; their presentation forms, U+FB1D to U+FDFF and U+FE70 to U+FEFF), or with a direction mark, is outlines
+  in every EMF, the GDI records too (`right_to_left` in `pick_runs`). usvg gives those glyphs in the order they show,
+  so GDI would order them again, and `EmfPlusDrawDriverString` would draw each Arabic letter on its own, not joined.
+  Outlines draw what the page drew. Latin, Greek and Cyrillic labels stay text, to the byte.
+- The EMF+ picture goes where Word draws an object: Copy with the object (`CF_ENHMETAFILE`, made on a thread beside
+  the bitmap), and every picture the object window sends (at open, after each change, Update, Close and Return,
+  Word's Close, Quit). Every other EMF keeps its 1.1.2 bytes (but right-to-left text, above): Copy with Office object off or the class not registered
+  (a test checks the CRC-32 of 1.1.2's copy), Export as EMF, Quick export, `--convert`, the AI apps' `read` with
+  format emf, the Mac's copy for Office, and Linux. Paste reads the CDXML comment as before, in 1.2 and in 1.1.2.
+- ChemDraw: the pictures of ChemDraw for Windows objects in Word documents are EMF+ dual EMFs with anti-aliasing on
+  (190 of 192 objects in five documents; MestReNova's 179 of 179). ChemDraw has a switch, File > Preferences >
+  General > "Use Antialiasing When Generating Windows Metafiles"; Revvity's support article 4408239935508 gives it as
+  the cure for the same complaint. Octet has no switch: it is always on. The old reason to turn it off was printer
+  drivers, and Office object off gives the GDI-only picture.
+- No new switch. Settings > Import and export > Copy > Office object (Windows only, on by default; Settings' search
+  finds it for "word") off gives a plain picture: 1.1.2's plain copy to the byte, 1.1.1's formats in 1.1.1's order.
+  After this fix the object's picture is as smooth as a plain picture, so the reason the reporter gave is gone. The
+  reasons left for a plain picture (a journal that takes pictures only, a smaller document) are what that switch is
+  for, and Word's Paste Special > Picture (Enhanced Metafile) gives one plain paste. A second switch in Settings >
+  General > Word would do the same thing in a second place.
+- An object pasted with 1.1.2 keeps its jagged picture until the picture changes: double-click it and choose File >
+  Update (Ctrl+S), which sends a picture, changed or not. Octet does not change a document the user did not change.
+
+Proof. There is no Windows computer on the Mac where this was built.
+
+- Mac (`cargo test`, `src-tauri/src/vector_plus_tests.rs`): a reader of the EMF+ records by MS-EMFPLUS (sizes, object
+  ids defined before use, path point counts and kinds, pens, fonts, an even number of characters in each text record,
+  the end record last); every EMF+ shape and text checked against its GDI records (points within 1/20 pt, colours,
+  pen widths, fonts, character positions); without its EMF+ comments the EMF is `make_emf`'s to the byte; the same
+  input gives the same bytes; and the clipboard's other formats are unchanged.
+- Windows CI on every push: Check's smoke job runs `cargo test --bin octet ole -- --nocapture` on its Windows machine
+  after the smoke run (`.github/workflows/check.yml`), and the Office objects job in `platforms.yml` runs it on `main`
+  and from Run workflow. The tests draw into a DIB section through a DC, as Word draws: `ole_plus_is_smooth` (GDI+ anti-aliases the object's picture and not the GDI-only one),
+  `ole_plus_ink_box_and_gdi_pixels` (GDI+'s ink box is GDI's within 2 px; GDI draws the new EMF to 1.1.2's pixels),
+  `ole_plus_photo` (a photo through `EmfPlusGetDC`, upright and turned), `ole_plus_fill_mode`, `ole_plus_large_path`,
+  `ole_cache_keeps_the_plus_picture` (Windows' OLE cache, filled from the flushed clipboard as `OleCreateFromData`
+  fills it, keeps the EMF+ bytes through a save and a load, and prints what it cached), `ole_plus_labels` and
+  `ole_plus_zoom` (0.25 to 40 px a pt), and `ole_stress_gdiplus_draws_every_drawing` (every stress drawing, its ink box
+  GDI's). Not run yet: they run on the next push.
+- Where MS-EMFPLUS is silent, a CI test decides. Fill mode: a nonzero fill sets `PathPointFlags` bit 0x2000, as GDI+
+  writes a path with winding fill (`ole_plus_fill_mode`). It matters: Octet's bond outlines overlap a little where
+  bonds meet, and drawn even-odd, 42 of L-proline's 4,918 ink pixels at 4 px a pt would be white. Size: a 500-residue peptide's bonds are one path object of
+  about 230 KB in one record (`ole_plus_large_path` also prints whether GDI+ takes it continued over records). If
+  either fails, the fallbacks are in `docs/plans/issue-166-word-paste-sharp.md` ("If CI says no").
+- By hand on Windows: `docs/testing/ole-manual.md`, test 16.
+
+Speed (decision 0024; `cargo test --release --bin octet windows_copy_time -- --ignored --nocapture`; Apple M1 Pro,
+with other work running, load average 14 to 23 on 10 cores; the middle of 9 runs taken in turn; 600 dpi, Settings'
+default):
+
+| Drawing | Copy with the object | Without it | 1.1.2's Copy | `make_office_emf` | `make_emf` | EMF+ EMF | GDI EMF |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L-proline | 1.84 ms | 1.82 ms | 1.71 ms | 0.010 ms | 0.009 ms | 4,184 B | 3,120 B |
+| 40 paclitaxels | 223.6 ms | 222.4 ms | 223.2 ms | 1.00 ms | 0.74 ms | 964 KB | 705 KB |
+| A 500-residue peptide | 331.3 ms | 333.3 ms | 329.7 ms | 1.55 ms | 1.14 ms | 1.51 MB | 1.13 MB |
+
+Copy is within 1.1.2's time plus a tenth and 2 ms: reading the SVG and drawing the bitmap are most of it, and the EMF
+is made beside the bitmap. The object window's picture (after each change, off the main thread) takes 1.3 to 1.4
+times `make_emf`'s time, and 1 ms for 40 paclitaxels. The EMF+ EMF is 1.3 to 1.4 times the GDI EMF; a photo adds
+under 1 KB. The drawings other than L-proline are made by a generator with Octet's export's shapes and counts
+(`octet_drawing`): paclitaxel 69 bonds and 20 labels, the peptide 3,500 bonds and 1,500 labels in one path of about
+24,000 points.
+
+Not checked: LibreOffice reads EMF+ records with its own reader, which may not take the winding fill flag. A copy
+pasted into LibreOffice on Windows with the object on may show that. The LibreOffice item (issue 48) owns it.
 
 ## Threads
 

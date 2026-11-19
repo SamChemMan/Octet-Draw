@@ -1,7 +1,8 @@
 # Checks on every push and pull request, and before each release (release.yml): the type check, every check file,
 # the Rust tests, and the npm and cargo audits (REL-7, REL-26). The smoke test starts the real app on Windows, Linux
-# and the Mac and opens a drawing window (src-tauri/src/smoke.rs). The experience check compares this commit with the
-# last release, and nothing users had may be lost or made worse (decision 0024). The checks need the release tags.
+# and the Mac and opens a drawing window (src-tauri/src/smoke.rs); on Windows it then runs the Office object's tests
+# (decision 0023). The experience check compares this commit with the last release, and nothing users had may be lost
+# or made worse (decision 0024). The checks need the release tags.
 name: Check
 
 on:
@@ -115,3 +116,8 @@ jobs:
             macOS) perl -e 'alarm 300; exec @ARGV' "$app" ;;
             *) timeout 300 "$app" ;;
           esac
+      # Octet Drawing objects' own tests on every push (decision 0023, issue 166): the storages, the data objects, the
+      # clipboard's order, and GDI and GDI+ drawing the object's EMF+ picture. --nocapture shows what they print.
+      - name: The Office object's tests (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin octet ole -- --nocapture

@@ -1371,10 +1371,11 @@ pub async fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T +
 }
 
 // File > Update Document1 (Ctrl+S), from objects::ole_update, which checked the sizes: the picture becomes the EMF
-// here, as Copy makes it. The window sends its picture once the drawing is open, so GetData and GetExtent have it,
-// and then its newest drawing after each change, for Close and Quit (Session::message).
+// here, as Copy makes it for the object (with EMF+, which Word draws anti-aliased: issue 166). The window sends its
+// picture once the drawing is open, so GetData and GetExtent have it, and then its newest drawing after each change,
+// for Close and Quit (Session::message).
 pub async fn update(app: AppHandle, id: u64, oct: String, svg: String, cdxml: String, send: Option<bool>, seq: Option<u64>) -> std::result::Result<(), String> {
-    let emf = crate::vector::make_emf(&crate::export::tree(&svg)?, Some(&cdxml), None);
+    let emf = crate::vector::make_office_emf(&crate::export::tree(&svg)?, Some(&cdxml));
     on_main(&app, move || {
         let o = OPEN.with(|m| m.borrow().get(&id).cloned()).filter(|o| !o.closing.get()).ok_or("The document is closed. Save a copy to keep this drawing.")?;
         match o.message(seq, send != Some(false), oct, emf) {
@@ -1633,7 +1634,9 @@ mod tests {
     fn the_object_gives_its_picture_and_storage() {
         ole(|| {
             let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 72 36"><path d="M1 1H71V2H1Z"/></svg>"#;
-            let emf = crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"), None);
+            // The object's picture as Update and Copy make it (issue 166): EMF+ records with the GDI ones.
+            let emf = crate::vector::make_office_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML/>"));
+            assert_eq!(&emf[120..124], b"EMF+");
             let d = windows_core::ComObject::new(Drawing::new());
             d.picture(emf.clone(), true);
             *d.oct.borrow_mut() = OCT.into();
@@ -1648,10 +1651,14 @@ mod tests {
                 assert!(ole.SetExtent(DVASPECT_CONTENT, &SIZE { cx: 0, cy: 1 }).is_err());
                 assert!(ole.SetExtent(DVASPECT_CONTENT, &SIZE { cx: super::super::MAX_EXTENT + 1, cy: 1 }).is_err());
                 let mut m = data.GetData(&formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0)).unwrap();
-                let n = windows::Win32::Graphics::Gdi::GetEnhMetaFileBits(m.u.hEnhMetaFile, None) as usize;
-                assert_eq!(n, emf.len(), "the EMF as Copy makes it, CDXML comment and all");
+                assert!(emf_bytes(&m) == emf, "the EMF as Copy makes it, EMF+ records, CDXML comment and all");
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
+                // A container that asks for a Windows metafile gets the EMF converted by Windows, at its size.
                 let mut m = data.GetData(&formatetc(CF_METAFILEPICT.0, TYMED_MFPICT.0)).unwrap();
+                let pict = GlobalLock(HGLOBAL(m.u.hMetaFilePict.cast())).cast::<METAFILEPICT>();
+                assert!(!pict.is_null());
+                assert_eq!(((*pict).mm, (*pict).xExt, (*pict).yExt), (MM_ANISOTROPIC.0, 2540, 1270));
+                let _ = GlobalUnlock(HGLOBAL(m.u.hMetaFilePict.cast()));
                 windows::Win32::System::Ole::ReleaseStgMedium(&mut m);
                 let mut m = data.GetData(&formatetc(crate::clipboard::win::format(super::super::EMBED_SOURCE) as u16, TYMED_ISTORAGE.0)).unwrap();
                 let stg = m.u.pstg.as_ref().cloned().unwrap();
@@ -1669,6 +1676,100 @@ mod tests {
             let fresh: IDataObject = Drawing::new().into();
             // SAFETY: as above.
             assert_eq!(unsafe { fresh.QueryGetData(&formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0)) }, OLE_E_BLANK);
+        });
+    }
+
+    // The bytes of the EMF a medium holds.
+    fn emf_bytes(m: &STGMEDIUM) -> Vec<u8> {
+        // SAFETY: the medium holds an EMF (TYMED_ENHMF), alive until the caller releases it; the buffer is the size
+        // GDI gives.
+        unsafe {
+            let h = m.u.hEnhMetaFile;
+            let mut out = vec![0; windows::Win32::Graphics::Gdi::GetEnhMetaFileBits(h, None) as usize];
+            windows::Win32::Graphics::Gdi::GetEnhMetaFileBits(h, Some(&mut out));
+            out
+        }
+    }
+
+    // T7 (issue 166): Word's paste, without Word. The copy goes on the clipboard through OleSetClipboard and
+    // OleFlushClipboard. Then Windows' default handler for Octet's class gets a cache for drawing, filled from the
+    // clipboard (IOleCache::Cache for content, InitCache), as OleCreateFromData makes one for a container that draws
+    // the object. The cache holds the copy's EMF, EMF+ records and all, and keeps it through a save to a storage and a
+    // load from it. The test prints the formats the cache holds.
+    #[test]
+    fn ole_cache_keeps_the_plus_picture() {
+        use windows::Win32::System::Com::{IEnumSTATDATA, STATDATA};
+        use windows::Win32::System::Ole::{IOleCache, OleCreateDefaultHandler, OleGetClipboard, ReleaseStgMedium};
+        ole(|| {
+            let emf = crate::vector::make_office_emf(&crate::export::tree(crate::vector::tests::PROLINE).unwrap(), Some("<CDXML/>"));
+            let types = vec![(CF_ENHMETAFILE.0, crate::clipboard::ENHMETAFILE, emf.clone()), (crate::clipboard::win::format("SMILES") as u16, "SMILES", b"CO\0".to_vec())];
+            let data = clip_object(&types, OCT.into());
+            // What a cache holds: each entry's format and medium.
+            fn cached(e: &IEnumSTATDATA) -> Vec<(u16, u32)> {
+                let mut out = Vec::new();
+                for _ in 0..16 {
+                    let mut s = [STATDATA::default()];
+                    let mut n = 0u32;
+                    // SAFETY: one entry into a live array; its sink is released after.
+                    if unsafe { e.Next(&mut s, Some(&mut n)) }.is_err() || n == 0 {
+                        break;
+                    }
+                    out.push((s[0].formatetc.cfFormat, s[0].formatetc.tymed));
+                    // SAFETY: the entry's sink is ours to release, once.
+                    unsafe { ManuallyDrop::drop(&mut s[0].pAdvSink) };
+                }
+                out
+            }
+            // SAFETY: OLE calls on this thread, which started OLE; each medium is released and each object dropped
+            // before OLE ends. The handler's pointer is an IOleObject, as asked.
+            unsafe {
+                let mut on = false;
+                for _ in 0..20 {
+                    if OleSetClipboard(&data).and_then(|_| OleFlushClipboard()).is_ok() {
+                        on = true;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                assert!(on, "the copy goes on the clipboard");
+                let clip = OleGetClipboard().unwrap();
+                let mut m = clip.GetData(&formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0)).unwrap();
+                assert!(emf_bytes(&m) == emf, "the clipboard keeps the EMF+ records");
+                ReleaseStgMedium(&mut m);
+                let handler = |stg: &IStorage, load: bool| -> IOleObject {
+                    let mut raw = std::ptr::null_mut();
+                    OleCreateDefaultHandler(&CLASS, None, &IOleObject::IID, &mut raw).unwrap();
+                    let o = IOleObject::from_raw(raw);
+                    let ps: IPersistStorage = o.cast().unwrap();
+                    if load { ps.Load(stg).unwrap() } else { ps.InitNew(stg).unwrap() }
+                    o
+                };
+                let picture = |o: &IOleObject| {
+                    let d: IDataObject = o.cast().unwrap();
+                    let mut m = d.GetData(&formatetc(CF_ENHMETAFILE.0, TYMED_ENHMF.0)).expect("the cache gives an EMF");
+                    let b = emf_bytes(&m);
+                    ReleaseStgMedium(&mut m);
+                    b
+                };
+                let stg = storage();
+                let o = handler(&stg, false);
+                let cache: IOleCache = o.cast().unwrap();
+                cache.Cache(&formatetc(0, 0), 2).unwrap(); // a cache for drawing (no format given), ADVF_PRIMEFIRST
+                cache.InitCache(&clip).unwrap();
+                let held = cached(&cache.EnumCache().unwrap());
+                eprintln!("The default handler's cache, filled from Octet's copy, holds (format, medium): {held:?}. CF_ENHMETAFILE is {}, CF_METAFILEPICT {}, CF_DIB 8.", CF_ENHMETAFILE.0, CF_METAFILEPICT.0);
+                assert!(picture(&o) == emf, "the cache's picture is the copy's EMF");
+                let ps: IPersistStorage = o.cast().unwrap();
+                ps.Save(&stg, true).unwrap();
+                ps.SaveCompleted(None::<&IStorage>).unwrap();
+                stg.Commit(STGC_DEFAULT.0 as u32).unwrap();
+                drop((ps, cache, o));
+                let again = handler(&stg, true);
+                assert!(picture(&again) == emf, "the picture after a save and a load");
+                drop(again);
+                drop(clip);
+                let _ = OleSetClipboard(None);
+            }
         });
     }
 
