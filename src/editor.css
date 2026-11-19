@@ -5564,6 +5564,105 @@ line.attach-hit[aria-checked="true"] {
 .pick-swatch.none {
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%);
 }
+/* A colour as a swatch in a colour menu's grid and in a colour row (ColourPick): the swatch (.swatch) in a round cell
+   the size of a small control, so the grid is SWATCHES across a list menu and the pointer has room. The colour chosen
+   has the swatch's ring, not a filled cell. None is an empty swatch with a stroke; the rest of a group is three dots. */
+.menu-group.swatches {
+  grid-template-columns: repeat(auto-fill, var(--size-control-sm));
+  gap: 0;
+}
+.variant.swatch-cell,
+.strip.list .variant.swatch-cell {
+  display: grid;
+  place-items: center;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  padding: 0;
+  border-radius: var(--radius-pill);
+}
+.strip.list .variant.swatch-cell[aria-checked="true"],
+.variant.swatch-cell[aria-pressed="true"] {
+  background: transparent;
+}
+.swatch-cell > .swatch {
+  box-sizing: border-box;
+}
+.swatch-cell:is([aria-checked="true"], [aria-pressed="true"]) > .swatch {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--brand-bright);
+}
+.swatch-cell:active > .swatch {
+  transform: scale(var(--press-small));
+}
+.swatch-cell > .swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 45% 55%, transparent 55%), var(--canvas);
+}
+.swatch-cell > .swatch.more {
+  display: grid;
+  place-items: center;
+  border-color: var(--hairline);
+  color: var(--ink-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .variant.swatch-cell:hover {
+    background: var(--surface-sunken);
+  }
+}
+/* A colour row in the Actions panel: its name, the pinned colours, and the button that opens every colour. */
+.colour-rows {
+  display: grid;
+  gap: 2px;
+}
+.colour-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--size-row);
+  padding-left: var(--space-2);
+}
+.colour-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.colour-pins {
+  display: flex;
+}
+.chip.colour-more {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--space-1);
+}
+/* The picker's own fields: a colour's name over it, and Save to colours or Remove under it, the picker's width. */
+.picker-name {
+  width: 100%;
+  height: var(--size-control);
+  box-sizing: border-box;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+}
+.picker-name:focus-visible {
+  border-color: var(--brand-bright);
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.dialog-button.picker-save {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  margin: var(--space-1) 0;
+}
 /* Printing: only the page Print laid out, at true size. */
 .print-root {
   display: none;

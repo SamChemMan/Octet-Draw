@@ -35,6 +35,13 @@ for (const [s, want] of Object.entries({ Morph: "N1CCOCC1", TBDPS: "[Si](c1ccccc
   else assert.ok(builtInNickname(s), s);
 // Labels Octet reads its own way are read as before (labels.check.ts has the rest).
 for (const [s, want] of Object.entries({ OMe: "OC", Ph: "c1ccccc1", Ns: "S(=O)(=O)c1ccc([N+](=O)[O-])cc1", CO2Et: "C(=O)OCC" })) assert.equal(capped(labelSmiles(s)!), capped(want), s);
+// Inside a longer label, a word Octet reads no group in is the nickname it spells (NHPbf, N(Pbf)2, CH2ODMTr), after
+// Octet's own reading and after a whole-label nickname (BzlO is benzyloxy, not Bzl read as a word). A word Octet splits
+// otherwise stays as it was (CH2Morph is Mo and rph: nothing read).
+for (const [s, want] of Object.entries({ NHPbf: `N${builtInNickname("Pbf")!.smiles}`, "N(Pbf)2": `N(${builtInNickname("Pbf")!.smiles})${builtInNickname("Pbf")!.smiles}`,
+  CH2ODMTr: `CO${builtInNickname("DMTr")!.smiles}`, BzlO: "OCc1ccccc1", NHSEM: `N${builtInNickname("SEM")!.smiles}` }))
+  assert.equal(capped(labelSmiles(s)!), capped(want), s);
+assert.equal(labelSmiles("CH2Morph"), undefined);
 // Elements stay elements: Ac typed on an atom is actinium, as before.
 assert.ok(!builtInNickname("Ac") && !builtInNickname("Np") && !builtInNickname("Pr"));
 
@@ -91,6 +98,8 @@ assert.equal(chem.analyse(typed)?.[0]?.formula, "C6H12O2");
 setOwnNicknames([]);
 assert.equal(labelSmiles("OPv"), undefined);
 assert.notEqual(chem.analyse(typed)?.[0]?.formula, "C6H12O2");
+setOwnNicknames([{ label: "Zq", smiles: "C(C)=O" }]);
+assert.equal(capped(labelSmiles("NHZq")!), capped("NC(C)=O"), "a nickname of the user's own inside a longer label");
 setOwnNicknames([{ label: "Ph", smiles: "C1CCCCC1" }]);
 assert.equal(capped(labelSmiles("Ph")!), capped("C1CCCCC1"));
 setOwnNicknames([]);

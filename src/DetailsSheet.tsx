@@ -11,6 +11,7 @@ import { FontPick, SizeButton } from "./Actions";
 import { ColourPick } from "./ColourPicker";
 import { COLOURS, fontStack } from "./docstyle";
 import type { Swatch } from "./settings";
+import type { PinKind } from "./colours";
 import { formulaRuns } from "./labels";
 import { common, normalise, plainOf, styleRange, type RunStyle, type TextRun } from "./richtext";
 import type { Field } from "./experiment";
@@ -21,7 +22,7 @@ type Props = {
   fields: SheetField[]; focus?: Field;
   font: string; size: number; titleSize: number; // the page's text font and size (pt), and the title's size
   fonts: string[]; sizes: number[];
-  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void };
+  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void; pins?: Partial<Record<PinKind, string[]>>; onPins?: (pins: Partial<Record<PinKind, string[]>>) => void };
   onCharMap: () => void;
   onSave: (values: Partial<Record<Field, TextRun[]>>) => void; onClose: () => void;
 };

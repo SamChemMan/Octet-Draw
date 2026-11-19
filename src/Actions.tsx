@@ -25,7 +25,7 @@ import { GENERICS, massText, queryLabel } from "./query";
 import { ContextMenu, Menu, Pick, type MenuItem } from "./Menu";
 import { setItems } from "./TemplateLibrary";
 import { ColourPick, colourItems } from "./ColourPicker";
-import { colourOptions, PICK } from "./colours";
+import { colourOptions, PICK, type PinKind } from "./colours";
 import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
 import { NumberField } from "./Fields";
@@ -143,7 +143,7 @@ type Props = {
   layout: Record<string, { order: string[]; rows: number }>;
   onLayout: (kind: string, layout: { order: string[]; rows: number }) => void;
   colour?: { value: string; tints?: boolean }; // the selection's colour, shown in the one colour menu every selection gets
-  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void }; // the user's own colours, the drawing's, after Octet's
+  colours: { own: Swatch[]; drawing: Swatch[]; onOwn: (own: Swatch[]) => void; pins?: Partial<Record<PinKind, string[]>>; onPins?: (pins: Partial<Record<PinKind, string[]>>) => void }; // the user's own colours, the drawing's, after Octet's, and the pinned ones
   grouping?: { grouped: boolean; integral: boolean; group: boolean }; // a group touched (Ungroup), two or more things that can be grouped (Group)
   menus?: boolean; // Settings > Actions panel: each set of small actions as a titled row that opens its menu
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
@@ -1267,14 +1267,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         {/* One colour menu for every kind of selection (a highlight shape takes a pale fill, anything else an ink colour),
             and Highlight (the selected atoms and the bonds between them) and Ring fill (each ring on its own) for
             structures. A colour changed in the picker is one step to undo (drag). */}
-        <div className="picks" role="group" aria-label="Colour">
-          <ColourPick label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
+        <div className="colour-rows" role="group" aria-label="Colour">
+          <ColourPick strip label="Colour" value={colour.value} presets={colour.tints ? TINTS : COLOURS} {...colours} onPick={(hex, live) => run(`colour.${hex}${live ? ".drag" : ""}`)} />
           {/* A whole energy diagram with two paths or more: a colour for each path, under its own name. */}
           {chart?.kind === "energy" && chart.whole && chart.paths.length > 1 && chart.paths.map((p, i) => (
-            <ColourPick key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
+            <ColourPick strip key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
           ))}
-          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
-          {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick strip label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick strip label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
         </div>
         </Fold>
       )}
@@ -1395,9 +1395,9 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
     const p = picks.find((q) => `pick:${q.command}` === key);
     if (p) return { label: p.label, groups: [choices(p, context).map((o) => ({ key: `${p.command}.${o.id}`, name: o.name, icon: o.glyph, checked: p.value === o.id }))] };
     if (key === "set:align") return { label: "Alignment", groups: [labelAligns(18).map(([id, name, icon]) => ({ key: `caption.align.${id}`, name, icon, checked: aligned === id }))] };
-    // The colours as the panel's colour menu lists them. Add colour… opens the user's colours in Settings, as there is no
+    // The colours as the panel's colour menu lists them. Custom colour… opens the user's colours in Settings, as there is no
     // button here for the picker to open by.
-    if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, [...colours.own, ...colours.drawing], colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
+    if (key === "set:colour") return { label: "Colour", groups: colourItems(colourOptions(colour?.tints ? TINTS : COLOURS, colours.own, colours.drawing, colour?.value), (o) => (o.hex ? `colour.${o.hex}` : o.key === PICK ? "colour_pick" : "colours_add"), colour?.value) };
     const list = keep(sets.find(([s]) => `set:${s}` === key)?.[1] ?? []);
     return { label: titleOf(key.slice(4) as SetId, context, list), groups: byKind(key.slice(4) as SetId, list).map((g) => g.map(item)) };
   };
