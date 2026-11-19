@@ -133,6 +133,11 @@ export function measureText(kind: MeasureKind, v: number | undefined): string {
   return kind === "distance" ? `${sign}${plain} Å` : `${sign}${plain}°`;
 }
 // What a screen reader says for it: "Distance 2.54 Å".
+// The Measure tool's atoms when its drag passes an atom (on; undefined: none). Each atom passed joins, up to four; back
+// on the one before the last takes the last off; an atom passed already is not taken again. The same list when nothing
+// changes.
+export const passAtom = (list: number[], on: number | undefined): number[] =>
+  on === undefined ? list : list.length > 1 && on === list[list.length - 2] ? list.slice(0, -1) : !list.includes(on) && list.length < 4 ? [...list, on] : list;
 export const measureName = (c: Caption) => (c.measure ? `${MEASURE_NAMES[kindOf(c.measure.atoms.length) ?? "distance"]} ${c.text}` : c.text);
 
 // The atoms in measuring order: as given, unless another order of them is a chain of bonds and the given one is not

@@ -32,7 +32,7 @@ import {
 import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
-import { arcPoints, kindOf as measureKind, measureInk, measureText, measureValue, settleMeasures, structuresOf } from "./measurement";
+import { arcPoints, kindOf as measureKind, measureInk, measureText, measureValue, passAtom, settleMeasures, structuresOf } from "./measurement";
 import { model3mf } from "./model3mf";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { sameSet, store, type Store } from "./store";
@@ -5716,12 +5716,10 @@ export default function Editor() {
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
       case "measure": {
-        // Each atom passed joins, up to four; back on the one before the last takes the last off. An atom passed already
-        // is not taken again.
+        // The atoms passed, in order (measurement.ts passAtom).
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
-        const on = hitAt(p).atom, list = drag.atoms;
-        const atoms = on === undefined ? list : list.length > 1 && on === list[list.length - 2] ? list.slice(0, -1) : !list.includes(on) && list.length < 4 ? [...list, on] : list;
+        const list = drag.atoms, atoms = passAtom(list, hitAt(p).atom);
         if (atoms === list) return setDrag({ ...drag, to: p });
         // The value shown is the one the measurement will have: from the structures cleaned up in 3D where they are flat.
         const key = atoms.length > 1 ? structureKeys(atoms) : "";

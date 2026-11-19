@@ -190,7 +190,7 @@ Each is checked for a measurement:
 | Delete, Eraser, MCP delete | removes it; an atom deleted removes it |
 | Move label: drag, arrow keys, MCP move | offset kept |
 | Align, Distribute | not a thing of its own, as a compound number |
-| Turn, Rotate…, Flip, Rotate 180°, Scale, Structure Perspective (3D turn) | follows; stays upright; values hold (a flip changes a dihedral's sign) |
+| Turn, Rotate…, Flip, Rotate 180°, Scale, Structure Perspective (3D turn) | follows; stays upright; values hold (Mirror changes a dihedral's sign) |
 | 3D Clean Up, Clean Up Structure, Flatten, Clean Up Reaction | follows the new geometry |
 | Group, Ungroup, integral groups | with its structure |
 | Bring to Front, Send to Back | as text |
@@ -240,7 +240,7 @@ A drawing saved by 1.1.2 after it opened the file keeps the value as plain text.
 | S9 | Delete one measured atom, then ⌘Z | the measurement goes in the same step; ⌘Z brings both |
 | S10 | Undo and redo 20 steps of add, move label, colour, turn, delete atom | each step gives back the exact text, place and colour |
 | S11 | Turn 37°, Structure Perspective turn, Rotate 180° | values the same to 0.001; label upright, same place relative to the atoms |
-| S12 | Flip | distance and angle the same; dihedral sign changes |
+| S12 | Flip; Mirror | Flip (a 180° turn in 3D) keeps every value; Mirror keeps distance and angle and changes a dihedral's sign |
 | S13 | Scale 50%; document bond length 30 pt to 18 pt | values the same |
 | S14 | Drag one measured atom | value, lines and label follow every frame |
 | S15 | Two atoms at one point; angle with a zero leg; dihedral across C≡C | `0.00 Å`; `–`; `–`. Never NaN or Infinity |
@@ -341,3 +341,14 @@ What the build changed in this plan, and why:
 - The ChemDraw 22.2 round trip by AppleScript did not run on 17 November: ChemDraw 22.2 (started by another session at
   10:29) opened no file sent to it, not even a plain Octet CDXML with no measurement, and an AppleScript open timed
   out. The same check with ChemDraw's save stood in for by taking out Octet's data passes (measurement.check.ts).
+
+## Finishing for 1.1.3 (19 November 2026)
+
+- Rebased on release-1.2-mcp bd7c684 (the 1.2 bug sweep, the trim and the reagent table).
+- Charges typed as text (issue 164) count a "+" or "−" by a structure as its charge. A measurement whose value cannot
+  be worked out reads "–", so `symbolOwners` (mixtures.ts) leaves measurements out, and a measurement is not a
+  stand-in caption (Make element).
+- S12 was written for a mirror. Octet's Flip is a 180° turn in 3D (stereocentres keep their configuration), so a
+  dihedral keeps its sign; Mirror changes it.
+- The Measure tool's rule for the atoms a drag passes is `passAtom` (measurement.ts), so the stress check runs S1 to S4.
+- The stress list is `src/measurements-stress.check.ts`, with the cases other checks hold named at its top.
