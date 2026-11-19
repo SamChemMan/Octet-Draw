@@ -1180,7 +1180,7 @@ await check("N39", "Modified nucleotides (2'-OMe, 2'-F, MOE, LNA, 5-methyl-C) an
 
 // The field's worker (namepreview.ts) with a stand-in worker, as the field calls it: the preview timer's
 // seqLayout(…, true) and Return's seqLayout(…). One job runs at a time.
-await check("N40", "The Sequence field's worker: a preview timer that fires after Return, while a slow preview still builds, never drops or holds back Return; Return during its own preview builds once; a stale preview is dropped; Escape still cancels", async () => {
+await check("N40", "The Sequence field's worker: a preview timer that fires after Return, while a slow preview still builds, never drops or holds back Return; Return during its own preview builds once; a stale preview is dropped; Return cancelled (a space typed after it) leaves a preview sharing its build; a request sharing a build drops an older preview waiting for another sequence; Escape still cancels", async () => {
   const { seqLayout, quickLayout, fullLayout } = await import("./namepreview.ts");
   type Ask = { build?: string; smiles?: string; pieces?: string[] };
   const sent: { ask: Ask; w: Stand }[] = [];
@@ -1234,12 +1234,59 @@ await check("N40", "The Sequence field's worker: a preview timer that fires afte
     assert.equal(sent.at(-1)!.ask.build, "peptide: WYA");
     answer(built("WYA"));
     assert.deepEqual(await fresh.result, built("WYA"));
-    // Escape: Return waiting, with the preview timer's request on it, is dropped and never built; Return that has
-    // started stops its worker.
-    const n = sent.length, other = quickLayout("CCCCCCCCC"), r4 = enter("peptide: EFG"), on4 = preview("peptide: EFG");
+    // A space typed after Return cancels Return (the field's text is no longer the text Return was for) while the
+    // preview timer's request shares Return's build: the preview still gets it, and the worker goes on.
+    const ra = enter("peptide: STV"), pa = preview("peptide: STV"), wasA = stopped, nA = sent.length;
+    assert.equal(sent.at(-1)!.ask.build, "peptide: STV", "Return's build has started");
+    ra.cancel();
+    assert.equal(await ra.result, undefined, "Return is cancelled");
+    assert.equal(stopped, wasA, "the worker goes on for the preview");
+    answer(built("STV"));
+    assert.deepEqual(await pa.result, built("STV"), "the preview shows it");
+    assert.equal(sent.length, nA, "built once");
+    // The same with Return's build waiting (Return took the waiting preview as its own job): the preview keeps it, and
+    // it waits as a preview again, so a newer Return goes before it.
+    const busyB = quickLayout("CCCC(C)C"), pb = preview("peptide: RTW"), rb = enter("peptide: RTW");
+    rb.cancel();
+    assert.equal(await rb.result, undefined, "Return is cancelled");
+    const rc = enter("peptide: MMM");
+    answer("isohexane");
+    assert.equal(await busyB, "isohexane");
+    assert.equal(sent.at(-1)!.ask.build, "peptide: MMM", "a newer Return goes first");
+    answer(built("MMM"));
+    assert.deepEqual(await rc.result, built("MMM"));
+    assert.equal(sent.at(-1)!.ask.build, "peptide: RTW", "then the preview Return left");
+    answer(built("RTW"));
+    assert.deepEqual(await pb.result, built("RTW"), "the preview shows it");
+    // Only the newest preview waits: a newer preview waiting when Return is cancelled goes ahead of the one Return left.
+    const busyC = quickLayout("CCCCC(C)C"), pc = preview("peptide: YYY"), rcc = enter("peptide: YYY"), pd = preview("peptide: YYYW");
+    rcc.cancel();
+    assert.equal(await pc.result, undefined, "the older preview goes");
+    answer("isoheptane");
+    assert.equal(await busyC, "isoheptane");
+    assert.equal(sent.at(-1)!.ask.build, "peptide: YYYW");
+    answer(built("YYYW"));
+    assert.deepEqual(await pd.result, built("YYYW"));
+    // A request that shares a build on its way drops an older preview waiting for another sequence: the field no
+    // longer holds that sequence, so it would be built later for nothing. A preview sharing Return's build:
+    const rd = enter("peptide: DDK"), oldD = preview("peptide: DDKA"), backD = preview("peptide: DDK"), nD = sent.length;
+    answer(built("DDK"));
+    assert.equal(sent.length, nD, "the older preview is not built");
+    assert.equal(await oldD.result, undefined, "it is dropped");
+    assert.deepEqual(await backD.result, built("DDK"));
+    assert.deepEqual(await rd.result, built("DDK"));
+    // And Return sharing a preview's build:
+    const pe = preview("peptide: NNP"), oldE = preview("peptide: NNPQ"), re = enter("peptide: NNP"), nE = sent.length;
+    answer(built("NNP"));
+    assert.equal(sent.length, nE, "the older preview is not built");
+    assert.equal(await oldE.result, undefined, "it is dropped");
+    assert.deepEqual(await re.result, built("NNP"));
+    assert.deepEqual(await pe.result, built("NNP"));
+    // Escape: Return waiting that nobody else wants is dropped and never built; Return that has started stops its
+    // worker.
+    const n = sent.length, other = quickLayout("CCCCCCCCC"), r4 = enter("peptide: EFG");
     r4.cancel();
     assert.equal(await r4.result, undefined, "Escape drops Return");
-    assert.equal(await on4.result, undefined, "and the preview on it");
     answer("nonane");
     assert.equal(await other, "nonane");
     assert.equal(sent.length, n + 1, "nothing more is built");
