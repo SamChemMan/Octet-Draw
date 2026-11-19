@@ -12,12 +12,16 @@ const VALENCE: Record<string, number[]> = {
   B: [3], C: [4], N: [3], O: [2], F: [1], Si: [4], P: [5, 3], S: [6, 4, 2], Cl: [1], Br: [1], I: [1], Se: [2], Ge: [4], Sn: [4],
   Li: [1], Na: [1], K: [1], Mg: [2], Zn: [2], Al: [3], Hg: [2],
 };
+// Groups named in capitals, longest first.
+// Made on first use: labels.ts and this file import each other.
+let caps: string[] | undefined;
+const capsNames = () => (caps ??= Object.keys(GROUPS).filter((k) => /^[A-Z]{2,}$/.test(k)).sort((a, b) => b.length - a.length));
 // Groups a formula writes that have no single valence reading.
 const SPECIAL: Record<string, string> = { NO2: "[N+](=O)[O-]", N3: "N=[N+]=[N-]", O2N: "[N+](=O)[O-]" };
 // Groups written as formulas: phenyl, ethyl and cyclohexyl. C3H7 and C4H9 have more than one structure and are not read.
 const WRITTEN: [RegExp, string][] = [[/C6H5(?!\d)/g, "Ph"], [/C2H5(?!\d)/g, "Et"], [/C6H11(?!\d)/g, "Cy"]];
 
-type Token = { t: "atom"; el: string; h: number } | { t: "group"; smiles: string } | { t: "bracket"; inner: Token[]; text: string } | { t: "bond"; order: 1 | 2 | 3 } | { t: "branch" };
+type Token = { t: "atom"; el: string; h: number; sub?: string } | { t: "group"; smiles: string } | { t: "bracket"; inner: Token[]; text: string } | { t: "bond"; order: 1 | 2 | 3 } | { t: "branch" };
 type Node = { el?: string; h: number; smiles?: string; val: number; deg: number };
 type Bond = { a: number; b: number; order: number; fixed: boolean };
 type State = { nodes: Node[]; bonds: Bond[]; cur: number; pending: number[]; next?: 1 | 2 | 3 };
@@ -52,7 +56,7 @@ export function condensedRoot(text: string, last = false): { smiles: string; h: 
   // written always has one, C=O, N=O, P=O, S=O, C=S and P=S, and C≡N, C≡C or C=N along the chain, and never O–O.
   // Others are read left to right instead (labelSmiles).
   const el = (i: number) => g!.nodes[i].el ?? "", pair = (a: number, b: number) => el(a) + el(b);
-  const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
+  const fine = (b: Bond) => b.order === 1 ? pair(b.a, b.b) !== "OO" : b.fixed ? /^([CNPS]O|[CP]S|CN)$/.test(pair(b.a, b.b)) : /^[CN][CN]$/.test(pair(b.a, b.b));
   // Read from its last atom, a label keeps the hydrogens it writes, so a bond along the chain takes what is left
   // (CH2CH is vinyl, NHN diazenyl, PhCC phenylethynyl, NCCH2CH2 cyanoethyl).
   if (!g?.bonds.every(fine)) return undefined;
@@ -89,6 +93,12 @@ function tokenise(text: string, depth = 0, last = false): Token[] | undefined {
         for (let k = 0; k < n; k++) out.push({ t: "branch" }, structuredClone(inner[0]));
         continue;
       }
+      // (NH) and (NR) with R a group, as chemists write an imine on an atom (C(NH)NH2, C(NPh)CF3): a double-bonded N.
+      const imine = /^N(?:H|([A-Za-z][A-Za-z0-9-]*))$/.exec(body);
+      if (imine && n === 1 && (!imine[1] || GROUPS[imine[1]])) {
+        out.push({ t: "branch" }, { t: "atom", el: "N", h: imine[1] ? 0 : 1, ...(imine[1] ? { sub: GROUPS[imine[1]] } : {}) });
+        continue;
+      }
       const inner = SPECIAL[body] ? [{ t: "group", smiles: SPECIAL[body] } as Token] : tokenise(body, depth + 1);
       if (!inner?.length) return undefined;
       push({ t: "bracket", inner, text: body }, n);
@@ -97,8 +107,10 @@ function tokenise(text: string, depth = 0, last = false): Token[] | undefined {
     if (c === "-" || c === "=" || c === "≡") { out.push({ t: "bond", order: c === "-" ? 1 : c === "=" ? 2 : 3 }); i++; continue; }
     const group = (last ? (i ? ["N3"] : ["NO2", "N3", "O2N"]) : ["NO2", "N3"]).find((k) => text.startsWith(k, i) && !/^[a-z0-9]/.test(text[i + k.length] ?? ""));
     if (group) { i += group.length; out.push({ t: "group", smiles: SPECIAL[group] }); continue; }
-    // One unit of an atom label: an element or group and its count.
-    const [u] = units(text.slice(i).match(/^[a-z]?[A-Z][a-z]*\d*/)?.[0] ?? "");
+    // One unit of an atom label: an element or group and its count. A group named in capitals (TMS, TBS, TIPS) is
+    // one unit, not its letters.
+    const named = capsNames().find((k) => text.startsWith(k, i) && !/[a-z]/.test(text[i + k.length] ?? ""));
+    const [u] = units(named ? text.slice(i, i + named.length) + (/^\d+/.exec(text.slice(i + named.length))?.[0] ?? "") : text.slice(i).match(/^[a-z]?[A-Z][a-z]*\d*/)?.[0] ?? "");
     if (!u) return undefined;
     i += u.text.length + (u.count?.length ?? 0);
     const n = Number(u.count ?? 1);
@@ -155,9 +167,12 @@ function assemble(tokens: Token[], open: 0 | 1 | 2): State | undefined {
       const a = tokens[k + 1];
       if (st.cur < 0 || a?.t !== "atom") return;
       for (const val of VALENCE[a.el]) {
-        if (val - a.h !== 2) continue;
-        const n = copy(st), i = n.nodes.push({ el: a.el, h: a.h, val: 2, deg: 0 }) - 1;
-        if (bond(n, n.cur, i, 2, true)) yield* readings(n, k + 2);
+        const own = a.sub ? 1 : 0;
+        if (val - a.h - own !== 2) continue;
+        const n = copy(st), i = n.nodes.push({ el: a.el, h: a.h, val: 2 + own, deg: 0 }) - 1;
+        let ok = bond(n, n.cur, i, 2, true);
+        if (a.sub) { const g = n.nodes.push({ smiles: a.sub, h: 0, val: 1, deg: 0 }) - 1; ok = bond(n, i, g, 1, true) && ok; }
+        if (ok) yield* readings(n, k + 2);
       }
     } else if (t.t === "group") {
       const n = copy(st), i = n.nodes.push({ smiles: t.smiles, h: 0, val: 1, deg: 0 }) - 1;

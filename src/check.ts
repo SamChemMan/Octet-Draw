@@ -1,7 +1,7 @@
 // Checks a drawing the way a chemist would at a glance: ChemDraw 26.1's chemical warnings (Check Structure and the
 // marks on the drawing), and messy geometry. Messages follow the brief's style: what is wrong, the rule, then what to do.
 import { bondedTo, bondOrders, fragments, freePairs, LARGE, mayBeChairBond, neighbourSlots, neighbours, perspectiveBonds, pos, WIDE, type P } from "./edit.ts";
-import { chemicalText, endHydrogens, fromEnd, labelSmiles, units } from "./labels.ts";
+import { chemicalText, endHydrogens, fromEnd, labelSmiles, turnedLabel, units } from "./labels.ts";
 import { onNicknamesChange } from "./nicknames.ts";
 import { HBOND, isBracket, orderOf, turnPoint, type Bond, type Mol } from "./render.ts";
 import { bracketOf, bracketPath, routeOf } from "./render.ts";
@@ -113,6 +113,9 @@ function firstAtom(text: string) {
 // The hydrogens a label writes on its attachment atom: CH3 3, NHBoc 1, H3C 3, OMe 0. Undefined when the attachment
 // atom is counted (C6H4): its hydrogens are shared out, so Octet cannot tell.
 function labelHydrogens(text: string): number | undefined {
+  // A label written from the left that is read as another (HOHNOC as CONHOH): that label's.
+  const turned = turnedLabel(text);
+  if (turned) return labelHydrogens(turned);
   const end = endHydrogens(text);
   if (end !== undefined) return end;
   const us = units(text);
