@@ -1737,8 +1737,11 @@ export default function Editor() {
     return () => void off.then((f) => f());
   }, []);
   // With unsaved changes, the Dock's Quit, a logout or a restart waits and sends Quit here (src-tauri/src/quit.rs).
-  // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first.
-  const unsaved = mainDirty || !!templateEdit;
+  // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first. So does a note
+  // being typed, which is in the drawing only once its field is left: Quit (Octet's own, too) asks this window, whose
+  // Quit puts the note in the drawing first (afterNote) and then asks to save it.
+  const [noteTyped, setNoteTyped] = useState(false);
+  const unsaved = mainDirty || !!templateEdit || noteTyped;
   useEffect(() => { if (TAURI) invoke("set_edited", { edited: unsaved }).catch(() => {}); }, [unsaved]);
   // Home's window is on the list while it holds a drawing, so the drawing is not opened again elsewhere.
   const listed = DRAW_WINDOW || (homeWindow && holds);
@@ -9322,7 +9325,8 @@ export default function Editor() {
           if (!menuRuns(cmd, over)) return;
           e.preventDefault();
           pageRan.current = { id: cmd, at: performance.now() };
-          return commands.current[cmd]?.();
+          // A note being typed goes into the drawing first, as from the menu (Ctrl+S, Ctrl+W).
+          return afterNote(() => commands.current[cmd]?.());
         }
       }
       if (typing() || e.defaultPrevented) return; // typing in a label or caption box, or a box already used the key
@@ -11129,7 +11133,7 @@ export default function Editor() {
           onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
         />
       )}</Live>}</Exit>
-      <Exit>{noteView && <Notes fields={noteView.fields} rows={noteView.rows} onNote={notePanel.note} onRow={notePanel.row} onClose={notePanel.close} focus={noteFocus} />}</Exit>
+      <Exit>{noteView && <Notes fields={noteView.fields} rows={noteView.rows} onNote={notePanel.note} onRow={notePanel.row} onClose={notePanel.close} onTyped={setNoteTyped} focus={noteFocus} />}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();
         return (

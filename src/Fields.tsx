@@ -54,13 +54,13 @@ export function NumberField({ value, unit, label, onChange, min = 0.001, max = 1
 // Escape leaves the field; the field grows with its text up to that many lines, then scrolls. max: its length. A field
 // removed while it has the focus (Escape closes Settings or clears its search, the Notes panel closes, or what a note
 // was for is no longer selected) gets no blur, so it uses what was typed then. placeholder: faint text in the empty
-// field ("Mixed").
-export function TextField({ value, label, onChange, lines, max = lines ? 10_000 : 200, placeholder }: { value: string; label: string; onChange: (text: string) => void; lines?: number; max?: number; placeholder?: string }) {
+// field ("Mixed"). onTyped: true at the first key typed, and false once what was typed is used (or was not changed).
+export function TextField({ value, label, onChange, onTyped, lines, max = lines ? 10_000 : 200, placeholder }: { value: string; label: string; onChange: (text: string) => void; onTyped?: (typed: boolean) => void; lines?: number; max?: number; placeholder?: string }) {
   const [text, setText] = useState(value);
-  const focused = useRef(false), typed = useRef(false), area = useRef<HTMLTextAreaElement>(null), latest = useRef({ text, onChange });
-  latest.current = { text, onChange };
+  const focused = useRef(false), typed = useRef(false), area = useRef<HTMLTextAreaElement>(null), latest = useRef({ text, onChange, onTyped });
+  latest.current = { text, onChange, onTyped };
   useEffect(() => { if (!focused.current) setText(value); }, [value]);
-  useEffect(() => () => { const l = latest.current; if (typed.current) l.onChange(l.text); }, []);
+  useEffect(() => () => { const l = latest.current; if (typed.current) { l.onChange(l.text); l.onTyped?.(false); } }, []);
   // As many rows as the text takes, up to lines.
   useLayoutEffect(() => {
     const el = area.current;
@@ -72,8 +72,8 @@ export function TextField({ value, label, onChange, lines, max = lines ? 10_000 
   const own = {
     "aria-label": label, value: text, maxLength: max, spellCheck: false, placeholder,
     onFocus: () => { focused.current = true; },
-    onBlur: () => { focused.current = false; if (typed.current) { typed.current = false; if (text !== value) onChange(text); } else if (text !== value) setText(value); },
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { typed.current = true; setText(e.target.value); },
+    onBlur: () => { focused.current = false; if (typed.current) { typed.current = false; onTyped?.(false); if (text !== value) onChange(text); } else if (text !== value) setText(value); },
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { if (!typed.current) onTyped?.(true); typed.current = true; setText(e.target.value); },
   };
   return (
     <span className={lines ? "unit-field text lines" : "unit-field text"}>

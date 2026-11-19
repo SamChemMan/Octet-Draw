@@ -24,10 +24,11 @@ type Props = {
   fields: NoteField[]; rows: NoteRow[];
   onNote: (targets: Target[], keyword: string, nth: number, text: string) => void;
   onRow: (id: number) => void; onClose: () => void;
+  onTyped: (typed: boolean) => void; // a field holds text typed and not yet used
   focus?: { key: string; n: number }; // the field Annotate opened, each time it is chosen
 };
 
-export const Notes = memo(function Notes({ fields, rows, onNote, onRow, onClose, focus }: Props) {
+export const Notes = memo(function Notes({ fields, rows, onNote, onRow, onClose, onTyped, focus }: Props) {
   const move = useMovable("notes"), leaving = useLeaving(), panel = useRef<HTMLElement>(null);
   // Above the Actions panel (or its pill), as tall as the room there; beside it, at the bottom, when the Actions panel
   // leaves too little room above it. The panel and the pill take turns: when the one watched goes, the other is found.
@@ -71,7 +72,7 @@ export const Notes = memo(function Notes({ fields, rows, onNote, onRow, onClose,
             <span className="note-name">{f.label}</span>
             {/* A field is made again for other targets, so what was typed goes on the ones it was opened for. */}
             <TextField key={f.targets.join(" ")} lines={12} label={f.name}
-              value={f.value} placeholder={f.mixed ? "Mixed" : undefined} onChange={(text) => onNote(f.targets, f.keyword, f.nth, text)} />
+              value={f.value} placeholder={f.mixed ? "Mixed" : undefined} onChange={(text) => onNote(f.targets, f.keyword, f.nth, text)} onTyped={onTyped} />
           </label>
         ))}
         {rows.length > 0 && (

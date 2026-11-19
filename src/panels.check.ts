@@ -29,6 +29,19 @@ assert.match(read("./Properties.tsx"), /<PanelControls close=\{onClose\} \/>/);
   // A note being typed is used before a menu command (Save, Quit…) and before the window closes.
   assert.match(editor, /if \(\["undo", "redo", "select_all", "cut", "copy", "paste"\]\.includes\(e\.payload\)\) go\(\); else afterNote\(go\);/);
   assert.match(editor, /onCloseRequested\(\(e\) => \{ e\.preventDefault\(\); afterNote\(\(\) => commands\.current\.close\(\)\); \}\)/);
+  // Off the Mac the page runs the menu's Ctrl keys itself (Ctrl+S, Ctrl+W): the note goes into the drawing first there too.
+  assert.match(editor, /pageRan\.current = \{ id: cmd, at: performance\.now\(\) \};\n\s*\/\/[^\n]*\n\s*return afterNote\(\(\) => commands\.current\[cmd\]\?\.\(\)\);/);
+  assert.doesNotMatch(editor, /return commands\.current\[cmd\]\?\.\(\);/, "no menu command from a key skips afterNote");
+  // Quit (Octet's own, the Dock's, a logout) asks only the windows that said they are edited (quit.rs): a note being
+  // typed makes its window edited from the first key until the field is left or goes.
+  const fields = read("./Fields.tsx");
+  assert.match(editor, /const unsaved = mainDirty \|\| !!templateEdit \|\| noteTyped;/);
+  assert.match(editor, /useEffect\(\(\) => \{ if \(TAURI\) invoke\("set_edited", \{ edited: unsaved \}\)/);
+  assert.match(editor, /<Notes [^>]*onTyped=\{setNoteTyped\}/);
+  assert.match(notes, /onChange=\{\(text\) => onNote\(f\.targets, f\.keyword, f\.nth, text\)\} onTyped=\{onTyped\} \/>/);
+  assert.match(fields, /onChange: \([^)]*\) => \{ if \(!typed\.current\) onTyped\?\.\(true\); typed\.current = true;/, "the first key typed");
+  assert.match(fields, /onBlur: \(\) => \{ focused\.current = false; if \(typed\.current\) \{ typed\.current = false; onTyped\?\.\(false\);/, "the field left");
+  assert.match(fields, /if \(typed\.current\) \{ l\.onChange\(l\.text\); l\.onTyped\?\.\(false\); \}/, "the field gone while it has the focus");
   assert.match(actions, /if \(context\.annotate\) items\.push\(small\(it\(<NotePencil size=\{18\} \/>, "Annotate…", "annotate"\)\)\)/);
   assert.match(editor, /notes = !office && c\.kind !== "grid" && \(c\.kind === "empty" \|\| c\.kind === "drawing" \|\| noteTargets\(doc, selection, picked\)\.length > 0\)/, "Annotate… in every context but a reagent table's");
 }

@@ -150,7 +150,7 @@ it("S6 type in one arrow's note, then pick another arrow: the text goes on the f
   const notes = src("Notes.tsx"), field = src("Fields.tsx");
   assert.match(notes, /<TextField key=\{f\.targets\.join\(" "\)\}/);
   assert.match(notes, /onChange=\{\(text\) => onNote\(f\.targets, f\.keyword, f\.nth, text\)\}/);
-  assert.match(field, /useEffect\(\(\) => \(\) => \{ const l = latest\.current; if \(typed\.current\) l\.onChange\(l\.text\); \}, \[\]\);/);
+  assert.match(field, /useEffect\(\(\) => \(\) => \{ const l = latest\.current; if \(typed\.current\) \{ l\.onChange\(l\.text\); l\.onTyped\?\.\(false\); \} \}, \[\]\);/);
   const two: Mol = { ...base(), arrows: [...base().arrows!, { id: 20, kind: "reaction", from: [3, -3], to: [6, -3] }] };
   const after = withNote(two, [3], "on the first");
   assert.equal(noteOf(after, 3), "on the first");
@@ -167,8 +167,8 @@ it("S7 the object is deleted (an undo or an AI app) while its note is typed: not
 it("S8 an AI app changes a note while its field is open and nothing was typed: the AI app's note stays", () => {
   const field = src("Fields.tsx");
   // Leaving the field uses its text only when something was typed; else it shows the value from outside.
-  assert.match(field, /onBlur: \(\) => \{ focused\.current = false; if \(typed\.current\) \{ typed\.current = false; if \(text !== value\) onChange\(text\); \} else if \(text !== value\) setText\(value\); \}/);
-  assert.match(field, /onChange: \(e: React\.ChangeEvent<HTMLInputElement \| HTMLTextAreaElement>\) => \{ typed\.current = true;/);
+  assert.match(field, /onBlur: \(\) => \{ focused\.current = false; if \(typed\.current\) \{ typed\.current = false; onTyped\?\.\(false\); if \(text !== value\) onChange\(text\); \} else if \(text !== value\) setText\(value\); \}/);
+  assert.match(field, /onChange: \(e: React\.ChangeEvent<HTMLInputElement \| HTMLTextAreaElement>\) => \{ if \(!typed\.current\) onTyped\?\.\(true\); typed\.current = true;/);
 });
 
 it("S9 copy and paste in one window, between two windows, and Cut then Paste: the notes come with the objects", () => {

@@ -387,6 +387,7 @@ saves.
 | 28 | Print with the Notes panel open | The printout has no panel and no note. |
 | 29 | ⌘A then Annotate on a drawing of 500 objects; type one note | One undo step puts it on all 500. The 10,000-note limit is checked first. |
 | 30 | With N9: join two structures with notes, break the bond again, delete half, replace through the MCP | As issue 68's S12, S13, S14 and S28: both notes kept on a join, both pieces keep them on a split, the note goes only with the last atom, a replace keeps it. |
+| 31 | Type a note and, with the cursor still in its field, press Ctrl+S and then Ctrl+W (Windows and Linux), or choose Quit (every platform) | Save writes the note. Close and Quit ask to save it: the window counts as edited from the first key typed. |
 
 ## Acceptance
 
@@ -397,7 +398,7 @@ saves.
 | N3, cases 11, 12, 16, 24 | `annotatefiles.check.ts`; ChemDraw 22.2 open and save of Octet's files, read back |
 | N4, cases 10, 27, 28 | `annotatefiles.check.ts` (exported data, source checks); copy into TextEdit and into a second window in the dev app |
 | N5, cases 5, 9, 14 | `annotate.check.ts` |
-| N6, cases 6, 7, 8, 20, 21, 25, 26, 29 | `panels.check.ts`, `ui.check.ts`, `npm run look` (light and dark), and by hand at port 1471 |
+| N6, cases 6, 7, 8, 20, 21, 25, 26, 29, 31 | `panels.check.ts`, `ui.check.ts`, `npm run look` (light and dark), and by hand at port 1471 |
 | N7, cases 2, 22, 23 | `annotatemcp.check.ts` |
 | N8, cases 18, 19 | `perf.check.ts`; interleaved medians against v1.1.2 |
 | N9, case 30 | The structure cases in the three check files, after issue 68's model is in |
