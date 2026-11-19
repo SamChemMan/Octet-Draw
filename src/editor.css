@@ -2213,6 +2213,11 @@ kbd {
   z-index: 1;
   background: var(--surface-raised);
 }
+/* A menu's segmented control (the Arrow menu's sizes) runs the menu's width. */
+.menu-segments .segmented {
+  display: grid;
+  width: 100%;
+}
 .list-find {
   width: 100%;
   height: var(--size-control);
@@ -2693,6 +2698,8 @@ div.facts {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
+  position: relative;
+  isolation: isolate;
 }
 .segmented button {
   display: grid;
@@ -2718,6 +2725,33 @@ div.facts {
 }
 .segmented button:active {
   transform: scale(var(--press));
+}
+/* The on segment's fill (Segmented in Fields.tsx): it slides to the new choice over the segments, as the toolbar's
+   indicator slides between tools. It shows once it is in place, so it never slides in from the corner. With reduced
+   motion it is not drawn, and the on segment's own fill fades in. */
+.seg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: var(--radius-xs);
+  background: var(--brand-mist);
+  opacity: 0;
+  pointer-events: none;
+}
+.seg-thumb[data-on] {
+  opacity: 1;
+  transition: transform var(--motion) var(--ease-out);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .segmented:has(> .seg-thumb[data-on]) > button[aria-checked="true"] {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb {
+    display: none;
+  }
 }
 /* Orientation: two small pages. */
 .page-glyph {
