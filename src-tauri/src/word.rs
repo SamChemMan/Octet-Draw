@@ -457,8 +457,8 @@ pub fn install(app: &AppHandle) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Double-click in Word (Settings > General > Word, off until the user turns it on: before then Octet watches no mouse
-// and sends Word nothing for a click). Word for Mac tells no other program about a double-click, so while the setting
+// Double-click in Word (Settings > General > Word, on unless the user turns it off: then Octet watches no mouse and
+// sends Word nothing for a click). Word for Mac tells no other program about a double-click, so while the setting
 // is on, Octet watches the mouse: a global monitor of left mouse-downs, which macOS gives with no permission (Apple
 // asks for Accessibility only to monitor keys; tried on macOS 27.2). The monitor reads the click count and the bundle
 // id of the program in front. It never reads where a click was, or a key, and sends nothing anywhere.
