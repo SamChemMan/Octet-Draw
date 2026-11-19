@@ -95,7 +95,8 @@ export type Context =
       heads: boolean; shaped: boolean; start: Head; end: Head; head: HeadShape; closed?: boolean; fill: string; width: number; size?: string; ratio: number; fillable: boolean;
       point?: "add" | "remove" | "bent" } // one straight arrow or line: it can take a point, or has one (bent: and bends)
   // symbol and symbolPt: a free symbol's kind and size (pt).
-  | { kind: "shape"; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; charges?: { circled: boolean }; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
+  // attached: an atom's charge picked alone (issue 164), with its kind, size and colour.
+  | { kind: "shape"; attached?: boolean; count: number; shape: ShapeKind; symbol?: FreeSymbol; symbolPt?: number; charges?: { circled: boolean }; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
       ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean; unit?: string } // a TLC plate's side ticks and transparency, whether a lane is picked, and a gel's unit
   // step: one step of the cycle is picked; reversible, balance, shaped and hidden are that step's (shaped: it has a lead,
@@ -542,6 +543,13 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.remove")), ...turnsAndFlips, ...objects, ...order, keep, del);
       break;
     case "shape":
+      // An atom's charge picked alone (issue 164): its charge items and Delete; it moves, turns and groups with its atom.
+      if (context.attached) {
+        if (context.charges) items.push(it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
+          it(<span className="glyph-text">⊕</span>, context.charges.circled ? "Remove the circle" : "Circle the charge", "charge.circled"));
+        items.push(del);
+        break;
+      }
       if (context.shape === "tlc") {
         const hidden = (k: string) => context.hide?.includes(k);
         // At the lane last pressed or right-clicked (a new lane goes after it), or at the last lane, as ChemDraw's plate
@@ -1034,7 +1042,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       {context.kind === "shape" && context.shape === "symbol" && (
         // A free symbol: its kind, each drawn as the symbol, and its size.
         <div className="chips arrows" role="group" aria-label="Symbol">
-          {FREE_SYMBOLS.map((k) => (
+          {(context.attached ? (context.symbol?.startsWith("radical") ? ["radicalCation", "radicalAnion"] as FreeSymbol[] : ["plus", "minus", "circledPlus", "circledMinus"] as FreeSymbol[]) : FREE_SYMBOLS).map((k) => (
             <button key={k} className="chip" aria-pressed={context.symbol === k} aria-label={FREE_SYMBOL_NAMES[k]} data-tip={FREE_SYMBOL_NAMES[k]} onClick={() => run(`shape.symbol.${k}`)}><FreeSymbolGlyph kind={k} /></button>
           ))}
           {context.symbolPt !== undefined && <SizeButton size={context.symbolPt} sizes={sizes} run={run} />}

@@ -25,7 +25,7 @@ import { parse, serialize } from "./file";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
-  addShape, addSymbol, markNear, moveMark, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
+  addShape, addSymbol, markNear, moveMark, moveSign, setSign, signKind, setSignKind, dropCharge, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
@@ -299,7 +299,8 @@ type Drag =
   | { kind: "lane"; plate: number; from: number; to: number; base: Mol; working: Mol } // a lane dragged by its origin tick
   // A mark (lone pair, radical, charge) moved round its atom, by its key (Atom.angles): dragged with Select (a hold
   // with any tool gives Select), or Shift-dragged with the Symbols tool.
-  | { kind: "mark"; atom: number; key: string; start: [number, number]; base: Mol; working: Mol }
+  // A charge (key "charge") goes anywhere near its atom (Atom.sign at): from, where it was pressed; mid, its middle then.
+  | { kind: "mark"; atom: number; key: string; start: [number, number]; base: Mol; working: Mol; from?: P; mid?: P }
   // Tables: a column or row border dragged with the Table tool (index 0 is the left or top edge).
   | { kind: "tableedge"; id: number; axis: "col" | "row"; index: number; base: Mol; working: Mol }
   // A reagent table moved on its own with Select, by d (drawing units) from where it is drawn.
@@ -629,6 +630,10 @@ export default function Editor() {
   const [picked, setPicked] = useState<Set<number>>(new Set());
   // The atoms selected and the objects picked, both at once.
   const reselect = (atoms: Set<number>, items: Set<number>) => { setSelection(atoms); setPicked(items); };
+  // An atom's charge picked on its own (issue 164): a click or drag on its sign with Select. It takes a colour, a size,
+  // a kind and the charge actions; any other press or pick drops it.
+  const [signPick, setSignPick] = useState<number>();
+  useEffect(() => { if (selection.size || picked.size) setSignPick(undefined); }, [selection, picked]);
   const [drag, setDrag] = useState<Drag>();
   // The notice at the bottom of the window (NoticeBar.tsx). Without a kind it is an error; undefined clears it.
   const [notice, showNotice] = useState<Notice>();
@@ -5508,6 +5513,7 @@ export default function Editor() {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = toDoc(e.clientX, e.clientY), t = hit(p), screen: [number, number] = [e.clientX, e.clientY];
     pointer.current = p;
+    setSignPick(undefined);
     pressAlt.current = e.altKey;
     // Option-drag (Ctrl- or Alt-drag on Windows and Linux) moves copies (keys.ts copyDrag). Option-click still takes
     // out of the selection (pressMods.alt); Ctrl-click on Windows and Linux adds to it, as Shift-click does.
@@ -5529,7 +5535,7 @@ export default function Editor() {
     const mark = handle && handle.which !== "add" ? undefined : t.mark !== undefined ? { atom: t.atom!, mark: t.mark } : ((tool === "select" && selectKind !== "perspective") || (e.shiftKey && tool === "symbol")) && arrowEndAt(p) === undefined ? markNear(drawing.electrons, doc, p, L) : undefined;
     if (mark && tool === "select") pressMods.current = { shift: addsToSelection(e), alt: e.altKey, atoms: selection, picks: picked };
     if (mark && t.mark === undefined && tool === "select" && !e.shiftKey) return startMove(p, screen, { atom: mark.atom }, picked, selection, copy);
-    if (mark) return setDrag({ kind: "mark", atom: mark.atom, key: mark.mark, start: screen, base: doc, working: doc });
+    if (mark) return setDrag({ kind: "mark", atom: mark.atom, key: mark.mark, start: screen, base: doc, working: doc, from: p, mid: chargeMid(mark.atom) });
     // The middle mark: a press moves the arrow as usual; a click (no move) gives it its point.
     addPoint.current = handle?.which === "add" ? handle.id : undefined;
     // With Edit curve, Option-click takes an anchor out (a curve keeps two).
@@ -5691,7 +5697,7 @@ export default function Editor() {
       setPop((old) => ({ n: (old?.n ?? 0) + 1, x: screen[0], y: screen[1] }));
       // On a mark, Select moves the mark, as a press with Select does.
       const mark = markNear(drawing.electrons, doc, p, L);
-      if (mark && !selection.has(mark.atom)) { pressMods.current = undefined; return setDrag({ kind: "mark", atom: mark.atom, key: mark.mark, start: screen, base: doc, working: doc }); }
+      if (mark && !selection.has(mark.atom)) { pressMods.current = undefined; return setDrag({ kind: "mark", atom: mark.atom, key: mark.mark, start: screen, base: doc, working: doc, from: p, mid: chargeMid(mark.atom) }); }
       const ids = atomsOf(doc, t);
       if (ids.length && ids.every((i) => selection.has(i))) return startMove(p, screen, t);
       setSelection(new Set());
@@ -5836,6 +5842,8 @@ export default function Editor() {
       case "mark":
         // In 15° steps while Fixed Angles is on, free when it is off or Option is held (as a dragged bond).
         if (drag.working === drag.base && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
+        // A charge goes where it is dragged (issue 164), its direction in those steps too.
+        if (drag.key === "charge" && drag.from && drag.mid) return setDrag({ ...drag, working: moveSign(drag.base, drag.atom, [drag.mid[0] + p[0] - drag.from[0], drag.mid[1] + p[1] - drag.from[1]], settings.fixedAngles && !e.altKey) });
         return setDrag({ ...drag, working: moveMark(drag.base, drag.atom, drag.key, p, settings.fixedAngles && !e.altKey) });
       case "lane": {
         // The lane goes where the pointer is among the lanes, its spots with it.
@@ -6278,6 +6286,7 @@ export default function Editor() {
       const alone = !selection.size && picked.size === 1;
       if (alone && branchPick && picked.has(branchPick.cycle)) return cycleAction("side.remove");
       if (alone && stepPick && picked.has(stepPick.cycle)) return set(hideArc(stepPick.cycle, stepPick.step), true);
+      if (signPick !== undefined && !selection.size && !picked.size && doc.atoms[signPick]?.charge) { setSignPick(undefined); return set(dropCharge(doc, signPick)); }
       if (selection.size || picked.size) return set(deleteChosen(doc, selection, picked, undefined, drawnAt, drawnAlign));
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
@@ -6587,7 +6596,7 @@ export default function Editor() {
       return { value: part ?? (editing.colour && editing.colour !== "element" ? editing.colour : doc.atoms[editing.atom].colour ?? "#000000") };
     }
     // Pictures take no colour (ChemDraw's pictures have none).
-    if (context.kind === "shape" && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
+    if (context.kind === "shape" && !context.attached && doc.shapes?.every((x) => !picked.has(x.id) || x.kind === "picture")) return undefined;
     if (context.kind === "caption" || context.kind === "shape") return { value: context.colour, tints: context.kind === "shape" && context.shape === "highlight" };
     if (context.kind === "spot" && spotPick) return { value: doc.shapes?.find((x) => x.id === spotPick.plate)?.tlc?.spots[spotPick.index]?.colour ?? "#000000" };
     if (context.kind === "part" && featurePick) { const pl = doc.shapes?.find((x) => x.id === featurePick.map)?.plasmid; return { value: (featurePick.region !== undefined ? pl?.regions[featurePick.region] : pl?.markers[featurePick.marker!])?.colour ?? "#000000" }; }
@@ -7003,6 +7012,11 @@ export default function Editor() {
       return { kind: "caption", mode: "typing", convertible: false, colour: at.colour ?? st.colour ?? style.colour, count: 1, bold: !!(at.bold ?? st.bold), italic: !!(at.italic ?? st.italic), underline: !!(at.underline ?? st.underline),
         size: at.size ?? st.size ?? style.captionSize, align: st.align ?? "centre", attached: false, attachable: false, script: at.script, font: at.font ?? st.font ?? style.captionFont, fonts: fontList };
     }
+    // An atom's charge picked alone (issue 164): a symbol of its kind, linked to its atom, in its own size and colour.
+    const owner = signPick !== undefined && !selection.size && !picked.size ? doc.atoms[signPick] : undefined, ownKind = owner && signKind(owner);
+    if (owner && ownKind)
+      return { kind: "shape", attached: true, count: 1, shape: "symbol", symbol: ownKind, symbolPt: Math.round(0.75 * (owner.size ?? style.labelSize) * scaleOf(owner) * (owner.sign?.size ?? 1) * 10) / 10, charges: chargesOf(doc, [signPick!]),
+        dashed: false, boldLine: false, colour: owner.sign?.colour ?? owner.colour ?? "#000000", style: "plain", side: "both", mark: "", rf: false, lines: [], weight: style.line, cell: false, shade: { ...SHADE, pt: style.bond } };
     if (tool === "text" && !selection.size && !picked.size)
       return { kind: "caption", mode: "next", convertible: false, colour: textStyle.colour ?? style.colour, count: 1, bold: !!textStyle.bold, italic: !!textStyle.italic, underline: !!textStyle.underline, size: textStyle.size ?? style.captionSize, align: textStyle.align ?? "left", attached: false, attachable: false, font: textStyle.font ?? style.captionFont, fonts: fontList };
     // A whole reaction picked (as a double-click on its arrow picks it).
@@ -7136,7 +7150,7 @@ export default function Editor() {
   glidingNow.current = gliding;
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // Curves > Solid, Hollow and Angled Arrowhead: the selection's head shape ticked, and on only where heads take one.
   const heads = headMenu(panelContext);
   useEffect(() => {
@@ -8417,7 +8431,8 @@ export default function Editor() {
     // Charges on what is picked (issue 60), as one step: the Actions panel's charge items and run_command. + and − and
     // the circled pair go on the selected atoms (a new charge in the document's look) and step the picked free charges;
     // Circle the charge puts a circle round every charge picked, or takes them all off.
-    if (/^charge\.(plus|minus|circledPlus|circledMinus|circled)$/.test(command)) return set(keyCharges(doc, ids, picked, command.slice(7), !!style.circled), true);
+    // On a charge picked alone (issue 164), its atom.
+    if (/^charge\.(plus|minus|circledPlus|circledMinus|circled)$/.test(command)) return set(keyCharges(doc, signPick !== undefined && !ids.length && !picked.size ? [signPick] : ids, picked, command.slice(7), !!style.circled), true);
     // The Actions panel's Scale field: the selection takes that scale (scaledTo).
     if (command.startsWith("scale.")) {
       const m = scaledTo(Number(command.slice(6)) / 100);
@@ -8438,6 +8453,14 @@ export default function Editor() {
       return;
     }
     const context = contextOf();
+    // A charge picked alone (issue 164): its colour, its size (pt, against its atom's sign size), its kind, or Delete.
+    if (context.kind === "shape" && context.attached && signPick !== undefined) {
+      const a = doc.atoms[signPick];
+      if (command.startsWith("colour.")) { const [hex, drag] = command.slice(7).split("."); return set(setSign(doc, signPick, { colour: hex }), true, drag ? "colour" : undefined); }
+      if (command.startsWith("caption.size.") && Number(command.slice(13)) > 0) return set(setSign(doc, signPick, { size: Number(command.slice(13)) / (0.75 * (a.size ?? style.labelSize) * scaleOf(a)) }), true);
+      if (command.startsWith("shape.symbol.")) return set(setSignKind(doc, signPick, command.slice(13) as FreeSymbol), true);
+      if (command === "delete") { setSignPick(undefined); return set(dropCharge(doc, signPick)); }
+    }
     // Colour, for everything selected, as ChemDraw's Color menu: atoms (their labels and marks), the bonds between
     // them, and every picked arrow, orbital, line, shape, table, TLC plate, cycle and caption, whatever else is picked
     // with them. Black is the document's ink, so it clears the colour. Only text being typed (or the Text tool's next
@@ -9216,6 +9239,13 @@ export default function Editor() {
         setLanePick({ plate: drag.plate, lane: drag.to });
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "mark":
+        // A click or drag on a charge with Select picks the charge alone (issue 164).
+        if (drag.key === "charge" && tool === "select" && !pressMods.current?.shift && !pressMods.current?.alt) {
+          pressMods.current = undefined;
+          if (drag.working !== drag.base) set(drag.working, true);
+          reselect(new Set(), new Set());
+          return setSignPick(drag.atom);
+        }
         // A click on a mark with Select picks its atom, as a click beside it does (Shift or Option adds it or takes
         // it out, as a click on the atom does).
         if (drag.working === drag.base && tool === "select") {
@@ -9446,10 +9476,11 @@ export default function Editor() {
       if (e.key === "Escape") {
         // Escape dismisses one thing at a time. With nothing left to dismiss it goes on to the window (which leaves
         // full screen).
-        if (!drag && !spring && !selection.size && !picked.size && !gridPick && !hold.current && !hovers.get().key) return;
+        if (!drag && !spring && !selection.size && !picked.size && !gridPick && signPick === undefined && !hold.current && !hovers.get().key) return;
         e.preventDefault();
         if (hovers.get().key) setHover(pointer.current ? hit(pointer.current) : {});
         setGridPick(undefined);
+        setSignPick(undefined);
         stopHold();
         setDrag(undefined);
         if (spring) { setTool(spring); setSpring(undefined); }
@@ -9699,6 +9730,11 @@ export default function Editor() {
     return <circle key={key} className={cls} cx={pos(shown, i)[0] * L} cy={-pos(shown, i)[1] * L} r={0.32 * L} />;
   };
   // A charge, radical or lone pair under the pointer with Select: a ring round it.
+  // Atom i's charge's middle (drawing units): its own place, else the middle of its ink as drawn.
+  const chargeMid = (i: number): P | undefined => {
+    const a = doc.atoms[i], at = a?.sign?.at, b = drawing.charges?.[i];
+    return at ? [a.location[0] + at[0] * scaleOf(a), a.location[1] + at[1] * scaleOf(a)] : b && [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L];
+  };
   const markRing = (i: number, key: string) => {
     const e = drawing.electrons.find((x) => x.atom === i && x.key === key);
     return e ? <circle key="h" className="mark" cx={e.at[0]} cy={e.at[1]} r={0.22 * L} /> : null;
@@ -9765,6 +9801,12 @@ export default function Editor() {
         const [cx, cy] = [pos(shown, i)[0] * L, -pos(shown, i)[1] * L], r = 0.32 * L;
         atoms += `M${n(cx - r)} ${n(cy)}A${n(r)} ${n(r)} 0 1 1 ${n(cx + r)} ${n(cy)}A${n(r)} ${n(r)} 0 1 1 ${n(cx - r)} ${n(cy)}Z`;
       }
+    }
+    // A charge picked on its own: its ink's box with round corners, as a label's.
+    const cb = signPick !== undefined && shown.atoms[signPick]?.charge ? drawing.charges?.[signPick] : undefined;
+    if (cb) {
+      const pad = 0.1 * L, [x, y, w, h] = [cb[0] - pad, cb[1] - pad, cb[2] - cb[0] + 2 * pad, cb[3] - cb[1] + 2 * pad], r = Math.min(w, h) / 2;
+      atoms += `M${n(x + r)} ${n(y)}H${n(x + w - r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + w)} ${n(y + r)}V${n(y + h - r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + w - r)} ${n(y + h)}H${n(x + r)}A${n(r)} ${n(r)} 0 0 1 ${n(x)} ${n(y + h - r)}V${n(y + r)}A${n(r)} ${n(r)} 0 0 1 ${n(x + r)} ${n(y)}Z`;
     }
     return [bonds && <path key="sb" className="selected-bonds" d={bonds} strokeWidth={0.36 * L} />, atoms && <path key="sa" className="selected-atoms" d={atoms} />];
   };
