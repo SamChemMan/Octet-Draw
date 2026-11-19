@@ -325,7 +325,8 @@ const reals = (s: string) => s.trim().split(/\s+/).map(real);
 const ints = (s: string) => (s.trim() ? s.trim().split(/\s+/) : []).map((v) => (/^-?\d{1,10}$/.test(v) && Math.abs(Number(v)) < 2 ** 32 ? Number(v) : undefined));
 const fixed = (v: number) => Math.round(v * 65536);
 // A string's bytes: Mac Roman, as ChemDraw writes its strings, or UTF-8 when Mac Roman lacks a character.
-// Annotations' keywords and contents are always UTF-8.
+// Annotations' keywords and contents, and the document's comment, are always UTF-8: ChemDraw reads them right as
+// UTF-8, and lost letters of a Mac Roman comment.
 function stringBytes(s: string, unicode = false): Uint8Array {
   if (!unicode) {
     const mac: number[] = [];
@@ -385,7 +386,7 @@ export function xmlToCdx(root: Xml): Uint8Array {
       case "f64": return r === undefined ? undefined : f64(r);
       case "lh": return v === "auto" ? le(2, 1) : v === "variable" ? le(2, 0) : r === undefined ? undefined : le(2, Math.round(r * 20));
       case "wrap": return r === undefined ? undefined : le(2, Math.round(r));
-      case "str": return plainString(v.replace(/\n/g, "\r"), p.tag === 0x1500 || p.tag === 0x1501);
+      case "str": return plainString(v.replace(/\n/g, "\r"), p.tag === 0x1500 || p.tag === 0x1501 || p.tag === 0x0009);
       case "plain": return stringBytes(v);
       case "hex": { const h = pictureHex(v); return h === undefined ? undefined : unhex(h); }
       case "ids": return whole.every((x) => x !== undefined) ? le(4, ...(whole as number[])) : undefined;

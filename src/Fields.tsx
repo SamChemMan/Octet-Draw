@@ -49,17 +49,24 @@ export function NumberField({ value, unit, label, onChange, min = 0.001, max = 1
 }
 
 // A line of text, used on Return or when the field is left (as a lazy NumberField), so a word typed is one change.
-export function TextField({ value, label, onChange }: { value: string; label: string; onChange: (text: string) => void }) {
+// lines: text of several lines (that many shown), where Return makes a new line and leaving the field uses it; max:
+// its length. A field removed while it has the focus (Escape closes Settings or clears its search) gets no blur, so it
+// uses what was typed then.
+export function TextField({ value, label, onChange, lines, max = 200 }: { value: string; label: string; onChange: (text: string) => void; lines?: number; max?: number }) {
   const [text, setText] = useState(value);
-  const focused = useRef(false);
+  const focused = useRef(false), latest = useRef({ text, value, onChange });
+  latest.current = { text, value, onChange };
   useEffect(() => { if (!focused.current) setText(value); }, [value]);
+  useEffect(() => () => { const l = latest.current; if (focused.current && l.text !== l.value) l.onChange(l.text); }, []);
+  const own = {
+    "aria-label": label, value: text, maxLength: max, spellCheck: false,
+    onFocus: () => { focused.current = true; },
+    onBlur: () => { focused.current = false; if (text !== value) onChange(text); },
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setText(e.target.value),
+  };
   return (
-    <span className="unit-field text">
-      <input aria-label={label} value={text} maxLength={200} spellCheck={false}
-        onFocus={() => { focused.current = true; }}
-        onBlur={() => { focused.current = false; if (text !== value) onChange(text); }}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.blur(); } }} />
+    <span className={lines ? "unit-field text lines" : "unit-field text"}>
+      {lines ? <textarea {...own} rows={lines} /> : <input {...own} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.blur(); } }} />}
     </span>
   );
 }
