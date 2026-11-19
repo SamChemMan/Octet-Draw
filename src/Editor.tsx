@@ -7,14 +7,15 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, Storefront, FirstAidKit, TextTSlash, NotePencil, Note, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
-  Paperclip, SelectionBackground,
+  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, Storefront, FirstAidKit, TextTSlash, NotePencil, Note, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom, Triangle,
+  Signature, Paperclip, SelectionBackground,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS } from "./labels";
-import { analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
+import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
+import { BUILT_IN, ownNickname, ownNicknames, setOwnNicknames, withNickname, withoutNickname } from "./nicknames";
+import { redrawStereo, nicknameGroup, analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
 import { MAX_PRINT_PAGES, MAX_PURPOSES, PURPOSES, QUICK, edgeAt, pagesOver, fontStack, pageSize, frameStyle, forPurpose, outlines as pageOutlines, purposeOf, readStyle, roundPt, sameStyle, styleFor, withScale, elementColours, COLOURS, FONTS, HIGHLIGHT_COLOURS, RING_FILLS, sizesAt, darkColour, type DocStyle, type Guides, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { gridLines, gridNudge, gridOf, shownStep, snapToGrid } from "./grid";
@@ -43,7 +44,7 @@ import { HEADLESS, loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY, type S
 import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
-import { ContextMenu, Menu, menuWidth } from "./Menu";
+import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
 import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
@@ -504,8 +505,11 @@ const BLANK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
   "CO2Me", "CO2Et", "CO2tBu", "CO2Bn", "CO2H", "CHO", "CN", "NO2", "CF3", "CCl3", "OCF3", "SMe", "SO2Me", "NMe2", "NEt2", "NHAc", "NHBoc", "NHCbz", "NHFmoc",
   "NHTs", "NBoc2", "CONH2", "CONMe2", "N3", "SO3H", "COMe", "COPh"];
-// Choose Nickname (the = key): Octet's group names, then the condensed labels, each drawn as its structure (made once).
+// Choose Nickname (the = key): the user's own nicknames, Octet's group names, the condensed labels, then Octet's other
+// nicknames (nicknames.ts), each drawn as its structure (made once). The field finds one by its label or its name.
 const NICKNAMES = [Object.keys(GROUPS), CONTRACTED];
+const MORE_NICKNAMES = BUILT_IN.map((n) => n.label).filter((l) => !GROUPS[l] && !CONTRACTED.includes(l));
+const nicknameName = (label: string) => BUILT_IN.find((n) => n.label === label)?.name;
 const nicknameMols = new Map<string, Mol | undefined>();
 const nicknameMol = (name: string) => {
   if (!nicknameMols.has(name)) { const smiles = labelSmiles(name); try { nicknameMols.set(name, smiles ? parseStructure(smiles) : undefined); } catch { nicknameMols.set(name, undefined); } }
@@ -858,6 +862,13 @@ export default function Editor() {
     namedMols.clear();
     typedMols.clear();
   }
+  // The user's own nicknames (Structure > Define Nickname…): labels.ts reads them first, and the = list draws them again.
+  const ownNicknamesFor = useRef<typeof settings.nicknames>(undefined);
+  if (ownNicknamesFor.current !== settings.nicknames) {
+    ownNicknamesFor.current = settings.nicknames;
+    setOwnNicknames(settings.nicknames);
+    nicknameMols.clear();
+  }
   // Add to dictionary (right-click, the Actions panel, or Structure > Add Structure to Dictionary…): the selected
   // structure (or, with an atom or bond picked, its whole structure) is kept by a name the user gives (Dialog), with its
   // SMILES and InChI.
@@ -869,6 +880,12 @@ export default function Editor() {
     try { inchi = toInchi(part) || undefined; } catch { inchi = undefined; }
     if (!smiles) return setNotice("Octet cannot write this structure as SMILES.");
     setDialog({ kind: "dictionary", name: "", smiles, inchi });
+  }
+  // Define Nickname: the selected group as a nickname's SMILES (chem.ts nicknameGroup), then its label (Dialog).
+  function defineNickname() {
+    const g = nicknameGroup(doc, selection);
+    if (typeof g === "string") return setNotice(g, "info");
+    setDialog({ kind: "nickname", label: "", ...g });
   }
   // Settings > Dictionary: Export… writes the dictionary as a SMILES file with names; Import… reads one (with Import a
   // Structure's file dialog) and adds the names the user does not have. A SMILES Octet cannot read is left out.
@@ -1747,6 +1764,7 @@ export default function Editor() {
   const cdxmlOptions = (): CdxmlOptions => ({
     derived: cycleArrows, name,
     expand: (text) => { const smiles = loaded ? labelSmiles(text) : undefined; try { return smiles ? parseStructure(smiles) : undefined; } catch { return undefined; } },
+    own: (text) => !!ownNickname(text),
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
   const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(`Octet left out ${lostText(lost)}.`); };
@@ -2963,6 +2981,9 @@ export default function Editor() {
       setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } }));
       setTool("select");
     },
+    // Redraw Stereo Bonds (Structure menu): the wedges and hashes of the selected structures (or every one) placed again
+    // from their stereocentres (chem.ts redrawStereo). No atom moves and no R, S, E or Z changes.
+    redraw_stereo: () => redrawStereoBonds(selection.size ? selection : undefined),
     // Structure > Measure (issue 85, where ChemDraw has Add 3D Property): the distance between 2 selected atoms, the
     // angle at 3, the dihedral across 4.
     ...Object.fromEntries((["distance", "angle", "dihedral"] as const).map((kind, k) => [`measure_${kind}`, () => {
@@ -3203,6 +3224,10 @@ export default function Editor() {
       const formula = analyse(subset(doc, group))?.[0]?.formula;
       setDialog({ kind: "contract", text: text ?? formula ?? "R", keep, group: [...group], want });
     },
+    // Define Nickname (Structure menu, as ChemDraw's): the selected group, joined to the rest by one single bond, kept
+    // by a label of the user's own. Typed on an atom from then on, the label stands for the group. The group is
+    // contracted to the label, as Contract Label does.
+    define_nickname: () => defineNickname(),
     // Toggle Hydrogen Display (Structure menu): explicit H atoms on carbon in the selection (or the drawing) hidden or
     // shown again, as ChemDraw's.
     hydrogen_display: () => {
@@ -3895,7 +3920,7 @@ export default function Editor() {
     | { kind: "template"; name: string; from: string } | { kind: "templateSet"; name: string; then: (set: string) => void } | { kind: "lossy"; lost: Record<string, number>; done: (saved: boolean) => void } | { kind: "revert" }
     | { kind: "changed"; done: (saved: boolean) => void } | { kind: "print"; srcs: string[]; w: number; h: number; cols: number; page: string }
     | { kind: "discard"; entries: RecoveredEntry[]; recents: RecentEntry[] } | { kind: "crashed"; log: string } | { kind: "update"; version: string }
-    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "image"; then: "file" | "selected"; busy?: string } | { kind: "ai" }>();
+    | { kind: "dictionary"; name: string; smiles: string; inchi?: string } | { kind: "nickname"; label: string; smiles: string; keep: number; group: number[] } | { kind: "image"; then: "file" | "selected"; busy?: string } | { kind: "ai" }>();
   // Check Structure's dialog: the problems, the one shown, and what runs after them (a copy or export that asked).
   // select: Check Structure itself, which selects each problem's objects as it shows it.
   const [checking, setChecking] = useState<{ list: Problem[]; at: number; then: () => void; select: boolean }>();
@@ -3908,7 +3933,7 @@ export default function Editor() {
   const [charMap, setCharMap] = useState(false);
   const charKey = useRef(-Infinity), charFocus = useRef(true);
   // Choose Nickname: the list open by an atom (its place on screen). A click outside it or Escape closes it.
-  const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>();
+  const [nicknames, setNicknames] = useState<{ atom: number; x: number; y: number }>(), [nicknameFind, setNicknameFind] = useState("");
   const nicknameBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!nicknames) return;
@@ -6548,6 +6573,7 @@ export default function Editor() {
     if (id === "atom.properties" && atom !== undefined) return atomProperties(atom);
     if (id === "atom.nickname" && atom !== undefined) {
       const view = views.get(), q = doc.atoms[atom].location;
+      setNicknameFind("");
       return setNicknames({ atom, x: view.x + q[0] * L * view.zoom, y: view.y - q[1] * L * view.zoom });
     }
     if (kind === "element" && atom !== undefined) return set(keyElement(doc, atom, arg));
@@ -6875,6 +6901,16 @@ export default function Editor() {
   const say = (text: string) => setSaid((was) => (was === text ? `${text} ` : text));
   const spoken = useRef(doc), sayNext = useRef<{ text: string; at: number }>(undefined);
   const sayAfter = (text: string) => { sayNext.current = { text, at: performance.now() }; };
+  // Redraw Stereo Bonds on the structures with atoms ids (every structure with none): one Undo step. A structure whose
+  // labels new stereo bonds would change stays as drawn, and the notice says so.
+  function redrawStereoBonds(ids?: Set<number>) {
+    if (!loaded) return;
+    const r = redrawStereo(doc, ids), left = r.refused ? `${r.refused === 1 ? "1 structure stays" : `${r.refused} structures stay`} as drawn: new stereo bonds would change ${r.refused === 1 ? "its" : "their"} stereochemistry.` : "";
+    if (r.mol === doc) return setNotice(left || "There are no stereo bonds to redraw.", "info");
+    sayAfter(r.count ? `Redrew the stereo bonds at ${r.count} stereocentre${r.count === 1 ? "" : "s"}.` : "Made the wedge and hash bonds that set nothing plain.");
+    set(r.mol, true);
+    if (left) setNotice(left, "info");
+  }
   useEffect(() => {
     const t = window.setTimeout(() => {
       const from = spoken.current;
@@ -8861,14 +8897,14 @@ export default function Editor() {
     add_multicentre: ["Add multi-centre attachment", "", <MultiAttachmentGlyph />], add_variable: ["Add variable attachment", "", <VariableAttachmentGlyph />],
     measure_distance: ["Measure distance", "", <DistanceGlyph size={18} />], measure_angle: ["Measure angle", "", <AngleGlyph size={18} />], measure_dihedral: ["Measure dihedral", "", <DihedralGlyph size={18} />],
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], expand_generic_sdf: ["Expand generic structure to SDF…", "", <Database size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
-    expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
+    expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], define_nickname: ["Define nickname…", "", <Signature size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
     map_reaction: ["Map atoms", "", <FlowArrow size={18} />], clear_reaction_map: ["Clear atom map", "", <X size={18} />],
     interpretation: [settings.interpretation ? "Hide reaction interpretation" : "Show reaction interpretation", "", <Lightbulb size={18} />],
     mirror_h: ["Flip horizontal", "", <FlipHorizontal size={18} />], mirror_v: ["Flip vertical", "", <FlipVertical size={18} />],
     properties: [settings.properties ? "Hide the Properties panel" : "Show the Properties panel", "", <Flask size={18} />],
     // Notes (annotate.ts), not in an object window.
-    ...(office ? {} : { notes: [settings.notesPanel ? "Hide the Notes panel" : "Show the Notes panel", "", <Note size={18} />], annotate: ["Annotate…", "", <NotePencil size={18} />] } as Record<string, [string, string, React.ReactNode]>), aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />],
+    ...(office ? {} : { notes: [settings.notesPanel ? "Hide the Notes panel" : "Show the Notes panel", "", <Note size={18} />], annotate: ["Annotate…", "", <NotePencil size={18} />] } as Record<string, [string, string, React.ReactNode]>), aromatic_display: [commandsOpen && (selection.size ? fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat() : doc.atoms.map((_, i) => i)).some((i) => doc.atoms[i].circle) ? "Show Kekulé bonds" : "Show aromatic circles", `⌥${MOD}K`, <Circle size={18} />], hydrogen_display: ["Toggle hydrogen display", "", <EyeSlash size={18} />], show_stereo: ["Show stereochemistry", "", <span className="glyph-text">R/S</span>], predict_1h: ["Predict ¹H-NMR shifts", "", <span className="glyph-text">¹H</span>], predict_13c: ["Predict ¹³C-NMR shifts", "", <span className="glyph-text">¹³C</span>], predict_19f: ["Predict ¹⁹F-NMR shifts", "", <span className="glyph-text">¹⁹F</span>], predict_31p: ["Predict ³¹P-NMR shifts", "", <span className="glyph-text">³¹P</span>], mass_spec: ["Mass spec analysis", "", <MassSpecGlyph />], toggle_spectrum: [nmrView === "open" && spectrum || msView === "open" && massSpec ? "Hide the spectrum" : "Show the spectrum", "", <ChartLine size={18} />], spectrum_full_screen: ["Spectrum full screen", "", <ArrowsOut size={18} />], spectrum_close: ["Close the spectrum", "", <XCircle size={18} />], structure_perspective: ["Structure perspective", `⌥${MOD}S`, <Cube size={18} />], flatten: ["Flatten", "", <Square size={18} />], clean_3d: ["3D clean up", `⇧${MOD}D`, <CubeTransparent size={18} />], redraw_stereo: ["Redraw stereo bonds", "", <Triangle size={18} />],
     rotate_dialog: ["Rotate…", `${MOD}R`, <Angle size={18} />], scale_dialog: ["Scale…", `${MOD}K`, <Resize size={18} />],
     attach_data: ["Attach data…", "", <Paperclip size={18} />], select_linked: ["Select linked objects", "", <SelectionBackground size={18} />],
     chart_energy: ["Energy diagram…", "", <ChartLineUp size={18} />], chart_radar: ["Sensitivity screen…", "", <ChartPolar size={18} />], chart_jablonski: ["Jablonski diagram", "", <JablonskiGlyph />], chart_edit: ["Edit chart data…", "", <GridNine size={18} />],
@@ -9157,6 +9193,15 @@ export default function Editor() {
     }
     // A wedge or hash drawn the wrong way round: its ends swapped.
     if (command.startsWith("flip_bond:")) { const k = Number(command.slice(10)); return doc.bonds[k] && set(flipBond(doc, k), true); }
+    // Every wedge or hash drawn the wrong way round (Swap the ends of all): one Undo step.
+    if (command.startsWith("flip_bonds:")) {
+      const ks = command.slice(11).split(",").map(Number).filter((k) => doc.bonds[k]);
+      if (!ks.length) return;
+      sayAfter(`Swapped the ends of ${ks.length} wedge and hash bonds.`);
+      return set(ks.reduce((m, k) => flipBond(m, k), doc), true);
+    }
+    // A wedge or hash that sets nothing: the stereo bonds of the structure with that atom redrawn.
+    if (command.startsWith("redraw_stereo_at:")) { const i = Number(command.slice(17)); return doc.atoms[i] && redrawStereoBonds(new Set([i])); }
     if (command.startsWith("align.")) return glideTo(alignFragments(doc, selection, command.slice(6) as "row" | "column" | "spread-row"));
     if (command === "delete" && context.kind === "spot") return runAction("spot.delete");
     if (command === "delete" && context.kind === "part") return runAction("part.delete");
@@ -9360,6 +9405,7 @@ export default function Editor() {
     if (command === "template.add" || command.startsWith("template.add:")) return addPart(templatePart(), command.slice(13) || MY_SET, "ring", undefined, tool === "ring");
     if (command === "template.add.new") { const part = templatePart(), ring = tool === "ring"; return part && askSet((set) => addPart(part, set, "ring", undefined, ring)); }
     if (command === "dictionary.add") return addToDictionary();
+    if (command === "define_nickname") return defineNickname();
     if (command === "caption.add") {
       // A new caption under the selected structures, centred on them.
       const under = fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat();
@@ -12130,6 +12176,28 @@ export default function Editor() {
           </Dialog>
         );
       })()}</Exit>
+      <Exit>{dialog?.kind === "nickname" && (() => {
+        // Define Nickname: the label for the group. One of the user's own is replaced, and a label Octet reads already
+        // then gives the user's group, as Add to Dictionary does with names; the dialog says so first.
+        const label = dialog.label.trim(), problem = label ? nicknameProblem(label) : undefined, there = !!label && !!ownNickname(label), octets = !!label && !there && !problem && !!labelSmiles(label);
+        const keepIt = () => {
+          const d = dialog;
+          if (!label || problem || !d.group.every((i) => doc.atoms[i])) return;
+          setDialog(undefined);
+          setSettings((st) => ({ ...st, nicknames: withNickname(st.nicknames, { label, smiles: d.smiles }) }));
+          set(contractLabel(doc, d.keep, new Set(d.group), label));
+          setSelection(new Set());
+          setNotice(`${label} is a nickname. Type it on an atom to add the group.`, "done");
+        };
+        return (
+          <Dialog title="Define nickname" action={there ? "Replace" : "Define"} disabled={!label || !!problem} onClose={() => setDialog(undefined)} onAction={keepIt}>
+            <label className="dialog-row"><span>Nickname</span><span className="unit-field text"><input aria-label="Nickname" value={dialog.label} maxLength={32} spellCheck={false} autoFocus onChange={(e) => setDialog({ ...dialog, label: e.target.value })} /></span></label>
+            {problem && <p className="dialog-note">{problem}</p>}
+            {there && <p className="dialog-note">You have the nickname {label} already. Replace gives it this group.</p>}
+            {octets && <p className="dialog-note">Octet reads {label} already. Your group comes first.</p>}
+          </Dialog>
+        );
+      })()}</Exit>
       <Exit>{dialog?.kind === "ai" && (
         <Dialog title="Octet and AI apps" action="Try it out and learn more" cancel="Close" onClose={() => setDialog(undefined)}
           onAction={() => { setDialog(undefined); setAiCard(undefined); void invoke("open_link", { name: "ai" }).catch((e) => setNotice(failure("Octet cannot open the link.", e))); }}>
@@ -12516,10 +12584,24 @@ export default function Editor() {
       )}</Exit>
       <Exit>{nicknames && (
         <div ref={nicknameBox}>
-          <Menu label="Choose a nickname" className="nickname-menu" columns={3}
-            style={{ position: "fixed", left: Math.max(8, Math.min(nicknames.x + 16, innerWidth - 8 - menuWidth(3))), top: Math.max(8, nicknames.y - 20) }}
-            groups={NICKNAMES.map((g) => g.map((name) => { const m = nicknameMol(name); return { key: name, name, icon: m?.bonds.length ? <TemplateGlyph mol={m} /> : <TextAa size={20} />, checked: doc.atoms[nicknames.atom]?.text === name }; }))}
-            onChoose={(name) => { const i = nicknames.atom; setNicknames(undefined); if (doc.atoms[i]) set(setLabel(doc, i, name), true); }} />
+          {(() => {
+            const want = nicknameFind.trim().toLowerCase(), fits = (l: string) => !want || l.toLowerCase().includes(want) || !!nicknameName(l)?.toLowerCase().includes(want);
+            const mine = ownNicknames().map((n) => n.label), item = (name: string, own: boolean): MenuItem => {
+              const m = nicknameMol(name);
+              return { key: name, name, icon: m?.bonds.length ? <TemplateGlyph mol={m} /> : <TextAa size={20} />, checked: doc.atoms[nicknames.atom]?.text === name,
+                ...(own ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => setSettings((st) => ({ ...st, nicknames: withoutNickname(st.nicknames, name) })) } } : {}) };
+            };
+            const groups = [mine.map((l) => item(l, true)), ...[...NICKNAMES, MORE_NICKNAMES].map((g) => g.filter((l) => !mine.includes(l)).map((l) => item(l, false)))].map((g) => g.filter((i) => fits(i.key)));
+            const choose = (name: string) => { const i = nicknames.atom; setNicknames(undefined); if (doc.atoms[i]) set(setLabel(doc, i, name), true); };
+            return (
+              <Menu label="Choose a nickname" className="nickname-menu" columns={3}
+                style={{ position: "fixed", left: Math.max(8, Math.min(nicknames.x + 16, innerWidth - 8 - menuWidth(3))), top: Math.max(8, nicknames.y - 20) }}
+                head={<input className="list-find" autoFocus placeholder="Find a nickname" aria-label="Find a nickname" value={nicknameFind} spellCheck={false} onChange={(e) => setNicknameFind(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); const first = groups.flat()[0]; if (first) choose(first.key); } }} />}
+                extra={groups.every((g) => !g.length) ? <p className="list-none">Nothing matches</p> : undefined}
+                groups={groups} onChoose={choose} />
+            );
+          })()}
         </div>
       )}</Exit>
       <Exit>{checking && (

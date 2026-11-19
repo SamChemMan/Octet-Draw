@@ -138,35 +138,14 @@ export function axialLabels(m: Mol): { atoms: (string | undefined)[]; bonds: (st
   const atoms: (string | undefined)[] = m.atoms.map(() => undefined), bonds: (string | undefined)[] = m.bonds.map(() => undefined);
   if (!m.bonds.some((b) => b.stereo === 1 || b.stereo === 6)) return { atoms, bonds };
   const g = graphOf(m), near = (i: number) => g.near[i].map((e) => e.to);
-  // Cumulenes: chains of atoms with two double bonds and nothing else.
-  const cumulated = (i: number) => g.near[i].length === 2 && g.near[i].every((e) => e.order === 2);
-  const seen = new Set<number>();
-  m.atoms.forEach((_, i) => {
-    if (!cumulated(i) || seen.has(i)) return;
-    const chain = [i];
-    seen.add(i);
-    for (const dir of [0, 1]) {
-      let prev = i, cur = g.near[i][dir].to;
-      while (cumulated(cur) && !seen.has(cur)) { seen.add(cur); dir ? chain.push(cur) : chain.unshift(cur); const next = near(cur).find((x) => x !== prev)!; prev = cur; cur = next; }
-      dir ? chain.push(cur) : chain.unshift(cur);
-    }
-    // An odd number of cumulated atoms (an even number of double bonds) makes an axis; the ends are the chain's ends.
+  for (const chain of cumulenes(g)) {
     const [t1, t2] = [chain[0], chain[chain.length - 1]];
-    if (chain.length % 2 === 0 || t1 === t2 || cumulated(t1) || cumulated(t2)) return;
     const z = depths(m, new Set([t1, t2])), place = (k: number) => at(m, k, z.get(k) ?? 0);
     const e1 = endOf(m, g, t1, near(t1).filter((x) => x !== chain[1]), chain[1], place);
     const e2 = endOf(m, g, t2, near(t2).filter((x) => x !== chain[chain.length - 2]), chain[chain.length - 2], place);
     if (e1 && e2) atoms[chain[(chain.length - 1) / 2]] = helicity(e1, e2);
-  });
-  // Hindered biaryls, as ChemDraw finds them: a single bond out of any ring (or in a ring of 7) between two aromatic
-  // ring atoms, each with only its two ring bonds besides, and at least three of the four ortho atoms substituted.
-  m.bonds.forEach((b, k) => {
-    const [a, c] = b.atoms;
-    if (b.type !== 1 || !g.arom[a] || !g.arom[c] || near(a).length !== 3 || near(c).length !== 3) return;
-    const inRings = g.rings.filter((r) => r.includes(a) && r.includes(c) && r.some((x, j) => (x === a && (r[(j + 1) % r.length] === c || r[(j + r.length - 1) % r.length] === c))));
-    if (inRings.length && !inRings.some((r) => r.length === 7)) return;
-    const orthoA = near(a).filter((x) => x !== c), orthoC = near(c).filter((x) => x !== a);
-    if ([...orthoA, ...orthoC].filter((o) => near(o).length === 3).length < 3) return;
+  }
+  for (const { k, a, c, orthoA, orthoC } of biaryls(m, g)) {
     // Depth: a wedge from an axis atom to an ortho atom, or from an ortho atom to its substituent, puts that ortho
     // atom towards the viewer (a hash, away). The other ortho atom of the same ring turns the other way.
     const zs = depths(m, new Set([a, c])), zo = depths(m, new Set([...orthoA, ...orthoC]));
@@ -179,6 +158,53 @@ export function axialLabels(m: Mol): { atoms: (string | undefined)[]; bonds: (st
     const place = (o: number) => at(m, o, tilt.get(o) ?? 0);
     const e1 = endOf(m, g, a, orthoA, c, place), e2 = endOf(m, g, c, orthoC, a, place);
     if (e1 && e2) bonds[k] = helicity(e1, e2);
-  });
+  }
   return { atoms, bonds };
+}
+// Cumulenes with an even number of double bonds (an axis): each chain of atoms with two double bonds and nothing else,
+// with its two end atoms, in order.
+function cumulenes(g: Graph): number[][] {
+  const near = (i: number) => g.near[i].map((e) => e.to), out: number[][] = [];
+  const cumulated = (i: number) => g.near[i].length === 2 && g.near[i].every((e) => e.order === 2);
+  const seen = new Set<number>();
+  g.near.forEach((_, i) => {
+    if (!cumulated(i) || seen.has(i)) return;
+    const chain = [i];
+    seen.add(i);
+    for (const dir of [0, 1]) {
+      let prev = i, cur = g.near[i][dir].to;
+      while (cumulated(cur) && !seen.has(cur)) { seen.add(cur); dir ? chain.push(cur) : chain.unshift(cur); const next = near(cur).find((x) => x !== prev)!; prev = cur; cur = next; }
+      dir ? chain.push(cur) : chain.unshift(cur);
+    }
+    // An odd number of cumulated atoms (an even number of double bonds) makes an axis; the ends are the chain's ends.
+    const [t1, t2] = [chain[0], chain[chain.length - 1]];
+    if (chain.length % 2 === 0 || t1 === t2 || cumulated(t1) || cumulated(t2)) return;
+    out.push(chain);
+  });
+  return out;
+}
+// Hindered biaryls, as ChemDraw finds them: a single bond (k) out of any ring (or in a ring of 7) between two aromatic
+// ring atoms (a, c), each with only its two ring bonds besides, and at least three of the four ortho atoms substituted.
+function biaryls(m: Mol, g: Graph): { k: number; a: number; c: number; orthoA: number[]; orthoC: number[] }[] {
+  const near = (i: number) => g.near[i].map((e) => e.to);
+  return m.bonds.flatMap((b, k) => {
+    const [a, c] = b.atoms;
+    if (b.type !== 1 || !g.arom[a] || !g.arom[c] || near(a).length !== 3 || near(c).length !== 3) return [];
+    const inRings = g.rings.filter((r) => r.includes(a) && r.includes(c) && r.some((x, j) => (x === a && (r[(j + 1) % r.length] === c || r[(j + r.length - 1) % r.length] === c))));
+    if (inRings.length && !inRings.some((r) => r.length === 7)) return [];
+    const orthoA = near(a).filter((x) => x !== c), orthoC = near(c).filter((x) => x !== a);
+    return [...orthoA, ...orthoC].filter((o) => near(o).length === 3).length < 3 ? [] : [{ k, a, c, orthoA, orthoC }];
+  });
+}
+// The atoms whose wedges and hashes set an axis, not a stereocentre (check.ts): each end of a cumulene above, and a
+// hindered biaryl's axis atoms and their ortho atoms. allenes: each such cumulene as [middle atom, end, end].
+export function axisAtoms(m: Mol): { atoms: Set<number>; allenes: [number, number, number][] } {
+  const g = graphOf(m), atoms = new Set<number>(), allenes: [number, number, number][] = [];
+  for (const chain of cumulenes(g)) {
+    const [t1, t2] = [chain[0], chain[chain.length - 1]];
+    atoms.add(t1).add(t2);
+    allenes.push([chain[(chain.length - 1) / 2], t1, t2]);
+  }
+  for (const { a, c, orthoA, orthoC } of biaryls(m, g)) for (const i of [a, c, ...orthoA, ...orthoC]) atoms.add(i);
+  return { atoms, allenes };
 }

@@ -1,8 +1,8 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, Attach Data's dialog, Export… with document pages, the spectrum panel with two tabs,
-// the template library, a caption with the paste offer, the Notes panel, every Settings page, the command palette, a
-// Jablonski diagram with a level and a transition picked) and lets the app's own watch (src/lookwatch.ts) measure each
-// one.
+// drawing, the Structure panel, Attach Data's dialog, the nickname list, Export… with all pages, the spectrum panel
+// with two tabs, the template library, a caption with the paste offer, the Notes panel, every Settings page, the
+// command palette, a Jablonski diagram with a level and a transition picked) and lets the app's own watch
+// (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +52,15 @@ if (name) {
 }
 if (!labelled("Add a caption")) key({ key: "a", code: "KeyA", metaKey: true });
 await measure("the Structure panel", !!(await until(() => labelled("Add a caption"), 4000)));
+
+// Choose Nickname (the = key over an atom): the user's nicknames and Octet's, with a field to find one.
+const oxygen = [...document.querySelectorAll("svg.canvas text")].find((t) => t.textContent.trim() === "O")?.getBoundingClientRect();
+if (oxygen) document.querySelector("svg.canvas")?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: oxygen.x + oxygen.width / 2, clientY: oxygen.y + oxygen.height / 2 }));
+await wait(300);
+window.dispatchEvent(new KeyboardEvent("keydown", { key: "=", code: "Equal", bubbles: true, cancelable: true }));
+await measure("the nickname list", !!(await until(() => document.querySelector(".nickname-menu .list-find"), 3000)));
+key({ key: "Escape" });
+await wait(600);
 
 // The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
 labelled("Show the Properties panel")?.click();

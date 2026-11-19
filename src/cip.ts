@@ -334,7 +334,9 @@ export function handOf(m: Mol, i: number, ranked: number[]): "R" | "S" | undefin
   } catch { return undefined; }
 }
 
-function stereoUnits(m: Mol, c: Chem): Unit[] {
+// open: where given, gets each double bond that would be a unit but for its drawing (a substituent in line with the
+// bond, or two on one side), set cis.
+function stereoUnits(m: Mol, c: Chem, open?: Double[]): Unit[] {
   const units: Unit[] = [], n = m.atoms.length;
   const wavy = new Set(m.bonds.flatMap((b) => (b.display === "wavy" ? b.atoms : [])));
   const dirs = dirsOf(m, c);
@@ -384,10 +386,10 @@ function stereoUnits(m: Mol, c: Chem): Unit[] {
     if (dist.has(f2)) return;
     const [c1, c2] = [s1[0].to, s2[0].to];
     const line = (f: number, g: number, s: number) => { const x = unit(sub(m.atoms[f].location, m.atoms[g].location)), y = unit(sub(m.atoms[s].location, m.atoms[f].location)); return !x || !y || dot(cross(x, y), cross(x, y)) < 0.01; };
-    if (s1.length === 2 ? sameSide(m, f1, f2, c1, s1[1].to) !== -1 : line(f1, f2, c1)) return;
-    if (s2.length === 2 ? sameSide(m, f2, f1, c2, s2[1].to) !== -1 : line(f2, f1, c2)) return;
-    const side = sameSide(m, f1, f2, c1, c2);
-    if (side) units.push({ kind: "double", foci: [f1, f2], chain, carriers: [c1, c2], cis: side > 0, bond: bonds[(bonds.length - 1) / 2] });
+    const found: Double = { kind: "double", foci: [f1, f2], chain, carriers: [c1, c2], cis: true, bond: bonds[(bonds.length - 1) / 2] };
+    const side = (s1.length === 2 ? sameSide(m, f1, f2, c1, s1[1].to) !== -1 : line(f1, f2, c1)) || (s2.length === 2 ? sameSide(m, f2, f1, c2, s2[1].to) !== -1 : line(f2, f1, c2)) ? 0 : sameSide(m, f1, f2, c1, c2);
+    if (side) units.push({ ...found, cis: side > 0 });
+    else open?.push(found);
   });
   return units;
 }
@@ -837,4 +839,36 @@ export function cipLabels(m: Mol): Cip {
     if (u.kind === "double" && /^[EZct]$/.test(u.label ?? "")) out.bonds[u.bond] = u.label === "c" ? "Z" : u.label === "t" ? "E" : u.label;
   }
   return out;
+}
+
+// The double bonds (by bond number; a cumulene's middle bond) that can be E or Z but whose drawing does not show which:
+// a unit but for how it is drawn (stereoUnits), whose ends the CIP rules tell apart, so it would get E or Z if drawn
+// zig-zag. A crossed double bond, or a wavy bond at an end, says E/Z is not known, so neither is one.
+export function openDoubles(m: Mol): number[] {
+  if (m.atoms.length > MOST_ATOMS || !m.bonds.some((b) => b.type === 2) || !mayBeOpen(m)) return [];
+  const open: Double[] = [];
+  let c: Chem, units: Unit[];
+  try { c = chemOf(m); units = stereoUnits(m, c, open); } catch { return []; }
+  const spent = { nodes: 0, calls: 0 };
+  return open.flatMap((u) => {
+    try {
+      const g = new Digraph(c, u.foci[0], spent);
+      let label = g.label(u, CONSTITUTIONAL);
+      if (label === "?") { g.auxiliary(u, units); label = g.label(u, ALL); }
+      return /^[EZct]$/.test(label) ? [u.bond] : [];
+    } catch { return []; }
+  });
+}
+// Whether a double bond may be drawn so that it shows no E or Z: at an end, one single bond in line with it (within
+// about 6°) or two on one side. Only then is openDoubles' reading needed.
+function mayBeOpen(m: Mol): boolean {
+  const near: number[][] = m.atoms.map(() => []);
+  for (const b of m.bonds) { near[b.atoms[0]].push(b.atoms[1]); near[b.atoms[1]].push(b.atoms[0]); }
+  const xy = (i: number) => m.atoms[i].location;
+  return m.bonds.some((b) => b.type === 2 && b.display !== "either" && [0, 1].some((e) => {
+    const f = b.atoms[e], g = b.atoms[1 - e], d = [xy(g)[0] - xy(f)[0], xy(g)[1] - xy(f)[1]], l = Math.hypot(d[0], d[1]) || 1;
+    // Each substituent's side of the bond's line (its sine).
+    const sides = near[f].filter((j) => j !== g).map((j) => { const v = [xy(j)[0] - xy(f)[0], xy(j)[1] - xy(f)[1]]; return (d[0] * v[1] - d[1] * v[0]) / (l * (Math.hypot(v[0], v[1]) || 1)); });
+    return sides.length === 1 ? Math.abs(sides[0]) < 0.11 : sides.length === 2 && (Math.abs(sides[0]) < 0.11 || Math.abs(sides[1]) < 0.11 || sides[0] * sides[1] > 0);
+  }));
 }

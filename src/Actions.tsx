@@ -9,12 +9,12 @@ import {
   AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, CodeBlock, Quotes, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
-  PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
+  PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, Signature, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, SelectionBackground, Paperclip, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
   Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, Magnet, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
-  Storefront, FirstAidKit,
+  Storefront, FirstAidKit, Triangle,
 } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 import type { Analysis } from "./chem";
@@ -360,8 +360,8 @@ const KIND_OF: Record<string, string> = {
   "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
   structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "analysis",
-  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", measure_distance: "depth", measure_angle: "depth", measure_dihedral: "depth", rotate_dialog: "turn", scale_dialog: "turn",
-  attach_data: "marks", pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
+  "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", redraw_stereo: "depth", measure_distance: "depth", measure_angle: "depth", measure_dihedral: "depth", rotate_dialog: "turn", scale_dialog: "turn",
+  attach_data: "marks", pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks", define_nickname: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
@@ -395,6 +395,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
   // 3D clean up, wherever there is a structure to clean: it takes the whole structure of what is selected, or every one.
   const clean3 = small(it(<CubeTransparent size={18} />, "3D clean up", "clean_3d"));
+  // Redraw Stereo Bonds, beside it wherever it is: the wedges and hashes placed again from their stereocentres.
+  const redraw = small(it(<Triangle size={18} />, "Redraw stereo bonds", "redraw_stereo"));
   const nameIt = { ...it(<TagSimple size={18} />, "Convert structure to name", "structure_to_name"), short: "Structure to name" };
   const toStructure = { ...it(<Atom size={18} />, "Convert name to structure", "name_to_structure"), short: "Name to structure" };
   // A generic (Markush) structure: every structure it stands for, in a new drawing or in an SD file.
@@ -450,13 +452,13 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<FileArrowDown size={18} />, "Import a structure…", "import")), ...addRisk);
       break;
     case "drawing":
-      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3,
+      items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3, redraw,
         ...copies, ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings(), ...addRisk);
       break;
     case "selection":
       if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"), it(<ShieldSlash size={18} />, "Remove risk assessment", "risk.remove"));
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3, redraw] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -468,11 +470,11 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
         small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
-        ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
+        ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<Signature size={18} />, "Define nickname…", "define_nickname")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Turn depth shading off" : "Turn depth shading on", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
-      items.push(clean3);
+      items.push(clean3, redraw);
       // Query and Markush structures (ChemDraw's Structure menu): attachments on the selected atoms, and an R-group
       // definition round the selected structures.
       if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
@@ -487,12 +489,12 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.circled !== undefined ? [it(<span className="glyph-text">⊕</span>, context.circled ? "Remove the circle" : "Circle the charge", "charge.circled")] : []),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, del);
+        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, del);
       break;
     case "bond":
       if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -514,7 +516,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
     case "reaction":
       items.push(it(<Broom size={18} />, "Clean up reaction", "clean_reaction", !context.clean),
         { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, ...numerals(context.roman), ...copies,
-        it(<FlowArrow size={18} />, "Map atoms", "map_reaction"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "clear_reaction_map"))] : []), ...warnings(), ...turnsAndFlips, clean3, ...objects, ...order, ...frames, keep, del);
+        it(<FlowArrow size={18} />, "Map atoms", "map_reaction"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "clear_reaction_map"))] : []), ...warnings(), ...turnsAndFlips, clean3, redraw, ...objects, ...order, ...frames, keep, del);
       break;
     case "grid":
       // ChemDraw's grid menu: Set Limiting, Hide Row, Hide Column, Show All (and Colors, the colour row).
