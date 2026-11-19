@@ -29,7 +29,7 @@ import {
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
   labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
-import { oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
+import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
 import { model3mf } from "./model3mf";
@@ -5099,6 +5099,8 @@ export default function Editor() {
 
   // Select tool press: on something selected, move the selection; on something else, select it and move it;
   // on empty canvas, start a selection box. Shift adds to the selection.
+  // The reagent table whose span is under a point.
+  const gridAt = (q: P) => gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return q[0] >= x0 && q[0] <= x1 && q[1] >= y0 && q[1] <= y1; });
   function pressSelect(p: P, t: Hover, shift: boolean, screen: [number, number], copy = false) {
     const ids = atomsOf(doc, t), its = itemsOf(t);
     // A risk assessment (riskassess.ts): a press on one of its parts picks that part, so Delete removes it, and a drag
@@ -5146,7 +5148,7 @@ export default function Editor() {
     // A press on a reagent table picks the line or the cell under it and grabs the table, which moves on its own
     // (Grid.at, Grid.free). It snaps as any object does.
     const empty = Object.values(t).every((v) => v === undefined), gl = empty && !shift ? gridLineAt(p) : undefined, gc = empty && !shift && !gl ? gridCellAt(p) : undefined;
-    const table = empty ? gridViews.find((v) => { const [x0, y0, x1, y1] = tableSpan(v); return p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1; }) : undefined;
+    const table = empty ? gridAt(p) : undefined;
     // A table in a wider selection (Select All, an area) moves the whole selection.
     if (table && !shift && picked.has(TABLE(table.arrow)) && (selection.size || picked.size > 1)) return startMove(p, screen, t);
     const grabTable = (arrow: number) => {
@@ -5158,9 +5160,14 @@ export default function Editor() {
       setGridPick(gl ? { arrow: gl.arrow, key: "", row: "", line: gl.line } : { arrow: gc!.arrow, key: gc!.key, row: gc!.row });
       return grabTable((gl ?? gc)!.arrow);
     }
-    // A press on the rest of a reagent table (a gap, its conditions) picks the table whole, as an object (Shift adds it
-    // to the selection or takes it out), and grabs it.
-    if (table && shift) { const id = TABLE(table.arrow), next = new Set(picked); if (!next.delete(id)) next.add(id); return setPicked(next); }
+    // A press on the rest of a reagent table (a gap, its conditions) picks the table whole, as an object, and grabs it.
+    // Shift adds it to the selection and grabs it, as Shift on any object does: with more picked it moves the whole
+    // selection. A Shift-click (no move) takes it out again if it was picked before (click).
+    if (table && shift) {
+      const picks = new Set([...picked, TABLE(table.arrow)]);
+      setPicked(picks);
+      return selection.size || picks.size > 1 ? startMove(p, screen, t, picks) : grabTable(table.arrow);
+    }
     if (table) {
       choose([], [TABLE(table.arrow)]);
       setGridPick(undefined);
@@ -5930,8 +5937,9 @@ export default function Editor() {
       }
       case "grid": {
         if (!drag.moved && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
-        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
-        const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L)) : { d: raw, guides: [] as Guide[] };
+        // Shift keeps it to one axis (snap.ts heldAxis): the other is held at 0 before the snaps, which snap the free axis only.
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey), raw = oneAxis(d0, held), boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
+        const snapped = boxes ? snapBoxes(boxes.moving, boxes.targets, raw, 6 / (views.get().zoom * L), held) : { d: raw, guides: [] as Guide[] };
         // Snap to Grid, on each axis an object snap left free: the nearest corner or middle of the table.
         const b = snapGrid && !e.metaKey ? drag.snap()?.moving : undefined;
         if (b) {
@@ -5939,9 +5947,7 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        // Shift keeps it to one axis (snap.ts oneAxis).
-        const one = oneAxis(snapped, raw, e.shiftKey);
-        return setDrag({ ...drag, d: one.d, guides: one.guides, moved: true });
+        return setDrag({ ...drag, d: oneAxis(snapped.d, held), guides: snapped.guides, moved: true });
       }
       case "box": {
         // As ChemDraw's Marquee: only the atoms inside the box (atomsInArea). The highlight shows what stays selected on release.
@@ -5962,13 +5968,15 @@ export default function Editor() {
         markDrop(into);
         if (into) return setDrag({ ...drag, working: drag.base ?? doc, moved: true, guides: [], point: undefined });
         // Snap within 6 screen px, unless snapping is off or ⌘ is held (Option is ChemDraw's copy, at the press).
-        const raw: P = [p[0] - drag.from[0], p[1] - drag.from[1]], base = drag.base ?? doc, moving = drag.atoms ?? selection;
+        // Shift keeps it to one axis, a copy too (snap.ts heldAxis), but for a bond tool's Shift-drag of an atom (alone).
+        // The other axis is held at 0 before the snaps, which snap the free axis only.
+        const d0: P = [p[0] - drag.from[0], p[1] - drag.from[1]], held = heldAxis(d0, e.shiftKey && !drag.alone), raw = oneAxis(d0, held), base = drag.base ?? doc, moving = drag.atoms ?? selection;
         // Text, arrows and shapes moving without atoms snap the same way.
         const tol = 6 / (views.get().zoom * L);
         const boxes = !settings.snap || e.metaKey ? undefined : drag.snap();
         const snapped = !settings.snap || e.metaKey ? { d: raw, guides: [] as Guide[], point: undefined }
-          : moving.size ? snapMove(base, moving, raw, tol, boxes)
-          : boxes ? { ...snapBoxes(boxes.moving, boxes.targets, raw, tol), point: undefined }
+          : moving.size ? snapMove(base, moving, raw, tol, boxes, held)
+          : boxes ? { ...snapBoxes(boxes.moving, boxes.targets, raw, tol, held), point: undefined }
           : { d: raw, guides: [] as Guide[], point: undefined };
         // Snap to Grid, on each axis an atom or object snap left free: the atom grabbed (a bond's nearer atom), or else
         // the nearest corner or middle of the moving box, lands on a grid line.
@@ -5981,10 +5989,10 @@ export default function Editor() {
           const free = (axis: "x" | "y") => !snapped.guides.some((g) => (g.gap ? (g.axis === "x" ? "y" : "x") : g.axis) === axis);
           snapped.d = [snapped.d[0] + (free("x") ? nudge[0] ?? 0 : 0), snapped.d[1] + (free("y") ? nudge[1] ?? 0 : 0)];
         }
-        // Shift keeps it to one axis, a copy too (snap.ts oneAxis), but for a bond tool's Shift-drag of an atom (alone).
-        const one = oneAxis(snapped, raw, e.shiftKey && !drag.alone);
+        // Snap to Grid may have moved the held axis.
+        const d = oneAxis(snapped.d, held);
         // ⌘ (Ctrl) also keeps what moves off any catalytic cycle, but for Ctrl on a Ctrl-drag copy (keys.ts skipsCycle).
-        return setDrag({ ...drag, working: moveAll(base, one.d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: one.guides, point: one.point, skip: skipsCycle(e, pressCtrlCopy.current), d: one.d });
+        return setDrag({ ...drag, working: moveAll(base, d, drag.captions, drag.arrows, drag.cycles, moving), moved: true, guides: snapped.guides, point: snapped.point, skip: skipsCycle(e, pressCtrlCopy.current), d });
       }
     }
   }
@@ -8835,7 +8843,8 @@ export default function Editor() {
     // An integral group goes in or out whole, and a cycle with all its parts (as a click picks them).
     if (tool === "select" && mods && (mods.shift || mods.alt)) {
       const cycle = doc.cycles?.find((c) => c.id === t.cycle), [own, text] = cycle ? cycleParts(cycle) : [[], []];
-      const [ids, items] = wholeIntegral(doc, new Set([...atomsOf(doc, t), ...own]), new Set([...itemsOf(t), ...text]));
+      const table = Object.values(t).every((v) => v === undefined) ? gridAt(at) : undefined;
+      const [ids, items] = wholeIntegral(doc, new Set([...atomsOf(doc, t), ...own]), new Set([...itemsOf(t), ...text, ...(table ? [TABLE(table.arrow)] : [])]));
       const all = [...ids].every((i) => mods.atoms.has(i)) && [...items].every((x) => mods.picks.has(x)), out = mods.alt || all;
       const atoms = new Set(mods.atoms), picks = new Set(mods.picks);
       for (const i of ids) if (out) atoms.delete(i); else atoms.add(i);
@@ -9126,6 +9135,8 @@ export default function Editor() {
       case "tableedge":
         return drag.working !== drag.base ? set(drag.working, true) : undefined;
       case "grid": {
+        // A Shift-click on a table adds it to the selection or takes it out (click).
+        if (!drag.moved && pressMods.current?.shift) return click({}, drag.from);
         // Moved by hand, the table keeps its place on the page from now on (Grid.free), until Attach to reaction.
         const v = drag.moved ? gridViews.find((x) => x.arrow === drag.arrow) : undefined, at = v && movedAt(doc, v, drag.d);
         return at && changeGrid(drag.arrow, () => ({ at, free: true }));

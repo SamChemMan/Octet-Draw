@@ -11,18 +11,24 @@ pressed part-way through a drag changes it.
 ## What it must do, and how each is tested
 
 1. Shift held while a selection is dragged keeps the move on one axis: the axis the pointer has moved further along
-   from the press. It can change as the pointer moves. Test: `snap.check.ts` asserts `oneAxis` keeps x and zeroes y
-   when the pointer has moved further across, and the other way round.
-2. Snapping still works on the free axis. Guides on the locked axis go. An atom-on-atom snap goes (it moves both
-   axes), and the free axis then follows the pointer. Test: `snap.check.ts` asserts a guide on the free axis stays,
-   a guide on the locked axis goes (a spacing mark counts for the axis it snaps, as in the Snap to Grid step), and a
-   point snap is dropped.
+   from the press. It can change as the pointer moves. Test: `snap.check.ts` asserts `heldAxis` holds y when the
+   pointer has moved further across, x the other way round, and `oneAxis` sets the held axis to 0.
+2. Snapping still works on the free axis, worked out as if the pointer had not drifted on the held axis. The held
+   axis does not snap and has no guides. An atom-on-atom snap stays when the atoms are level (or straight under each
+   other), and is not taken when they are not; Snap to Grid then works on the free axis. Test: `snap.check.ts`: three
+   flat boxes in a row, the third Shift-dragged 0.85 across with the pointer 0.3 down, snaps to the row's spacing (0.8)
+   with both spacing marks on the row; a box held on x does not snap across; an atom level with the moving one joins,
+   one 0.04 above does not.
 3. Copy-drag (Option on the Mac, Alt or Ctrl on Windows and Linux) with Shift makes a copy that lands level with or
    straight under the original. Copies go through the same "move" drag as moves, so 1 covers them. Test:
    `snap.check.ts` reads Editor.tsx: the "move" case calls `oneAxis` when `e.shiftKey`.
 4. Pressing or letting go of Shift mid-drag takes effect at the next pointer move. The lock reads `e.shiftKey` on
    each move. Test: same Editor.tsx assert (it reads the move event, not the press).
-5. The same for a reagent table (the "grid" drag). Test: `snap.check.ts` asserts the "grid" case calls `oneAxis`.
+5. The same for a reagent table (the "grid" drag). A Shift-press on a table adds it to the selection and grabs it,
+   as a Shift-press on any other object does: alone, the table moves; with more picked, the whole selection moves. A
+   Shift-click with no move adds the table or takes it out, from the selection before the press. Test: `snap.check.ts`
+   asserts the "grid" case holds the axis before `snapBoxes`, and reads the Shift table press, the "grid" release and
+   the table in `click`.
 6. Every object kind that moves through the "move" drag gets it: structures, text, arrows, shapes, brackets,
    symbols, spectra, tables, pictures, and a hold from another tool on the selection. They share `startMove`, so one
    change covers them. Test: the Editor.tsx assert above, and `startMove` is the only place that makes a "move" drag
@@ -31,7 +37,8 @@ pressed part-way through a drag changes it.
    it. Test: `snap.check.ts` asserts the lock skips a drag marked `alone`.
 8. In `pressSelect`, the copy key with Shift pressed inside the selection copies, where Shift alone starts a box
    that adds. The same inside a selected group's frame. Test: `snap.check.ts` reads Editor.tsx for `(!shift || copy)`
-   in both places.
+   in both places. On Windows and Linux this also changes a Ctrl-press on bare canvas inside a selected group's frame:
+   it copies the group, as Option does on the Mac. Before, it started a box that adds.
 9. A Shift-press on a charge or lone pair still moves the mark (unchanged code; `kind: "mark"` is not a "move" drag).
 10. Alt held (Option on the Mac) as a selection area starts on empty canvas draws the other shape: a lasso when
     Select is set to Box, a box when it is set to Lasso. Structure perspective keeps its box. Every tool whose hold
@@ -43,12 +50,16 @@ pressed part-way through a drag changes it.
 
 ## Design
 
-- `oneAxis(s, raw, lock)` in `src/snap.ts`. When `lock` is false it returns `s` unchanged. Otherwise k is the axis
-  with the larger `|raw|`. The other axis of `s.d` is set to 0. Guides that snap the other axis are dropped. A point
-  snap is dropped and the free axis goes back to `raw`.
-- Editor.tsx "move": after the snap and Snap to Grid steps, `snapped = oneAxis(snapped, raw, e.shiftKey &&
-  !drag.alone)`. `startMove` puts `alone: true` on the drag for the bond tool's Shift-drag.
-- Editor.tsx "grid": the same after its Snap to Grid step.
+- `heldAxis(raw, lock)` in `src/snap.ts` gives the axis with the smaller `|raw|` when `lock` is set, and `oneAxis(d,
+  held)` sets that axis to 0. `snapMove` and `snapBoxes` take `held`: they do not snap that axis, and an atom snap must
+  be level on it (within 1e-6).
+- Editor.tsx "move": `held = heldAxis(d0, e.shiftKey && !drag.alone)`, `raw = oneAxis(d0, held)`, the snaps run on
+  `raw` with `held`, and `oneAxis` again after Snap to Grid. `startMove` puts `alone: true` on the drag for the bond
+  tool's Shift-drag.
+- Editor.tsx "grid": the same with `e.shiftKey`.
+- `pressSelect`: a Shift-press on a table adds it to `picked`, then `startMove` with more picked, else `grabTable`.
+  The "grid" release sends a Shift-click with no move to `click`, and `click`'s Shift and Option toggle counts the
+  table under the point (`gridAt`).
 - `pressSelect`: `!shift` becomes `(!shift || copy)` in the "press on the selection" test and the group frame test.
 - `startArea`: the lasso test is `selectKind === "lasso" ? !pressAlt.current : selectKind === "box" &&
   pressAlt.current`.
@@ -56,14 +67,16 @@ pressed part-way through a drag changes it.
 
 ## Results (19 November)
 
-- `npm test`: 183 of 183 check files pass. `snap.check.ts` and `boxselect.check.ts` pass with the new asserts.
+- `npm test`: see the review fix commit. `snap.check.ts` and `boxselect.check.ts` pass with the new asserts.
 - In the dev server (Chromium pane, pointer events with modifiers), on an ethane: Shift-drag moved it 100 px across
   and 0 down for a pointer 100 across and 30 down. Letting go of Shift mid-drag freed it at the next move.
-  Option+Shift-drag made a copy straight under the original (same x, pointer 30 px across). Shift-drag of the
-  selected copy by an end atom moved the whole copy straight down. Option-drag on empty canvas with Select set to
-  Box drew the lasso; without Option, the box. A reagent table and the other object kinds were not dragged by hand:
-  they share the "move" drag (asserted).
-- Timing, Node, a 50-structure drawing, 15 interleaved runs of 2000 moves: snap step alone 16.15 µs a move, with
-  `oneAxis` 16.24 µs (Shift up) and 16.23 µs (Shift held). `oneAxis` alone is 0.05 µs. Noise level.
+  Option+Shift-drag made a copy straight under the original (same x, pointer 30 px across). Option-drag on empty canvas
+  with Select set to Box drew the lasso; without Option, the box.
+- After the review, on an Experiment page with a reaction and its reagent table: a Shift-press and drag on the lone
+  table moved it 120 px across and 0 down (pointer 40 down) and picked it. A Shift-click with no move took it out of
+  the selection, and another put it back. With everything selected (⌘A), a Shift-drag on the table moved the whole
+  selection 100 px down and 0 across (pointer 30 across). A Shift-drag on a text moved it 120 across and 0 down.
+- Timing, Node, a 50-structure drawing, 2000 moves a run, 59 interleaved runs, median: the snap step at 9ca16e2
+  9.6 µs a move; now with Shift up 9.7 µs (noise); with Shift held 7.2 µs (one axis snaps).
 - `npm run look` (WebKit): every control matches; the sweep did not reach Home (the sweep's own step, no UI changed
   here).
