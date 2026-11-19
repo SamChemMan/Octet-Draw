@@ -8,7 +8,7 @@ import {
   ListChecks, SealWarning, ShieldSlash, ShieldWarning,
   AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
-  ArrowUUpLeft, ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
+  ArrowUUpLeft, ClipboardText, CopySimple, CodeBlock, Quotes, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
   TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, Crosshair, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight, Path, Scissors, CircleNotch,
@@ -134,6 +134,7 @@ type Props = {
   sizes: number[]; // the text sizes on offer: ChemDraw's, times the document scale
   scale?: number | null; // the selection's scale against the document (decision 0007); null when its parts differ
   online?: boolean; // Settings > Online search: the online searches are offered
+  more?: boolean; // Settings > Pro > More formats: File > More Formats' copy commands are offered
   folded: string[]; // the titled sections folded to their title, by set
   onFold: (id: string, folded: boolean) => void;
 };
@@ -329,7 +330,7 @@ const KIND_OF: Record<string, string> = {
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
-  copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", "template.add": "library", "dictionary.add": "library", delete: "delete",
+  copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", more_chemfig_copy: "library", more_sln: "library", "template.add": "library", "dictionary.add": "library", delete: "delete",
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
@@ -340,14 +341,19 @@ export function SearchGlyph({ letter }: { letter: string }) {
 }
 
 // The actions for a selection, likeliest first. The panel shows them; the command palette lists them too.
-// online: Search Reaxys, PubChem and SciFinder are offered (Settings > Online search).
-export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, warned = 0, online = false): Item[] {
+// online: Search Reaxys, PubChem and SciFinder are offered (Settings > Online search). more: File > More Formats is on
+// (Settings > Pro), so its copy commands are offered with the other Copy As.
+export function actionItems(context: Context, messy: boolean, hiddenWarnings = false, warned = 0, online = false, more = false): Item[] {
   const items: Item[] = [];
   const it = (icon: React.ReactNode, name: string, command: string, accent?: boolean, small?: boolean): Item => ({ icon, name, command, accent, small });
   // A cycle's side arrow, picked or labelled by the text picked: the same items for each (its ends and heads are picks).
   const sideItems = (c: CycleSide) => [it(<Shuffle size={18} />, "Swap in and out", "cycle.side.swap"), ...(c.inside !== undefined ? [it(<CircleHalf size={18} />, c.inside ? "Put outside the cycle" : "Put inside the cycle", "cycle.side.inside")] : []),
     ...(c.moved ? [it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset")] : []), it(<Scissors size={18} />, "Remove the side arrow", "cycle.side.remove")];
   const small = (i: Item): Item => ({ ...i, small: true });
+  // Copy As for a structure, a reaction or the drawing: SMILES, InChI and InChIKey, and with More formats on, chemfig
+  // code and SLN (File > More Formats).
+  const copies = [small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")),
+    ...(more ? [small(it(<CodeBlock size={18} />, "Copy as LaTeX (chemfig)", "more_chemfig_copy")), small(it(<Quotes size={18} />, "Copy as SLN", "more_sln"))] : [])];
   // The compound numbers in roman or arabic numerals (issue 34), when the drawing has some.
   const numerals = (roman?: boolean) => (roman === undefined ? [] : [small(it(<span className="glyph-text">{roman ? "1" : "I"}</span>, roman ? "Use arabic numbers" : "Use roman numerals", "numbers.roman"))]);
   const clean = it(<MagicWand size={18} />, "Clean up structure", "clean_up", messy);
@@ -405,7 +411,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3,
-        small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
+        ...copies, ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
         small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings(), ...addRisk);
       break;
     case "selection":
@@ -421,7 +427,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
         small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.values ? [small(names(context.values))] : []),
-        ...turnings, small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")), ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
+        ...turnings, ...copies, ...searches, keep, dict, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Turn depth shading off" : "Turn depth shading on", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")));
@@ -457,7 +463,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "reaction":
       items.push(it(<Broom size={18} />, "Clean up reaction", "clean_reaction", !context.clean),
-        { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, ...numerals(context.roman), small(it(<CopySimple size={18} />, "Copy as SMILES", "copy_smiles")), small(it(<IdentificationBadge size={18} />, "Copy as InChI", "copy_inchi")), small(it(<Key size={18} />, "Copy as InChIKey", "copy_inchikey")),
+        { ...it(<ListNumbers size={18} />, "Number these compounds", "number"), short: "Number compounds" }, ...numerals(context.roman), ...copies,
         it(<FlowArrow size={18} />, "Map atoms", "map_reaction"), it(<Table size={18} />, context.grid ? "Remove stoichiometry" : "Analyse stoichiometry", "stoichiometry"), ...(context.mapped ? [small(it(<X size={18} />, "Clear atom map", "clear_reaction_map"))] : []), ...warnings(), ...turnsAndFlips, clean3, ...objects, ...order, ...frames, keep, del);
       break;
     case "grid":
@@ -577,7 +583,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // A lone atom or bond that is a whole molecule (ethane, H2O) gets every action its structure gets, after its own.
   if ((context.kind === "atom" || context.kind === "bond") && context.molecule) {
     const own = new Set(items.map((i) => i.command));
-    items.push(...actionItems(context.molecule, messy, hiddenWarnings, warned, online).filter((i) => !own.has(i.command)));
+    items.push(...actionItems(context.molecule, messy, hiddenWarnings, warned, online, more).filter((i) => !own.has(i.command)));
   }
   // A chart picked whole, or one of its parts: its data comes first, and its axis, key or zones hide and show as a TLC
   // plate's origin does.
@@ -593,8 +599,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
 
 // The panel's actions as the user arranged them: rows first, then the small actions set by set. The Actions panel
 // and the right-click menu (ActionsMenu) both show them this way.
-export function arrangedActions(context: Context, messy: boolean, hiddenWarnings: boolean | undefined, warned: number | undefined, grouping: Props["grouping"], layout: Props["layout"], online?: boolean) {
-  const items = actionItems(context, messy, hiddenWarnings, warned, online);
+export function arrangedActions(context: Context, messy: boolean, hiddenWarnings: boolean | undefined, warned: number | undefined, grouping: Props["grouping"], layout: Props["layout"], online?: boolean, more?: boolean) {
+  const items = actionItems(context, messy, hiddenWarnings, warned, online, more);
   // Group and Ungroup, and Align and Distribute, for any selection of two or more things, as small buttons.
   if (grouping) items.push(...([["arrange_left", "Align left edges", <AlignLeft size={18} />], ["arrange_centre", "Align left-right centres", <AlignCenterHorizontal size={18} />], ["arrange_right", "Align right edges", <AlignRight size={18} />],
     ["arrange_top", "Align top edges", <AlignTop size={18} />], ["arrange_middle", "Align top-bottom centres", <AlignCenterVertical size={18} />], ["arrange_bottom", "Align bottom edges", <AlignBottom size={18} />],
@@ -691,7 +697,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, folded, onFold }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, more, folded, onFold }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -788,7 +794,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   // as chemistry (the editor gives none for others).
   const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked") || ((context.kind === "atom" || context.kind === "bond") && !!context.molecule);
 
-  const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
+  const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more);
   const chart = "chart" in context ? context.chart : undefined;
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
@@ -1273,9 +1279,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 // actions as one row that opens the set beside it, then Add to templates (which opens My templates and the user's
 // sets), Add to dictionary…, Colour, a label's Alignment and Delete. An arrow's, a cycle's or a cycle's side arrow's picks
 // (Kind, Line, Start, End, Heads, Size, Fill and so on, as the panel shows them) come before Add to templates.
-type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "colours" | "online"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
-export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, colours, online, templateSets, onClose }: MenuProps) {
-  const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online);
+type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "colours" | "online" | "more"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
+export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, colours, online, more, templateSets, onClose }: MenuProps) {
+  const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more);
   const item = (i: Item): MenuItem => ({ key: i.command, name: i.short ?? i.name, icon: i.icon, hint: hint(i.command) });
   const keep = (list: readonly Item[]) => list.filter((i) => i.command !== "template.add" && i.command !== "dictionary.add");
   const all = [...rows, ...sets.flatMap(([, list]) => list)], kept = all.find((i) => i.command === "template.add"), dict = all.find((i) => i.command === "dictionary.add");

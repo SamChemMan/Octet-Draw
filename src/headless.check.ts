@@ -482,8 +482,20 @@ const route = (n: number) => ({ start: [{ text: biphenyl(GROUPS[0]), number: Str
   assert.match(await as("cml"), /<cml>[\s\S]*<molecule>/);
   assert.match(await as("ct"), /^Formats\n/);
   assert.ok((await as("sln")).length > 5, "SLN");
-  // Export LaTeX (chemfig): the structures as chemfig code.
-  assert.match(await as("chemfig"), /^\\chemfig\{/);
+  // Export LaTeX (chemfig): the structures as chemfig code, an atom on each line unless compact asks for one line
+  // (issue 59); one writer gives the same code each way. compact must be true or false; a part with no structure and
+  // an unknown id give the same errors as the other formats.
+  const readable = await as("chemfig"), one = (await call("read", { format: "chemfig", compact: true })).structuredContent?.text;
+  assert.match(readable, /^\\chemfig\{\n\t/);
+  assert.match(one, /^\\chemfig\{[^\n]*\}$/);
+  assert.equal(readable.split("\n").map((l: string) => l.trim()).join(""), one);
+  assert.equal((await call("read", { format: "chemfig", compact: false })).structuredContent?.text, readable);
+  assert.ok((await call("read", { format: "chemfig", compact: "yes" })).isError, "compact takes true or false");
+  assert.match(String((await call("read", { format: "chemfig", ids: ["s99"] })).content?.[0]?.text), /There is nothing with the id s99/);
+  const m = d.host.doc();
+  d.host.set({ ...m, captions: [...(m.captions ?? []), { id: 900, text: "a note", x: 0, y: -5 }] });
+  assert.match(String((await call("read", { format: "chemfig", ids: ["t900"] })).content?.[0]?.text), /Octet cannot write these as CHEMFIG/);
+  assert.equal(await as("chemfig"), readable, "text beside the structure changes nothing in the code");
 }
 {
   // The reagent table through fill_experiment, as its own menus change it. A role on a table from an older Octet (no

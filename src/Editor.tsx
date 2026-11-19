@@ -7,7 +7,7 @@ import {
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
-  TreeStructure, BracketsCurly, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
+  TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
   BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -76,7 +76,7 @@ import { Feedback } from "./Feedback";
 import { ExportButton, ExportDialog, type ExportSettings } from "./ExportDialog";
 import { FeedbackLink } from "./FeedbackLink";
 import { createPortal, flushSync } from "react-dom";
-import { toChemfig } from "./chemfig";
+import { chemfig } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
@@ -1531,12 +1531,23 @@ export default function Editor() {
       return { format: "3mf", model };
     });
   }
-  // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code (chemfig.ts) in a
-  // .tex file. chemfig draws structures only, so the notice says when the rest was left out.
+  // chemfig code (chemfig.ts) for a part of the drawing, and what the notice says it leaves out: the one writer for
+  // Export LaTeX (chemfig)…, Copy as LaTeX (chemfig) and an AI app's read. compact: Settings > Pro > Compact chemfig
+  // code, unless an AI app asks.
+  const chemfigOf = (mol: Mol, compact = settings.chemfigCompact) => chemfig(mol, frame, measure, { compact });
+  // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code in a .tex file.
+  // chemfig draws structures only, so the notice names what was left out.
   async function exportChemfig() {
-    const part = selectedPart() ?? doc, tex = toChemfig(part, frame, measure);
-    if (!tex) return setNotice("There is nothing to export.", "info");
-    await exportAs(() => ({ format: "tex", tex }), (path) => (part.captions?.length || part.arrows?.length || part.shapes?.length || part.cycles?.length ? `Saved ${fileName(path)}. The file has only the structures.` : undefined));
+    const { code, notice } = chemfigOf(selectedPart() ?? doc);
+    if (!code) return setNotice("There is nothing to export.", "info");
+    await exportAs(() => ({ format: "tex", tex: code }), (path) => (notice ? `Saved ${fileName(path)}. ${notice}` : undefined));
+  }
+  // File > More Formats > Copy as LaTeX (chemfig): the same code on the clipboard, as text, as Copy As does (no
+  // structure check, as Copy As has none).
+  function copyChemfig() {
+    const { code, notice } = chemfigOf(selectedPart() ?? doc);
+    if (!code) return setNotice("There is no structure to copy.", "info");
+    copyPlain(code, notice ? `Copied. ${notice}` : undefined);
   }
   // A file written where the user chose (an export, or a save to a new place): its name (or `text`), and a button that
   // shows it in the system's file manager.
@@ -2565,6 +2576,7 @@ export default function Editor() {
     ["more_bmp", "Export BMP…", <FileImage size={18} />, () => checkFirst(() => void quickExport("bmp"))],
     ["more_3mf", "Export 3MF…", <CubeFocus size={18} />, () => checkFirst(() => void exportModel())],
     ["more_chemfig", "Export LaTeX (chemfig)…", <BracketsCurly size={18} />, () => checkFirst(() => void exportChemfig())],
+    ["more_chemfig_copy", "Copy as LaTeX (chemfig)", <CodeBlock size={18} />, () => copyChemfig()],
     ["more_cml", "Export CML…", <BracketsAngle size={18} />, () => checkFirst(() => void exportText("cml"))],
     ["more_ct_import", "Import a Connection Table…", <TrayArrowDown size={18} />, () => void importFile(true)],
     ["more_ct_export", "Export Connection Table…", <TrayArrowUp size={18} />, () => checkFirst(() => void exportText("ct"))],
@@ -7872,7 +7884,7 @@ export default function Editor() {
     // with its settings and the options given (in base64; an SVG as text). Nothing is saved.
     fileText: async (format, part, o = {}) => {
       const mol = part ?? now.current;
-      if (format === "chemfig") return toChemfig(mol, frame, measure) || undefined;
+      if (format === "chemfig") return chemfigOf(mol, o.compact).code || undefined;
       if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return formatOf(mol, format as PartFormat);
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
       // An experiment page's PDF is its pages, as Export gives them: the experiment, then its risk assessment.
@@ -7970,16 +7982,18 @@ export default function Editor() {
   }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
-  const copyText = useRef<string>(undefined);
+  const copyText = useRef<string>(undefined), copyDone = useRef("Copied.");
   // Text on the clipboard, as text only (a value from a panel, Copy As SMILES). In the app, the app puts it there
   // (CH-7): the webview lets a page copy only during a click, and a menu command is not one. In a browser, the copy
   // event puts it there, or else the Clipboard API.
-  const copyPlain = (text: string) => {
-    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice("Copied.", "done"), (err) => setNotice(failure("Octet cannot copy this.", err)));
+  // done: the notice when it is there (Copied., and what the code left out for chemfig).
+  const copyPlain = (text: string, done = "Copied.") => {
+    if (NATIVE_CLIP) return void copyToClipboard({ text }).then(() => setNotice(done, "done"), (err) => setNotice(failure("Octet cannot copy this.", err)));
     copyText.current = text;
+    copyDone.current = done;
     if (document.execCommand("copy")) return;
     copyText.current = undefined;
-    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice("Copied.", "done"), () => setNotice("Octet cannot copy this."));
+    void (navigator.clipboard?.writeText(text) ?? Promise.reject()).then(() => setNotice(done, "done"), () => setNotice("Octet cannot copy this."));
   };
   // Edit > Cut, Copy and Paste on Linux, where they are Octet's own menu items (main.rs) and GTK gives them Ctrl+X, C
   // and V before the page. In a text field they work on its text through the app's clipboard, as copyPlain does (the
@@ -8129,7 +8143,7 @@ export default function Editor() {
     const variants = (t: Tool, slot: string, list: [string, string, React.ReactNode][], group: string, words = ""): Command[] =>
       list.map(([kind, name, icon]) => ({ id: `${t}:${kind}`, name, group, icon, words, run: pick(t, [slot, kind]) }));
     // A menu command that is also one of the selection's actions shows once, as the action.
-    const acts = actionItems(contextOf(), untidy, hiddenHere(), selectedOf(found).length, settings.onlineSearch), acted = new Set(acts.map((i) => i.command));
+    const acts = actionItems(contextOf(), untidy, hiddenHere(), selectedOf(found).length, settings.onlineSearch, settings.moreFormats), acted = new Set(acts.map((i) => i.command));
     return [
       ...acts.map((i) => ({ id: `action:${i.command}`, name: i.name, group: "Actions", icon: i.icon, keys: hint(i.command), words: WORDS[i.command], run: () => runAction(i.command) })),
       ...Object.entries(MENU_NAMES).filter(([id]) => commands.current[id] && !acted.has(id)).map(([id, [name, , icon]]) => ({ id: `menu:${id}`, name, group: "Commands", keys: hint(id), icon, words: WORDS[id], run: () => commands.current[id]() })),
@@ -9389,7 +9403,7 @@ export default function Editor() {
         e.clipboardData?.setData("text/plain", copyText.current);
         e.preventDefault();
         copyText.current = undefined;
-        setNotice("Copied.", "done");
+        setNotice(copyDone.current, "done");
         return Promise.resolve(true);
       }
       if (partPick) return Promise.resolve(false);
@@ -10750,6 +10764,8 @@ export default function Editor() {
           onOnlineSearch={(onlineSearch) => setSettings((s) => ({ ...s, onlineSearch }))}
           moreFormats={settings.moreFormats}
           onMoreFormats={(moreFormats) => setSettings((s) => ({ ...s, moreFormats }))}
+          chemfigCompact={settings.chemfigCompact}
+          onChemfigCompact={(chemfigCompact) => setSettings((s) => ({ ...s, chemfigCompact }))}
           selection={!madeTemplate && (selection.size || picked.size) ? { settings: objectSettings(doc, style, selection, picked), onChange: settingsTo,
             onCopy: () => setCopiedSettings(objectSettings(doc, style, selection, picked)), onPaste: copiedSettings && (() => settingsTo(copiedSettings)) } : undefined}
           rulerUnit={settings.rulerUnit}
@@ -10968,6 +10984,7 @@ export default function Editor() {
             hiddenWarnings={hiddenHere()}
             warned={selectedOf(found).length}
             online={settings.onlineSearch}
+            more={settings.moreFormats}
             messy={untidy}
             hint={hint}
             onOpen={openActions}
@@ -10993,7 +11010,7 @@ export default function Editor() {
       <Exit>{menuAt && (() => {
         const context = panelContext ?? contextOf();
         return <ActionsMenu at={menuAt} keyboard={menuAt.keyboard} context={context} messy={untidy} hiddenWarnings={hiddenHere()} warned={selectedOf(found).length} grouping={grouping}
-          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} colours={colours} online={settings.onlineSearch} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
+          layout={settings.actionLayout} hint={hint} colour={selectionColour(context)} colours={colours} online={settings.onlineSearch} more={settings.moreFormats} templateSets={settings.templateSets} run={runAction} onClose={() => setMenuAt(undefined)} />;
       })()}</Exit>
       <Exit>{dialog?.kind === "rf" && (() => {
         // Set Rf…, as ChemDraw's: the spot moves to the Rf typed. A gel's band moves to the size typed (Set Size…).

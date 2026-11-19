@@ -91,4 +91,21 @@ assert.match(editor, /exportAs\(\(\) => \(\{ format: f, mdl: text \}\)\)/);
 assert.match(editor, /async function exportAs\([^]*?const path = await exportFile\(\{ name, \.\.\.r \}\);\n\s+if \(path\) saved\(path, text\?\.\(path\)\);/);
 assert.match(exportRs, /\("cml", "Chemical Markup Language \(CML\)", &\["cml"\]\),\n\s+\("ct", "Connection Table \(CT\)", &\["ct"\]\),/);
 assert.match(main, /if ct == Some\(true\) \{ \("Connection Table \(CT\)", &\["ct"\]\) \}/);
-console.log("textformats.check: CML, connection tables and SLN ok");
+// Copy as LaTeX (chemfig) (issue 59): after Export LaTeX (chemfig)… in File > More Formats, so the menu, the palette and
+// Settings > Keys have it only while More formats is on. With More formats on, the right-click menu and the Actions
+// panel have it and Copy as SLN beside the other Copy As, for a structure, a reaction and the drawing (and an atom or
+// bond that is a whole molecule, which takes its structure's actions); they run the More Formats commands.
+const actions = readFileSync(new URL("Actions.tsx", import.meta.url), "utf8");
+assert.match(editor, /\["more_chemfig_copy", "Copy as LaTeX \(chemfig\)", <CodeBlock size=\{18\} \/>, \(\) => copyChemfig\(\)\],/);
+assert.match(editor, /function copyChemfig\(\) \{\n\s+const \{ code, notice \} = chemfigOf\(selectedPart\(\) \?\? doc\);\n\s+if \(!code\) return setNotice\("There is no structure to copy\.", "info"\);\n\s+copyPlain\(code, notice \? `Copied\. \$\{notice\}` : undefined\);/);
+assert.match(actions, /\.\.\.\(more \? \[small\(it\(<CodeBlock size=\{18\} \/>, "Copy as LaTeX \(chemfig\)", "more_chemfig_copy"\)\), small\(it\(<Quotes size=\{18\} \/>, "Copy as SLN", "more_sln"\)\)\] : \[\]\)\];/);
+assert.equal((actions.match(/\.\.\.copies/g) ?? []).length, 3, "the drawing, a structure and a reaction");
+for (const kind of ["drawing", "structure", "reaction"]) assert.match(actions, new RegExp(`case "${kind}":[\\s\\S]*?\\.\\.\\.copies[\\s\\S]*?break;`), kind);
+assert.match(actions, /more_chemfig_copy: "library", more_sln: "library"/);
+assert.match(actions, /actionItems\(context\.molecule, messy, hiddenWarnings, warned, online, more\)/);
+assert.match(actions, /arrangedActions\(context, messy, hiddenWarnings, warned, grouping, layout, online, more\);/);
+assert.equal((editor.match(/more=\{settings\.moreFormats\}/g) ?? []).length, 2, "the panel and the right-click menu");
+assert.match(editor, /actionItems\(contextOf\(\), untidy, hiddenHere\(\), selectedOf\(found\)\.length, settings\.onlineSearch, settings\.moreFormats\)/);
+// The commands they run are there only while More formats is on.
+assert.match(editor, /\.\.\.\(settings\.moreFormats \? Object\.fromEntries\(moreFormats\.map\(\(\[id, , , run\]\) => \[id, run\]\)\) : \{\}\),/);
+console.log("textformats.check: CML, connection tables, SLN and chemfig ok");
