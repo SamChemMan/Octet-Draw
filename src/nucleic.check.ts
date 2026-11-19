@@ -38,7 +38,8 @@ assert.equal(nucleicProblem("aspirin"), undefined);
 // The menu items and the Sequence tool (peptide.check.ts) open the name field with the prefix in it, and the field
 // says why codes are refused. Codes never go to PubChem and are never corrected to a name.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
+// With a chain selected, the chain opens in the field instead (helm.ts chainText, issue 27).
+assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => \{ if \(!selection\.size \|\| !editSequence\(selectedStructures\(\)\)\) insertSequence\(`\$\{k\}: `\); \}\]\)\),/);
 assert.match(editor, /casProblem\(naming\) \?\? seqNote/);
 assert.match(editor, /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| looksLikeSmiles\(s\)\) return false;/);
 assert.match(readFileSync(new URL("names.ts", import.meta.url), "utf8"), /PEPTIDE\.test\(s\) \|\| NUCLEIC\.test\(s\) \|\| HELM\.test\(s\) \|\| nameToSmiles\(s\)\) return undefined;/);

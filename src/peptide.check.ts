@@ -35,7 +35,8 @@ assert.equal(peptideProblem("aspirin"), undefined);
 // The menu item and the toolbar's Sequence tool open the name field with "peptide: " in it. A click with the tool
 // opens it, so the structure lands there (as ChemDraw starts a sequence where you click). The Actions panel has none.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => insertSequence\(`\$\{k\}: `\)\]\)\),/);
+// With a chain selected, the chain opens in the field instead (helm.ts chainText, issue 27).
+assert.match(editor, /\.\.\.Object\.fromEntries\(\["peptide", "rna", "dna"\]\.map\(\(k\) => \[`insert_\$\{k\}`, \(\) => \{ if \(!selection\.size \|\| !editSequence\(selectedStructures\(\)\)\) insertSequence\(`\$\{k\}: `\); \}\]\)\),/);
 assert.match(editor, /function insertSequence\(prefix: string\) \{\n\s+warmLayout\(\);\n\s+openNaming\(prefix\);/);
 assert.match(editor, /casProblem\(naming\) \?\? seqNote/, "the name field says why codes are refused (helm.ts fieldSeq)");
 assert.match(readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8"), /item\("insert_peptide", "Peptide…", ""\)/);
@@ -43,7 +44,7 @@ assert.doesNotMatch(readFileSync(new URL("Actions.tsx", import.meta.url), "utf8"
 const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8");
 assert.match(tools, /peptide: \{ name: "Peptide", prefix: "peptide: " \}, rna: \{ name: "RNA", prefix: "rna: " \}, dna: \{ name: "DNA", prefix: "dna: " \}/);
 assert.match(tools, /\{ id: "sequence", name: SEQUENCES\[p\.variants\.sequence\]/, "the Sequence tool is on the toolbar");
-assert.match(editor, /if \(tool === "sequence"\) return insertSequence\(SEQUENCES\[sequenceChoice\]\.prefix\);/);
+assert.match(editor, /if \(chain && editSequence\(chain\)\) return;\n\s+return insertSequence\(SEQUENCES\[sequenceChoice\]\.prefix\);/, "a click off a chain opens the field with the prefix");
 
 // Through Name to Structure: the same structure as the three-letter sequence typed out, with OPSIN built.
 needOpsin("peptide: ok (Name to Structure skipped, no OPSIN build)");
