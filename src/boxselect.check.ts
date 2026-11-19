@@ -75,4 +75,11 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /case "box": \{[^]*?chooseArea\(atomsInArea\(doc, drag\.base, within\)/);
 assert.match(editor, /case "lasso": \{[^]*?chooseArea\(atomsInArea\(doc, drag\.base, \(q\) => inPolygon\(q, points\)\)/);
 assert.match(editor, /const withCaptions = [^]*?inkOfAtoms\(shown, drawing\.ink, drawing\.label, set, L, drawing\.electrons\)/);
+// Alt (Option) at the press swaps the box and the lasso, as ChemDraw's Alt; Structure perspective keeps the box. Every
+// tool's hold that turns into an area goes through startArea. On Windows and Linux Alt is a copy key too: a press on
+// the selection copies before pressSelect reaches startArea.
+assert.match(editor, /function startArea[^]*?if \(selectKind === "lasso" \? !pressAlt\.current : selectKind === "box" && pressAlt\.current\) setDrag\(\{ kind: "lasso"/);
+assert.match(editor, /pressAlt\.current = e\.altKey;[^]*?const copy = copyDrag\(e\)/);
+assert.match(editor, /function pressSelect[^]*?onSelection\(doc, selection, p\)\) return startMove\(p, screen, t, picked, selection, copy\)[^]*?startArea\(p, t, base, picks\);\n  \}/);
+assert.ok(editor.match(/startArea\(/g)!.length === 3, "startArea: the Select press and the hold of every other tool");
 console.log("boxselect.check: editor ok");

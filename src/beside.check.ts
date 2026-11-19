@@ -58,8 +58,8 @@ function crossings(room: Room, spots: Spot[]) {
 const carbons = (m: Mol) => m.atoms.flatMap((a, i) => (a.label === "C" ? [i] : []));
 const withH = (m: Mol) => carbons(m).filter((i) => m.bonds.filter((b) => b.atoms.includes(i)).reduce((s, b) => s + orderOf(b.type), 0) < 4);
 
-// The corpus: the three starter drawings and the first structures of each template set, 50 in all.
-const starters = ["structure", "reaction", "cycle"].map((n) => parse(readFileSync(new URL(`./starters/${n}.json`, import.meta.url), "utf8")));
+// The corpus: the three first example drawings (Home's starters before 1.2) and the first structures of each template set, 50 in all.
+const starters = ["oseltamivir", "suzuki", "cycle"].map((n) => parse(readFileSync(new URL(`./examples/${n}.json`, import.meta.url), "utf8")));
 await loadMore();
 // The Carbon set is left out: its graphene flake has a number on each of 54 carbons, 36 of them bonded to three
 // others with no room beside them (a predicted shift on every atom of graphene is not a drawing anyone makes).

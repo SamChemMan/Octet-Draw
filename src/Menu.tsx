@@ -147,6 +147,7 @@ type PickProps = {
   groups: MenuItem[][];
   onPick: (key: string) => void;
   more?: { name: string; icon?: React.ReactNode; find: string; load: () => Promise<MenuItem[]> };
+  find?: string; // a list of more than 12 options has a field at the top, with this name, that narrows every group but the last (Find suppliers: Open in PubChem stays below)
   className?: string; // the button's look
   title?: string;
   style?: React.CSSProperties;
@@ -201,15 +202,19 @@ export function Pick(p: PickProps) {
     if (!open?.focus || !list.current) return;
     (list.current.querySelector<HTMLElement>(".menu-head input") ?? list.current.querySelector<HTMLElement>('.variant[aria-checked="true"]') ?? list.current.querySelector<HTMLElement>(".variant"))?.focus();
   }, [open, all]);
-  const found = all?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = found ? [found.slice(0, 300)] : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
+  // The options the field narrows: the longer list, or the list's own when it has a field (find), all but its last group.
+  const own = p.find && p.groups.slice(0, -1).flat().length > 12 ? p.groups.slice(0, -1).flat() : undefined, pool = all ?? own, findName = all ? p.more!.find : p.find;
+  const found = pool?.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = found ? (all ? [found.slice(0, 300)] : [...(found.length ? [found] : []), p.groups[p.groups.length - 1]])
+    : [...p.groups, ...(p.more ? [[{ key: "\u0000more", name: p.more.name, icon: p.more.icon ?? null }]] : [])];
   const choose = (key: string) => {
     if (key === "\u0000more") return void p.more!.load().then((items) => { setAll(items); setOpen({ focus: true }); });
     close(!!open?.focus);
     if (key !== p.value) p.onPick(key);
   };
   const place = (): React.CSSProperties => {
-    const ROW = rowPx(), r = button.current!.getBoundingClientRect(), rows = all ? 12 : groups.reduce((n, g) => n + g.length, 0), want = rows * ROW + 2 * PAD + 2 + 8 * (groups.length - 1);
+    // A list with a field keeps its height as the field narrows it.
+    const ROW = rowPx(), r = button.current!.getBoundingClientRect(), shown = own ? p.groups : groups, rows = all ? 12 : shown.reduce((n, g) => n + g.length, 0), want = rows * ROW + 2 * PAD + 2 + 8 * (shown.length - 1);
     const below = innerHeight - r.bottom - 12, above = r.top - 12, down = above < Math.min(want, 6 * ROW + 2 * PAD + 2) && below > above;
     const across = r.right - menuWidth(1) < 8 ? { left: Math.max(8, r.left), right: "auto" } : { left: "auto", right: innerWidth - r.right };
     // Always inside the window, even for a button partly out of view.
@@ -239,8 +244,8 @@ export function Pick(p: PickProps) {
           if (key && p.onItemMenu) { e.preventDefault(); p.onItemMenu(key, { x: e.clientX, y: e.clientY }, false); }
         }}>
           <Menu label={p.label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => ({ ...i, checked: i.key === p.value })))} onChoose={choose} onPress={p.onPress} style={place()}
-            head={all && (
-              <input className="list-find" autoFocus placeholder={p.more!.find} aria-label={p.more!.find} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
+            head={pool && (
+              <input className="list-find" autoFocus placeholder={findName} aria-label={findName} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && found?.[0]) { e.preventDefault(); e.stopPropagation(); choose(found[0].key); }
                   if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); list.current?.querySelector<HTMLElement>(".variant")?.focus(); }

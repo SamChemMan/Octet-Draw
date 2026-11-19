@@ -9,8 +9,9 @@ import { DEFAULT_STYLE } from "./docstyle.ts";
 import type { Mol } from "./render.ts";
 
 type Box = [number, number, number, number];
-// Text that is a charge: a sign, with its number before or after it (+, −, 2+, 3−, +2).
-export const isChargeText = (text: string) => /^(\d*[+\-−–]|[+\-−–]\d+)$/.test(text.trim());
+// Text that is a charge: a sign, with its number before or after it (+, −, 2+, 3−, +2). ⊕ and ⊖ (\oplus, \ominus)
+// are signs too, as a free circled charge is.
+export const isChargeText = (text: string) => /^(\d*[+\-−–⊕⊖]|[+\-−–⊕⊖]\d+)$/.test(text.trim());
 // A free symbol (a sign placed with the Symbols tool, on no atom) within 0.3 bond lengths of a structure's ink, or of
 // brackets round a structure, is that structure's own: its charge, or a complex's total charge by its brackets, as
 // text that close is. So is a charge typed as text there (isChargeText; text tied to a structure, an arrow or a cycle
@@ -23,7 +24,8 @@ export const isChargeText = (text: string) => /^(\d*[+\-−–]|[+\-−–]\d+)$
 // symbol's and text's structure, by its index in boxes (the nearest).
 export function symbolOwners(doc: Mol, boxes: Box[], captionBox?: (id: number) => Box | undefined): Map<number, number> {
   const out = new Map<number, number>(), shapes = doc.shapes ?? [];
-  const signs = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && isChargeText(c.text));
+  // (A measurement is not a charge: its "–" is a value it cannot work out.)
+  const signs = (doc.captions ?? []).filter((c) => !c.under && !c.on && !c.cycle && !c.measure && isChargeText(c.text));
   if (!signs.length && !shapes.some((s) => s.kind === "symbol")) return out; // most drawings
   const boxOf = (s: { from: number[]; to: number[] }): Box => [Math.min(s.from[0], s.to[0]), Math.min(s.from[1], s.to[1]), Math.max(s.from[0], s.to[0]), Math.max(s.from[1], s.to[1])];
   const gap = (p: Box, q: Box) => Math.max(0, p[0] - q[2], q[0] - p[2], p[1] - q[3], q[1] - p[3]);

@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { EMPTY, fragments, merge, pos, sprout, type P } from "./edit.ts";
 import type { Mol } from "./render.ts";
-import { type Guide, snapBoxes, snapMove } from "./snap.ts";
+import { readFileSync } from "node:fs";
+import { type Guide, heldAxis, oneAxis, snapBoxes, snapMove, SWAP } from "./snap.ts";
 
 // Two ethanes side by side. Moving the second (atoms 2, 3) a little off line snaps it back level.
 const a = sprout(EMPTY, [0, 0]), m = merge(a, a, [3, 0.04]);
@@ -124,3 +125,109 @@ for (const d of [[0, 0], [2.95, 2.97], [0.4, -0.1], [NaN, 1]] as P[]) assert.dee
   assert.ok(!snapBoxes([0, 0, 2, 2], [...row, [5.3, 0, 5.6, 2]], [6.05, 0.5], 0.1).guides.some((g) => g.gap));
 }
 console.log("snap.check: ok");
+// Shift on a move (#169): one axis, the one the pointer has gone further along (heldAxis gives the other, held at 0).
+// The snaps are worked out with the held axis at 0 and snap the free axis only.
+{
+  assert.equal(heldAxis([2, 0.3], false), undefined, "no Shift: no axis held");
+  assert.equal(heldAxis([2, 0.3], true), 1, "across: y held");
+  assert.equal(heldAxis([0.3, -2], true), 0, "up or down: x held");
+  assert.equal(heldAxis([1, 1.01], true), 0, "it changes axis as the pointer goes");
+  // Once locked, it swaps only when the pointer has gone more than SWAP (1.5) times as far the other way.
+  assert.equal(SWAP, 1.5);
+  assert.equal(heldAxis([1, 1.01], true, 1), 1, "near the diagonal it keeps y held");
+  assert.equal(heldAxis([1, 1.5], true, 1), 1, "1.5 times as far is not enough");
+  assert.equal(heldAxis([1, -1.51], true, 1), 0, "more than 1.5 times swaps to x held");
+  assert.equal(heldAxis([1.01, 1], true, 0), 0, "and back: x stays held near the diagonal");
+  assert.equal(heldAxis([-1.51, 1], true, 0), 1);
+  assert.equal(heldAxis([0, 0], true, 1), 1, "no move keeps it");
+  assert.equal(heldAxis([2, 0.3], false, 1), undefined, "Shift let go: free");
+  assert.deepEqual(oneAxis([2.05, 0.4], 1), [2.05, 0]);
+  assert.deepEqual(oneAxis([2.05, 0.4], 0), [0, 0.4]);
+  assert.deepEqual(oneAxis([2.05, 0.4]), [2.05, 0.4]);
+  // Three flat boxes in a row with a space of 1. The third, Shift-dragged 0.85 across with the pointer 0.3 down,
+  // snaps to the same space (0.8) with both spacing marks level with the row, as if the pointer had not drifted.
+  const row = [[0, 0, 1, 0.2], [2, 0, 3, 0.2]], drift: P = [0.85, -0.3], held = heldAxis(drift, true);
+  const r = snapBoxes([3.2, 0, 4.2, 0.2], row, oneAxis(drift, held), 0.1, held);
+  assert.ok(Math.abs(r.d[0] - 0.8) < 1e-9 && r.d[1] === 0, `spacing on the free axis: ${r.d}`);
+  assert.equal(r.guides.length, 2);
+  assert.ok(r.guides.every((g) => g.gap && g.axis === "y" && Math.abs(g.at - 0.1) < 1e-9), "the marks sit on the row");
+  // The held axis does not snap and has no guide.
+  assert.deepEqual(snapBoxes([0, 0, 1, 1], [[0.05, 3, 1, 4]], [0, 1.5], 0.1, 0), { d: [0, 1.5], guides: [] });
+  assert.ok(snapBoxes([0, 0, 1, 1], [[0.05, 3, 1, 4]], [0, 1.5], 0.1).guides.some((g) => g.axis === "x"), "free: it snaps across");
+  // An atom snap stays when the atom is level with the moving one, and goes when it is not.
+  const level = merge(a, a, [3, 0]), on = snapMove(level, new Set([2, 3]), [-2.97, 0], 0.1, undefined, 1);
+  assert.ok(on.point && Math.abs(on.d[0] + 3) < 1e-9 && on.d[1] === 0, "joins an atom level with it");
+  assert.ok(snapMove(m, new Set([2, 3]), [-2.97, 0], 0.1).point, "free: joins the atom 0.04 above");
+  const off = snapMove(m, new Set([2, 3]), [-2.97, 0], 0.1, undefined, 1);
+  assert.ok(!off.point && off.d[1] === 0, "held: the atom 0.04 above does not join");
+}
+// The editor's move (every object, and copies) and reagent table drags lock on the move's own Shift, so Shift pressed
+// or let go mid-drag counts; a bond tool's Shift-drag of an atom (alone) stays free. startMove makes every move drag.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /case "move": \{[^]*?held = heldAxis\(d0, e\.shiftKey && !drag\.alone, drag\.held\), raw = oneAxis\(d0, held\)[^]*?snapMove\(base, moving, raw, tol, boxes, held\)[^]*?snapBoxes\(boxes\.moving, boxes\.targets, raw, tol, held\)[^]*?const to = oneAxis\(snapped\.d, held\);[^]*?moveAll\(base, d,/);
+  assert.match(editor, /case "grid": \{[^]*?held = heldAxis\(d0, e\.shiftKey, drag\.held\), raw = oneAxis\(d0, held\)[^]*?snapBoxes\(boxes\.moving, boxes\.targets, raw, [^,]+, held\)[^]*?const to = oneAxis\(snapped\.d, held\);/);
+  // Shift on a reagent table adds it and grabs it (the whole selection when more is picked); a Shift-click with no move
+  // toggles it in click, from the selection before the press.
+  assert.match(editor, /if \(table && shift\) \{[^]*?return selection\.size \|\| picks\.size > 1 \? startMove\(p, screen, t, picks\) : grabTable\(table\.arrow\);/);
+  assert.match(editor, /case "grid": \{\n[^]*?if \(!drag\.moved && pressMods\.current\?\.shift\) return click\(\{\}, drag\.from\);/);
+  assert.match(editor, /if \(tool === "select" && mods && \(mods\.shift \|\| mods\.alt\)\) \{[^]*?gridAt\(at\)[^]*?TABLE\(table\.arrow\)/);
+  assert.equal(editor.match(/setDrag\(\{ kind: "move"/g)?.length, 1, "startMove makes every move drag");
+  assert.match(editor, /const startMove = [^]*?\.\.\.\(alone \? \{ alone: true as const \} : \{\}\)/);
+  // The copy key with Shift, pressed on the selection or in a selected group's frame, copies.
+  assert.match(editor, /function pressSelect[^]*?if \(\(!shift \|\| copy\) && \(selection\.size \|\| picked\.size\) && onSelection[^]*?if \(\(!shift \|\| copy\) && f && /);
+}
+console.log("snap.check: one axis ok");
+// The lock's polish (c-dragmods 13-17): a change of lock glides in --motion-fast (none with reduced motion), Shift acts
+// at once from the pointer's last place, and a line shows the free axis while the lock is on.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  // Glide: from the offset shown to where the move goes, each frame moving the drawing (or the table) again.
+  assert.match(editor, /const glideFrom = \(shown: P\) => \{\n\s+stopGlide\(\);\n\s+if \(reduced\(\)\) return;[^]*?g\.stop = tween\([^]*?setDrag\(glideStep\);\n\s+\}, "--motion-fast"\);/);
+  assert.match(editor, /const glideStep = [^]*?const d = glided\(dr\.to\);\n\s+return dr\.kind === "grid" \? \{ \.\.\.dr, d \} : \{ \.\.\.dr, d, working: moveAll\(/);
+  // Both drags start a glide when the lock changes after the first move, and show glided(to).
+  assert.match(editor, /case "grid": \{[^]*?if \(held !== drag\.held && drag\.moved\) glideFrom\(drag\.d\);\n\s+return setDrag\(\{ \.\.\.drag, d: glided\(to\), to, held,/);
+  assert.match(editor, /case "move": \{[^]*?if \(held !== drag\.held && drag\.moved\) glideFrom\(drag\.d \?\? \[0, 0\]\);\n\s+const d = glided\(to\);[^]*?d, to, held \}\);/);
+  // The frames stop when the drag ends, is cancelled (Escape) or another starts; a release lands at to.
+  assert.match(editor, /function release\(\) \{[^]*?const over = dropOver\.current;\n\s+stopGlide\(\);[^]*?case "grid": \{[^]*?movedAt\(doc, v, drag\.to \?\? drag\.d\)[^]*?case "move": \{[^]*?const working = drag\.to && drag\.d !== drag\.to \? moveAll\(drag\.base \?\? doc, drag\.to,/);
+  // Over a template set the glide stops and the lock and its line go, so nothing shows moved there.
+  assert.match(editor, /if \(into\) \{\n\s+stopGlide\(\);\n\s+return setDrag\(\{ \.\.\.drag, working: drag\.base \?\? doc, moved: true, guides: \[\], point: undefined, d: undefined, to: undefined, held: undefined \}\);/);
+  assert.match(editor, /if \(e\.key === "Escape"\) \{[^]*?stopGlide\(\);\n\s+setDrag\(undefined\);/);
+  assert.match(editor, /const startMove = [^]*?=> \{\n\s+stopGlide\(\);/);
+  assert.match(editor, /const grabTable = \(arrow: number\) => \{\n\s+stopGlide\(\);/);
+  // Shift down or up re-runs the move from the pointer's last place, only for a moved "move" or "grid" drag, not on a
+  // key repeat or while typing, with the other keys as they were.
+  assert.match(editor, /lastMove\.current = e;/);
+  assert.match(editor, /if \(e\.key !== "Shift" \|\| e\.repeat \|\| !last \|\| last\.shiftKey === down \|\| \(drag\?\.kind !== "move" && drag\?\.kind !== "grid"\) \|\| !drag\.moved \|\| typing\(\)\) return;\n\s+onPointerMove\(\{ clientX: last\.clientX, clientY: last\.clientY, shiftKey: down, altKey: last\.altKey, metaKey: last\.metaKey, ctrlKey: last\.ctrlKey \}/);
+  // The listeners go on once (empty deps), so no render or pointer move adds listener work.
+  assert.match(editor, /const on = \(e: KeyboardEvent\) => onShift\.current\?\.\(e\);\n\s+addEventListener\("keydown", on\);\n\s+addEventListener\("keyup", on\);\n\s+return \(\) => \{ removeEventListener\("keydown", on\); removeEventListener\("keyup", on\); \};\n\s+\}, \[\]\);/);
+  // The line: drawn with the snap guides while an axis is held, across the window through the press.
+  assert.match(editor, /\(drag\?\.kind === "move" \|\| drag\?\.kind === "grid"\) && \(drag\.held === undefined \? drag\.guides : \[\.\.\.drag\.guides, lockLine\(drag, view\)\]\)\.map/);
+  assert.match(editor, /return dr\.held === 1 \? \{ axis: "y", at: dr\.from\[1\], from: -view\.x \/ s, to: \(innerWidth - view\.x\) \/ s \} : \{ axis: "x", at: dr\.from\[0\], /);
+}
+// No slower a pointer move (c-dragmods 17): the snap and lock step of a move, 2000 moves on 50 boxes, with heldAxis as
+// it was at 2d16aac5 and as it is now (the glide adds a ref read when none runs). Interleaved runs, medians.
+{
+  const before = (raw: P, lock: boolean): 0 | 1 | undefined => (lock ? (Math.abs(raw[0]) >= Math.abs(raw[1]) ? 1 : 0) : undefined);
+  const boxes = Array.from({ length: 50 }, (_, i) => [(i % 10) * 3, Math.floor(i / 10) * 3, (i % 10) * 3 + 1.5, Math.floor(i / 10) * 3 + 1]);
+  const path: P[] = Array.from({ length: 2000 }, (_, i) => [Math.cos(i / 40) * (i / 100), Math.sin(i / 70) * (i / 150)]);
+  const run = (now: boolean) => {
+    let was: 0 | 1 | undefined, sink = 0;
+    const t0 = performance.now();
+    for (const d0 of path) {
+      const held = now ? heldAxis(d0, true, was) : before(d0, true);
+      was = held;
+      const r = snapBoxes([40, 20, 41.5, 21], boxes, oneAxis(d0, held), 0.1, held);
+      sink += oneAxis(r.d, held)[0];
+    }
+    return [(performance.now() - t0) / path.length, sink] as const;
+  };
+  for (let k = 0; k < 5; k++) { run(false); run(true); }
+  const old: number[] = [], neu: number[] = [];
+  for (let k = 0; k < 31; k++) { old.push(run(false)[0]); neu.push(run(true)[0]); }
+  const median = (xs: number[]) => xs.sort((p, q) => p - q)[xs.length >> 1];
+  const [o, n] = [median(old) * 1000, median(neu) * 1000];
+  assert.ok(n <= o * 1.3 + 0.05, `snap and lock step: ${n.toFixed(2)} µs a move now, ${o.toFixed(2)} µs at 2d16aac5`);
+  console.log(`snap.check: lock polish ok (snap and lock step ${n.toFixed(2)} µs a move, ${o.toFixed(2)} µs at 2d16aac5)`);
+}
+

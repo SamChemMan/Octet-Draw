@@ -1,6 +1,7 @@
 {
  "format": "octet",
  "version": 1,
+ "app": "1.1.3",
  "structure": {
   "atoms": [
    {
@@ -304,5 +305,34 @@
     21
    ]
   }
- ]
+ ],
+ "style": {
+  "preset": "ACS Document 1996",
+  "page": "A4",
+  "custom": [
+   180,
+   120
+  ],
+  "landscape": false,
+  "edges": false,
+  "grid": "bond",
+  "background": "white",
+  "bond": 14.4,
+  "line": 0.6,
+  "bold": 2,
+  "margin": 1.6,
+  "hash": 2.5,
+  "spacing": 18,
+  "labelFont": "Arial",
+  "labelSize": 10,
+  "captionFont": "Arial",
+  "captionSize": 10,
+  "colour": "#000000",
+  "terminalLabels": false,
+  "carbonLabels": false,
+  "hideH": false,
+  "interpret": true,
+  "chainAngle": 120,
+  "scale": 1
+ }
 }

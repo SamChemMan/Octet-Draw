@@ -1,7 +1,7 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the spectrum panel with two tabs, the template library, a caption with the paste
-// offer, every Settings page, the command palette, a Jablonski diagram with a level and a transition picked) and lets
-// the app's own watch (src/lookwatch.ts) measure each one.
+// drawing, the Structure panel, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
+// offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
+// picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page. ?look-pointer=coarse measures it as a tablet with its keyboard off shows it (main.tsx),
 // and ?look-theme=dark in the dark theme.
@@ -31,6 +31,15 @@ await measure("Home", !!document.querySelector(".home"));
 // A pinch on Home never zooms the window (the root's touch-action; touch-action is not inherited, so it is the chain).
 const pinchable = (el) => { for (let a = el; a; a = a.parentElement) { const t = getComputedStyle(a).touchAction; if (t === "none" || (t !== "auto" && t !== "manipulation" && !t.includes("pinch-zoom"))) return false; } return true; };
 if ([...document.querySelectorAll(".home *")].some(pinchable)) out.missed.push("Home without a pinch that zooms the window");
+// Home's example drawings: the Examples page when there are recent drawings (the UI-only preview's ?demo), else the
+// Recent section, which shows them all.
+const examples = document.querySelector("[data-examples]");
+if (examples) {
+  examples.click();
+  await measure("the Examples page", !!(await until(() => document.querySelector("[data-section='examples'] .home-tile"), 4000)));
+  key({ key: "Escape" });
+  await wait(600);
+} else await measure("Home's examples", !!document.querySelector('.home-tile[data-tile^="example:"]'));
 document.querySelector(".home-tile.new")?.click();
 await measure("a new drawing", !!(await until(() => document.querySelector(".actions .action"))));
 [...document.querySelectorAll(".coach button")].find((b) => /skip/i.test(b.textContent))?.click();
@@ -50,10 +59,31 @@ if (name) {
 if (!labelled("Add a caption")) key({ key: "a", code: "KeyA", metaKey: true });
 await measure("the Structure panel", !!(await until(() => labelled("Add a caption"), 4000)));
 
+// Choose Nickname (the = key over an atom): the user's nicknames and Octet's, with a field to find one.
+const oxygen = [...document.querySelectorAll("svg.canvas text")].find((t) => t.textContent.trim() === "O")?.getBoundingClientRect();
+if (oxygen) document.querySelector("svg.canvas")?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: oxygen.x + oxygen.width / 2, clientY: oxygen.y + oxygen.height / 2 }));
+await wait(300);
+window.dispatchEvent(new KeyboardEvent("keydown", { key: "=", code: "Equal", bubbles: true, cancelable: true }));
+await measure("the nickname list", !!(await until(() => document.querySelector(".nickname-menu .list-find"), 3000)));
+key({ key: "Escape" });
+await wait(600);
+
 // The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
 labelled("Show the Properties panel")?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
+await wait(600);
+
+// Export…: PDF with Pages > Document pages, the pages as the preview, then One page again.
+document.querySelector(".export-button")?.click();
+await wait(400);
+(await until(() => document.querySelector('.export-menu [data-item="export"]'), 2000))?.click();
+const pagesRow = await until(() => labelled("Pages"), 4000);
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Document pages")?.click();
+await measure("Export… with document pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "One page")?.click();
+await wait(300);
+key({ key: "Escape" });
 await wait(600);
 
 // The spectrum panel: one tab, then two (each with its X, and the + after them).
@@ -77,6 +107,12 @@ templates?.click();
 await measure("the template library", !!(await until(() => document.querySelector(".segmented.library-kind"), 4000)));
 key({ key: "Escape" });
 await wait(600);
+// The Template tool's library, with the template in hand drawn large to choose where it attaches.
+const template = [...document.querySelectorAll(".tool")].find((t) => /templates$/i.test(t.getAttribute("aria-label") ?? ""));
+template?.click(); await wait(500); template?.click();
+await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
+key({ key: "Escape" });
+await wait(600);
 
 // A caption, and the offer that comes when a reference is pasted into it with its formatting.
 key({ key: "a", code: "KeyA", metaKey: true });
@@ -93,6 +129,17 @@ if (caption) {
 await measure("the paste offer", !!(await until(() => document.querySelector(".paste-offer"), 4000)));
 key({ key: "Escape" });
 await wait(600);
+
+// The Notes panel (Object > Annotate…), with a note of several lines on the selection.
+key({ key: "a", code: "KeyA", metaKey: true });
+await wait(800);
+labelled("Annotate…")?.click();
+// (Annotate… puts the cursor in the selection's note; leaving it uses what was typed.)
+const note = await until(() => (document.activeElement?.matches(".note-panel textarea") ? document.activeElement : null), 4000);
+if (note) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(note, "Entry 7\nbatch 2\nfrom the old bottle"); note.dispatchEvent(new Event("input", { bubbles: true })); }
+await measure("the Notes panel", !!note);
+note?.blur();
+await wait(400);
 
 // Every Settings page.
 document.querySelector(".actions-reopen")?.click();

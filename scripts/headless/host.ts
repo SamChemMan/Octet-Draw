@@ -18,24 +18,28 @@ import { dictionaryCas, loadDictionary, nameList } from "../../src/dictionary.ts
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
 import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
-import { calculated, liveValues, nameValues, propertyValues, withCas } from "../../src/proprows.ts";
+import { calculated, liveValues, nameValues, placeValues, propertyValues, withCas } from "../../src/proprows.ts";
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
 import { followCharts, followLeaders, followLevels } from "../../src/pageplot.ts";
 import { addRisk, riskGroup, riskPlace, substancesOf, syncRisk, withSubstances } from "../../src/riskassess.ts";
-import { interpret, turnScheme, type Part } from "../../src/interpret.ts";
+import { interpret, turnScheme, type Part, type RoleStep } from "../../src/interpret.ts";
+import { elnRecords } from "../../src/eln.ts";
 import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
-import { refusal } from "../../src/notice.ts";import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles, setPseudoReader } from "../../src/names.ts";import { checkedName, namerName, setCageCheck, setComplexNamer, setNamer } from "../../src/naming.ts";import { pseudoReader } from "../../src/pseudo.ts";
+import { refusal } from "../../src/notice.ts";
+import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles, setPseudoReader } from "../../src/names.ts";import { checkedName, namerName, setCageCheck, setComplexNamer, setNamer } from "../../src/naming.ts";import { pseudoReader } from "../../src/pseudo.ts";
 import { onTop } from "../../src/order.ts";
 import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
 import { ASCENT, DESCENT, fitArrows, placeCaptions, render, straightArrow, type Box, type Caption, type Mol } from "../../src/render.ts";
 import { reagentFormula } from "../../src/stoich.ts";
 import { toCt, toSln } from "../../src/textformats.ts";
-import { toFasta, toHelm } from "../../src/helm.ts";
+import { isSeqText, seqBuilt, toFasta, toHelm } from "../../src/helm.ts";
 import { chemfig } from "../../src/chemfig.ts";
+import { writeNmredata } from "../../src/nmredata.ts";
 import { gridViews } from "../../src/gridview.ts";
 import { lines as richLines, type RunStyle } from "../../src/richtext.ts";
+import { rings } from "../../src/rings.ts";
 
 setNamer(iupacName);
 setComplexNamer((m) => complexName(m, { read: nameToSmiles, atoms: nameToAtoms, inchi: toInchi, aux: toInchiAux, cip: cipOf }));
@@ -162,6 +166,8 @@ export function drawing(purpose = "paper", title = "Untitled") {
   };
   const structure = (text: string): Mol | undefined => {
     const s = text.trim(), lines = s.includes("\n");
+    // A sequence (Octet's words or HELM) is built from its monomers, as the drawing shows sequences (issue 27).
+    if (isSeqText(s)) { try { const r = seqBuilt({ build: s, labels: doc.style?.sequences === "labels" }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; } }
     const found = lines && /V[23]000|M {2}END|\$RXN|\$RDFILE|^[<{]/.test(s) ? undefined : named(s);
     if (found || !(lines || looksLikeSmiles(s))) return found;
     try {
@@ -197,31 +203,39 @@ export function drawing(purpose = "paper", title = "Untitled") {
     return { ...out, cycles: out.cycles?.map((x) => (x.id === c.id ? { ...x, radius, at: even } : x)) };
   };
   // Each reagent table as the editor lays it out (gridview.ts), as the editor's Host gives it.
-  const tables = () => {
-    const m = doc, d = drawn(m), s = style();
+  const viewsOf = (m: Mol) => {
+    const d = drawn(m), s = style();
     return gridViews(m, {
       reaction: (id) => findReaction(m, id, d.arrows, d.ink, d.captionBox), steps: (r) => interpret(m, r, d.captionBox),
       structure: (atoms) => analyseCompound(pickAtoms(m, atoms)), inchi: (atoms) => keptInchi(pickAtoms(m, atoms)), reagent,
       captionBox: d.captionBox,
       nameWidth: (t, size, bold = false) => formulaWidth(t, size * d.pt, bold, false, fontStack(s.captionFont)) / L,
       captionSize: s.captionSize, perPt: d.pt / L, experiment: expPage(),
-    }).map((v) => {
+    });
+  };
+  const tables = () => {
+    return viewsOf(doc).map((v) => {
       const right = Math.max(...v.cols.map((c) => c.x)) + v.width / 2;
       return { arrow: v.arrow, view: v, box: [v.start, v.top - v.rows.length * v.rh, right, v.top] as Box, columns: v.cols.map((c) => ({ key: c.key, what: c.what, formula: c.formula, mw: c.mw, product: c.product, typed: c.typed as Record<string, number>, worked: v.solved[c.key] as Record<string, unknown> | undefined })) };
     });
   };
   // The reaction steps in a drawing or a part of it, for RXN files and reaction SMILES (the editor's stepsIn): each
   // step's reactant, product and agent structures. A step needs a reactant and a product structure.
-  const stepsOf = (m: Mol): RxnStep[] => {
-    const d = drawn(m), seen = new Set<number>(), out: RxnStep[] = [], atoms = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+  // Each reaction's steps, as interpret.ts reads them.
+  const reactionsOf = (m: Mol): RoleStep[][] => {
+    const d = drawn(m), seen = new Set<number>(), out: RoleStep[][] = [];
     for (const a of d.arrows) {
       if (seen.has(a.id) || !straightArrow(a)) continue;
       const r = findReaction(m, a.id, d.arrows, d.ink, d.captionBox);
       if (!r) continue;
       r.arrows.forEach((id) => seen.add(id));
-      for (const st of interpret(m, r, d.captionBox)) out.push({ reactants: atoms(st.reactants), products: atoms(st.products), agents: atoms([...st.above, ...st.below]) });
+      out.push(interpret(m, r, d.captionBox));
     }
-    return out.filter((st) => st.reactants.length && st.products.length);
+    return out;
+  };
+  const stepsOf = (m: Mol): RxnStep[] => {
+    const atoms = (list: Part[]) => list.flatMap((x) => (x.kind === "structure" ? [x.atoms] : []));
+    return reactionsOf(m).flat().map((st) => ({ reactants: atoms(st.reactants), products: atoms(st.products), agents: atoms([...st.above, ...st.below]) })).filter((st) => st.reactants.length && st.products.length);
   };
   // A file's text as Export writes it (the editor's formatOf), for the drawing or a part of it. Nothing is saved.
   const fileText = (format: FileFormat, part?: Mol, o?: FileOptions): string | undefined => {
@@ -235,22 +249,44 @@ export function drawing(purpose = "paper", title = "Untitled") {
       if (format === "chemfig") { const d = drawn(m); return chemfig(m, d.frame, d.measure, { compact: o?.compact }).code || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
+      // NMReDATA as Export writes it, with the panel's default frequency and solvent (no shift tables here, so no prediction).
+      if (format === "nmredata") return writeNmredata(chem, { spectra: doc.spectra, mhz: 400, solvent: "CDCl₃", version: JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version, predicting: false })?.text;
       if (format === "inchi") return toInchi(chem) || undefined;
       if (format === "mol" || format === "mol2000") return toMolfile(chem, format === "mol2000");
-      if (format === "sdf") return toSdf(chem);
+      // RD and SD files with each reagent table's values (eln.ts), as the editor's chemistryOf writes them.
+      if (format === "sdf" || format === "sdf2000" || format === "rdf" || format === "rdf2000") {
+        const { records, items } = elnRecords(m, reactionsOf(m), viewsOf(m)), v2000 = format.endsWith("2000");
+        if (format.startsWith("sdf")) return toSdf(chem, v2000, items);
+        return records.length ? toReaction(chem, records.map((r) => r.step), "rdf", v2000, records.map((r) => r.fields)) : undefined;
+      }
       // File > More Formats' text formats, as the editor's chemistryOf writes them.
       if (format === "cml") return toCml(chem);
       if (format === "ct") return toCt(chem, title);
       if (format === "sln") return toSln(chem);
-      if (format === "helm") return toHelm(chem, toInchi, toSmiles);
-      if (format === "fasta") return toFasta(chem, toInchi);
+      if (format === "helm") return toHelm(chem);
+      if (format === "fasta") return toFasta(chem);
       const steps = stepsOf(m);
       if (format === "smiles") return steps.length ? toReaction(chem, steps, "smiles") : toSmiles(chem);
       // (No pictures and no .oct here: a picture needs the app's renderer.)
-      return format === "rxn" && steps.length === 1 ? toReaction(chem, steps, "rxn") : undefined;
+      return (format === "rxn" || format === "rxn2000") && steps.length === 1 ? toReaction(chem, steps, "rxn", format === "rxn2000") : undefined;
     } catch { return undefined; }
   };
   const selected = () => (picked.atoms.length || picked.items.length ? picked : undefined);
+  // The Actions panel's Ring fill (ringfill.#rrggbb or ringfill.none), as the editor's: the rings wholly picked, else
+  // those with a picked atom in them, else every ring of the structures picked (all of them, with nothing picked).
+  // Each takes the fill in place of the one it had.
+  const ringFill = (id: string) => {
+    const v = /^ringfill\.(#[0-9a-f]{6}|none)$/i.exec(id)?.[1];
+    if (!v) return false;
+    const atoms = new Set(picked.atoms.length ? picked.atoms : doc.atoms.map((_, i) => i)), key = (r: number[]) => [...r].sort((p, q) => p - q).join(",");
+    const all = rings({ atoms: doc.atoms.map(() => ({ el: "C", charge: 0, h: 0 })), bonds: doc.bonds.map((b) => ({ a: b.atoms[0], b: b.atoms[1], order: 1 as const })) }).filter((r) => r.length <= 12);
+    const whole = all.filter((r) => r.every((i) => atoms.has(i))), part = all.filter((r) => r.some((i) => atoms.has(i))), touched = new Set(fragments(doc).filter((g) => g.some((i) => atoms.has(i))).flat());
+    const targets = whole.length ? whole : part.length ? part : all.filter((r) => r.every((i) => touched.has(i))), keys = new Set(targets.map(key));
+    const fills = [...(doc.fills ?? []).filter((f) => !keys.has(key(f.atoms))), ...(v === "none" ? [] : targets.map((r) => ({ atoms: r, colour: v })))];
+    set({ ...doc, fills: fills.length ? fills : undefined });
+    return true;
+  };
+  const rework = ({ mol, changed }: { mol: Mol; changed: Set<number> }) => { if (!changed.size) return false; set(liveValues(mol, (atoms, places) => host.values(mol, atoms, places, true), changed)); return true; };
   const COMMANDS: Record<string, () => boolean> = {
     undo: () => { const was = past.pop(); if (!was) return false; future.push(doc); doc = was; undid = true; return true; },
     redo: () => { const next = future.pop(); if (!next) return false; past.push(doc); doc = next; undid = true; return true; },
@@ -284,13 +320,10 @@ export function drawing(purpose = "paper", title = "Untitled") {
     },
     "risk.update": () => { if (!riskGroup(doc)) return false; set(withSubstances(doc, riskList().map(({ inchi: _, ...x }) => x), sheet())); return true; },
     "risk.hazards": () => !!riskGroup(doc),
-    // Hide or show the picked live values' property names, their text worked out at once (as the editor's).
-    "caption.names": () => {
-      const { mol, changed } = nameValues(doc, new Set(picked.items));
-      if (!changed.size) return false;
-      set(liveValues(mol, (atoms, places) => host.values(mol, atoms, places, true), changed));
-      return true;
-    },
+    // Hide or show the picked live values' property names, or set their decimals, their text worked out at once (as
+    // the editor's).
+    "caption.names": () => rework(nameValues(doc, new Set(picked.items))),
+    ...Object.fromEntries(["standard", ..."012345678"].map((p) => [`caption.places.${p}`, () => rework(placeValues(doc, new Set(picked.items), p === "standard" ? undefined : Number(p)))])),
     "risk.remove": () => { const g = riskGroup(doc); if (!g) return false; set(deleteGraphics(doc, new Set(g.items))); return true; },
     ...Object.fromEntries(["paper", "thesis", "slides", "poster", "experiment", "quick"].map((p) => [`new_${p}`, () => { set(fresh(p)); return true; }])),
   };
@@ -304,7 +337,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     cleanReactions: (ids) => cleanReactions((r) => r.arrows.some((id) => ids.has(id))),
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) set(spread(doc, c)); },
     command: (id) => COMMANDS[id]?.() ?? false,
-    act: (id) => COMMANDS[id]?.() ?? false, // the Actions panel's actions need the editor: a menu command here, else nothing
+    act: (id) => COMMANDS[id]?.() ?? ringFill(id), // the Actions panel's actions need the editor: a menu command or Ring fill here, else nothing
     map: (reactants, products) => mapReaction(reactants, products),
     newWindow: () => false,
     reaction: (id) => { const d = drawn(doc); return findReaction(doc, id, d.arrows, d.ink, d.captionBox); },
@@ -346,7 +379,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     },
     export: () => false,
     // (No command here opens a dialog: the stand-in for the editor has none.)
-    dialog: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
+    dialog: () => false, office: () => false, windowless: () => false, asking: () => false, dismiss: () => {},
     // (No windows here: drawings new with a file's text opens none, whatever the file.)
     opens: async () => ({}),
     window: () => ({ id: "headless", name: title }),

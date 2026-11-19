@@ -12,7 +12,7 @@ export const SIZE_OF: Record<string, string[]> = {
   "size-cell": [".variant", ".command"],
 };
 // These take their height from what is in them: the purposes wrap onto more lines, a menu option in a list is a row,
-// and a text field of several lines (Settings > Document > Properties > Comment) is as high as its lines.
+// and a text field of several lines (Settings > Document > Properties > Comment, a note) is as high as its lines.
 const OWN_HEIGHT = ".segmented.purposes, .strip.list .variant, .variant.add, .unit-field.lines";
 
 const said = new Set<string>();

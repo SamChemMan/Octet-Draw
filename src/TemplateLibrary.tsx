@@ -16,6 +16,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
+import { exactFirst } from "./library";
 import { measure, STYLE, textWidth } from "./chem";
 import { fontStack } from "./docstyle";
 import { Segmented } from "./Fields";
@@ -24,6 +25,7 @@ import { arrowShapes, CAPTION_PT, curvePath, isBracket, isOrbital, isPlate, labe
 import { richSpans } from "./richspans";
 import { reduced, timing, useLeaving } from "./motion";
 import { holdCursor, followDrag } from "./cursor";
+import { validAnchor, type TemplateAnchor } from "./edit";
 import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type TemplateSize, type TemplateTool } from "./templates";
 
 // The tool a library is beside (the Ring tool's Templates row, or the Template tool): a template chosen or added there
@@ -149,23 +151,78 @@ export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: num
   );
 }
 
+// The template in hand, drawn large under the library's templates, to choose the atom or bond it attaches by
+// (addTemplate): a click on one chooses it and rings it, a click on it again takes it off. Tab goes to the chosen one
+// (else the first atom), the arrow keys go through the atoms and then the bonds, and Return or Space chooses.
+const sameAnchor = (a: TemplateAnchor | undefined, b: TemplateAnchor) => !!a && ("atom" in a ? "atom" in b && a.atom === b.atom : "bond" in b && a.bond === b.bond);
+export function AttachPicker({ name: title, mol, anchor, onAnchor }: { name: string; mol: Mol; anchor?: TemplateAnchor; onAnchor: (a: TemplateAnchor | undefined) => void }) {
+  const drawn = useMemo(() => drawThumb(mol, STYLE), [mol]), L = STYLE.bond;
+  const xy = (i: number): [number, number] => [mol.atoms[i].location[0] * L, -mol.atoms[i].location[1] * L];
+  const chosen = validAnchor(mol, anchor);
+  const options = useMemo<TemplateAnchor[]>(() => [...mol.atoms.flatMap((a, i) => (a.hidden ? [] : [{ atom: i }])), ...mol.bonds.map((_, k) => ({ bond: k }))], [mol]);
+  const [focus, setFocus] = useState<number>();
+  const hits = useRef<SVGGElement>(null);
+  const at = Math.max(0, options.findIndex((o) => sameAnchor(chosen, o)));
+  const name = (o: TemplateAnchor) => {
+    const atom = (i: number) => `${mol.atoms[i].text ?? mol.atoms[i].label} ${i + 1}`;
+    return "atom" in o ? atom(o.atom) : `Bond ${mol.bonds[o.bond].atoms.map(atom).join(" to ")}`;
+  };
+  const choose = (o: TemplateAnchor) => onAnchor(sameAnchor(chosen, o) ? undefined : o);
+  const key = (e: React.KeyboardEvent, k: number) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (step) {
+      e.preventDefault();
+      const next = (k + step + options.length) % options.length;
+      setFocus(next);
+      (hits.current?.children[next] as SVGElement | undefined)?.focus();
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      choose(options[k]);
+    }
+  };
+  return (
+    <div className="library-attach">
+      <span className="library-attach-name" aria-hidden>Attach by</span>
+      <svg viewBox={drawn.view} role="radiogroup" aria-label={`Attach ${title} by`}>
+        <g ref={hits}>
+          {options.map((o, k) => {
+            const id = "atom" in o ? `a${o.atom}` : `b${o.bond}`, own = { role: "radio", "aria-checked": sameAnchor(chosen, o), "aria-label": name(o), tabIndex: k === (focus ?? at) ? 0 : -1,
+              className: "attach-hit", onClick: () => { setFocus(k); choose(o); }, onKeyDown: (e: React.KeyboardEvent) => key(e, k) };
+            if ("atom" in o) { const [x, y] = xy(o.atom); return <circle key={id} {...own} cx={x} cy={y} r={0.32 * L} />; }
+            // A bond's own part is its middle, so its ends stay the atoms'.
+            const [a, b] = mol.bonds[o.bond].atoms.map(xy), p = (t: number) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+            return <line key={id} {...own} x1={p(0.3)[0]} y1={p(0.3)[1]} x2={p(0.7)[0]} y2={p(0.7)[1]} strokeWidth={0.36 * L} />;
+          })}
+        </g>
+        <g className="attach-ink" aria-hidden>
+          {drawn.fills.map((f, i) => <path key={i} d={f.d} fill={f.colour ?? "currentColor"} />)}
+          <path d={drawn.d} fill="currentColor" stroke="currentColor" strokeWidth={drawn.line} />
+          {drawn.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 // A template's menu, the same in the library and in a floating palette: Edit, Rename, Duplicate, Move to, Move to
-// start, Move to end and Remove for one of the user's own; Add to templates (a copy), Edit a copy and the Ring menu pin
-// for a built-in one. onRename: Rename was chosen (the library shows the name field).
+// start, Move to end, the Ring menu pin and Remove for one of the user's own; Add to templates (a copy), Edit a copy and
+// the Ring menu pin for a built-in one. onRename: Rename was chosen (the library shows the name field).
 export function TemplateMenu({ item, at, keyboard, actions: a, onRename, onClose }: {
   item: LibraryItem; at: { x: number; y: number }; keyboard?: boolean; actions: TemplateActions; onRename?: () => void; onClose: () => void;
 }) {
   const id = ownId(item.kind), kept = !!a.kept?.includes(item.kind);
+  const keep: MenuItem[] = a.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : [];
   const groups: MenuItem[][] = id ? [
     [...(a.onEdit ? [{ key: "edit", name: "Edit", icon: <NotePencil size={18} /> }] : []), ...(onRename ? [{ key: "rename", name: "Rename", icon: <PencilSimple size={18} /> }] : []),
       ...(a.onDuplicate ? [{ key: "duplicate", name: "Duplicate", icon: <Copy size={18} /> }] : [])],
     [...(a.onSets ? [{ key: "move", name: "Move to", icon: <Folders size={18} />, more: true }] : []), ...(a.onToStart ? [{ key: "start", name: "Move to start", icon: <ArrowLineUpLeft size={18} /> }] : []),
       ...(a.onToEnd ? [{ key: "end", name: "Move to end", icon: <ArrowLineDownRight size={18} /> }] : [])],
+    keep,
     a.onRemove ? [{ key: "remove", name: "Remove", icon: <Trash size={18} /> }] : [],
   ] : [[
     ...(a.onCopy && a.onSets ? [{ key: "copy", name: "Add to templates", icon: <BookmarkSimple size={18} />, more: true }] : []),
     ...(a.onEdit ? [{ key: "edit", name: "Edit a copy", icon: <NotePencil size={18} /> }] : []),
-    ...(a.onKeep ? [{ key: "keep", name: "Keep in the Ring menu", icon: <PushPin size={18} />, checked: kept }] : []),
+    ...keep,
   ]];
   const sub = (key: string) => (key === "move" ? { label: "Move to", groups: setItems(a.sets ?? [], (s) => `move:${s}`, "move.new", item.category) }
     : key === "copy" ? { label: "Add to templates", groups: setItems(a.sets ?? [], (s) => `copy:${s}`, "copy.new") } : undefined);
@@ -259,6 +316,7 @@ const NAME_CLICK = 250;
 export function LibraryPanel(p: TemplateActions & {
   current: string; dimmed?: boolean; mine?: LibraryItem[]; size?: TemplateSize; onSize?: (size: TemplateSize) => void;
   tool?: TemplateTool; reveal?: { set: string; id?: string; n: number }; find?: (query: string, read: boolean) => LibraryItem[];
+  attach?: { kind: string; name: string; mol: Mol; anchor?: TemplateAnchor; onAnchor: (a: TemplateAnchor | undefined) => void };
   onAdd?: (set: string) => void; onRename?: (id: string, name: string) => void;
   onChoose: (kind: string) => void; onPress: (e: React.PointerEvent, kind: string) => void;
 }) {
@@ -330,7 +388,7 @@ export function LibraryPanel(p: TemplateActions & {
   const named = read?.typed === typed ? read.items : quick;
   // The library's templates whose name, category or other words have what is typed in them, then the structures found by
   // name (the library's own template where it has one by that name, as P(t-Bu)3 for P(tBu)3); the one named exactly as
-  // typed first.
+  // typed first, then one with an other word exactly as typed (exactFirst).
   const shown = useMemo(() => {
     const q = typed.toLowerCase();
     if (!q) return open.items;
@@ -340,9 +398,10 @@ export function LibraryPanel(p: TemplateActions & {
       const item = all.find((x) => commonKey(x.name) === commonKey(t.name)) ?? t;
       if (!found.some((x) => x.kind === item.kind || commonKey(x.name) === commonKey(item.name))) found.push(item);
     }
-    const exact = (t: LibraryItem) => commonKey(t.name) === commonKey(typed);
-    return [...found.filter(exact), ...found.filter((t) => !exact(t))];
+    return exactFirst(found, typed);
   }, [open, typed, categories, named]);
+  // A new search or another set starts at the top of the grid, so its first template shows.
+  useLayoutEffect(() => { grid.current?.scrollTo(0, 0); }, [typed, category]);
   // A set of the user's is in the order the user gives it: by drag, or Move to start and Move to end.
   const ordering = !query && open.own;
   const order = useOrder(grid, ordering ? p.onPlace : undefined, shown.map((t) => t.kind).join("\n"));
@@ -378,7 +437,7 @@ export function LibraryPanel(p: TemplateActions & {
     if (key === "rename") return setNaming({ from: s.set, value: s.set });
     if (key === "remove") { p.onSets?.remove(s.set); if (category === s.set) setCategory(MY_SET); }
   };
-  // A template's tile, with its pin (or, for one of the user's, its ×). Its name is a field while it is renamed.
+  // A template's tile, with its pin and, for one of the user's, its ×. Its name is a field while it is renamed.
   const cell = (t: LibraryItem, k: number) => {
     const kept = !!p.kept?.includes(t.kind), mine = !!ownId(t.kind), mark = ordering ? order.markOf(t.kind, k === shown.length - 1) : undefined;
     if (editing === t.kind) return (
@@ -413,13 +472,14 @@ export function LibraryPanel(p: TemplateActions & {
           <Thumb item={t} px={px} />
           <span className="library-name">{t.name}</span>
         </button>
-        {mine && p.onRemove ? (
-          <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
-            <X size={12} />
-          </button>
-        ) : p.onKeep && !mine && (
+        {p.onKeep && (
           <button className="variant-action" aria-pressed={kept} aria-label={`Keep ${t.name} in the Ring menu`} data-tip={kept ? "In the Ring menu" : "Keep in the Ring menu"} onClick={() => p.onKeep!(t.kind, !kept)}>
             <PushPin size={12} />
+          </button>
+        )}
+        {mine && p.onRemove && (
+          <button className="variant-action" aria-label={`Remove ${t.name}`} data-tip="Remove" onClick={() => p.onRemove!(t.kind)}>
+            <X size={12} />
           </button>
         )}
       </div>
@@ -493,6 +553,7 @@ export function LibraryPanel(p: TemplateActions & {
           ))}
           {!shown.length && query && <p className="library-none">No template called “{query.trim()}”. Type its name in the Ring list to add it.</p>}
         </div>
+        {p.attach && <AttachPicker key={p.attach.kind} {...p.attach} />}
       </div>
       {menu && item && (
         <TemplateMenu item={item} at={menu.at} keyboard={menu.keyboard} actions={{ ...actions, onPlace: undefined, ...(ordering && ownId(item.kind) ? {} : { onToStart: undefined, onToEnd: undefined }) }}

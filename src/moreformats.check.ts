@@ -1,6 +1,6 @@
 // Run: node src/moreformats.check.ts. Fails loudly if File > More Formats shows while Settings > Pro > More formats is
 // off (it is off for a new user), if the switch leaves Settings > Pro, or if a format on the list misses the File menu,
-// the command palette or its command.
+// the command palette or its command. Also Settings > Pro > Feedback button and OCTET_FEEDBACK=0.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -49,3 +49,20 @@ const ids = lines.map((l) => {
   return m[1];
 });
 assert.equal(new Set(ids).size, ids.length, "each format once");
+
+// Settings > Pro > Feedback button: on for a new user, a saved off stays off after a restart, and off takes the round
+// button out of every window (each window is an Editor and reads settings again on the storage event).
+assert.match(settings, /onlineSearch: true, moreFormats: false, feedbackButton: true,/);
+assert.match(settings, /feedbackButton: saved\.feedbackButton !== false,/);
+assert.match(window, /d\("pro", "Window", "Feedback button", "[^"]*", <Switch on=\{p\.feedbackButton && !p\.feedbackOff\} label="Feedback button" disabled=\{p\.feedbackOff\} onChange=\{p\.onFeedbackButton\} \/>\)/);
+assert.match(window, /p\.chemfigCompact, p\.feedbackButton, p\.feedbackOff,/, "the switch shows its change");
+assert.match(editor, /feedbackButton=\{settings\.feedbackButton\}\s+onFeedbackButton=\{\(feedbackButton\) => setSettings\(\(s\) => \(\{ \.\.\.s, feedbackButton \}\)\)\}\s+feedbackOff=\{feedbackOff\}/);
+assert.equal(editor.match(/<FeedbackLink /g)?.length, 1, "one Feedback button");
+assert.match(editor, /\{settings\.feedbackButton && !feedbackOff && <FeedbackLink /);
+assert.match(editor, /addEventListener\("storage", changed\)/, "a change reaches the other windows");
+// OCTET_FEEDBACK=0 at launch hides it whatever the switch says. The page asks once, in the app only.
+assert.match(main, /#\[tauri::command\]\nfn feedback_off\(\) -> bool \{\n\s+std::env::var\("OCTET_FEEDBACK"\)\.as_deref\(\) == Ok\("0"\)\n\}/);
+assert.match(main, /generate_handler!\[[^\]]*\bfeedback_off\b/);
+assert.match(editor, /useEffect\(\(\) => \{ if \(TAURI\) invoke<boolean>\("feedback_off"\)\.then\(setFeedbackOff, \(\) => \{\}\); \}, \[\]\);/);
+// Help > Report a Problem… stays the other way to write.
+assert.match(main, /"issues" => "https:\/\/github\.com\/SamChemMan\/Octet-Draw\/issues\/new"/);

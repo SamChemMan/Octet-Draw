@@ -13,7 +13,7 @@ import type { Arrow, Caption, Mol } from "./render.ts";
 const more: { sets: { name: string; items: { name: string; also?: string; mol: Mol }[] }[] } = JSON.parse(readFileSync(new URL("./library-more.json", import.meta.url), "utf8"));
 const set = more.sets.find((c) => c.name === "Photochemistry")!.items;
 assert.deepEqual(set.map((t) => t.name), ["Jablonski diagram", "Light", "Photochemical step", "Thermal step", "Absorption", "Fluorescence", "Phosphorescence",
-  "Intersystem crossing", "Internal conversion", "Excited state", "Singlet oxygen", "Triplet oxygen", "Ground state", "Singlet excited state",
+  "Intersystem crossing", "Internal conversion", "Energy transfer", "Excited state", "Singlet oxygen", "Triplet oxygen", "Ground state", "Singlet excited state",
   "Triplet excited state", "Sensitiser", "Excited sensitiser"]);
 const item = (name: string) => set.find((t) => t.name === name)!.mol;
 const len = (a: Arrow) => Math.hypot(a.to[0] - a.from[0], a.to[1] - a.from[1]);
@@ -37,14 +37,27 @@ for (const { name, mol } of set) {
 // the axis where the default style's head starts (0.365 bond lengths and a whole number of half waves).
 const arrow = (name: string) => item(name).arrows![0];
 for (const name of ["Absorption", "Fluorescence", "Phosphorescence"]) assert.equal(arrow(name).style, undefined, name);
-for (const name of ["Light", "Intersystem crossing", "Internal conversion"]) assert.equal(arrow(name).style, "wavy", name);
-for (const name of ["Light", "Photochemical step", "Thermal step", "Absorption", "Fluorescence", "Phosphorescence", "Intersystem crossing", "Internal conversion"]) {
+for (const name of ["Light", "Intersystem crossing", "Internal conversion", "Energy transfer"]) assert.equal(arrow(name).style, "wavy", name);
+for (const name of ["Light", "Photochemical step", "Thermal step", "Absorption", "Fluorescence", "Phosphorescence", "Intersystem crossing", "Internal conversion", "Energy transfer"]) {
   const halves = (len(arrow(name)) - 0.365) / 0.1;
   assert.ok(Math.abs(halves - Math.round(halves)) < 0.01, `${name}: ${len(arrow(name))} bond lengths`);
 }
 assert.ok(arrow("Absorption").to[1] > arrow("Absorption").from[1] && arrow("Fluorescence").to[1] < arrow("Fluorescence").from[1], "absorption up, emission down");
 assert.deepEqual(["Photochemical step", "Thermal step"].map((n) => [arrow(n).kind, plain(item(n).captions![0])]), [["reaction", "hν"], ["reaction", "Δ"]]);
 assert.ok(item("Light").captions![0].italic, "h and ν are quantities: italic");
+// Energy transfer (issue 43): a transition (a line with a full head, not a reaction arrow, so the species beside it are
+// not read as a reaction), left to right, EnT above it as its conditions, in plain type.
+{
+  const a = arrow("Energy transfer"), c = item("Energy transfer").captions!;
+  assert.deepEqual([a.kind, a.end, a.from[1], a.to[1], a.to[0] > a.from[0]], ["line", "full", 0, 0, true]);
+  assert.deepEqual(c.map((x) => [plain(x), x.on?.arrow === a.id, x.on?.side, !!x.italic]), [["EnT", true, "above", false]]);
+  assert.equal(len(a), len(arrow("Intersystem crossing")), "as long as the other lone transitions");
+  // The same objects as Intersystem crossing but its text, so it turns, flips, moves, deletes and saves as that one does.
+  const isc = item("Intersystem crossing"), ent = item("Energy transfer");
+  assert.deepEqual({ ...ent, captions: ent.captions!.map(({ text: _, ...rest }) => rest) }, { ...isc, captions: isc.captions!.map(({ text: _, ...rest }) => rest) });
+  assert.ok(set.indexOf(set.find((t) => t.name === "Energy transfer")!) === set.indexOf(set.find((t) => t.name === "Internal conversion")!) + 1, "after Internal conversion");
+  for (const w of ["EnT", "triplet energy transfer", "Dexter", "FRET", "sensitisation"]) assert.ok(set.find((t) => t.name === "Energy transfer")!.also!.split(", ").includes(w), w);
+}
 // The Jablonski diagram: three levels and two vibrational levels each, absorption, fluorescence, phosphorescence and a
 // wavy intersystem crossing, each labelled, in one group that is not integral (a double-click picks a part).
 const jab = item("Jablonski diagram"), heads = jab.arrows!.filter((a) => a.end === "full");

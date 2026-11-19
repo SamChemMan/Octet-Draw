@@ -36,7 +36,10 @@ assert.ok(n && "smiles" in n && n.smiles.startsWith("OP(=O)(O)OC"), "a 5'-phosph
 browser();
 const chem = await import("./chem.ts");
 await chem.ready;
-const { residues } = await import("./sequence.ts");
+const { buildLabels } = await import("./seqbuild.ts");
+const { fieldSeq } = await import("./helm.ts");
+// Residue labels for the Sequence tool's text, as the builder draws them from its monomers (seqbuild.ts, issue 27).
+const residues = (_full: unknown, text: string) => { const r = fieldSeq(text); const b = r && "seq" in r ? buildLabels(r.seq) : undefined; return b && "mol" in b ? b.mol : undefined; };
 const { nameToSmiles: named } = await import("./names.ts");
 // As Return draws them: a peptide from peptide.ts (never OPSIN), RNA and DNA from nucleic.ts.
 const nameToSmiles = (text: string) => peptideSmiles(text) ?? named(text);
@@ -128,17 +131,6 @@ for (const text of ["peptide: Ac-GPW-NH2", "rna: pACGUp"]) {
 const { residueTexts } = await import("./sequence.ts");
 const keys = residueTexts().map(([smiles]) => chem.toInchi(smiles));
 assert.equal(new Set(keys).size, keys.length, "each residue name is one compound");
-// A preview laid out with its atoms in another order: the labels come from the SMILES read again.
-const { residuesOf } = await import("./sequence.ts");
-{
-  const full = chem.parseStructure(nameToSmiles("peptide: AG")!), turned = { ...full, atoms: [...full.atoms].reverse() };
-  assert.deepEqual(residuesOf("peptide: AG", turned, chem.parseStructure)!.atoms.map((x) => x.text ?? x.label), ["H", "Ala", "Gly", "OH"]);
-}
-
-// Atoms not in the order of the SMILES: drawn in full.
-const shuffled = chem.parseStructure(nameToSmiles("peptide: AG")!);
-assert.equal(residues({ ...shuffled, atoms: [...shuffled.atoms].reverse() }, "peptide: AG"), undefined);
-
 // The editor shows the choices under the field while it holds a sequence.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /className="name-options"/);

@@ -5,7 +5,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Gate, gated, kindOf, MENU_GAP_MS, PALM_MS, pinch, REACH, reachIn, SIDE_MS, SLOP, viewAfter, type Act, type In } from "./touch.ts";
-import { atomAt, bondAt } from "./edit.ts";
+import { atomAt, bondAt, markNear } from "./edit.ts";
+import { markIn, tieAt } from "./arrowlink.ts";
+
+type P2 = [number, number];
 
 let clock = 0;
 const ev = (type: string, id: number, x: number, y: number, more: Partial<In> = {}): In => ({ id, type, x, y, button: 0, buttons: 1, primary: true, t: (clock += 16), ...more });
@@ -364,6 +367,30 @@ const H = 350;
     assert.equal(bondAt(ring, [0, 0], rb), undefined, `nothing in the ring's middle at ${zoom}x`);
     assert.equal(atomAt(ring, [0.62, 0.3], ra) ?? 0, 0, "the nearer atom, or the bond");
   }
+  // A charge (issue 164) half a bond from its atom: the mouse takes it within 0.2, a finger within its reach (at most
+  // 0.4), and neither takes a press nearer the atom.
+  const charged = { atoms: [{ label: "N", location: [0, 0, 0] as [number, number, number], charge: 1 }], bonds: [] };
+  const sign = [{ atom: 0, at: [0.5 * L, -0] as [number, number], key: "charge" }];
+  for (const zoom of [0.25, 1, 2, 8]) {
+    const rm = reachIn(0.2, 0.4, REACH.touch, L * zoom);
+    assert.ok(rm >= 0.2 && rm <= 0.4);
+    assert.equal(markNear(sign, charged, [0.68, 0], L, 0.2)?.mark, "charge");
+    assert.equal(markNear(sign, charged, [0.24, 0], L, rm), undefined, `the atom's side of the middle at ${zoom}x`);
+    assert.equal(markNear(sign, charged, [0.5 + 0.9 * rm, 0], L, rm)?.mark, "charge", `a finger just off the charge at ${zoom}x`);
+  }
+  assert.equal(markNear(sign, charged, [0.75, 0], L, 0.2), undefined, "the mouse's own reach");
+  assert.equal(reachIn(0.2, 0.4, REACH.mouse, L), 0.2);
+  // A curved arrow's end on a lone pair (#143, tieAt and electronAt): the mouse within 0.3, as before; a finger within
+  // an atom's reach, but never on a press nearer the atom (a bare carbanion's pair sits 0.39 out).
+  const anion = { atoms: [{ label: "C", location: [0, 0, 0] as [number, number, number] }, { label: "C", location: [-1, 0, 0] as [number, number, number] }], bonds: [{ type: 1, atoms: [0, 1] as [number, number] }] };
+  const pair = [{ atom: 0, at: [0.39, 0] as [number, number], key: "pair0" }];
+  for (let k = 0; k < 2000; k++) { const d = rnd() * 0.6, q: P2 = [rnd() - 0.5, rnd() - 0.5]; assert.equal(markIn(d, 0.3, [0, 0, 0], q), d < 0.3, "the mouse's lone pair reach"); }
+  for (const zoom of [0.25, 1, 2, 8]) {
+    const ra = reachIn(0.3, 0.4, REACH.touch, L * zoom), atom = (m: typeof anion, q: P2) => atomAt(m, q, ra), bond = (m: typeof anion, q: P2) => bondAt(m, q, reachIn(0.2, 0.5, REACH.touch, L * zoom));
+    assert.deepEqual(tieAt(anion, [0, 0], pair, atom, bond, ra), { atom: 0 }, `a finger on the atom takes the atom at ${zoom}x`);
+    assert.deepEqual(tieAt(anion, [0.39 + 0.9 * ra, 0], pair, atom, bond, ra), { atom: 0, pair: "pair0" }, `a finger just off the pair at ${zoom}x`);
+  }
+  assert.deepEqual(tieAt(anion, [0.1, 0], pair, atomAt, bondAt), { atom: 0, pair: "pair0" }, "the mouse takes the pair within 0.3, as before");
 }
 
 // ——— Cost on the mouse's path ———
@@ -407,7 +434,7 @@ const H = 350;
   const move = editor.slice(editor.indexOf("function onMove("), editor.indexOf("\n  }\n", editor.indexOf("function onMove(")));
   assert.match(move, /if \(gated\(e\.pointerType\)\) return follow\(e, gate\.move\(read\(e\)\)\);\n\s*if \(owner\.current !== undefined\) return;\n\s*reach\.current = 1;\n\s*onPointerMove\(e\);/, "the mouse's move: a type test and an owner test, then as before");
   // Every hit tolerance in px takes the reach.
-  for (const site of ["const cycleAt", "const arrowAt", "const shapeAt", "const tickAt", "const spotHit", "const lineHit", "const tableEdge", "const captionAt", "const labelAt", "const handleAt", "const joinAt", "const resizeAt", "const onTurnHandle", "const onCentreMark", "const pageEdgeAt"]) {
+  for (const site of ["const cycleAt", "const arrowAt", "const shapeAt", "const tickAt", "const spotHit", "const lineHit", "const tableEdge", "const captionAt", "const labelAt", "const handleAt", "const joinAt", "const resizeAt", "const onTurnHandle", "const onCentreMark", "const pageEdgeAt", "const measureAt"]) {
     const at = editor.indexOf(site);
     assert.ok(at > 0, site);
     assert.match(editor.slice(at, editor.indexOf("\n  }", at) > 0 ? Math.min(editor.indexOf("\n  };", at), at + 900) : at + 900), /reach\.current/, `${site} takes the reach`);
@@ -415,10 +442,21 @@ const H = 350;
   // No px value over the zoom is left without the reach, so a hit test added later (a new tool's, a merged branch's)
   // fails here until it takes it. These few snap, place a mark or start a drag, and do not hit anything.
   const NOT_HITS = ["pad = 4 / zoom", "+ 14 / zoom", "Math.hypot(d[0], d[1]) * L * views.get().zoom < 3", "resizeBy(drag.frame", "snapBoxes(boxes.moving", "const tol = 6 / (views.get().zoom * L);"];
-  const px = [/(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \(?(L \* )?(views\.get\(\)\.zoom|zoom\b)/, /zoom\)? < \d+(\.\d+)?(?! \* reach)\b/, /(?<![\w.)*] ?)\b\d+ \/ L \/ views\.get\(\)\.zoom/];
+  const px = [/(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \(?(L \* )?(views\.get\(\)\.zoom|zoom\b)/, /zoom\)? < \d+(\.\d+)?(?! \* reach)\b/, /(?<![\w.)*] ?)\b\d+ \/ L \/ views\.get\(\)\.zoom/,
+    /(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \((?:[^()]|\(\))*zoom/];
   const bare = editor.split("\n").filter((l) => px.some((r) => r.test(l)) && !l.includes("reach.current") && !NOT_HITS.some((n) => l.includes(n)));
   assert.deepEqual(bare.map((l) => l.trim()), [], "a px tolerance without the pen's and the finger's reach");
   assert.ok(editor.includes("const tol = (3 * reach.current) / (views.get().zoom * L);"), "a reagent table's line takes the reach");
+  // Hits in bond lengths take a pen's and a finger's reach too: a charge, radical or lone pair (markNear, and an arrow's
+  // end on one), and the atom or bond a curved arrow's end ties to where it is let go (dropArrows).
+  assert.match(editor, /const markReach = \(\) => \(reach\.current === 1 \? 0\.2 : reachIn\(0\.2, 0\.4, reach\.current, L \* views\.get\(\)\.zoom\)\);/);
+  const marks = editor.match(/markNear\([^)]*\)/g) ?? [];
+  assert.ok(marks.length >= 4 && marks.every((c) => c.endsWith(", markReach()")), `every markNear takes the mark's reach: ${marks.join("; ")}`);
+  assert.match(editor, /const arrowEndAt = \(p: P\) => \{ const r = markReach\(\);/);
+  const drop = editor.slice(editor.indexOf("const dropArrows"), editor.indexOf("\n  };", editor.indexOf("const dropArrows")));
+  assert.match(drop, /tieAt\(m, q, marks, \(x, p\) => still\(atomAt\(x, p, atomReach\(\)\)\), \(x, p\) => \{ const k = bondAt\(x, p, bondReach\(\)\);.*\}, atomReach\(\)\);/, "a curved arrow's end ties with the reach");
+  const electron = editor.slice(editor.indexOf("const electronAt"), editor.indexOf("\n  };", editor.indexOf("const electronAt")));
+  assert.match(electron, /const r = atomReach\(\), near = .*\.filter\(\(x\) => markIn\(x\.d, r, doc\.atoms\[x\.e\.atom\]\?\.location, p\)\)/, "a curved arrow starts on a lone pair with the reach");
   // The page never zooms with a pinch: the canvas takes raw touches, and the root pans only, so menus and cards on body
   // are covered too (touch-action is not inherited: the chain up to the root decides).
   const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");

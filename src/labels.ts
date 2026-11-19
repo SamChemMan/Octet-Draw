@@ -4,6 +4,7 @@
 // (OMe becomes MeO, CO2Et becomes EtO2C), as ChemDraw does in its ACS 1996 output.
 
 import { condensedLabel, condensedRoot } from "./condensed.ts";
+import { builtInNickname, NICKNAME_MOST, onNicknamesChange, ownNickname } from "./nicknames.ts";
 
 const SYMBOLS = (
   "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr " +
@@ -321,13 +322,32 @@ function onRing(text: string): string | undefined {
 // same label from its attachment atom.
 // A phenyl written with what is on it and where is that ring, and n- before a formula is the formula (RING, STRAIGHT).
 // Kept by the label, as the drawing and its captions read each label on every change.
+// A whole label that is a nickname of the user's own is read as it first (Structure > Define Nickname…); one of Octet's
+// built-in nicknames only where the reading here reads nothing (nicknames.ts). Nicknames are whole labels: a part of a
+// longer label is read as before ((oTol)2P is not read through oTol).
 const read = new Map<string, string | undefined>();
+let inside = 0;
 export function labelSmiles(label: string): string | undefined {
-  if (read.has(label)) return read.get(label);
-  const smiles = readLabel(label);
-  if (read.size >= 1000) read.clear();
-  read.set(label, smiles);
-  return smiles;
+  const mine = inside ? undefined : ownNickname(label);
+  if (mine) return mine.smiles;
+  let smiles = read.get(label);
+  if (!read.has(label)) {
+    inside++;
+    try { smiles = readLabel(label); } finally { inside--; }
+    if (read.size >= 1000) read.clear();
+    read.set(label, smiles);
+  }
+  return smiles ?? (inside ? undefined : builtInNickname(label)?.smiles);
+}
+onNicknamesChange(() => ends.clear());
+// Why a label cannot be a nickname of the user's own, or undefined when it can: it is one word of up to 32
+// characters, and no element or generic label (typed on an atom, those are never read as a group). A label Octet reads
+// already may be one: the user's group comes first, as a name of their own does in Name to Structure.
+export function nicknameProblem(label: string): string | undefined {
+  if (!label) return "Type a nickname.";
+  if (/\s/.test(label) || [...label].length > NICKNAME_MOST) return `A nickname is one word of up to ${NICKNAME_MOST} characters.`;
+  if (isElement(label) || standsIn(label)) return `${label} is an element or a generic label.`;
+  return undefined;
 }
 function readLabel(label: string): string | undefined {
   if (SPELT[label]) return GROUPS[SPELT[label]];
