@@ -22,7 +22,7 @@ const MOST = 300_000, RECORDS = 100, ITEMS = 256, LINES = 20_000, LINE = 4096, A
 const SHIFT_MOST = 10_000, J_MOST = 10_000, UNKNOWN = 777.777;
 
 // Text with NMReDATA in it: a data item named NMREDATA_ (anything else of an SD file is a plain SD file).
-export const isNmredata = (text: string) => /^>[ \t]*<NMREDATA_/m.test(text.length > MOST + 1 ? text.slice(0, MOST + 1) : text);
+export const isNmredata = (text: string) => /^>[^<\n]{0,40}<NMREDATA_/m.test(text.length > MOST + 1 ? text.slice(0, MOST + 1) : text);
 
 // The nucleus an atom's element has, as a peak list names it: H 1H, C 13C and so on; a molfile's isotope wins.
 const NATURAL: Record<string, string> = { H: "1H", D: "2H", C: "13C", N: "15N", F: "19F", P: "31P", Si: "29Si", B: "11B", Se: "77Se", Sn: "119Sn", Pt: "195Pt", O: "17O", Li: "7Li", Cd: "113Cd", Hg: "199Hg", Rh: "103Rh", Xe: "129Xe" };
@@ -166,13 +166,14 @@ function record(p: Mol, o: WriteOptions, solo: boolean, out: { predicted: Set<st
       peaks.push({ nucleus: n, mhz: o.mhz * NUCLEI[n].ratio, ...(pr.decoupled ? { decoupled: true } : {}), predicted: true, signals });
     }
   }
-  // Each label once: a base used twice takes a, b, c (H1a, H1b for one CH2's two hydrogens).
+  // Each label once: a base used twice takes a, b, c and on to z, aa, ab (H1a, H1b for one CH2's two hydrogens).
+  const letters = (k: number): string => (k < 26 ? "" : letters(Math.floor(k / 26) - 1)) + String.fromCharCode(97 + (k % 26));
   const count = new Map<string, number>(), seen = new Map<string, number>();
   for (const x of pending) count.set(x.base, (count.get(x.base) ?? 0) + 1);
   for (const x of pending) {
     const k = seen.get(x.base) ?? 0;
     seen.set(x.base, k + 1);
-    const label = count.get(x.base)! > 1 ? `${x.base}${k < 26 ? String.fromCharCode(97 + k) : `_${k + 1}`}` : x.base;
+    const label = count.get(x.base)! > 1 ? `${x.base}${letters(k)}` : x.base;
     x.signal.label = label;
     lines.push({ label, shift: x.signal.range ? (x.signal.range[0] + x.signal.range[1]) / 2 : x.signal.shift, atoms: x.atoms, predicted: x.predicted });
   }
@@ -212,17 +213,22 @@ export function writeNmredata(part: Mol, o: WriteOptions): Written | undefined {
 
 // --- Reading ------------------------------------------------------------------------------------------------------
 
-type Item = { name: string; lines: string[]; cut?: true }; // cut: the file ends inside it
+// cut: the item ends early (the file ends inside it, or it runs past LINES lines). A physical line over LINE
+// characters (or with a NUL, which LONG is) is kept as LONG, so the logical line it belongs to is left out whole.
+type Item = { name: string; lines: string[]; cut?: true };
+const LONG = "\0";
 type Atom = { n: number; implicit: boolean };
 type ReadSignal = { shift: number; range?: [number, number]; name?: string; js: number[]; n?: number; e?: number; labels: string[]; ambiguous?: true };
 type ReadPeaks = { nucleus: string; mhz?: number; signals: ReadSignal[] };
 export type ReadRecord = { molfile: string; count: number; elements: string[]; solvent?: string; assigned: Map<string, { shift?: number; atoms: Atom[] }>; peaks: ReadPeaks[]; own: Set<string> };
 export type Read = { records: ReadRecord[]; lost: Record<string, number> };
 
-// A number as a file may write it: digits with one point, a sign; never NaN, 0x1F, 1e400 or an empty string.
-const NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)$/;
+// A number as a file may write it: digits with one point, a sign; never NaN, 0x1F, 1e400 or an empty string. Each
+// pattern can match a string one way only, so a long run of digits that fails is given up in one pass.
+const NUM = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)`;
+const NUMBER = new RegExp(`^${NUM}$`);
 const number = (s: string) => (NUMBER.test(s) ? Number(s) : NaN);
-const RANGE = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(?:-\s*([-+]?(?:\d+\.?\d*|\.\d+)))?$/;
+const RANGE = new RegExp(String.raw`^(${NUM})\s*(?:-\s*(${NUM}))?$`), JV = new RegExp(String.raw`^(${NUM})\s*(?:\([^()]{0,64}\))?$`);
 // A line's fields: split at commas outside <"…">, each trimmed and unquoted. One pass, no backtracking.
 function fields(line: string): string[] {
   const out: string[] = [];
@@ -251,17 +257,24 @@ function uncommented(line: string): string {
 // line). A record whose molfile has no end is left out.
 function split(text: string, lost: Record<string, number>) {
   const out: { molfile: string; items: Item[] }[] = [], lines = text.split("\n");
-  let mol: string[] = [], items: Item[] = [], ended = false, cur: Item | undefined, extra = 0, dropped = 0;
+  let mol: string[] = [], items: Item[] = [], ended = false, bad = false, cur: Item | undefined, extra = 0, dropped = 0, long = 0, past = 0;
   const finish = () => {
-    if (ended && out.length < RECORDS) out.push({ molfile: mol.join("\n"), items });
-    else if (ended || mol.some((l) => l.trim())) dropped++;
-    mol = []; items = []; ended = false; cur = undefined;
+    if (ended && !bad && out.length < RECORDS) out.push({ molfile: mol.join("\n"), items });
+    else if (ended || bad || mol.some((l) => l.trim())) dropped++;
+    mol = []; items = []; ended = false; bad = false; cur = undefined;
   };
-  for (const raw of lines) {
-    const l = raw.length > LINE ? raw.slice(0, LINE) : raw;
+  for (const l of lines) {
     if (l.startsWith("$$$$")) { finish(); continue; }
-    if (!ended) { mol.push(l); if (/^M {2}END\s*$/.test(l)) ended = true; continue; }
-    if (cur) { if (!l.trim()) cur = undefined; else if (cur.lines.length < LINES) cur.lines.push(l); continue; }
+    // An over-long line in a molfile spoils the record; in an item, its logical line (linesOf); elsewhere it is skipped.
+    const over = l.length > LINE || l.includes(LONG);
+    if (!ended) { if (over) bad = true; else { mol.push(l); if (/^M {2}END\s*$/.test(l)) ended = true; } continue; }
+    if (cur) {
+      if (!l.trim()) cur = undefined;
+      else if (cur.lines.length < LINES) cur.lines.push(over ? LONG : l);
+      else { cur.cut = true; past++; }
+      continue;
+    }
+    if (over) { long++; continue; }
     const head = /^>.*?<([^<>]{1,200})>/.exec(l);
     if (!head) continue;
     if (items.length >= ITEMS) { extra++; cur = { name: "", lines: [] }; continue; }
@@ -271,18 +284,27 @@ function split(text: string, lost: Record<string, number>) {
   if (cur) cur.cut = true;
   if (ended || mol.some((l) => l.trim())) finish();
   if (dropped) lost["structure record"] = dropped;
+  if (long) lost["long line"] = long;
+  if (past) lost.line = past;
   if (extra) lost["data item"] = (lost["data item"] ?? 0) + extra;
   return out;
 }
 
 // An item's lines as the version reads them: from 1.1 on, a line ends at a backslash and a bare line feed is nothing
 // (a version 1.1 file with no backslash at all is read line by line); comments cut off; empty lines dropped. In an
-// item the file ends inside, a last line with no backslash is cut off: left out and counted.
+// item that ends early, a last line with no backslash is cut off: left out and counted. A line over LINE characters,
+// or with an over-long physical line in it, is left out and counted.
 function linesOf(it: Item, version: number, lost: Record<string, number>): string[] {
   const joined = it.lines.join("");
   const raw = version > 1 && joined.includes("\\") ? joined.split("\\") : it.lines.map((l) => l.replace(/\\\s*$/, ""));
   if (it.cut && raw.length > 1 && raw[raw.length - 1].trim()) { raw.pop(); lost["cut-off line"] = (lost["cut-off line"] ?? 0) + 1; }
-  return raw.map((l) => uncommented(l).trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const l of raw) {
+    if (l.length > LINE || l.includes(LONG)) { lost["long line"] = (lost["long line"] ?? 0) + 1; continue; }
+    const t = uncommented(l).trim();
+    if (t) out.push(t);
+  }
+  return out;
 }
 
 // An NMReDATA file read: its records' molfiles, assignments and peak lists. Throws, with the reason to show, when it
@@ -297,7 +319,7 @@ export function readNmredata(input: string): Read {
     if (!elements?.length) { add("structure record"); continue; }
     const count = elements.length, find = (name: string) => r.items.find((x) => x.name === name);
     const v = find("NMREDATA_VERSION"), vText = v?.lines.join("").replace(/\\/g, "").trim() ?? "";
-    const version = NUMBER.test(vText) ? Number(vText) : r.items.some((x) => x.lines.some((l) => /\\\s*$/.test(l))) ? 1.1 : 1;
+    const version = vText.length <= 16 && NUMBER.test(vText) ? Number(vText) : r.items.some((x) => x.lines.some((l) => /\\\s*$/.test(l))) ? 1.1 : 1;
     const rec: ReadRecord = { molfile: r.molfile, count, elements, assigned: new Map(), peaks: [], own: new Set() };
     const solvent = find("NMREDATA_SOLVENT");
     if (solvent) { const s = linesOf(solvent, version, lost)[0]?.split(/[/ ]/)[0]; const name = s && solventName(s); if (name) rec.solvent = name; }
@@ -314,11 +336,12 @@ export function readNmredata(input: string): Read {
           if (/^[A-Za-z][A-Za-z0-9_]*\s*=/.test(line)) continue; // Equivalent= and other properties: the labels stand alone
           const f = fields(line), label = f[0], shift = number(f[1] ?? "");
           if (!label || label.length > LABEL || rec.assigned.has(label) || !Number.isFinite(shift) || Math.abs(shift) > SHIFT_MOST) { add("assignment"); continue; }
-          const atoms: Atom[] = [];
+          const atoms: Atom[] = [], seen = new Set<string>();
           for (const t of f.slice(2, 2 + LABEL_ATOMS)) {
             const m = /^(H?)(\d{1,7})$/i.exec(t), n = m ? Number(m[2]) : 0;
             if (!m || n < 1 || n > count) { add("assignment"); continue; }
-            atoms.push({ n, implicit: !!m[1] });
+            const key = `${m[1] ? "H" : ""}${n}`;
+            if (!seen.has(key)) { seen.add(key); atoms.push({ n, implicit: !!m[1] }); }
           }
           if (f.length > 2 + LABEL_ATOMS) add("assignment", f.length - 2 - LABEL_ATOMS);
           rec.assigned.set(label, { ...(shift !== UNKNOWN ? { shift } : {}), atoms });
@@ -333,12 +356,13 @@ export function readNmredata(input: string): Read {
       for (const l of lines) { const p = /^([A-Za-z][A-Za-z0-9_]*)\s*=(.*)$/.exec(l); if (p && !props.has(p[1].toLowerCase())) props.set(p[1].toLowerCase(), p[2].trim()); }
       // Octet's own prediction: Octet predicts again, so it is not read as measured.
       if (iso && /^Octet\b/.test(props.get("predicted") ?? "")) { rec.own.add(iso); continue; }
-      if (!iso || props.has("sequence") || rec.peaks.some((x) => x.nucleus === iso)) { add(name.startsWith("1D_") ? "extra peak list" : "data item"); continue; }
+      // An edited spectrum (DEPT, APT) is a second list of a nucleus: Octet keeps one.
+      if (!iso || /DEPT|APT/i.test(props.get("sequence") ?? "") || rec.peaks.some((x) => x.nucleus === iso)) { add(name.startsWith("1D_") ? "extra peak list" : "data item"); continue; }
       const larmor = number(props.get("larmor") ?? ""), peaks: ReadPeaks = { nucleus: iso, ...(larmor >= 1 && larmor <= 3000 ? { mhz: larmor } : {}), signals: [] };
       for (const l of lines) {
         if (/^[A-Za-z][A-Za-z0-9_]*\s*=/.test(l)) continue;
         if (peaks.signals.length >= MAX_GROUPS) { add("signal"); continue; }
-        const s = signal(l);
+        const s = signal(l, add);
         if (s) peaks.signals.push(s); else add("signal");
       }
       rec.peaks.push(peaks);
@@ -350,9 +374,10 @@ export function readNmredata(input: string): Read {
 }
 
 // One 1D signal line: the shift or a range, then S=, J=, N=, L=, E= and others (fields with no = go on the one
-// before: J=9.30, 4.81 and L=a, b). Undefined when its shift, or a value Octet uses, is not sound.
-function signal(line: string): ReadSignal | undefined {
-  const f = fields(line.replace(/\s+(?=[A-Za-z][A-Za-z0-9_]*\s*=)/g, ", ")), at = RANGE.exec(f[0]);
+// before: J=9.30, 4.81 and L=a, b). Undefined when its shift is not sound; a value Octet uses that is not sound is left
+// out and counted (add). Each run of spaces before a name= is tried from its start only, so the line is read in one pass.
+function signal(line: string, add: (what: string, n?: number) => void): ReadSignal | undefined {
+  const f = fields(line.replace(/(\S)\s+(?=[A-Za-z][A-Za-z0-9_]*\s*=)/g, "$1, ")), at = RANGE.exec(f[0]);
   if (!at) return undefined;
   const a = Number(at[1]), b = at[2] === undefined ? a : Number(at[2]);
   if (![a, b].every((x) => Number.isFinite(x) && Math.abs(x) <= SHIFT_MOST)) return undefined;
@@ -365,25 +390,28 @@ function signal(line: string): ReadSignal | undefined {
     else if (key) attrs.get(key)!.push(x);
   }
   const out: ReadSignal = { shift: (a + b) / 2, ...(a !== b ? { range: [Math.min(a, b), Math.max(a, b)] as [number, number] } : {}), js: [], labels: [] };
-  const s = attrs.get("S")?.[0];
-  if (s !== undefined) { if (!/^[A-Za-z ]{1,12}$/.test(s)) return undefined; out.name = s === "bs" ? "br s" : s; }
-  for (const j of attrs.get("J") ?? []) {
-    const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(?:\([^()]{0,64}\))?$/.exec(j), v = m ? Number(m[1]) : NaN;
-    if (!m || !(Math.abs(v) <= J_MOST) || out.js.length >= JS) return undefined;
+  // S= with its points dropped ("br. s"), one or more words of letters.
+  const s = attrs.get("S")?.[0]?.replace(/\./g, "").replace(/ +/g, " ").trim();
+  if (s !== undefined) { if (/^[A-Za-z ]{1,12}$/.test(s)) out.name = s === "bs" ? "br s" : s; else add("multiplicity"); }
+  const js = attrs.get("J") ?? [];
+  for (const j of js) {
+    const m = JV.exec(j), v = m ? Number(m[1]) : NaN;
+    if (!m || !(Math.abs(v) <= J_MOST) || js.length > JS) { out.js = []; add("J value", js.length); break; }
     out.js.push(Math.abs(v));
   }
-  for (const [k, put] of [["N", (v: number) => (out.n = v)], ["E", (v: number) => (out.e = v)]] as const) {
+  for (const [k, what, put] of [["N", "nucleus count", (v: number) => (out.n = v)], ["E", "integral", (v: number) => (out.e = v)]] as const) {
     const t = attrs.get(k)?.[0];
     if (t === undefined) continue;
     const v = number(t);
-    if (!Number.isFinite(v) || v < 0 || v > 10000) return undefined;
-    put(v);
+    if (!Number.isFinite(v) || v < 0 || v > 10000) add(what); else put(v);
   }
+  const labels = new Set<string>();
   for (const l of attrs.get("L") ?? []) {
     if (l.startsWith("(") || (l.endsWith(")") && !/\(.*\)/.test(l))) { out.ambiguous = true; continue; }
-    if (l && l.length <= LABEL && out.labels.length < LABEL_ATOMS) out.labels.push(l);
+    if (!l) continue;
+    if (l.length <= LABEL && labels.size < LABEL_ATOMS) labels.add(l); else if (!labels.has(l)) add("assignment");
   }
-  if (out.ambiguous) out.labels = [];
+  out.labels = out.ambiguous ? [] : [...labels];
   return out;
 }
 
@@ -400,32 +428,67 @@ export function nmredataDrawing(text: string, read: (sdf: string) => Mol, id: nu
   const links = mol.atoms.map((): number[] => []);
   type Built = { shift: number; range?: [number, number]; given: Given; atoms: number[]; height: number };
   const byNucleus = new Map<string, { mhz?: number; signals: Built[] }>();
-  let offset = 0;
+  // stamp: the signal an atom was last added to, so each signal's atoms are found once each.
+  const stamp = new Int32Array(mol.atoms.length).fill(-1);
+  let offset = 0, signalNo = 0;
   for (const r of records) {
     const used = new Set<string>();
-    const atomsOf = (label: string) => {
-      const a = r.assigned.get(label);
-      if (!a) return [];
-      used.add(label);
-      return a.atoms.map((x) => offset + x.n - 1);
+    // A signal's atoms: those of each label, each atom once, at most the record's atom count.
+    const atomsOf = (labels: string[]) => {
+      const out: number[] = [], no = signalNo++;
+      for (const label of labels) {
+        const a = r.assigned.get(label);
+        if (!a) continue;
+        used.add(label);
+        for (const x of a.atoms) {
+          if (out.length >= r.count) break;
+          const i = offset + x.n - 1;
+          if (stamp[i] !== no) { stamp[i] = no; out.push(i); }
+        }
+      }
+      return out;
     };
+    const mine = new Map<string, Built[]>(); // this record's signals, by nucleus
     for (const p of r.peaks) {
-      const spec = byNucleus.get(p.nucleus) ?? { signals: [] };
+      const spec = byNucleus.get(p.nucleus) ?? { signals: [] }, own: Built[] = mine.get(p.nucleus) ?? [];
+      mine.set(p.nucleus, own);
       if (!byNucleus.has(p.nucleus)) byNucleus.set(p.nucleus, spec);
       spec.mhz ??= p.mhz;
       for (const s of p.signals) {
         if (s.ambiguous) add("ambiguous link");
-        const atoms = sound ? s.labels.flatMap(atomsOf) : [];
+        const atoms = sound ? atomsOf(s.labels) : [];
         if (!sound && s.labels.length) add("assignment", s.labels.length);
         const label0 = s.labels.map((l) => r.assigned.get(l)?.shift).find((x) => x !== undefined);
         const height = s.n && s.n > 0 ? s.n : s.e && s.e > 0 ? s.e : 1;
-        byNucleus.get(p.nucleus)!.signals.push({
-          shift: s.shift, ...(s.range ? { range: s.range } : {}), atoms: [...new Set(atoms)], height,
+        const b: Built = {
+          shift: s.shift, ...(s.range ? { range: s.range } : {}), atoms, height,
           given: { shift: s.range ? s.shift : label0 ?? s.shift, ...(s.name ? { name: s.name } : {}), ...(s.js.length ? { js: s.js } : {}), ...(s.n !== undefined && s.n > 0 ? { n: s.n } : {}), ...(s.range ? { range: s.range } : {}) },
-        });
+        };
+        spec.signals.push(b);
+        own.push(b);
       }
     }
-    // Assignments no peak list names: by the nucleus their atoms have, to the signal at their shift, else one of their own.
+    // Assignments no peak list names: by the nucleus their atoms have, to this record's signal at their shift (a stick
+    // within 0.0001 ppm, else a range round it), else one of their own. Each found in a step or two: sticks by their
+    // shift to 4 places; ranges by their low end, each with the widest range that starts at or below it.
+    const index = new Map<string, { at: Map<number, Built>; ranges: Built[]; widest: Built[] }>();
+    const indexOf = (nucleus: string) => {
+      let ix = index.get(nucleus);
+      if (ix) return ix;
+      const list = mine.get(nucleus) ?? [], at = new Map<number, Built>(), ranges = list.filter((x) => x.range).sort((x, y) => x.range![0] - y.range![0]), widest: Built[] = [];
+      for (const x of list) if (!x.range && !at.has(Math.round(x.shift * 1e4))) at.set(Math.round(x.shift * 1e4), x);
+      ranges.forEach((x, k) => widest.push(k && widest[k - 1].range![1] >= x.range![1] ? widest[k - 1] : x));
+      index.set(nucleus, (ix = { at, ranges, widest }));
+      return ix;
+    };
+    const near = (ix: ReturnType<typeof indexOf>, shift: number) => {
+      const key = Math.round(shift * 1e4);
+      for (const k of [key, key - 1, key + 1]) { const x = ix.at.get(k); if (x && Math.abs(x.shift - shift) < 1e-4) return x; }
+      let lo = 0, hi = ix.ranges.length - 1, j = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (ix.ranges[mid].range![0] <= shift) { j = mid; lo = mid + 1; } else hi = mid - 1; }
+      return j >= 0 && ix.widest[j].range![1] >= shift ? ix.widest[j] : undefined;
+    };
+    const joined = new Map<Built, Set<number>>(); // a signal's atoms as assignments join it
     for (const [label, a] of r.assigned) {
       if (used.has(label) || !a.atoms.length) continue;
       const first = a.atoms[0], el = first.implicit ? "H" : r.elements[first.n - 1], nucleus = NATURAL[el];
@@ -433,24 +496,28 @@ export function nmredataDrawing(text: string, read: (sdf: string) => Mol, id: nu
       if (a.shift === undefined || !sound) { add("assignment"); continue; }
       const spec = byNucleus.get(nucleus) ?? { signals: [] };
       if (!byNucleus.has(nucleus)) byNucleus.set(nucleus, spec);
-      const atoms = a.atoms.map((x) => offset + x.n - 1), into = spec.signals.find((s) => s.range ? a.shift! >= s.range[0] && a.shift! <= s.range[1] : Math.abs(s.shift - a.shift!) < 1e-4);
-      if (into) into.atoms = [...new Set([...into.atoms, ...atoms])];
-      else spec.signals.push({ shift: a.shift, atoms, height: 1, given: { shift: a.shift } });
+      const ix = indexOf(nucleus), atoms = a.atoms.map((x) => offset + x.n - 1), into = near(ix, a.shift);
+      if (into) { const set = joined.get(into) ?? new Set(into.atoms); joined.set(into, set); for (const i of atoms) set.add(i); }
+      else { const b: Built = { shift: a.shift, atoms, height: 1, given: { shift: a.shift } }; spec.signals.push(b); ix.at.set(Math.round(a.shift * 1e4), b); }
     }
+    for (const [b, set] of joined) b.atoms = [...set];
     offset += r.count;
   }
   // Each nucleus a peak list: one stick at each signal (as tall as its nuclei), each signal its own multiplet.
+  // Given.n is a number of nuclei: a ¹³C list's N= (hydrogens on the carbon) is not one.
+  const withoutN = ({ n: _, ...g }: Given): Given => g;
   const spectra: Measured[] = [], solvent = records.find((r) => r.solvent)?.solvent;
   let next = id;
   for (const [nucleus, spec] of byNucleus) {
     if (!spec.signals.length) continue;
     if (spectra.length >= SPECTRA) { add("extra peak list"); continue; }
+    add("signal", spec.signals.length - MAX_GROUPS);
     const sigs = spec.signals.slice(0, MAX_GROUPS).sort((a, b) => b.shift - a.shift), traced = nucleus === "1H" || nucleus === "19F";
     const xs = Float64Array.from(sigs, (s) => s.shift), y = Float64Array.from(sigs, (s) => (traced ? s.height : 1));
     const m = fromJcamp({ title, kind: "nmr", nucleus, ...(spec.mhz ? { mhz: spec.mhz } : {}), ...(solvent ? { solvent } : {}), xUnit: "ppm", yUnit: "", first: xs[0], last: xs[xs.length - 1], y, xs, sticks: true }, next);
     // A multiplet's range: the file's, else a little round its stick (wider for ¹³C, whose sticks a CDXML grid moves more).
     const w = nucleus === "1H" ? 0.003 : 0.03;
-    const groups = sigs.map((s, k) => ({ id: next + k, lo: s.range ? Math.min(s.range[0], s.shift - w) : s.shift - w, hi: s.range ? Math.max(s.range[1], s.shift + w) : s.shift + w, manual: true as const, given: traced ? { ...s.given, n: s.given.n ?? s.height } : s.given }));
+    const groups = sigs.map((s, k) => ({ id: next + k, lo: s.range ? Math.min(s.range[0], s.shift - w) : s.shift - w, hi: s.range ? Math.max(s.range[1], s.shift + w) : s.shift + w, manual: true as const, given: traced ? { ...s.given, n: s.given.n ?? s.height } : withoutN(s.given) }));
     sigs.forEach((s, k) => { for (const i of s.atoms) if (links[i] && !links[i].includes(next + k)) links[i].push(next + k); });
     spectra.push({ ...m, groups, ...(traced ? { per: 1 } : {}) });
     next += sigs.length;

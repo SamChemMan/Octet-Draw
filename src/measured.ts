@@ -307,7 +307,7 @@ export function keepIds(fresh: Measured, old: Measured | undefined, next: number
   const groups = fresh.groups.map((g) => {
     const o = old.groups.find((x) => !used.has(x.id) && (x.lo + x.hi) / 2 >= g.lo && (x.lo + x.hi) / 2 <= g.hi);
     if (o) used.add(o.id);
-    return { ...g, id: o ? o.id : next++, ...(o?.given ? { given: o.given } : {}) };
+    return { ...g, id: o ? o.id : next++ };
   });
   return { ...fresh, groups };
 }

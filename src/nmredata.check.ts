@@ -13,7 +13,7 @@ await chem.ready;
 const { readTables, predict } = await import("./nmr.ts");
 readTables(gunzipSync(readFileSync(new URL("../data/nmr/shifts.bin.gz", import.meta.url))));
 const { isNmredata, molfileAtoms, nmredataDrawing, readNmredata, writeNmredata } = await import("./nmredata.ts");
-const { analyse, fromSpectrumObject, measuredText, readMeasured, spectrumObject, writeMeasured } = await import("./measured.ts");
+const { analyse, fromJcamp, fromSpectrumObject, keepIds, measuredText, readMeasured, spectrumObject, writeMeasured } = await import("./measured.ts");
 const { insertMol, setLabel } = await import("./edit.ts");
 const { graphOf } = await import("./naming.ts");
 type Mol = import("./render.ts").Mol;
@@ -256,6 +256,22 @@ assert.throws(() => readNmredata(mnova.slice(0, molfile.length - 20)), /It has n
 const cut = readNmredata(mnova.slice(0, mnova.indexOf("1.2600, S=t") + 3));
 assert.equal(cut.records[0].peaks[0].signals.length, 2);
 assert.deepEqual(cut.lost, { "cut-off line": 1 });
+// A version 1.0 line over 4,096 characters is left out whole and counted: the cut is not read as atom 1 of "12".
+const v10 = mnova.replace("1.1\\", "1.0").replace(/\\\n/g, "\n");
+const longLine = `X1, 3.0000, ${"2, ".repeat(1361)}12`;
+assert.equal(longLine.indexOf("12", 4000), 4095);
+const rl = readNmredata(v10.replace("H5, 4.1200, H5\n", `H5, 4.1200, H5\n${longLine}\n`));
+assert.ok(!rl.records[0].assigned.has("X1"));
+assert.deepEqual(rl.lost, { "long line": 1, "2D correlation": 3 });
+assert.deepEqual(opened(v10.replace("H5, 4.1200, H5\n", `H5, 4.1200, H5\n${longLine}\n`)).links, base.links);
+// The same in version 1.1, a logical line over 4,096 characters made of short physical lines; and a long line between
+// items, skipped and counted.
+assert.deepEqual(lost(mnova.replace("H5, 4.1200, H5\\", `H5, 4.1200, H5\\\n${longLine.replace(/, /g, ", \n")}\\`)), { "long line": 1, "2D correlation": 3 });
+assert.deepEqual(lost(mnova.replace(">  <NMREDATA_LEVEL>", `${"y".repeat(5000)}\n>  <NMREDATA_LEVEL>`)), { "long line": 1, "2D correlation": 3 });
+// A molfile with an over-long line: its record is left out.
+assert.throws(() => readNmredata(mnova.replace("\n", `${"z".repeat(5000)}\n`)), /It has no structures/);
+// An item past 20,000 lines: the rest counted; the logical line it cuts left out.
+assert.equal(lost(mnova.replace("2.0500, S=s", `${"5.0\n".repeat(20_010)}2.0500, S=s`)).line, 4 + 20_010 + 2 - 20_000);
 // Atoms out of range: 0, -3, 999 on 6 atoms, H0, H99, 1.5, x.
 const outOf = mnova.replace("H5, 4.1200, H5", "H5, 4.1200, H5, 0, -3, 999, H0, H99, 1.5, x");
 assert.deepEqual(lost(outOf), { assignment: 7, "2D correlation": 3 });
@@ -282,6 +298,16 @@ assert.deepEqual(lost(mnova.replace(">  <NMREDATA_1D_1H>", ">  <NMREDATA_ASSIGNM
 assert.equal(readNmredata(mnova.replace(/\n\n(?=> {2}<NMREDATA_2D)[^]*?\n\n/, "\n\n").repeat(101)).records.length, 100);
 // Levels 1 and 3: interchangeable assignments named; Equivalent= read as plain labels.
 assert.deepEqual(lost(mnova.replace("0\\", "1\\").replace("6, 14.2000, 6\\", "6, 14.2000, 6\\\nInterchangeable=H5, H6\\\nEquivalent=5, 6\\")), { "interchangeable assignment": 1, "2D correlation": 3 });
+// Numbered item heads ("> 1 <NMREDATA_…>") are NMReDATA too.
+const numbered = mnova.replace(/>  </g, "> 1 <");
+assert.ok(isNmredata(numbered));
+same(numbered, "numbered heads");
+// A pulse sequence on each 1D tag: still read; only an edited one (DEPT, APT) is a second list.
+same(mnova.replace("Larmor=400.13\\", "Larmor=400.13\\\nSequence=zg30\\").replace("Decoupled=1H\\", "Decoupled=1H\\\nSequence=zgpg30\\"), "Sequence= on each list");
+// A value Octet cannot use is left out alone and counted: the signal and its links stay. "br. s" is br s.
+const attrs = readNmredata(mnova.replace("S=q, J=7.14, N=2", `S=br. s, J=${Array(21).fill("7.14").join(",")}, N=2`).replace("N=3, L=H1, E=3.00", "N=3, L=H1, E=50000").replace("S=t,", "S=t!,"));
+assert.deepEqual(attrs.lost, { "J value": 21, integral: 1, multiplicity: 1, "2D correlation": 3 });
+assert.deepEqual(attrs.records[0].peaks[0].signals.map((x) => [x.name, x.js.length, x.labels]), [["br s", 0, ["H5"]], ["s", 0, ["H1"]], [undefined, 1, ["H6"]]]);
 // What Octet has no model for: NMREDATA_J, a DEPT list, a second ¹H list and a selective 1D, all named.
 const more = mnova.replace(">  <NMREDATA_2D", `>  <NMREDATA_J>\nH5, H6, 7.14, nb=3\\\n\n>  <NMREDATA_1D_13C#2>\nLarmor=100.62\\\nSequence=DEPT135\\\n60.4000, I=-80\\\n\n>  <NMREDATA_1D_1H_D_1H>\nLarmor=400.13\\\n1.26, I=4\\\n\n>  <NMREDATA_2D`);
 assert.deepEqual(lost(more), { "coupling list": 1, "extra peak list": 2, "2D correlation": 3 });
@@ -327,6 +353,15 @@ for (const m of [h, c]) {
   assert.equal(measuredText(back2, analyse(back2)), measuredText(m, analyse(m)));
 }
 
+// A measured ¹H spectrum opened over the imported list keeps the old multiplets' ids (their atoms stay linked), never
+// the file's values: its own count, multiplicity and shift.
+const lorentz = (x: number) => [[4.12, 1], [2.05, 3], [1.26, 3]].reduce((sum, [p, h]) => sum + (h * 0.00125 ** 2) / ((x - p) ** 2 + 0.00125 ** 2), 0);
+const measuredH = fromJcamp({ title: "real", kind: "nmr", nucleus: "1H", mhz: 400.13, solvent: "CDCl₃", xUnit: "ppm", yUnit: "", first: 11, last: -1, y: Float64Array.from({ length: 32768 }, (_, i) => lorentz(11 - (12 * i) / 32767)) }, 900);
+const kept = keepIds(measuredH, h, 1000), q412 = h.groups.find((g) => g.given?.shift === 4.12)!;
+assert.ok(kept.groups.some((g) => g.id === q412.id), "the 4.12 multiplet keeps its id");
+assert.ok(kept.groups.every((g) => !g.given), "no file values on a measured spectrum");
+assert.equal(Math.round(analyse(kept).groups.find((g) => g.id === q412.id)!.n), 1, "its own count, not the file's 2");
+
 // --- Speed and size -------------------------------------------------------------------------------------------------
 
 const huge = mnova.replace("2.0500, S=s", `${"5.0000, S=s, N=1\\\n".repeat(Math.floor((300_000 - mnova.length) / 18))}2.0500, S=s`);
@@ -335,9 +370,30 @@ const rh = readNmredata(huge);
 const readMs = performance.now() - t;
 assert.equal(rh.records[0].peaks[0].signals.length, 2000);
 assert.ok(readMs < 300, `a 300,000-character file read in ${readMs.toFixed(0)} ms`);
+const over = huge + "x".repeat(300_001 - huge.length);
 t = performance.now();
-assert.throws(() => readNmredata(huge + "x".repeat(300_001 - huge.length)), /more than 300,000 characters/);
+assert.throws(() => readNmredata(over), /more than 300,000 characters/);
 assert.ok(performance.now() - t < 50);
+// Files made to be slow: a 290,000-digit version (one line, and 4,000-digit lines), runs of 4,089 spaces, 4,000-digit
+// shifts and J values; an assignment naming atom H1 1,000 times, with 1,000 repeats of its label in each of about 70
+// signals. Each read in one pass, under 300 ms.
+const slow: [string, string][] = [
+  ["version on one line", mnova.replace("1.1\\", `${"1".repeat(290_000)}x\\`)],
+  ["version on many lines", mnova.replace("1.1\\", `${"1".repeat(4000)}\n`.repeat(72) + "x\\")],
+  ["spaces", mnova.replace("2.0500, S=s", `${`5.0000${" ".repeat(4088)}x\\\n`.repeat(72)}2.0500, S=s`)],
+  ["digits", mnova.replace("2.0500, S=s", `${`${"5".repeat(4000)}x\\\n`.repeat(72)}2.0500, S=s`)],
+  ["J digits", mnova.replace("2.0500, S=s", `${`5.0, J=${"5".repeat(4000)}x\\\n`.repeat(72)}2.0500, S=s`)],
+  ["repeats", mnova.replace("H1, 2.0500, H1", `H1, 2.0500${", H1".repeat(1000)}`).replace("2.0500, S=s, N=3, L=H1", `${`5.0000, L=H1${", H1".repeat(999)}\\\n`.repeat(70)}2.0500, S=s, N=3, L=H1`)],
+];
+for (const [what, text] of slow) {
+  assert.ok(text.length > 280_000 && text.length <= 300_000, `${what}: ${text.length} characters`);
+  t = performance.now();
+  nmredataDrawing(text, read, 1);
+  const ms = performance.now() - t;
+  assert.ok(ms < 300, `${what}: read in ${ms.toFixed(0)} ms`);
+  assert.deepEqual(opened(text).links.map((l) => [...new Set(l)].filter((x) => x !== "1H:5.00")), base.links, what);
+}
+assert.deepEqual(readNmredata(slow[5][1]).records[0].assigned.get("H1")!.atoms, [{ n: 1, implicit: true }]);
 const taxol = chem.parseStructure("CC1=C2[C@@]([C@]([C@H]([C@@H]3[C@]4([C@H](OC4)C[C@@H]([C@]3(C(=O)[C@@H]2OC(=O)C)C)O)OC(=O)C)OC(=O)c5ccccc5)(C[C@@H]1OC(=O)[C@H](O)[C@@H](NC(=O)c6ccccc6)c7ccccc7)O)(C)C");
 t = performance.now();
 const wt = writeNmredata(taxol, opts)!;
