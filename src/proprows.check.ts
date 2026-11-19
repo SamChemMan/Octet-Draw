@@ -38,6 +38,11 @@ assert.equal(row(standard, "hbd"), undefined, "no row without Octet's calculator
 for (const k of ["hbd", "hba"]) assert.match(PROPERTY_ROWS[0].find((r) => r.key === k)!.method, /RDKit's NumHBD and NumHBA.*Lipinski's rule of five/);
 const countLines = propertyReport(counts).split("\n");
 assert.ok(countLines.includes("H-bond donors\t1") && countLines.includes("H-bond acceptors\t3") && countLines.includes("Rings\t1"));
+// Add to drawing writes them as any row, with and without names, and two structures' values with a semicolon.
+assert.equal(plainOf(propertyRuns(counts, ["hbd", "hba", "rings"], 0)), "H-bond donors: 1\nH-bond acceptors: 3\nRings: 1");
+assert.equal(plainOf(propertyRuns(counts, ["hbd", "rings"], 0, false)), "1\n1");
+const pair = propertyValues([drawn, drawn], () => ({ tpsa: 0, pka: [], donors: 2, acceptors: 1, rings: 0 }));
+assert.equal(plainOf(propertyRuns(pair, ["hbd"])), "H-bond donors: 2; 2");
 
 // Every row says how its value is found.
 for (const r of PROPERTY_ROWS.flat()) assert.ok(r.method.length > 10, `${r.key} has a method`);
@@ -114,4 +119,7 @@ assert.equal(liveValues(read, alkane), read);
 // Placed from My templates (kept as Octet's files), it is for the template's atoms, not the drawing's first atoms.
 assert.equal(liveValues(addTemplate(ethane, parse(serialize(m)), { point: [0, 9] }), alkane).captions!.at(-1)!.text, "Formula: C3H8");
 assert.deepEqual(LIVE_ATTRS.filter((k) => PROPERTY_ATTRS.includes(k)), []);
+// A live value of the H-bond rows and Rings follows its structure as the other rows do.
+[m, id] = addCaption(ethane, live({ rows: "hbd hba rings" }));
+assert.equal(at(liveValues(m, () => counts)).text, "H-bond donors: 1\nH-bond acceptors: 3\nRings: 1");
 console.log("proprows.check: ok");

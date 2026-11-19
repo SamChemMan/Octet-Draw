@@ -142,6 +142,10 @@ assert.deepEqual([acetamide.donors, acetamide.acceptors], [1, 1]);
 const ammonium = properties(mol("C N+", "0-1")), water = properties(mol("O", ""));
 assert.deepEqual([ammonium.donors, ammonium.acceptors], [1, 0]);
 assert.deepEqual([water.donors, water.acceptors], [0, 0]);
+// Glucose (pyranose) and urea, with RDKit's NumHBD and NumHBA (PubChem's Cactvs counts agree for both).
+const hbond = (g: Graph) => { const p = properties(g); return [p.donors, p.acceptors, p.rings]; };
+assert.deepEqual(hbond(mol("C C C C C O C O O O O O", "0-1 1-2 2-3 3-4 4-5 5-0 4-6 0-7 1-8 2-9 3-10 6-11")), [5, 6, 1], "glucose");
+assert.deepEqual(hbond(mol("N C N O", "0-1 1-2 1=3")), [2, 1, 0], "urea");
 // Rings: a cage counts its ring closures (cubane 5; RDKit's symmetrised set gives 6), and
 // separate structures add their own rings (benzene and cyclopropane: 2), with an atom on its own adding none.
 assert.equal(properties(mol("C C C C C C C C", "0-1 1-2 2-3 3-0 4-5 5-6 6-7 7-4 0-4 1-5 2-6 3-7")).rings, 5);
