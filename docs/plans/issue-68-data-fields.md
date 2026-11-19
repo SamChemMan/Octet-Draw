@@ -3,7 +3,8 @@
 Stefan Schramm's issue 68 (his priority: high). A chemist attaches named fields to a structure (internal number,
 batch, melting point, freezer), shows any of them next to it, and gets them in SDF. Branch `item/68-data-fields`,
 cut from `release-1.2-mcp` at b30f413, for release 1.2 (Friday 20 November 2026). This is the plan. Code starts
-after Sam's yes.
+after Sam's yes. On 19 November the branch was rebased on bd7c684 for release 1.1.3, which ships with the AI features
+off: the dialog, the menus and the files work in full, and the MCP parts wait for 1.2.
 
 ## What Octet has at b30f413
 
@@ -320,6 +321,7 @@ title), Name, Value, Show, Cancel, Save, Edit attached data…, Select linked ob
 | `src/datafields.check.ts`: undo chain through `history.ts` | Rule 8; S15 |
 | `src/datafields.check.ts`: timing | J9; S25, S26 (median of interleaved runs, with and without fields) |
 | `src/datafieldsmcp.check.ts` (headless host) | J8; S22-S24, S28 |
+| `src/datafields-stress.check.ts` | Every case of the stress list but S18 and S19, each on its own |
 | `src/numbering.check.ts` and a chemistry check | Rule 7; S27 |
 | `npm run look` with the dialog in `sweep.js`, light and dark | J7; S20, S32 |
 | `npm test`, `cargo test` (the menu item) | Everything else still passes |
@@ -395,6 +397,8 @@ with fields, not its CDX, and not a plain two-atom CDXML. `open -g -a` returned 
 timed out, while `name of every document` still answered ("Untitled ACS Document 1996-1"). ChemDraw seems to wait on
 a dialog that only the screen shows. Tried again at 12:28 with the lock: the same. The files are ready to check once
 ChemDraw opens files again (Octet's CDXML and CDX with three fields on aspirin, one shown, and two on ethanol).
+
+19 November: still not done. Another session held the ChemDraw lock for the whole finishing run.
 
 ## Open for Sam
 
