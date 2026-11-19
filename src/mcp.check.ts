@@ -20,6 +20,7 @@ const { calculated, propertyValues } = await import("./proprows.ts");
 const { structures: structuresIn } = await import("./chem.ts");
 const { addCaption, subset } = await import("./edit.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
+const { isSeqText, seqBuilt, toFasta, toHelm } = await import("./helm.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
 type Box = import("./render.ts").Box;
@@ -47,17 +48,18 @@ const captionBox = (id: number): Box | undefined => {
 };
 const host: Host = {
   doc: () => m, style: () => m.style ?? DEFAULT_STYLE, ready: async (names) => { readied.push(names); },
-  structure: (t) => { const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
+  // A sequence (Octet's words or HELM) is built from its monomers, as the drawing shows sequences, as the editor does.
+  structure: (t) => { if (isSeqText(t)) { const r = seqBuilt({ build: t, labels: m.style?.sequences === "labels" }); return r && !("problem" in r) ? r : undefined; } const s = NAMES[t] ?? t; try { const x = parseStructure(s); return x.atoms.length ? x : undefined; } catch { return undefined; } },
   tidy: (x) => x, named: (t) => t in NAMES,
   begin: (step) => { steps.push(step); open++; }, end: (made) => { open--; shown = made; },
   set: (x) => { assert.equal(open, 1, "a change outside its undo step"); return (m = x); }, settle: async () => {},
   cleanReactions: (ids) => ids.size, tidyCycle: () => {}, command: (id) => { commands.push(id); return id === "undo" || id.startsWith("new_") || id.startsWith("arrange_") || id === "centre_page"; }, newWindow: () => undefined,
   act: (id) => { commands.push(id); return true; }, map: (r, p) => mapReaction(r, p),
-  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
+  reaction: (id) => findReaction(m, id, m.arrows ?? [], ink, captionBox), ink, textBox: captionBox, labelBox: (i) => { const a = m.atoms[i]; if (!a || (!a.text && a.label === "C")) return undefined; const w = (a.text ?? a.label).length * 0.3; return [a.location[0] - 0.2, a.location[1] - 0.3, a.location[0] - 0.2 + w, a.location[1] + 0.3]; }, tables: () => [], fileText: (f, _, o) => (f === "smiles" ? toSmiles(expandLabels(m)) : f === "helm" ? toHelm(m) : f === "fasta" ? toFasta(m) : f === "pdf" ? Promise.resolve(JSON.stringify(o)) : undefined), inchi: () => ({}), reagent: (t) => { const w = formulaWeight(t); return w ? { formula: t, weight: w } : undefined; },
   problems: () => problems(m), smiles: (x) => toSmiles(expandLabels(x)), formula: (x) => analyseCompound(x)?.formula, name: () => undefined,
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
-  file: (t) => host.structure(t), export: () => true, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
+  file: (t) => host.structure(t), export: () => true, office: () => false, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
   libreoffice: async () => { commands.push("add_to_libreoffice"); return libreOfficeFails; },
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
@@ -2168,10 +2170,40 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   const added = ["predict_19f", "predict_31p", "mass_spec", "toggle_spectrum", "spectrum_full_screen", "spectrum_close", "expand_generic_sdf", "insert_file", "image_to_structure", "recognise_structures", "opacity.40", "arrow.style.membrane"];
   for (const c of added) assert.ok(!(await call("advanced", { tool: "run_command", args: { command: c } })).isError, c);
   assert.deepEqual([...new Set(commands)], added);
-  for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"]]) {
+  for (const [name, set] of [["C70", "Carbon"], ["Jablonski diagram", "Photochemistry"], ["Dean-Stark trap", "Lab"], ["Lipid bilayer", "Biomolecules"], ["Octahedral", "Polyhedra"],
+    ["β-Cyclodextrin", "Supramolecules"], ["Cucurbit[7]uril", "Supramolecules"], ["Energy transfer", "Photochemistry"]]) {
     fresh();
     r = await call("advanced", { tool: "place_template", args: { name } });
-    assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name} from ${set}\\.`));
+    assert.ok(!r.isError, text(r)); assert.match(text(r), new RegExp(`Placed ${name.replace(/[[\]]/g, "\\$&")} from ${set}\\.`));
+  }
+  // The hosts and energy transfer (issues 97 and 43), by the word a chemist types: one general word picks the
+  // commonest host. A wrong name, a blank one, one too long, the wrong set or no such atom is an error that says so,
+  // and leaves the drawing as it was.
+  {
+    for (const [word, name] of [["cyclodextrin", "β-Cyclodextrin"], ["cucurbituril", "Cucurbit[6]uril"], ["CB[8]", "Cucurbit[8]uril"], ["alpha-CD", "α-Cyclodextrin"], ["EnT", "Energy transfer"], ["energy transfer", "Energy transfer"]]) {
+      fresh();
+      r = await call("advanced", { tool: "place_template", args: { name: word } });
+      assert.ok(!r.isError && text(r).startsWith(`Placed ${name} from`), `${word}: ${text(r)}`);
+    }
+    assert.deepEqual([m.arrows?.[0].style, m.captions?.map((c) => [c.text, !!c.on])], ["wavy", [["EnT", true]]], "Energy transfer: a wavy arrow with EnT on it");
+    fresh();
+    await call("advanced", { tool: "place_template", args: { name: "Cucurbit[6]uril" } });
+    const before = { m };
+    for (const args of [{ name: "" }, { name: "   " }, { name: "CB[9]" }, { name: "x".repeat(10_000) }, { name: "β-Cyclodextrin", set: "Photochemistry" }, { name: "β-Cyclodextrin", on: "s99.1" }]) {
+      r = await call("advanced", { tool: "place_template", args });
+      assert.ok(r.isError && text(r).length < 2000, `${JSON.stringify(args).slice(0, 60)}: ${text(r).slice(0, 200)}`);
+      // (The editor makes an undo step only when the drawing changes.)
+      assert.ok(m === before.m, `${JSON.stringify(args).slice(0, 60)}: the drawing as it was`);
+    }
+    for (const name of ["", "   "]) assert.equal(text(await call("advanced", { tool: "place_template", args: { name } })), "Give the name of a template, or a word it is found by.");
+    assert.equal(text(await call("advanced", { tool: "place_template", args: { name: "CB[9]" } })), "The library has no template CB[9].");
+    // Two sent at once (two AI sessions): both placed, one undo step each, side by side.
+    fresh();
+    const both = await Promise.all([call("advanced", { tool: "place_template", args: { name: "β-Cyclodextrin" } }, "s-1"), call("advanced", { tool: "place_template", args: { name: "Cucurbit[5]uril" } }, "s-2")]);
+    assert.ok(both.every((x) => !x.isError) && steps.length === 2 && m.atoms.length === 77 + 60, both.map(text).join(" "));
+    const box = (atoms: Mol["atoms"]) => [Math.min(...atoms.map((a) => a.location[0])), Math.min(...atoms.map((a) => a.location[1])), Math.max(...atoms.map((a) => a.location[0])), Math.max(...atoms.map((a) => a.location[1]))];
+    const [b1, b2] = [box(m.atoms.slice(0, 77)), box(m.atoms.slice(77))];
+    assert.ok(b1[2] < b2[0] || b2[2] < b1[0] || b1[3] < b2[1] || b2[3] < b1[1], "neither on top of the other");
   }
   fresh();
   r = await callOk("change", { operations: [{ op: "shape", kind: "gel", box: [0, 0, 6, 6], gel: { unit: "bp", lanes: 3, names: ["L", "A"], range: [5000, 100], bands: [{ lane: 1, size: 500 }, { lane: 2, size: 2000 }, { lane: 7, size: 50 }] } }] });
@@ -2901,11 +2933,11 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(t.text, "Formula: C2H6O\nMolecular weight: 46.07", "in the panel's order");
   assert.deepEqual(t.property, { attrs: { rows: "formula weight" }, atoms: fragments(m)[0] });
   assert.deepEqual(t.runs?.filter((r) => r.script === "sub").map((r) => r.text), ["2", "6"]);
-  // Without names, decimals 3: the values alone; a predicted value keeps its mark after the value.
+  // Without names, decimals 3 (on every number): the values alone; a predicted value keeps its mark after the value.
   o = await call("advanced", { tool: "add_values", args: { ids: [s[1]], rows: ["weight", "logp"], decimals: 3, names: false } });
   assert.ok(!o.isError, text(o));
   const u = m.captions!.at(-1)!, uid = `t${u.id}`;
-  assert.match(u.text, /^78\.114\n\d\.\d\d \(predicted\)$/);
+  assert.match(u.text, /^78\.114\n\d\.\d\d\d \(predicted\)$/);
   assert.deepEqual(u.property!.attrs, { rows: "weight logp -names", places: "3" });
   // read: the summary gives each structure's values, a full read each text's.
   const summary = (await call("read", {})).structuredContent;
@@ -2917,7 +2949,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   o = await call("change", { operations: [{ op: "edit", ids: [uid], names: true }] });
   assert.ok(!o.isError, text(o));
   const shown = m.captions!.find((c) => c.id === u.id)!;
-  assert.match(shown.text, /^Molecular weight: 78\.114\nlogP \(predicted\): \d\.\d\d$/);
+  assert.match(shown.text, /^Molecular weight: 78\.114\nlogP \(predicted\): \d\.\d\d\d$/);
   assert.deepEqual([shown.property!.attrs, shown.colour, shown.size, shown.angle, shown.font, shown.runs!.every((r) => r.bold)], [{ rows: "weight logp", places: "3" }, "#c42b2b", 14, 30, "Times New Roman", true]);
   assert.equal(steps.length, 1);
   // The same setting again changes no text.
@@ -2980,6 +3012,27 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.equal(steps.length, 1);
   assert.deepEqual(m.captions!.filter((c) => c.property).map((c) => [c.text, c.property!.attrs.rows]), [["46.07", "weight -names"], ["78.11", "weight -names"]]);
   fresh();
+}
+
+// Sequences (issue 27): a peptide drawn by HELM with its links, as the drawing shows sequences; set_style's sequences
+// draws them again either way; read gives HELM as Copy As writes it.
+{
+  fresh();
+  const INSULIN = "PEPTIDE1{G.I.V.E.Q.C.C.T.S.I.C.S.L.Y.Q.L.E.N.Y.C.N}|PEPTIDE2{F.V.N.Q.H.L.C.G.S.H.L.V.E.A.L.Y.L.V.C.G.E.R.G.F.F.Y.T.P.K.T}$PEPTIDE1,PEPTIDE1,6:R3-11:R3|PEPTIDE1,PEPTIDE2,7:R3-7:R3|PEPTIDE1,PEPTIDE2,20:R3-19:R3$$$V2.0";
+  let out = await call("draw", { kind: "structures", structures: [{ text: INSULIN }] });
+  assert.ok(!out.isError, text(out));
+  assert.equal(analyseCompound(m)?.formula, "C257H383N65O77S6", "insulin");
+  assert.equal(text(await call("read", { format: "helm" })), INSULIN, "read helm: as Copy As writes it");
+  assert.equal(text(await call("read", { format: "fasta" })), "GIVEQCCTSICSLYQLENYCN\nFVNQHLCGSHLVEALYLVCGERGFFYTPKT");
+  const atoms = m.atoms.length;
+  out = await call("advanced", { tool: "set_style", args: { sequences: "labels" } });
+  assert.match(text(out), /sequences now show as residue labels/);
+  assert.ok(m.atoms.length < atoms && m.atoms.every((a) => a.inner || a.text || a.label === "H"), "residue labels");
+  assert.equal(m.style?.sequences, "labels");
+  assert.equal(text(await call("read", { format: "helm" })), INSULIN, "the same HELM");
+  await call("advanced", { tool: "set_style", args: { sequences: "atoms" } });
+  assert.equal(m.atoms.length, atoms, "atoms again");
+  assert.match(text(await call("advanced", { tool: "set_style", args: { sequences: "beads" } })), /sequences: not one of atoms, labels/);
 }
 
 console.log("mcp: protocol, argument checks and tools pass.");

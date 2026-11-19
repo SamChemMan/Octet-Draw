@@ -2,12 +2,15 @@
 // SMILES for the name field's live preview (quickMol), and Return's fully tidied structure (fullMol, a piece at a
 // time). It answers each message with the structure, or undefined: also when Indigo fails to load, so the name field
 // never waits for an answer that does not come.
+// A sequence for the Sequence tool's field (issue 27) is built from its monomers (seqbuild.ts).
 import { fullMol, quickMol, ready } from "./chem.ts";
+import { seqBuilt, type SeqAsk } from "./helm.ts";
 
-self.onmessage = async (e: MessageEvent<{ smiles: string } | { pieces: string[]; ions: boolean }>) => {
+self.onmessage = async (e: MessageEvent<{ smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk>) => {
   const ask = e.data;
   try {
     await ready;
+    if ("build" in ask) return postMessage(seqBuilt(ask));
     if ("smiles" in ask) return postMessage(quickMol(ask.smiles));
     postMessage(ask.pieces.map((p) => fullMol(p, ask.ions)));
   } catch { postMessage(undefined); }

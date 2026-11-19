@@ -12,9 +12,9 @@ use base64::Engine;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use crate::export::{file_of, Export, FORMATS, PICTURES};
+use crate::export::{default_extension, file_of, Export, FORMATS, PICTURES};
 
-const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--recursive] [--overwrite]";
+const USAGE: &str = "Use: Octet Draw --convert INPUT... --to FORMAT [--out FOLDER] [--width 89mm] [--dpi 600] [--style PRESET or FILE] [--each] [--into FILE] [--recursive] [--overwrite]";
 
 #[derive(Debug, PartialEq, Default)]
 pub struct Job {
@@ -25,6 +25,7 @@ pub struct Job {
     dpi: Option<f64>,
     style: Option<String>, // a preset, or a drawing whose style to use
     each: bool,
+    into: Option<PathBuf>, // one SDF for every compound of every file
     recursive: bool,
     overwrite: bool,
 }
@@ -42,6 +43,7 @@ pub fn parse(args: &[String]) -> Result<Job, String> {
             "--dpi" => job.dpi = Some(number(&value("--dpi")?, 36.0, 2400.0).ok_or("--dpi is a resolution from 36 to 2400.")?),
             "--style" => job.style = Some(value("--style")?),
             "--each" => job.each = true,
+            "--into" => job.into = Some(value("--into")?.into()),
             "--recursive" => job.recursive = true,
             "--overwrite" => job.overwrite = true,
             x if x.starts_with("--") => return Err(format!("Octet does not know {x}. {USAGE}")),
@@ -54,6 +56,12 @@ pub fn parse(args: &[String]) -> Result<Job, String> {
     if job.each && !job.to.starts_with("sdf") {
         return Err("--each goes with --to sdf.".into());
     }
+    if job.into.is_some() && !job.to.starts_with("sdf") {
+        return Err("--into goes with --to sdf.".into());
+    }
+    if job.into.is_some() && job.out.is_some() {
+        return Err("--into names the new file, so it does not take --out.".into());
+    }
     Ok(job)
 }
 
@@ -61,10 +69,11 @@ fn number(text: &str, min: f64, max: f64) -> Option<f64> {
     text.trim().parse::<f64>().ok().filter(|n| (min..=max).contains(n))
 }
 
-// An Export format by its id or an extension it takes (tiff, jpeg, smiles), not a template file or Home's list.
+// An Export format by its id or an extension it takes (tiff, jpeg, smiles), not a template file, Home's list or an ELN
+// archive (File > More Formats only).
 fn format_of(name: &str) -> Option<&'static str> {
     let name = name.trim().trim_start_matches('.').to_ascii_lowercase();
-    FORMATS.iter().filter(|f| !matches!(f.0, "ctp" | "cts" | "csv")).find(|f| f.0 == name || f.2.contains(&name.as_str())).map(|f| f.0)
+    FORMATS.iter().filter(|f| !matches!(f.0, "ctp" | "cts" | "csv" | "eln")).find(|f| f.0 == name || f.2.contains(&name.as_str())).map(|f| f.0)
 }
 
 // The files to convert: each file named, and every file in each folder named that Octet reads (in folders inside it
@@ -75,12 +84,32 @@ fn files(job: &Job) -> (Vec<PathBuf>, Vec<(PathBuf, String)>) {
     for input in &job.inputs {
         match fs::metadata(input) {
             Ok(m) if m.is_dir() => folder(input, job.recursive, &mut found, &mut wrong),
+            Ok(m) if m.is_file() && written(job, input) => wrong.push((input.clone(), "Octet writes this file, so it does not read it.".into())),
             Ok(m) if m.is_file() => found.push(input.clone()),
             Ok(_) => wrong.push((input.clone(), "This is not a file.".into())),
             Err(e) => wrong.push((input.clone(), reason(&e))),
         }
     }
+    // A file named and also in a folder named is converted once.
+    let mut seen = HashSet::new();
+    found.retain(|p| !written(job, p) && seen.insert(fs::canonicalize(p).unwrap_or_else(|_| p.clone())));
     (found, wrong)
+}
+// The --into file and its numbered copies (si.sdf, si 2.sdf), which a run writes: never read, or a run would take an
+// earlier run's compounds in again.
+fn written(job: &Job, p: &Path) -> bool {
+    let Some(into) = &job.into else { return false };
+    let folder = |p: &Path| p.parent().map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }).and_then(|d| fs::canonicalize(d).ok());
+    // The Mac and Windows file systems take SI.sdf and si.sdf as one file.
+    let fold = |s: &std::ffi::OsStr| if cfg!(target_os = "linux") { s.to_string_lossy().into_owned() } else { s.to_string_lossy().to_lowercase() };
+    let (stem, ext) = (fold(into.file_stem().unwrap_or_default()), into_ext(into));
+    let name = fold(p.file_stem().unwrap_or_default());
+    let numbered = name.strip_prefix(&format!("{stem} ")).is_some_and(|n| n.parse::<u32>().is_ok());
+    (name == stem || numbered) && p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) && folder(p) == folder(into)
+}
+// The --into file's extension, as it was given (.sdf when it has none).
+fn into_ext(into: &Path) -> &str {
+    into.extension().and_then(|e| e.to_str()).unwrap_or("sdf")
 }
 fn folder(dir: &Path, recursive: bool, found: &mut Vec<PathBuf>, wrong: &mut Vec<(PathBuf, String)>) {
     let mut entries: Vec<PathBuf> = match fs::read_dir(dir) {
@@ -106,6 +135,11 @@ fn reads(ext: &str) -> bool {
 }
 fn reads_drawing(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| crate::open::DRAWINGS.contains(&e.to_ascii_lowercase().as_str()))
+}
+// The name --into gives a file's compounds: its path from the folder named (inner/d.cdx), or its name when it was named.
+fn source(job: &Job, p: &Path) -> String {
+    let r = job.inputs.iter().find_map(|i| p.strip_prefix(i).ok().filter(|r| !r.as_os_str().is_empty())).or(p.file_name().map(Path::new)).unwrap_or(p);
+    r.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 fn reason(e: &std::io::Error) -> String {
     match e.kind() {
@@ -167,21 +201,34 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
             return 1;
         }
     }
-    if let Some(out) = &job.out {
+    if let Some(out) = job.out.as_deref().or(job.into.as_deref().and_then(Path::parent)) {
         if let Err(e) = fs::create_dir_all(out) {
             say!(stderr, "{}: {e}", out.display());
             return 1;
         }
     }
-    let ext = FORMATS.iter().find(|f| f.0 == job.to).map_or(job.to.as_str(), |f| f.2[0]);
+    let ext = Some(default_extension(&job.to)).filter(|e| !e.is_empty()).unwrap_or(job.to.as_str());
     // Every file to convert is kept until it is read. Then --overwrite may write over it (a.cdxml --to cdxml).
     let mut kept: HashSet<PathBuf> = found.iter().filter_map(|p| fs::canonicalize(p).ok()).collect();
-    let mut done = 0;
+    let (mut done, mut sdf) = (0, Vec::new());
     for p in &found {
         if let Ok(read) = fs::canonicalize(p) {
             kept.remove(&read);
         }
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if job.into.is_some() {
+            match convert(app, job, p, &name, style_text.as_deref()) {
+                Ok((bytes, lost)) => {
+                    done += 1;
+                    let n = bytes.split(|b| *b == b'\n').filter(|l| *l == b"$$$$").count();
+                    let lost = lost.map(|l| format!(" (Octet left out {l}.)")).unwrap_or_default();
+                    say!(stdout, "{name}: {n} compound{}{lost}", if n == 1 { "" } else { "s" });
+                    sdf.extend(bytes);
+                }
+                Err(why) => say!(stderr, "{name}: {why}"),
+            }
+            continue;
+        }
         match convert(app, job, p, &name, style_text.as_deref()).and_then(|(bytes, lost)| {
             let to = target(p, job.out.as_deref(), ext, job.overwrite, &kept);
             crate::write_atomic(&to, &bytes).map(|_| (to, lost)).map_err(|e| e.to_string())
@@ -196,8 +243,20 @@ pub fn run(app: &AppHandle, job: &Job) -> i32 {
             Err(why) => say!(stderr, "{name}: {why}"),
         }
     }
+    // --into: one file at the end, when a file gave it records, never written over without --overwrite.
+    let mut into = String::new();
+    if let Some(path) = job.into.as_deref().filter(|_| !sdf.is_empty()) {
+        let to = target(path, None, into_ext(path), job.overwrite, &kept);
+        match crate::write_atomic(&to, &sdf) {
+            Ok(_) => into = format!(" into {}", to.display()),
+            Err(e) => {
+                say!(stderr, "{}: {e}", to.display());
+                done = 0;
+            }
+        }
+    }
     let all = found.len() + wrong.len();
-    say!(stdout, "Converted {done} of {all} file{}.", if all == 1 { "" } else { "s" });
+    say!(stdout, "Converted {done} of {all} file{}{into}.", if all == 1 { "" } else { "s" });
     i32::from(done < all)
 }
 
@@ -236,8 +295,8 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     hidden(app, json!({ "text": text, "name": stem, "style": style }), |window| {
         restyle(app, window, job, style)?;
-        if job.each {
-            return each(app, window, &job.to);
+        if job.each || job.into.is_some() {
+            return each(app, window, &job.to, job.into.as_ref().map(|_| source(job, path)).as_deref());
         }
         let mut args = json!({ "format": job.to });
         for (k, v) in [("dpi", job.dpi), ("width_mm", job.width)] {
@@ -266,19 +325,31 @@ fn convert(app: &AppHandle, job: &Job, path: &Path, name: &str, style: Option<&s
     })
 }
 
-// --to sdf --each: every compound in the drawing, each a record with its compound number as a data field.
-fn each(app: &AppHandle, window: &str, to: &str) -> Result<(Vec<u8>, Option<String>), String> {
+// --to sdf --each: every compound in the drawing, each a record with its compound number as a data field. With
+// --into, the file it is from as a data field too.
+fn each(app: &AppHandle, window: &str, to: &str, file: Option<&str>) -> Result<(Vec<u8>, Option<String>), String> {
     let summary = crate::mcp::call(app, window, "read", json!({}))?;
     let mut out = String::new();
     for s in summary["structures"].as_array().into_iter().flatten() {
         let mol = crate::mcp::call(app, window, "read", json!({ "format": if to == "sdf2000" { "mol2000" } else { "mol" }, "ids": [s["id"]] }))?;
-        out += mol["text"].as_str().unwrap_or_default().trim_end();
-        if let Some(n) = s["number"].as_str() {
-            out += &format!("\n> <Number>\n{n}\n");
-        }
-        out += "\n$$$$\n";
+        let fields = [("Number", s["number"].as_str()), ("File", file)];
+        out += &record(mol["text"].as_str().unwrap_or_default(), &fields);
     }
     Ok((out.into_bytes(), lost(&summary)))
+}
+
+// One SDF record: a MOL and the data fields it has, each value on one line. A line break or other control character
+// is a space, and a value that would read as the record's end ($$$$) or a field's start (>) gets a space before it.
+fn record(mol: &str, fields: &[(&str, Option<&str>)]) -> String {
+    let mut out = format!("{}\n", mol.trim_end());
+    for (k, v) in fields.iter().filter_map(|(k, v)| Some((k, (*v)?))) {
+        let mut v: String = v.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        if v.starts_with("$$$$") || v.starts_with('>') {
+            v.insert(0, ' ');
+        }
+        out += &format!("> <{k}>\n{v}\n\n");
+    }
+    out + "$$$$\n"
 }
 
 #[cfg(test)]
@@ -292,12 +363,20 @@ mod tests {
     #[test]
     fn the_arguments_are_read() {
         let job = parse(&args("a.cdxml figures --to PDF --out out --width 89mm --dpi 600 --style ACS --recursive")).unwrap();
-        assert_eq!(job, Job { inputs: vec!["a.cdxml".into(), "figures".into()], to: "pdf".into(), out: Some("out".into()), width: Some(89.0), dpi: Some(600.0), style: Some("ACS".into()), each: false, recursive: true, overwrite: false });
+        assert_eq!(job, Job { inputs: vec!["a.cdxml".into(), "figures".into()], to: "pdf".into(), out: Some("out".into()), width: Some(89.0), dpi: Some(600.0), style: Some("ACS".into()), each: false, into: None, recursive: true, overwrite: false });
         assert_eq!(parse(&args("a.cdx --to tiff --overwrite")).map(|j| (j.to, j.overwrite)), Ok(("tif".into(), true)));
         assert_eq!(parse(&args("a.cdx --to smiles")).map(|j| j.to), Ok("smi".into()));
+        // NMReDATA by its id; an SD file's extension is still SDF, and its file is named .nmredata.sdf.
+        assert_eq!(parse(&args("a.cdx --to nmredata")).map(|j| j.to), Ok("nmredata".into()));
+        assert_eq!(parse(&args("a.cdx --to sdf")).map(|j| j.to), Ok("sdf".into()));
+        assert_eq!((default_extension("nmredata"), default_extension("sdf"), default_extension("tif")), ("nmredata.sdf", "sdf", "tif"));
         assert_eq!(parse(&args("a.cdx --to .sdf --each")).map(|j| (j.to, j.each)), Ok(("sdf".into(), true)));
         assert_eq!(parse(&args("a.cdx --to width --width 89")).err().as_deref(), Some("Octet cannot convert to that format."));
-        for wrong in ["a.cdx", "--to pdf", "a.cdx --to ctp", "a.cdx --to csv", "a.cdx --to pdf --each", "a.cdx --to pdf --width 0mm", "a.cdx --to png --dpi 9999", "a.cdx --to pdf --dpi", "a.cdx --to pdf --colour red"] {
+        assert_eq!(parse(&args("figures --to sdf --into si.sdf")).map(|j| (j.into, j.each)), Ok((Some("si.sdf".into()), false)));
+        assert_eq!(parse(&args("a.cdx --to sdf2000 --each --into si.sdf")).map(|j| j.to), Ok("sdf2000".into()));
+        assert_eq!(parse(&args("a.cdx --to pdf --into si.sdf")).err().as_deref(), Some("--into goes with --to sdf."));
+        assert_eq!(parse(&args("a.cdx --to sdf --into si.sdf --out out")).err().as_deref(), Some("--into names the new file, so it does not take --out."));
+        for wrong in ["a.cdx --to sdf --into", "a.cdx", "--to pdf", "a.cdx --to ctp", "a.cdx --to csv", "a.cdx --to pdf --each", "a.cdx --to pdf --width 0mm", "a.cdx --to png --dpi 9999", "a.cdx --to pdf --dpi", "a.cdx --to pdf --colour red"] {
             assert!(parse(&args(wrong)).is_err(), "{wrong}");
         }
     }
@@ -353,6 +432,45 @@ mod tests {
         }
         assert!(reads_drawing(Path::new("a.CDXML")) && reads_drawing(Path::new("b.oct")) && !reads_drawing(Path::new("notes.txt")) && !reads_drawing(Path::new("c.mol")));
         assert_eq!(files(&job(true)).0, ["a.oct", "b.cdxml", "c.MOL", "e.rdf", "f.cml", "g.ket", "h.pdf", "inner/d.cdx"].map(|f| dir.join(f)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // --into: every compound of every file in one SDF, each record with its number (when it has one) and the file it
+    // is from (its path from the folder named). --each's records are as they were. The --into file is never read.
+    #[test]
+    fn into_gives_one_sdf_of_every_compound() {
+        let mol = "\n  Octet\n\n  1  0  0  0  0  0            999 V2000\n    0.0000    0.0000    0.0000 C   0  0\nM  END\n";
+        assert_eq!(record(mol, &[("Number", Some("7")), ("File", None)]), format!("{}> <Number>\n7\n\n$$$$\n", mol));
+        assert_eq!(record(mol, &[("Number", None), ("File", None)]), format!("{}$$$$\n", mol));
+        // A value is one line, and never reads as a record's end or a field's start.
+        assert!(record(mol, &[("File", Some("a\nb\r\t.cdx"))]).ends_with("> <File>\na b  .cdx\n\n$$$$\n"));
+        assert!(record(mol, &[("Number", Some("$$$$")), ("File", Some("> <x>.cdx"))]).ends_with("> <Number>\n $$$$\n\n> <File>\n > <x>.cdx\n\n$$$$\n"));
+
+        let dir = std::env::temp_dir().join(format!("octet-convert-into-{}", std::process::id()));
+        fs::create_dir_all(dir.join("inner")).unwrap();
+        for f in ["a.cdxml", "si.sdf", "si 2.sdf", "si 2b.sdf", "si.cdx", "inner/a.cdx", "inner/si.sdf"] {
+            fs::write(dir.join(f), "x").unwrap();
+        }
+        // A file named and in a folder named is read once. The --into file, named, is said with its reason.
+        let job = Job { inputs: vec![dir.clone(), dir.join("inner/a.cdx"), dir.join("si.sdf")], to: "sdf".into(), into: Some(dir.join("si.sdf")), recursive: true, ..Default::default() };
+        let (found, wrong) = files(&job);
+        assert_eq!(found, ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx"].map(|f| dir.join(f)));
+        assert_eq!(found.iter().map(|p| source(&job, p)).collect::<Vec<_>>(), ["a.cdxml", "inner/a.cdx", "inner/si.sdf", "si 2b.sdf", "si.cdx"]);
+        assert_eq!(wrong, [(dir.join("si.sdf"), "Octet writes this file, so it does not read it.".to_string())]);
+        // SI.sdf is si.sdf on the Mac and Windows.
+        assert_eq!(written(&job, &dir.join("SI 4.SDF")), !cfg!(target_os = "linux"));
+        assert_eq!(source(&Job { inputs: vec![dir.join("a.cdxml")], ..Default::default() }, &dir.join("a.cdxml")), "a.cdxml");
+        // Two drawings' records, one after the other: the file every reader takes (each record ends $$$$).
+        let combined = [record(mol, &[("Number", Some("7")), ("File", Some("a.cdxml"))]), record(mol, &[("Number", None), ("File", Some("inner/a.cdx"))])].concat();
+        assert_eq!(combined.lines().filter(|l| *l == "$$$$").count(), 2);
+        assert_eq!(combined.matches("> <File>\n").count(), 2);
+        assert_eq!(combined, format!("{mol}> <Number>\n7\n\n> <File>\na.cdxml\n\n$$$$\n{mol}> <File>\ninner/a.cdx\n\n$$$$\n"));
+        // The file there is kept: the new one gets a number, unless --overwrite.
+        assert_eq!(target(&dir.join("si.sdf"), None, "sdf", false, &HashSet::new()), dir.join("si 3.sdf"));
+        assert_eq!(target(&dir.join("si.sdf"), None, "sdf", true, &HashSet::new()), dir.join("si.sdf"));
+        assert_eq!(target(Path::new("si.sdf"), None, "sdf", false, &HashSet::new()), Path::new("si.sdf"));
+        assert_eq!((into_ext(Path::new("si.sd")), into_ext(Path::new("si"))), ("sd", "sdf"));
+        assert!(fs::create_dir_all(Path::new("si.sdf").parent().unwrap()).is_ok(), "--into with no folder in it");
         fs::remove_dir_all(&dir).unwrap();
     }
 

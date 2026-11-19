@@ -6,7 +6,7 @@ import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Era
 import { chairPoints, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind, type ArrowSize, type FreeSymbol, type HeadSize, type Mol, type ShapeKind } from "./render";
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
-import { closePalette, kindName, legible, MY_SET, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
+import { closePalette, kindName, legible, MY_SET, ringStrip, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
@@ -16,6 +16,7 @@ import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbit
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
 import { followDrag } from "./cursor";
+import { optionCommand } from "./keys";
 
 export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
 
@@ -95,7 +96,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -513,7 +514,7 @@ type PaletteProps = {
   // A template opened on the canvas to change it (one of the user's), or a copy of a built-in one to change and keep
   // in My templates; one of the user's duplicated, or put in another place in its set (before unset: at the end).
   onEditTemplate: (kind: string, tool: TemplateTool) => void;
-  onDuplicate: (id: string) => void;
+  onDuplicate: (id: string, tool: TemplateTool) => void;
   onPlace: (id: string, before?: string) => void;
   onToStart: (id: string) => void;
   onToEnd: (id: string) => void;
@@ -534,7 +535,7 @@ type PaletteProps = {
   onStripWidth: (key: string, width: number) => void;
   curvedArrows: string[]; // curved arrow variants in the Arrow strip
   onCurvedArrows: (list: string[]) => void;
-  libraryRings: string[]; // library templates in the Ring strip
+  libraryRings: string[]; // templates kept in the Ring strip (built-in, named and own), in order
   onLibraryRings: (list: string[]) => void;
   wide: boolean; // the toolbar in two columns
   onWide: (wide: boolean) => void;
@@ -601,13 +602,13 @@ export function Palette(p: PaletteProps) {
   }, [open, libraryOpen]);
   useEffect(() => { if (open !== "arrow") setCurves(false); if (open !== "ring") setLibrary(false); }, [open]);
   useEffect(() => { if (arrived) { const t = setTimeout(() => setArrived(undefined), 400); return () => clearTimeout(t); } }, [arrived]);
-  // Lists the user keeps in a strip: curved arrows in the Arrow strip, library templates in the Ring strip.
+  // Lists the user keeps in a strip: curved arrows in the Arrow strip, templates (built-in and the user's own) in the Ring strip.
   const keptIn = (tool: Strip) => (tool === "arrow" ? p.curvedArrows : tool === "ring" ? p.libraryRings : []);
   const setKept = (tool: Strip, list: string[]) => (tool === "arrow" ? p.onCurvedArrows(list) : p.onLibraryRings(list));
   const keep = (tool: Strip, v: string) => { if (!keptIn(tool).includes(v)) setKept(tool, [...keptIn(tool), v]); setArrived(v); };
   const unkeep = (tool: Strip, v: string) => setKept(tool, keptIn(tool).filter((x) => x !== v));
   // The strip whose list a dragged option can go into, if any.
-  const keepable = (key: string): Strip | undefined => (key.startsWith("arrow:") && arrowVariant(key.slice(6))?.sweep ? "arrow" : key.startsWith("ring:lib:") || key.startsWith("ring:name:") ? "ring" : undefined);
+  const keepable = (key: string): Strip | undefined => (key.startsWith("arrow:") && arrowVariant(key.slice(6))?.sweep ? "arrow" : key.startsWith("ring:lib:") || key.startsWith("ring:name:") || key.startsWith("ring:custom:") ? "ring" : undefined);
   // A template added (or a pick ended) opens its library again, on its set, with a new template's name ready to type.
   useEffect(() => { if (!p.reveal) return; setOpen(p.reveal.tool); setLibrary(p.reveal.tool === "ring"); }, [p.reveal?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -619,7 +620,7 @@ export function Palette(p: PaletteProps) {
   const actions = (tool: TemplateTool): TemplateActions => ({
     sets: p.templateSets, onSets: p.onTemplateSets, onCopy: (kind, set) => p.onCopy(kind, set, tool), onNewSet: p.onNewSet,
     onRemove: (kind) => { const t = template(kind); if (t) p.onRemoveTemplate(t.id); },
-    onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: p.onDuplicate, onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
+    onEdit: (kind) => { setOpen(undefined); p.onEditTemplate(kind, tool); }, onDuplicate: (id) => p.onDuplicate(id, tool), onPlace: p.onPlace, onToStart: p.onToStart, onToEnd: p.onToEnd,
     onKeepOpen: (set) => { setOpen(undefined); p.onKeepOpen(set, tool); }, onSaveSet: p.onSaveSet,
     ...(tool === "ring" ? { kept: p.libraryRings, onKeep: (kind: string, on: boolean) => (on ? keep("ring", kind) : unkeep("ring", kind)) } : {}),
   });
@@ -649,6 +650,7 @@ export function Palette(p: PaletteProps) {
   const nameOf = (tool: Strip, kind: string) =>
     tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "cycle" ? CYCLES[kind] : tool === "sequence" ? SEQUENCES[kind]?.name : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;
+  const optionKey = (tool: Strip, kind: string) => { const c = optionCommand(tool, kind); return c ? p.keys(c) : undefined; }; // J for benzene
   const iconOf = (tool: Strip, kind: string) => {
     if (tool === "more") return SPECIAL_TOOLS[kind]?.icon;
     if (tool === "bond") return <BondGlyph kind={kind as BondKind} />;
@@ -665,7 +667,7 @@ export function Palette(p: PaletteProps) {
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...p.templates.map((t) => templateKind(t.id)), ...p.libraryRings.filter((k) => libraryItem(k) || p.named(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...ringStrip(p.libraryRings, (k) => libraryItem(k) || p.named(k) || template(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
   // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
@@ -812,7 +814,7 @@ export function Palette(p: PaletteProps) {
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
-              data-key={p.keys(`tool.${t.id}`)}
+              data-key={p.keys(`tool.${t.id}`) ?? (t.id === "ring" ? optionKey("ring", p.variants.ring) : undefined)}
               // A selection dragged from the canvas onto the Ring or Template tool goes into My templates.
               {...(t.id === "ring" || t.id === "template" ? { "data-drop-set": MY_SET, "data-drop-tool": t.id } : {})}
               onPointerDown={() => {
@@ -837,7 +839,7 @@ export function Palette(p: PaletteProps) {
             </button>
             <Exit>{group && open === t.id && (
               // The specialist tools; any can be dragged onto the toolbar.
-              <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id }))]}
+              <Menu label="More tools" groups={[SPECIAL.map((id) => ({ key: id, name: SPECIAL_TOOLS[id].name, icon: SPECIAL_TOOLS[id].icon, checked: p.tool === id, hint: optionKey("more", id) }))]}
                 columns={columnsOf("more")} onColumns={(n) => p.onStripWidth("more", menuWidth(n))}
                 onPress={(e, id) => startCarry(e, `more:${id}`)} onChoose={(id) => { if (!dragged.current) choose("more", id); }} onRelease={(id) => { if (held) choose("more", id); }} />
             )}</Exit>
@@ -857,11 +859,11 @@ export function Palette(p: PaletteProps) {
                   const size = kind.slice(5) as ArrowSize, v = withSize(p.variants.arrow, size);
                   return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
                 }
-                const name = nameOf(tool, kind)!, custom = template(kind);
-                const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind)));
+                const name = nameOf(tool, kind)!;
+                const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind) || !!template(kind)));
                 return {
-                  key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind,
-                  ...(custom || kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => (custom ? p.onRemoveTemplate(custom.id) : unkeep(tool, kind)) } } : {}),
+                  key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind, hint: optionKey(tool, kind),
+                  ...(kept ? { action: { icon: <X size={12} />, label: `Remove ${name}`, onClick: () => unkeep(tool, kind) } } : {}),
                 };
               };
               const groups = groupsOf(tool, strip).map((g) => g.map(item));
@@ -934,6 +936,7 @@ export function Palette(p: PaletteProps) {
             style={{ "--d": Math.abs(j - shown.findIndex((x) => x.key === landed?.key)) } as React.CSSProperties}
             aria-pressed={lit?.key === key}
             aria-label={nameOf(tool, kind)}
+            data-key={optionKey(tool, kind)}
             onPointerDown={(e) => startCarry(e, key, true)}
             onClick={() => { if (!dragged.current) { choose(tool, kind); setChosen(key); } }}
           >

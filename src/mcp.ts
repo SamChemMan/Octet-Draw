@@ -12,15 +12,16 @@ import { compounds, symbolOwners } from "./mixtures.ts";
 import { LIBRARY, loadMore } from "./library.ts";
 import { alignByMap, bestTurn, clearScheme, mapScheme } from "./interpret.ts";
 import { FREE_SYMBOLS, chargeKind, freeSymbol, isChargeKind, reKind, resizeSymbol, symbolCharge, symbolSize, type FreeSymbol } from "./render.ts";
-import { ASCENT, hydrogens, straightArrow, curved, ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Arrow, type ArrowKind, type Atom, type Box, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
+import { ASCENT, hydrogens, straightArrow, curved, ORBITAL_SHAPES, PHASES, TABLE_LINES, SHADE, isLine, sizedHead, turns, type Arrow, type ArrowKind, type Atom, type Box, type Group, type Caption, type Head, type HeadShape, type LineStyle, type Mol, type ShapeKind, type StepFacts, type Grid, type GridConditions, type GridRole, type Shape, type Spot, type Table, type CellAlign, type OrbitalShape, type Phase, type CurveFill, type BracketUsage, type AtomQuery } from "./render.ts";
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { buildRisk, isSignificant, riskGroup, riskLayout, significantOf, ticked, TICKS, MAX_TEXT as RISK_TEXT } from "./riskassess.ts";
-import { withDetails, detailsOf, markupCaption, oneLine, FIELDS, MAX_COMMENT, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
+import { withDetails, detailsOf, changedBy, markupCaption, oneLine, FIELDS, MAX_COMMENT, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
 import { readPlasmid, union } from "./cdxml.ts";
 import { emptyRows, GRID_ROWS, movedAt, NUMBER_ROW, setRole, stepGrids, TABLE, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, solve, type Field } from "./stoich.ts";
 import { stereoFacts, stereoLabels } from "./chem.ts";
+import { isSeqText, seqBuilt, withSequences } from "./helm.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import EXAMPLE_LIST from "./examples/examples.json" with { type: "json" };
@@ -28,16 +29,17 @@ import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notat
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
 import { plusShapes, type Reaction } from "./reaction.ts";
+import { allNotes, MAX_CONTENT, NOTE, withNote, type Target } from "./annotate.ts";
 import type { Problem } from "./check.ts";
 import { normalise, plainOf, styled, type TextRun } from "./richtext.ts";
-import { liveValues, nameValues, namesShown, PROPERTY_ROWS, propertyRuns, withNames, NO_NAMES, type PropertyValues } from "./proprows.ts";
+import { liveValues, nameValues, namesShown, placeValues, PROPERTY_ROWS, propertyRuns, withNames, NO_NAMES, type PropertyValues } from "./proprows.ts";
 import { ICON } from "./mcpicon.ts";
 import { chartCommand, chartParts, chartRecord, chartReply, chartsOf, envOf, placeChart, type ChartIn } from "./mcpchart.ts";
 import { refusal } from "./notice.ts";
 
 type P = [number, number];
 // What read with a format gives: every format Export writes (the pictures, from pdf on, as Export makes them).
-export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "cml", "ct", "sln", "helm", "fasta", "chemfig", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "bmp"] as const;
+export const FILE_FORMATS = ["cdxml", "mol", "mol2000", "sdf", "rxn", "smiles", "inchi", "cdx", "oct", "sdf2000", "rxn2000", "rdf", "rdf2000", "cml", "ct", "sln", "helm", "fasta", "chemfig", "nmredata", "pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif", "bmp"] as const;
 export type FileFormat = (typeof FILE_FORMATS)[number];
 // Export's own options for a picture: its resolution, a clear background, and its width in mm.
 export type FileOptions = { dpi?: number; transparent?: boolean; width_mm?: number; compact?: boolean }; // compact: chemfig on one line
@@ -93,6 +95,7 @@ export type Host = {
   file: (text: string) => Mol | undefined; // a drawing from CDXML, a MOL, SDF, RXN or CIF file, SMILES or InChI; throws a reader's refusal (notice.ts)
   opens: (text: string) => Promise<{ failed?: string; lost?: string }>; // a file's text read as File > Open reads it, put nowhere: why it would not open, or what it would leave out
   export: (format: string) => boolean; // Octet's Export dialog, on this format
+  office: () => boolean; // a Word, PowerPoint, Excel or LibreOffice object's window (decision 0023): it keeps no notes
   dialog: (command: string) => boolean; // the command opens a dialog or a box to type in (run_command says so, or refuses it with no window)
   windowless: () => boolean; // Octet with no window (--headless, --convert): no one is there to finish a dialog
   asking: () => boolean; // a dialog or a box to type in is open
@@ -295,17 +298,18 @@ const MENU_COMMANDS = [
   "arrange_left", "arrange_centre", "arrange_right", "arrange_top", "arrange_middle", "arrange_bottom", "arrange_across", "arrange_down",
   "text_bold", "text_italic", "text_underline", "text_plain", "text_sub", "text_super", "text_formula", "text_markup", "align_left", "align_centre", "align_right", "align_justify", "align_above", "align_auto", "colour_by_element",
   "zoom_in", "zoom_out", "zoom_actual", "zoom_fit", "centre_view", "show_page", "grid", "rulers", "crosshair", "snap", "snap_grid", "fixed_lengths", "fixed_angles", "warnings", "show_warnings", "hide_warnings", "interpretation", "actions",
-  "number", "numbers.roman", "pairs", "delete", "save", "save_as", "print", "export", "insert_file", "image_to_structure", "recognise_structures", "rotate_dialog", "scale_dialog", "atom_properties", "bond_properties", "bracket_properties", "document", "page_setup", "experiment_details",
+  "number", "numbers.roman", "pairs", "delete", "save", "save_as", "print", "export", "notes", "annotate", "insert_file", "image_to_structure", "recognise_structures", "rotate_dialog", "scale_dialog", "atom_properties", "bond_properties", "bracket_properties", "document", "page_setup", "experiment_details",
   "add_to_libreoffice",
 ] as const;
 // The actions, as the Actions panel's buttons and menus run them: a value goes in the id (scale.120, halo.#FFD6A5).
 const ACTIONS = new RegExp(["^(halo|ringfill|colour)\\.(none|#[0-9a-fA-F]{6})$", "^scale\\.\\d{1,4}$", "^rotate\\.(cw|ccw)(15|1)$", "^(charge\\.(plus|minus|circledPlus|circledMinus|circled)|repeat_label|caption\\.add|template\\.add|dictionary\\.add|reaction\\.map|reaction\\.unmap)$",
   "^(element|group)\\.[A-Za-z0-9]{1,20}$", "^label:.{1,40}$", `^bond\\.(${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ring[a-z0-9]{1,16})$`, "^stereo\\.(racemic|relative|absolute|atom\\.(abs|&\\d{1,2}|or\\d{1,2}))$",
-  "^caption\\.(bold|italic|underline|plain|sub|super|formula|detach|attach|names|font\\..{1,40}|size\\.\\d{1,3}(\\.\\d)?|align\\.(left|centre|right|justify|above|auto)|colour\\.#[0-9a-fA-F]{6})$",
+  "^caption\\.(bold|italic|underline|plain|sub|super|formula|detach|attach|names|places\\.(standard|[0-8])|font\\..{1,40}|size\\.\\d{1,3}(\\.\\d)?|align\\.(left|centre|right|justify|above|auto)|colour\\.#[0-9a-fA-F]{6})$",
   "^arrow\\.(kind\\.[a-z0-9-]{1,30}|size\\.(large|medium|small)|sweep\\.\\d{1,3}|reverse|start\\.(none|full|left|right)|end\\.(none|full|left|right)|head\\.(solid|hollow|angled)|closed|fill\\.(none|solid|shaded|faded)|style\\.(plain|dashed|bold|wavy|doubled|membrane)|flip|point|weight\\.\\d{1,4}|above|below)$",
   "^shape\\.(kind\\.(box|rounded|oval|highlight|brackets|parens|braces)|symbol\\.(plus|minus|circledPlus|circledMinus|radical|pair|bar|radicalCation|radicalAnion|partialPlus|partialMinus)|dashed|boldline|depth\\.\\d{1,3}|blur\\.\\d{1,3}|opacity\\.\\d{1,3}|lanes\\.(-1|1|copy)|rf|ticks|transparent|hide\\.(origin|front|border|names|scale)|spots\\.(filled|hollow|shaded|dashed|bold|doubled)|(row|col)\\.(before|after|delete)|lines\\.(journal|grid|box|none|top|bottom|left|right|header|rows|cols)|align\\.(left|centre|right)|clear|fit|style\\.(plain|dashed|shaded|solid|faded|shadow)|side\\.(left|right|both)|mark\\..{1,12}|colour\\.#[0-9a-fA-F]{6}|front|back)$",
   "^orbital\\.(shape\\.(s|oval|lobe|hybrid|p|d|dz2)|phase\\.(plain|shaded|filled|phased)|swap)$", "^lines\\.weight\\.\\d{1,4}$", "^cycle\\.[a-z.]{1,30}(\\.-?\\d{1,4})?$", "^spot\\.(style\\.[a-z]{1,8}|w\\.\\d{1,4}|h\\.\\d{1,4}|tail\\.\\d{1,4}|rf|delete)$",
-  "^grid\\.(limiting|show|layout|remove|attach|static|steps|hide\\.(row|col))$", "^risk\\.(add|update|hazards|remove)$", "^opacity\\.\\d{1,3}$", "^align\\.(row|column|spread-row)$",  "^chart\\.(axis|key|zones|join\\.(line|dashed|curve)|colour\\.\\d{1,2}\\.#[0-9a-fA-F]{6}|scale\\.(min|max|step)\\.-?\\d{1,7}(\\.\\d{1,6})?|add\\.(singlet|triplet)|vib\\.\\d{1,2}|kind\\.(absorption|fluorescence|phosphorescence|ic|isc|vr)|link\\.(\\d{1,2}|self))$"].join("|"));const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, charge.circledPlus, charge.circledMinus (on atoms, and stepping free charges, never to 0), charge.circled (Circle the charge, or remove the circle), element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.names (live values: hide their property names while one shows them, else show them), caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled|membrane (a line as a lipid bilayer), arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with change's text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.symbol.X (a free symbol's kind; caption.size.N sizes it), shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border (a gel: origin|border|names|scale), shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; on a reagent table's id (g<n>): grid.show (every part hidden shows again), grid.layout, grid.remove, grid.steps, grid.attach (a table moved by hand goes back under its reaction and follows it again), grid.static (the table becomes plain text and lines in a group; its amounts no longer work themselves out); grid.limiting|hide.row|hide.col need a cell picked by the user; on an experiment page, risk.add (its risk assessment, page 2, with the reagent tables' substances; a new page has one), risk.update (the substances as the tables have them now), risk.hazards (each substance's GHS pictograms, signal word and H codes from PubChem, when the user has Online search on in Settings; read shows them once found), risk.remove; align.row|column|spread-row; opacity.N (percent: the selected atoms of a 3D structure with depth shading); reaction.map, reaction.unmap; on a chart's ids (read lists them), chart.axis, chart.key, chart.zones, chart.join.line|dashed|curve, chart.colour.<path>.#rrggbb, chart.scale.min|max|step.N, and on a Jablonski diagram's chart.add.singlet|triplet, chart.vib.N (its levels), chart.kind.absorption|fluorescence|phosphorescence|ic|isc|vr (its transitions), chart.link.<state's place in read's list>|self (one level: a transition from it). Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
+  "^grid\\.(limiting|show|layout|remove|attach|static|steps|hide\\.(row|col))$", "^risk\\.(add|update|hazards|remove)$", "^opacity\\.\\d{1,3}$", "^align\\.(row|column|spread-row)$",
+  "^chart\\.(axis|key|zones|join\\.(line|dashed|curve)|colour\\.\\d{1,2}\\.#[0-9a-fA-F]{6}|scale\\.(min|max|step)\\.-?\\d{1,7}(\\.\\d{1,6})?|add\\.(singlet|triplet)|vib\\.\\d{1,2}|kind\\.(absorption|fluorescence|phosphorescence|ic|isc|vr)|link\\.(\\d{1,2}|self))$"].join("|"));const COMMAND_NOTE = `Runs any Octet command or Actions panel action, as a chemist would, on ids (selected first) or the selection. Menu commands: ${MENU_COMMANDS.join(", ")}. Actions (the value in the id): halo.#rrggbb or halo.none (a highlight behind the selected atoms and the bonds between them), ringfill.#rrggbb or ringfill.none (the rings of the selected atoms), colour.#rrggbb; scale.N (percent of the document style, about the selection's middle); rotate.cw15, rotate.ccw15, rotate.cw1, rotate.ccw1; charge.plus, charge.minus, charge.circledPlus, charge.circledMinus (on atoms, and stepping free charges, never to 0), charge.circled (Circle the charge, or remove the circle), element.X, label:text, pairs, bond.${Object.keys(BONDS).join("|")}|left|centre|right|auto|flip|benzene|ringchair1|ringchair2|ringcyclopentadiene (the selected bond); stereo.absolute|racemic|relative, stereo.atom.abs|&1|or1; caption.bold|italic|underline|plain|sub|super|formula|detach|attach, caption.names (live values: hide their property names while one shows them, else show them), caption.places.N|standard (live values: N decimals, 0 to 8, or each row's own), caption.font.X, caption.size.N, caption.align.left|centre|right|justify|above|auto, caption.colour.#rrggbb; arrow.kind.X, arrow.size.large|medium|small, arrow.sweep.N, arrow.reverse, arrow.start.none|full|left|right, arrow.end.…, arrow.head.solid|hollow|angled, arrow.closed, arrow.fill.none|solid|shaded|faded, arrow.style.plain|dashed|bold|wavy|doubled|membrane (a line as a lipid bilayer), arrow.flip, arrow.point, arrow.weight.N (hundredths of a point), arrow.above, arrow.below (opens conditions text for the user to type: give text with change's text and its arrow instead); shape.kind.box|rounded|oval|highlight|brackets|parens|braces, shape.symbol.X (a free symbol's kind; caption.size.N sizes it), shape.dashed, shape.boldline, shape.style.plain|dashed|shaded|solid|faded|shadow, shape.depth.N, shape.blur.N, shape.opacity.N, shape.side.left|right|both, shape.mark.X, shape.colour.#rrggbb, shape.front, shape.back; a TLC plate: shape.lanes.1|copy|-1, shape.rf, shape.ticks, shape.transparent, shape.hide.origin|front|border (a gel: origin|border|names|scale), shape.spots.filled|hollow|shaded|dashed|bold|doubled, spot.style.X, spot.w.N, spot.h.N, spot.tail.N (hundredths of a bond length), spot.rf, spot.delete; a table: shape.row.before|after|delete, shape.col.before|after|delete, shape.lines.journal|grid|box|none|top|bottom|left|right|header|rows|cols, shape.align.left|centre|right, shape.clear, shape.fit; orbital.shape.s|oval|lobe|hybrid|p|d|dz2, orbital.phase.plain|shaded|filled|phased, orbital.swap; lines.weight.N; cycle.gap.N; on a reagent table's id (g<n>): grid.show (every part hidden shows again), grid.layout, grid.remove, grid.steps, grid.attach (a table moved by hand goes back under its reaction and follows it again), grid.static (the table becomes plain text and lines in a group; its amounts no longer work themselves out); grid.limiting|hide.row|hide.col need a cell picked by the user; on an experiment page, risk.add (its risk assessment, page 2, with the reagent tables' substances; a new page has one), risk.update (the substances as the tables have them now), risk.hazards (each substance's GHS pictograms, signal word and H codes from PubChem, when the user has Online search on in Settings; read shows them once found), risk.remove; align.row|column|spread-row; opacity.N (percent: the selected atoms of a 3D structure with depth shading); reaction.map, reaction.unmap; on a chart's ids (read lists them), chart.axis, chart.key, chart.zones, chart.join.line|dashed|curve, chart.colour.<path>.#rrggbb, chart.scale.min|max|step.N, and on a Jablonski diagram's chart.add.singlet|triplet, chart.vib.N (its levels), chart.kind.absorption|fluorescence|phosphorescence|ic|isc|vr (its transitions), chart.link.<state's place in read's list>|self (one level: a transition from it). Dialogs (rotate_dialog, atom_properties, save_as, print and the rest) open for the user. detail: full lists what changed.`;
 const PURPOSE_PAGES = Object.keys(PAGES) as PageName[];
 // A figure (F4): an item in a row, and a panel.
 const ITEM = obj({
@@ -414,7 +418,7 @@ const noDrawing = (id: string) => `There is no drawing ${id}. Call drawings for 
 // answered outside the page's queue (plan 17.5), while another call may be changing the page's drawing.
 const OPENED = { type: "object", required: ["opened"], properties: { opened: { type: "string" } } }, CLOSED = { type: "object", required: ["closed"], properties: { closed: { type: "string" } } }, USES = { type: "object", required: ["using"], properties: { using: { type: "string" } } };
 const DRAWINGS = { type: "object", required: ["drawings"], properties: { using: { type: "string" }, drawings: { type: "array", items: { type: "object", properties: { id: { type: "string" }, title: { type: "string" }, edited: { type: "boolean" } } } } } };
-const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, selected: ids, warnings: { type: "array" } } };
+const READING = { type: "object", required: ["drawing", "structures", "reactions", "warnings"], properties: { drawing: { type: "object" }, style: { type: "string" }, page: { type: "string" }, structures: { type: "array" }, reactions: { type: "array" }, cycles: { type: "array" }, text: { type: "array" }, arrows: { type: "array" }, notes: { type: "array" }, selected: ids, warnings: { type: "array" } } };
 
 // The brief (plan section 3, Sam's rule): the three questions the user is asked before a scheme, route, figure, cycle
 // or grid is drawn, and set_brief's arguments, their answers in the same order.
@@ -518,10 +522,10 @@ const OPS: Op[] = [
   },
   {
     name: "set_style", title: "Document style", hints: CHANGE_SAFE, outputSchema: CHANGE, done: "changed the document style",
-    description: `Sets the style and page, as Document settings do: a preset (${Object.keys(PRESETS).join("; ")}; it keeps the page) and a page (ACS1: JACS one column, 3.25 in; ACS2: two columns, 7 in), or page_size in mm. Octet redraws everything in the new style. properties: the drawing's title, author, keywords and comment (Settings > Document > Properties; the comment can have several lines), kept in the file and in exported PDFs; '' takes one away. circled_charges: Circle new charges (Settings > Document > Style), so a new charge on an atom is circled; what is drawn keeps its look.`,
+    description: `Sets the style and page, as Document settings do: a preset (${Object.keys(PRESETS).join("; ")}; it keeps the page) and a page (ACS1: JACS one column, 3.25 in; ACS2: two columns, 7 in), or page_size in mm. Octet redraws everything in the new style. properties: the drawing's title, author, keywords and comment (Settings > Document > Properties; the comment can have several lines), kept in the file and in exported PDFs, and its note (the Notes panel's, kept in the file only); '' takes one away. circled_charges: Circle new charges (Settings > Document > Style), so a new charge on an atom is circled; what is drawn keeps its look.`,
     // (A preset as the user names it, Angewandte Chemie, is as set_brief reads a journal; style, name, value or journal
     // for preset is how Haiku gave it, plan 19.10.)
-    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200), comment: str(MAX_COMMENT) }), circled_charges: { type: "boolean" } }),
+    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200), comment: str(MAX_COMMENT), note: str(MAX_CONTENT) }), circled_charges: { type: "boolean" }, sequences: pick(["atoms", "labels"]) }),
     run: setStyle,
   },
   {
@@ -558,7 +562,7 @@ const OPS: Op[] = [
   },
   {
     name: "add_values", title: "Add live values", hints: ADD, outputSchema: CHANGE, done: "added values under structures",
-    description: "Properties > Add to drawing: text under each structure with the values of the rows, each on a line, worked out by Octet. It is live: it follows its structure as it changes. rows are the Properties panel's (formula, cas, exact, weight, mz, analysis, tpsa, the predicted tb, tm, tc, pc, vc, hf, gf, henry, logp, mr, logs, pka). decimals (0 to 8) sets the places of the exact mass, molecular weight and m/z. names false gives the values without the names of the properties; edit's names changes that later. Text typed over it stops it following.",
+    description: "Properties > Add to drawing: text under each structure with the values of the rows, each on a line, worked out by Octet. It is live: it follows its structure as it changes. rows are the Properties panel's (formula, cas, exact, weight, mz, analysis, tpsa, the predicted tb, tm, tc, pc, vc, hf, gf, henry, logp, mr, logs, pka). decimals (0 to 8) sets the places of every number (the elemental analysis keeps 2); unset, each row has its own. names false gives the values without the names of the properties; edit's names and decimals change them later. Text typed over it stops it following.",
     inputSchema: obj({ ids: list(str(40), 200, 1), rows: list(pick(PROPERTY_ROWS.flat().map((r) => r.key)), 31, 1), decimals: int(0, 8), names: yes() }, ["ids", "rows"]),
     run: addValues,
   },
@@ -628,15 +632,17 @@ const OPS: Op[] = [
   },
   {
     name: "edit", title: "Change objects", hints: CHANGE_ONCE, outputSchema: CHANGE, done: "changed part of the drawing",
-    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, charge_angle (where its charge sign, or its radical ion as one unit, sits round it, as a drag moves it: degrees, anticlockwise from the right), query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, line_width and bold_width (pt, its own, as Settings > Pro > Selection), ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles, line_width and bold_width (its bonds'). Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical; a cycle's side text or step name takes at (its step, as read gives it: 4→1), and side text side (in, out). An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, gel, plasmid, png (a picture), rgroup; a free symbol (kind symbol): symbol (its kind) and size (pt), and on a free charge charge (its number and sign, not 0) and circled, with colour, box, rotate and scale; a table's or plate's text takes bold, italic, underline, size and font.",
+    description: "Changes what the ids name: every property the Actions panel and the Object, Text, Colour and Curves menus set. Each goes on every id it fits, and the result says what did not fit. Everything: colour (#rrggbb, or none for the document's ink), highlight (#rrggbb or none: a pale disc behind an atom's label, a band behind a bond, every atom and bond of a structure), rotate (degrees, anticlockwise, about its middle), scale (percent of the document style). An atom (s3.2; ids from read with atoms: true): label, runs, charge, isotope, radical, lone_pairs, bars (lone pairs as bars), enhanced (abs, or1, &1), align (which way the label reads: left from the atom, right to it as in MeO, centre, above, below or auto), atom_number (shown beside it; '' takes it off), hidden (an explicit H not drawn), chemical (false reads the label as text), bold, italic, underline, size, font, label_angle, charge_angle (where its charge sign, or its radical ion as one unit, sits round it, as a drag moves it: degrees, anticlockwise from the right), query (search properties), ignore_warnings (Display Warnings off). A bond (s3.1-2): bond, line_width and bold_width (pt, its own, as Settings > Pro > Selection), ignore_warnings, position (a double bond's second line: left, centre, right or auto), spacing (% of the bond length), topology, reaction_centre, bond_query. A structure (s3 or its number): structure (a name or SMILES, in place), changes (a compound's), number, ignore_warnings, flip (horizontal or vertical, keeping stereocentres), ring_fill (#rrggbb or none, its rings), perspective (depth shading), stereo_labels (R/S and E/Z shown), atom_numbers, aromatic_circles, line_width and bold_width (its bonds'). Text (t5): text or runs, bold, italic, underline, size, font, align, width, line_height, arrow with side (put on that arrow as its conditions; arrow none frees it), chemical; a cycle's side text or step name takes at (its step, as read gives it: 4→1), and side text side (in, out). An arrow (a7): kind, style, start and end (the heads), head, head_size, bend, ratio, shaft, line_width (pt), fill, orbital_shape, orbital_phase, from and to (points). A shape (b2): kind, dashed, bold, fill (a flat panel is solid with a light colour; faded fades to nothing), shadow, shade_depth, shade_blur, shade_opacity, mark, radius, line_width, bracket_side, usage and bracket_label (brackets), box [x0, y0, x1, y1], table, tlc, gel, plasmid, png (a picture), rgroup; a free symbol (kind symbol): symbol (its kind) and size (pt), and on a free charge charge (its number and sign, not 0) and circled, with colour, box, rotate and scale; a table's or plate's text takes bold, italic, underline, size and font. A note (a text, an arrow, a shape or a cycle; never drawn or exported, read lists them): note, its text ('' takes it off); with group true, on the smallest group that holds every id.",
     inputSchema: obj({
       ids: list(str(40), 500, 1), label: str(40), charge: int(-8, 8), isotope: int(0, 300), radical: pick(RADICALS), lone_pairs: int(0, 4), bars: { type: "boolean" }, enhanced: str(8), atom_number: numeral(8), hidden: { type: "boolean" }, chemical: { type: "boolean" }, label_angle: num(-360, 360), charge_angle: num(-360, 360), circled: { type: "boolean" }, query: QUERY,
       bond: pick(Object.keys(BONDS)), position: pick(["left", "centre", "right", "auto"]), spacing: num(1, 100), topology: pick(["ring", "chain", "either", "none"]), reaction_centre: pick(["centre", "makebreak", "change", "makechange", "not", "nochange", "unmapped", "none"]), bond_query: pick(["any", "sd", "sa", "da", "none"]),
       ignore_warnings: { type: "boolean" }, highlight: COLOUR_OR_NONE, ring_fill: COLOUR_OR_NONE, rotate: num(-360, 360), scale: num(10, 1000), flip: pick(["horizontal", "vertical"]), perspective: { type: "boolean" }, stereo_labels: { type: "boolean" }, atom_numbers: { type: "boolean" }, aromatic_circles: { type: "boolean" },
       text: str(2000), runs: RUNS, ...TEXT_STYLE, align: pick(["left", "centre", "right", "justify", "above", "below", "auto"]), width: num(0.5, 300), line_height: LINE_HEIGHT, arrow: str(12, "a7, or none"), side: pick(["above", "below", "in", "out"]), at: str(24, "A cycle's step, as read gives it: 4→1"),
       names: yes("Live values (text add_values or Add to drawing made, read gives its values): false shows the values without the names of their properties, true with them"),
+      decimals: int(0, 8, "Live values: the places of every number in them. run_command caption.places.standard gives each row's own places again"),
       ...ARROW_PROPS, kind: pick([...["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"], ...["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"]]), from: POINT, to: POINT,
       ...SHAPE_PROPS, bold_width: num(0.1, 20, "pt"), structure: str(MAX_STRUCTURE), changes: CHANGES, number: numeral(12), box: BOX,
+      note: str(MAX_CONTENT), group: { type: "boolean" },
     }, ["ids"]),
     run: edit,
   },
@@ -850,7 +856,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "read", title: "Read the drawing", ops: ["read", "file"],
-    description: "Reads the drawing as a summary: structures (id, number, caption, formula, stereo), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
+    description: "Reads the drawing as a summary: structures (id, number, caption, formula, stereo), reactions (the route by compound number or id, '1 + s4 -> 2 -> 3', and each arrow's conditions), cycles, free text, notes (on: drawing, an id or group with ids; never drawn), Octet's warnings and its layout check. smiles adds each SMILES. detail: full reads everything: each structure's SMILES, InChI, name and box (bond lengths, y up), and every caption's box. ids reads only those. format gives the drawing (or ids) as a file (mol V3000, mol2000 V2000, cdx base64; pdf, png: help of file). Nothing is saved.",
     inputSchema: READ_IN,
     route: (a) => { const op = "format" in a ? "file" : "read"; return stray(a, READ_IN, op, "format") || { op, args: a }; },
   },
@@ -1037,7 +1043,12 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
     // A SMILES's map numbers name its atoms for later changes: they are kept as tags, and not drawn.
     const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), got = host.structure(text), read = got && tagged(got);
     let mol = read && crowded(read) ? host.tidy(read) : read;
-    if (!mol?.atoms.length) { const w = where && written(it as { text: string }), line = w ? where!.get(w) : undefined; failed.push(line ? { text: short(w!, 60), line } : { text: short(text, 60) }); lost.push(k); continue; }
+    if (!mol?.atoms.length) {
+      // A sequence Octet cannot draw says why, as the name field does (an unknown code, too many monomers).
+      const why = seqWhy(text, host.doc().style?.sequences === "labels");
+      if (why) { wrong.push(`${short(text, 60)}: ${why}`); lost.push(k); continue; }
+      const w = where && written(it as { text: string }), line = w ? where!.get(w) : undefined; failed.push(line ? { text: short(w!, 60), line } : { text: short(text, 60) }); lost.push(k); continue;
+    }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
     if (it.labels?.length) {
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
@@ -1070,10 +1081,13 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
 }
 // The labels of a compound read from text or atom by atom that Octet reads no group in (labels.ts unknownLabel), each
 // once. A label set as text only is not chemistry by design: it is not named. One made by changes is named by them.
+// A residue label keeps its atoms, so Octet reads it.
 function unread(atoms: Atom[]): { unread?: string[] } {
-  const out = [...new Set(atoms.flatMap((x) => (x.text && x.chemical !== false && unknownLabel(chemicalText(x.text, x.runs)!) ? [x.text] : [])))];
+  const out = [...new Set(atoms.flatMap((x) => (x.text && !x.inner?.atoms.length && x.chemical !== false && unknownLabel(chemicalText(x.text, x.runs)!) ? [x.text] : [])))];
   return out.length ? { unread: out } : {};
 }
+// Why a sequence (Octet's words or HELM) is not drawn, as the name field says it; undefined for any other text.
+const seqWhy = (text: string, labels: boolean): string | undefined => { if (!isSeqText(text)) return undefined; try { const r = seqBuilt({ build: text, labels }); return r && "problem" in r ? r.problem : undefined; } catch { return undefined; } };
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
 // SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
 // name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
@@ -1787,17 +1801,28 @@ const marked = (host: Host, c: Caption): Caption => (host.experiment() ? markupC
 
 // A list as said: "title", "title and author", "title, author and keywords".
 const andList = (l: (string | number)[]) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} and ${l[l.length - 1]}` : `${l[0] ?? ""}`);
-async function setStyle(host: Host, a: { preset?: string; page?: PageName; landscape?: boolean; page_size?: number[]; properties?: Properties; circled_charges?: boolean }): Promise<Result> {
+async function setStyle(host: Host, a: { preset?: string; page?: PageName; landscape?: boolean; page_size?: number[]; properties?: Properties & { note?: string }; circled_charges?: boolean; sequences?: "atoms" | "labels" }): Promise<Result> {
   if (a.page_size && a.page) return { text: "Give page or page_size, not both.", error: true };
+  // The drawing's note (annotate.ts), as the Notes panel's first field: never drawn or exported; '' takes it off.
+  if (a.properties?.note !== undefined) {
+    if (host.office()) return { text: "This window is a Word, PowerPoint, Excel or LibreOffice object, which keeps no notes. Octet changed nothing.", error: true };
+    try { const m = host.doc(), next = withNote(m, ["drawing"], a.properties.note); if (next !== m) host.set(next); } catch (e) { return { text: `${e instanceof Error ? e.message : String(e)} Octet changed nothing.`, error: true }; }
+  }
+  // Sequences (Settings > Document > Style > Sequences): every chain drawn again as atoms or as residue labels.
+  if (a.sequences) {
+    const m = host.doc();
+    host.set({ ...withSequences(m, a.sequences), style: { ...host.style(), ...m.style, sequences: a.sequences } });
+    if (!a.preset && !a.page && !a.page_size && a.landscape === undefined && !a.properties && a.circled_charges === undefined) return { text: `The drawing's sequences now show as ${a.sequences === "labels" ? "residue labels" : "atoms"}.${UNDO}` };
+  }
   // Circle new charges on its own: the style changes, and nothing drawn does (issue 60).
   const circled = a.circled_charges === undefined ? {} : { circled: a.circled_charges ? (true as const) : undefined };
   if (a.circled_charges !== undefined && !a.preset && !a.page && !a.page_size && a.landscape === undefined) {
-    if (a.properties) { const m = host.doc(); host.set({ ...m, annotations: withDetails(m.annotations, { ...detailsOf(m.annotations, PROPERTIES), ...a.properties }, PROPERTIES) }); }
+    if (a.properties) { const m = host.doc(), { note: _, ...own } = a.properties; host.set({ ...m, annotations: withDetails(m.annotations, { ...detailsOf(m.annotations, PROPERTIES), ...own }, PROPERTIES) }); }
     host.restyle({ ...host.style(), ...circled });
     await host.settle();
     return { text: `New charges in this drawing are ${a.circled_charges ? "circled" : "plain"}; what is drawn keeps its look.${UNDO}` };
   }
-  if (a.properties) { const m = host.doc(); host.set({ ...m, annotations: withDetails(m.annotations, { ...detailsOf(m.annotations, PROPERTIES), ...a.properties }, PROPERTIES) }); }
+  if (a.properties) { const m = host.doc(), { note: _, ...own } = a.properties; host.set({ ...m, annotations: withDetails(m.annotations, { ...detailsOf(m.annotations, PROPERTIES), ...own }, PROPERTIES) }); }
   const named = a.properties && Object.keys(a.properties).length ? ` Octet set the drawing's ${andList(Object.keys(a.properties))}.` : "";
   if (a.properties && !a.preset && !a.page && !a.page_size && a.landscape === undefined) return { text: `${named.trim()}${UNDO}` };
   const custom = a.page_size && { page: "Custom" as const, custom: [a.page_size[0], a.page_size[1]] as [number, number], landscape: false };
@@ -2320,8 +2345,8 @@ type Edit = { ids: string[]; changes?: Change[]; runs?: RunIn[]; box?: number[];
   bond?: BondKind; position?: "left" | "centre" | "right" | "auto"; spacing?: number; topology?: "ring" | "chain" | "either" | "none"; reaction_centre?: NonNullable<Mol["bonds"][number]["rxn"]> | "none"; bond_query?: "any" | "sd" | "sa" | "da" | "none";
   highlight?: string; ring_fill?: string; rotate?: number; scale?: number; flip?: "horizontal" | "vertical"; perspective?: boolean; stereo_labels?: boolean; atom_numbers?: boolean; aromatic_circles?: boolean;
   text?: string; bold?: boolean; italic?: boolean; underline?: boolean; size?: number; font?: string; colour?: string; align?: Caption["align"] | Atom["align"] | "auto"; width?: number; line_height?: "auto" | "variable" | number; arrow?: string; side?: "above" | "below" | "in" | "out"; at?: string;
-  names?: boolean;
-  from?: number[]; to?: number[]; structure?: string; number?: string; bold_width?: number } & ArrowIn & ShapeIn;
+  names?: boolean; decimals?: number;
+  from?: number[]; to?: number[]; structure?: string; number?: string; bold_width?: number; note?: string; group?: boolean } & ArrowIn & ShapeIn;
 
 // A table as given (cells, lines, alignment, rule width), over the one a shape has.
 function tableOf(t: TableIn, was?: Table): Table {
@@ -2424,9 +2449,12 @@ function shapeChange(a: ShapeIn, was: Partial<Shape>, kind: ShapeKind, left: str
 // on everything. scale and ring_fill run as the Actions panel does them, on the ids selected. The result says what
 // did not fit.
 async function edit(host: Host, a: Edit): Promise<Result> {
+  // A note first, on what takes one (noteEdit); the rest, when there is more, as before.
+  const noted = a.note !== undefined || a.group !== undefined ? noteEdit(host, a) : undefined;
+  if (noted && (noted.error || Object.keys(a).every((k) => k === "ids" || k === "note" || k === "group"))) return noted;
   let m = host.doc();
-  const unfit: string[] = [], done: string[] = [], replaced: string[] = [], props = Object.keys(a).filter((k) => k !== "ids");
-  let named = false; // names fitted a live value: else the result does not list names as changed
+  const unfit: string[] = [], done: string[] = [], replaced: string[] = [], props = Object.keys(a).filter((k) => k !== "ids" && k !== "note" && k !== "group");
+  let named = false; // names or decimals fitted a live value: else the result does not list them as changed
   if (!props.length) return { text: "Give a property to change (charge, bond, colour, highlight, text, kind and the rest).", error: true };
   for (const k of ["colour", "highlight", "ring_fill"] as const) if (a[k] !== undefined && a[k] !== "none" && !COLOUR.test(a[k]!)) return { text: `${k}: give #rrggbb or none, not ${a[k]}.`, error: true };
   const runs = a.runs && runsOf(a.runs);
@@ -2513,15 +2541,15 @@ async function edit(host: Host, a: Edit): Promise<Result> {
       // A cycle's side text or step name takes its step (at, as read gives it) and a side text its side (in, out).
       const cyc = caption.cycle && (isSide(caption.cycle) || caption.cycle.side === "name") ? caption.cycle : undefined;
       let join: Caption | undefined;
-      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", "names", ...(cyc ? ["at"] : []), ...STYLE]), moves = cyc && (use.includes("at") || use.includes("side"));
+      const use = fits(id, ["text", "runs", "align", "colour", "width", "line_height", "arrow", "side", "chemical", "rotate", "scale", "names", "decimals", ...(cyc ? ["at"] : []), ...STYLE]), moves = cyc && (use.includes("at") || use.includes("side"));
       const change: Partial<Caption> = textOf(use);
       if (use.includes("text")) Object.assign(change, { text: clean(a.text!, true), runs: undefined });
       if (use.includes("runs") && runs) Object.assign(change, { text: plainOf(runs), runs });
       // New text over live values stops them following their structure, as typing over them does.
       if (change.text !== undefined && change.text !== caption.text && caption.property?.attrs.rows) change.property = undefined;
       const plainNow = "property" in change, live = !!caption.property?.attrs.rows && !plainNow;
-      if (use.includes("names") && !live) unfit.push(`${id} takes no names: ${plainNow ? "its new text is plain text" : "it is not live values (add_values adds them)"}`);
-      named ||= use.includes("names") && live;
+      for (const k of ["names", "decimals"]) if (use.includes(k) && !live) unfit.push(`${id} takes no ${k}: ${plainNow ? "its new text is plain text" : "it is not live values (add_values adds them)"}`);
+      named ||= (use.includes("names") || use.includes("decimals")) && live;
       if (use.includes("align")) { if (a.align === "above" || a.align === "below" || a.align === "auto") unfit.push(`${id} takes no align ${a.align}`); else change.align = a.align as Caption["align"]; }
       if (use.includes("colour")) change.colour = ink;
       if (use.includes("width")) change.width = a.width;
@@ -2552,10 +2580,13 @@ async function edit(host: Host, a: Edit): Promise<Result> {
         }
       }
       m = updateCaption(m, caption.id, change);
-      // Live values with or without their names, worked out at once (proprows.ts nameValues).
-      if (use.includes("names") && live) {
-        const { mol, changed } = nameValues(m, new Set([caption.id]), a.names), cas = mol.captions!.find((c) => c.id === caption.id)!.property!.attrs.rows!.split(" ").includes("cas");
-        m = changed.size ? liveValues(mol, (atoms, places) => host.values(mol, atoms, places, cas), changed) : mol;
+      // Live values with or without their names, and with their decimals, worked out at once (proprows.ts nameValues,
+      // placeValues).
+      if ((use.includes("names") || use.includes("decimals")) && live) {
+        const one = new Set([caption.id]), shown = use.includes("names") ? nameValues(m, one, a.names) : { mol: m, changed: new Set<number>() };
+        const placed = use.includes("decimals") ? placeValues(shown.mol, one, a.decimals) : shown, mol = placed.mol;
+        const cas = mol.captions!.find((c) => c.id === caption.id)!.property!.attrs.rows!.split(" ").includes("cas");
+        m = shown.changed.size || placed.changed.size ? liveValues(mol, (atoms, places) => host.values(mol, atoms, places, cas), one) : mol;
       }
       if (join) { const t = m.captions!.find((x) => x.id === caption.id)!, run = (x: Caption) => x.runs ?? [{ text: x.text }]; m = deleteGraphics(updateCaption(m, join.id, { text: `${join.text}, ${t.text}`, runs: join.runs || t.runs ? [...run(join), { text: ", " }, ...run(t)] : undefined }), new Set([t.id])); }
       // Text moved on a cycle clears its intermediates, as draw lays it out.
@@ -2616,8 +2647,38 @@ async function edit(host: Host, a: Edit): Promise<Result> {
   }
   if (scaled.atoms.size || scaled.items.size || filled.size) { host.select([], []); await host.settle(); }
   // A structure replaced (structure, changes): what it is now, and what its changes did to its stereocentres.
-  const listed = props.filter((p) => p !== "names" || named);
-  return { text: `${listed.length ? `Changed ${done.join(", ")}: ${listed.join(", ")}.` : "Octet changed nothing."}${replaced.map((t) => ` ${t}`).join("")}${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${unreadNote(unread(relabelled).unread)}${UNDO}` };
+  const listed = props.filter((p) => (p !== "names" && p !== "decimals") || named);
+  return { text: `${noted ? `${noted.text.slice(0, -UNDO.length)} ` : ""}${listed.length ? `Changed ${done.join(", ")}: ${listed.join(", ")}.` : noted ? "" : "Octet changed nothing."}${replaced.map((t) => ` ${t}`).join("")}${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${unreadNote(unread(relabelled).unread)}${UNDO}` };
+}
+
+// edit's note (annotate.ts): set, changed or taken off ('') on each text (t), arrow (a), shape (b) and cycle (c), or
+// with group on the smallest group that holds them all. A structure, an atom, a bond and a reagent table take none.
+// Refused in an object window, which keeps no notes, and over Octet's limits.
+function noteEdit(host: Host, a: Edit): Result {
+  if (host.office()) return { text: "This window is a Word, PowerPoint, Excel or LibreOffice object, which keeps no notes. Octet changed nothing.", error: true };
+  if (a.note === undefined) return { text: "group goes with note: give the note to put on the group.", error: true };
+  const m = host.doc(), ids = new Set<number>(), unfit: string[] = [];
+  const has = (n: number) => [...(m.captions ?? []), ...(m.arrows ?? []), ...(m.shapes ?? []), ...(m.cycles ?? [])].some((x) => x.id === n);
+  for (const id of a.ids) {
+    const n = Number(/^[tabc](\d+)$/.exec(id)?.[1]);
+    if (Number.isInteger(n) && has(n) && (id[0] !== "c" || m.cycles?.some((c) => c.id === n))) ids.add(n);
+    else if (/^g\d+$/.test(id)) unfit.push(`${id} (a reagent table) takes no note: its arrow a${id.slice(1)} does`);
+    else if (structureOf(m, id, host) || atomOf(m, id, host) !== undefined || bondOf(m, id, host) !== undefined) unfit.push(`${id} takes no note: give one on a text, arrow, shape or cycle`);
+    else return { text: `There is nothing with the id ${id}. Call read for the ids.`, error: true };
+  }
+  let targets: Target[] = [...ids];
+  if (a.group) {
+    const inside = (g: Group) => targets.every((t) => g.items.includes(t as number)), held = (m.groups ?? []).filter(inside).sort((p, q) => p.atoms.length + p.items.length - q.atoms.length - q.items.length);
+    if (!targets.length || !held.length) return { text: `${a.ids.join(", ")} are in no group together. Group them first (run_command group), or give the note on each.`, error: true };
+    targets = [held[0].id];
+  }
+  if (!targets.length) return { text: `Octet changed nothing: ${unfit.join("; ")}.`, error: true };
+  try {
+    const next = withNote(m, targets, a.note);
+    if (next !== m) host.set(next);
+  } catch (e) { return { text: `${e instanceof Error ? e.message : String(e)} Octet changed nothing.`, error: true }; }
+  const on = a.group ? `the group of ${a.ids.filter((id) => !unfit.some((u) => u.startsWith(`${id} `))).join(", ")}` : targets.map((t) => a.ids.find((id) => Number(id.slice(1)) === t)).join(", ");
+  return { text: `${a.note.trim() ? "Put the note on" : "Took the note off"} ${on}.${unfit.length ? ` Not changed: ${unfit.join("; ")}.` : ""}${UNDO}` };
 }
 const ARROW_KINDS_IN = ["reaction", "equilibrium", "resonance", "retro", "nogo", "hash", "dipole", "block", "curved", "fishhook", "double", "line", "arc", "orbital", "cut"];
 const SHAPE_KINDS_IN = ["box", "rounded", "oval", "highlight", "brackets", "parens", "braces"];
@@ -2803,6 +2864,8 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   const low = (t: string) => t.trim().toLowerCase(), sets = a.set ? LIBRARY.filter((c) => low(c.name) === low(a.set!)) : LIBRARY;
   if (!sets.length) return { text: `The library has no set ${a.set}. Its sets: ${LIBRARY.map((c) => c.name).join(", ")}.`, error: true };
   const items = sets.flatMap((c) => c.items), want = low(a.name);
+  // A blank name is no template: said so, not answered with the library's first names.
+  if (!want) return { text: "Give the name of a template, or a word it is found by.", error: true };
   const item = items.find((t) => low(t.name) === want) ?? items.find((t) => t.also?.split(",").some((w) => low(w) === want));
   if (!item) {
     const near = items.filter((t) => low(t.name).includes(want) || t.also?.toLowerCase().includes(want)).slice(0, 8).map((t) => t.name);
@@ -2812,9 +2875,12 @@ async function placeTemplate(host: Host, a: { name: string; set?: string; on?: s
   const bond = a.on !== undefined ? bondOf(m, a.on, host) : undefined, atom = a.on !== undefined && bond === undefined ? atomOf(m, a.on, host) : undefined;
   if (a.on !== undefined && bond === undefined && atom === undefined) return { text: `No atom or bond ${a.on}.`, error: true };
   // With no atom or bond to go on: its top left where new work starts (addTemplate takes where the middle of its
-  // atoms goes, or its own origin when it has none).
+  // atoms goes, or its own origin when it has none). On one, at it, as the Template tool's click is: a template with no
+  // atoms (an arrow, light) goes there.
   const t = item.mol, b = roughBox(t), n = t.atoms.length || 1, c = t.atoms.reduce((p, x) => [p[0] + x.location[0] / n, p[1] + x.location[1] / n], [0, 0]), [x, y] = origin(host, m);
-  m = host.set(addTemplate(m, t, bond !== undefined ? { bond } : atom !== undefined ? { atom } : { point: [x + c[0] - b[0], y + c[1] - b[3]] }));
+  const at = (i: number): [number, number] => [m.atoms[i].location[0], m.atoms[i].location[1]], ends = bond !== undefined ? m.bonds[bond].atoms.map(at) : undefined;
+  const point: [number, number] = ends ? [(ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2] : atom !== undefined ? at(atom) : [x + c[0] - b[0], y + c[1] - b[3]];
+  m = host.set(addTemplate(m, t, { ...(bond !== undefined ? { bond } : atom !== undefined ? { atom } : {}), point }));
   await host.settle();
   return { text: `Placed ${item.name} from ${item.category}.${UNDO}` };
 }
@@ -3480,8 +3546,10 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   // The document's properties (Settings > Document > Properties), when set; a long comment cut short (between
   // characters) unless full.
   const props = detailsOf(m.annotations, PROPERTIES), cut = (t: string) => (t.length <= 1000 ? t : `${t.slice(0, /[\ud800-\udbff]/.test(t[999]) ? 999 : 1000)}…`);
-  const properties = Object.keys(props).length ? { properties: { ...props, ...(props.comment && !full ? { comment: cut(props.comment) } : {}) } } : {};
+  // Who saved it last (issue 100), read-only.
+  const by = changedBy(m.annotations), properties = Object.keys(props).length || by ? { properties: { ...props, ...(props.comment && !full ? { comment: cut(props.comment) } : {}), ...(by ? { changed_by: by } : {}) } } : {};
   const head = { drawing: { id: host.window().id, title: host.window().name }, style: s.preset, page: s.page, landscape: s.landscape || undefined, circled_charges: s.circled || undefined, ...properties };
+  const notes = notesFor(m, full, want);
   if (!full) {
     // A compound goes by its number when that is on no other structure and is no id itself, else by its id.
     // (Counted by the numbers drawn, not by structure as numbered is: a salt's two ions under one number are one
@@ -3499,8 +3567,10 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
         route: [...r.steps.map((st) => `${by(st.before).join(" + ")} ${SIGNS[m.arrows!.find((x) => `a${x.id}` === st.arrow)!.kind] ?? "->"}`), by(r.products).join(" + ")].join(" ").trim(),
         conditions: Object.fromEntries(r.steps.map((st) => [st.arrow, by([...st.above, ...st.below]).join("; ")])),
       })),
-      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200) }))),      arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id) && !charted.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),      shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, ...(x.symbol ? { symbol: x.symbol } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}) }))),
-      selected: some(selected), check: Object.keys(mine).length ? mine : "clean",
+      cycles: some(cycles), charts: some(charts), text: some(free.filter((c) => !c.under).map((c) => ({ id: `t${c.id}`, text: short(c.text, 200) }))),
+      arrows: some((m.arrows ?? []).filter((a) => keep(`a${a.id}`) && !seen.has(a.id) && !charted.has(a.id)).map((a) => ({ id: `a${a.id}`, kind: a.kind }))),
+      shapes: some((m.shapes ?? []).filter((x) => keep(`b${x.id}`)).map((x) => ({ id: `b${x.id}`, kind: x.kind, ...(x.symbol ? { symbol: x.symbol } : {}), ...(symbolCharge(x) !== undefined ? { charge: symbolCharge(x) } : {}) }))),
+      notes: some(notes), selected: some(selected), check: Object.keys(mine).length ? mine : "clean",
       // The first warnings, each at its atom or structure.
       warnings: warnings.slice(0, MOST_WARNINGS).map(({ message, structure, atom, fix }) => ({ message, at: atom ?? structure, fix })), ...(warnings.length > MOST_WARNINGS ? { more: { warnings: warnings.length - MOST_WARNINGS } } : {}),
     };
@@ -3513,8 +3583,24 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
     ...head, pageBox: page, captions, units: "bond lengths, y up", experiment: details, reagentTables: grids, ...(riskAssessment ? { riskAssessment } : {}), structures, reactions, cycles, ...(charts.length ? { charts } : {}),
     text: free.map((c: Caption) => ({ id: `t${c.id}`, text: c.text, ...(c.runs ? { runs: c.runs } : {}), at: [at(c.x), at(c.y)] })),
     arrows: (m.arrows ?? []).filter((a) => keep(`a${a.id}`)).map((a: Arrow) => ({ id: `a${a.id}`, kind: a.kind, from: a.from.map(at), to: a.to.map(at) })),
-    ...(shapes.length ? { shapes } : {}), selected, warnings,
+    ...(shapes.length ? { shapes } : {}), ...(notes.length ? { notes } : {}), selected, warnings,
   };
+}
+// The notes (annotate.ts), for read: the drawing's, each text's (t), arrow's (a), shape's (b) and cycle's (c), and each
+// group's with the ids of what is in it, in reading order. keyword only when it is not Note. Each cut to 200 characters
+// unless the read is full or names its object; a read that names ids gives theirs only.
+function notesFor(m: Mol, full: boolean, want?: Set<string>) {
+  const kind = (id: number) => (m.captions?.some((c) => c.id === id) ? "t" : m.arrows?.some((x) => x.id === id) ? "a" : m.shapes?.some((x) => x.id === id) ? "b" : "c");
+  const rows = allNotes(m);
+  if (!rows.length) return [];
+  const all = structuresOf(m);
+  return rows.flatMap((r) => {
+    const g = r.on === "drawing" ? undefined : m.groups?.find((x) => x.id === r.on), inside = new Set(g?.atoms);
+    const ids = r.on === "drawing" ? [] : g ? [...all.filter((x) => x.atoms.length && x.atoms.every((i) => inside.has(i))).map((x) => x.id), ...g.items.map((id) => `${kind(id)}${id}`)] : [`${kind(r.on)}${r.on}`];
+    const named = !!want && ids.some((id) => want.has(id));
+    if (want && !named) return [];
+    return [{ on: r.on === "drawing" ? "drawing" : g ? "group" : ids[0], ...(g ? { ids } : {}), ...(r.keyword !== NOTE ? { keyword: r.keyword } : {}), text: full || named ? r.text : short(r.text, 200) }];
+  });
 }
 // No default read is over 20,000 characters (P2): while one is, its longest list loses its last half, and more says how
 // many of each kind were left out, and how to read them.

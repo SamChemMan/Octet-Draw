@@ -3,6 +3,7 @@
 import { bondedTo, bondOrders, fragments, freePairs, LARGE, mayBeChairBond, neighbourSlots, neighbours, perspectiveBonds, pos, WIDE, type P } from "./edit.ts";
 import { chemicalText, endHydrogens, fromEnd, labelSmiles, units } from "./labels.ts";
 import { HBOND, isBracket, orderOf, turnPoint, type Bond, type Mol } from "./render.ts";
+import { bracketOf, bracketPath, routeOf } from "./render.ts";
 
 // The kinds of warning, as ChemDraw 26.1's Settings > Warnings lists them, each with its switch's default (all on but
 // enhanced stereochemistry).
@@ -199,8 +200,10 @@ export function problems(m: Mol, stereo?: StereoFacts, all = false): Problem[] {
     if (cell) cell.push(i); else grid.set(k, [i]);
   });
   const close = new Set<number>();
-  for (const b of m.bonds) {
-    const [s, t] = [xy[b.atoms[0]], xy[b.atoms[1]]], dx = t[0] - s[0], dy = t[1] - s[1], l = dx * dx + dy * dy, own = centred ? (m.atoms[b.atoms[0]].centre ?? m.atoms[b.atoms[1]].centre)?.atoms : undefined;
+  // A bracket (Bond.route) is tested along its three lines.
+  const lines = (b: Bond): [number[], number[]][] => { const r = routeOf(m, b); if (!r) return [[xy[b.atoms[0]], xy[b.atoms[1]]]]; const q = bracketPath(xy[b.atoms[0]], xy[b.atoms[1]], r); return [[q[0], q[1]], [q[1], q[2]], [q[2], q[3]]]; };
+  for (const b of m.bonds) for (const [s, t] of lines(b)) {
+    const dx = t[0] - s[0], dy = t[1] - s[1], l = dx * dx + dy * dy, own = centred ? (m.atoms[b.atoms[0]].centre ?? m.atoms[b.atoms[1]].centre)?.atoms : undefined;
     const x0 = Math.floor(Math.min(s[0], t[0]) - NEAR), x1 = Math.floor(Math.max(s[0], t[0]) + NEAR), y0 = Math.floor(Math.min(s[1], t[1]) - NEAR), y1 = Math.floor(Math.max(s[1], t[1]) + NEAR);
     const test = (i: number) => {
       if (i === b.atoms[0] || i === b.atoms[1] || own?.includes(i)) return;
@@ -386,8 +389,9 @@ function nearPair(ps: P[], cell: number, f: (i: number, j: number) => boolean): 
 export function messy(m: Mol, ids?: Set<number>): boolean {
   const solid = new Set(m.atoms.some((a) => a.location[2]) ? fragments(m).filter((g) => g.some((i) => m.atoms[i].location[2])).flat() : []);
   const inside = (i: number) => (!ids?.size || ids.has(i)) && !solid.has(i);
+  // A bracket (a link in a chain, issue 27) is as long as the chain makes it.
   const uneven = m.bonds.some((b) => {
-    if (!inside(b.atoms[0]) || !inside(b.atoms[1]) || m.atoms[b.atoms[0]].centre || m.atoms[b.atoms[1]].centre) return false;
+    if (!inside(b.atoms[0]) || !inside(b.atoms[1]) || m.atoms[b.atoms[0]].centre || m.atoms[b.atoms[1]].centre || bracketOf(b)) return false;
     const [p, q] = [pos(m, b.atoms[0]), pos(m, b.atoms[1])];
     const length = Math.hypot(q[0] - p[0], q[1] - p[1]);
     return length < 0.75 || length > 1.3;
@@ -406,7 +410,7 @@ export function messy(m: Mol, ids?: Set<number>): boolean {
   if (crowded) return true;
   // Two bonds that cross (and share no atom) also need cleaning up.
   // A bond to a multi-centre or variable attachment crosses its ring by design.
-  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]) && !m.atoms[b.atoms[0]].centre && !m.atoms[b.atoms[1]].centre);
+  const bonds = m.bonds.filter((b) => inside(b.atoms[0]) && inside(b.atoms[1]) && !m.atoms[b.atoms[0]].centre && !m.atoms[b.atoms[1]].centre && !bracketOf(b));
   const cross = (a: P, b: P, c: P, d: P) => {
     const s = (p: P, q: P, r: P) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
     return s(a, b, c) * s(a, b, d) < 0 && s(c, d, a) * s(c, d, b) < 0;

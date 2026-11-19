@@ -6,24 +6,23 @@
 // busy meanwhile, and an edit or Escape cancels it.
 import { fullMol, quickMol, smilesAtoms } from "./chem.ts";
 import { looksLikeSmiles } from "./names.ts";
-import { NUCLEIC, nucleicText } from "./nucleic.ts";
-import { PEPTIDE, peptideSmiles } from "./peptide.ts";
 import type { Mol } from "./render.ts";
+import { isSeqText, seqBuilt, type SeqAsk } from "./helm.ts";
 
 // Above this many atoms Octet no longer tidies a layout without stereochemistry (chem.ts MOST_TIDIED).
 export const PREVIEW_ATOMS = 100;
 // ms after the last keystroke, as for the name field's thorough suggestion.
 export const PREVIEW_PAUSE = 150;
 
-// Sequences are read without asking OPSIN.
-export const isSequence = (text: string) => PEPTIDE.test(text) || NUCLEIC.test(text);
+// Sequences are read without asking OPSIN: Octet's words ("peptide: …", "rna: …", "dna: …") and HELM (issue 27).
+export const isSequence = isSeqText;
 
 // The SMILES to lay out later, or undefined to draw the text now (or nothing, when it is not a structure). smiles: the
 // text read as a name (names.ts nameToSmiles; never asked for a sequence).
 export function laterSmiles(text: string, smiles: string | undefined): string | undefined {
   const s = text.trim();
-  if (PEPTIDE.test(s)) return peptideSmiles(s);
-  if (NUCLEIC.test(s)) { const n = nucleicText(s); return n && "smiles" in n ? n.smiles : undefined; }
+  // A sequence is built from its monomers (seqLayout).
+  if (isSequence(s)) return undefined;
   const big = (x: string) => !/[\r\n]/.test(x) && smilesAtoms(x) > PREVIEW_ATOMS;
   return smiles ? (big(smiles) ? smiles : undefined) : looksLikeSmiles(s) && big(s) ? s : undefined;
 }
@@ -31,7 +30,8 @@ export function laterSmiles(text: string, smiles: string | undefined): string | 
 // One worker, started when first needed. It does one job at a time, and Return's full layout (fullLayout) goes before
 // any preview. Only the newest preview waits: one that has not started when another comes is dropped (resolves
 // undefined), and the caller drops an answer it no longer wants.
-type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean }; done: (answer?: unknown) => void };
+type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk; done: (answer?: unknown) => void };
+
 let worker: Worker | undefined, running: Job | undefined, preview: Job | undefined, full: Job | undefined;
 const start = () => (worker ??= new Worker(new URL("./layout.worker.ts", import.meta.url), { type: "module" }));
 export const warmLayout = () => { if (typeof Worker !== "undefined") start(); };
@@ -64,6 +64,30 @@ export function fullLayout(pieces: string[], ions: boolean): { result: Promise<M
   const result = new Promise<Mol[] | undefined>((done) => {
     full?.done();
     job = full = { ask: { pieces, ions }, done: (m) => done(keep(m as Mol[] | undefined)) };
+    next();
+  });
+  const cancel = () => {
+    if (full === job) { full = undefined; job.done(); }
+    else if (running === job) { worker?.terminate(); worker = undefined; running = undefined; job.done(); next(); }
+  };
+  return { result, cancel };
+}
+// The field's sequence, built in the worker, for its preview and for Return alike (one path): the structure, or a
+// problem, or undefined when it does not build. The last few are kept, so Return after the preview draws at once.
+const builtSeqs = new Map<string, Mol | { problem: string } | undefined>();
+export function seqLayout(text: string, labels: boolean): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
+  const ask: SeqAsk = { build: text.trim(), labels }, key = JSON.stringify(ask);
+  const keep = (m: Mol | { problem: string } | undefined) => { if (builtSeqs.size >= 8) builtSeqs.delete(builtSeqs.keys().next().value!); builtSeqs.set(key, m); return m; };
+  if (builtSeqs.has(key)) return { result: Promise.resolve(builtSeqs.get(key)), cancel: () => {} };
+  if (typeof Worker === "undefined") {
+    let m: Mol | { problem: string } | undefined;
+    try { m = seqBuilt(ask); } catch { m = undefined; }
+    return { result: Promise.resolve(keep(m)), cancel: () => {} };
+  }
+  let job: Job;
+  const result = new Promise<Mol | { problem: string } | undefined>((done) => {
+    full?.done();
+    job = full = { ask, done: (m) => done(m === undefined ? undefined : keep(m as Mol | { problem: string })) };
     next();
   });
   const cancel = () => {

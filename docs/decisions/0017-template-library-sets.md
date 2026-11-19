@@ -24,7 +24,7 @@ ChemDraw 26.1 ships 29 template sets (30 files with the blank New Templates shee
 | DNA Templates, RNA Templates | Nucleobases; DNA and RNA |
 | Polyhedra | Polyhedra (coordination geometries, polyhedra as frames and cages); cubane in Bicyclics |
 | Amino Acid Side Chains, Polypeptides | Side chains; Peptides |
-| Supramolecules | Supramolecules (crown ethers, cryptands, cyclen, cyclam, calixarenes, pillar[5]arene, [2.2]paracyclophane) |
+| Supramolecules | Supramolecules (crown ethers, cryptands, cyclen, cyclam, calixarenes, pillar[5]arene, [2.2]paracyclophane, cyclodextrins, cucurbiturils) |
 | Nanotubes | Carbon (C60, C70, two nanotube segments, a graphene flake) |
 | Shapes | Octet's Shape tool, and Symbols in part |
 | Bio Instruments | Lab equipment |
@@ -39,9 +39,9 @@ Octet's own sets ChemDraw has no set for: Sugars, Nucleobases, Heterocycles, Lig
 
 For 1.2 (7 and 8 November 2026) the sets with no Octet set, or Octet's in part, were drawn: Lab grew from 16 to 47
 items, and DNA and RNA, Side chains, Peptides, Supramolecules, Polyhedra, Carbon, Lab equipment, Biomolecules, Cells,
-BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 550 templates in 31 sets (issue 97 added 14
-polyhedra and C70, issue 98 six lab templates, issue 95 Curved membrane and Cell membrane, and issue 43 the
-Photochemistry set of 17). See "1.2 sets" below.
+BioArt, Anatomy, Organisms, Bugs and Symbols are new. Octet now has 558 templates in 31 sets (issue 97 added 14
+polyhedra, C70, three cyclodextrins and four cucurbiturils, issue 98 six lab templates, issue 95 Curved membrane and
+Cell membrane, and issue 43 the Photochemistry set of 18). See "1.2 sets" below.
 
 What each ChemDraw set holds, and how it draws a Newman projection or a Cp ring, needs ChemDraw running
 (`~/octet-research/notes/chemdraw-checks-pending.md` item 22).
@@ -96,10 +96,20 @@ arene rings 6, Metallocenes 11, Paddlewheels 8, Lab 16. Polycyclics is split int
 - Side chains (20): each amino acid's side chain with R where it joins the α carbon, as Functional groups are.
   Glycine's is R-H. Proline's ring is drawn whole, with R on the α carbon and on the N.
 - Peptides (4): backbones of 2 to 5 residues, H2N to CO2H left to right, the α carbons L, with R1 to Rn in order.
-- Supramolecules (15): crown ethers, cryptands, cyclen and cyclam from their names; calix[4]arene,
+- Supramolecules (22): crown ethers, cryptands, cyclen and cyclam from their names; calix[4]arene,
   p-tert-butylcalix[4]arene and pillar[5]arene drawn flat as papers draw them (each ring pointing out round a square or
   a pentagon, as Indigo's layout puts rings over their own OH groups), and [2.2]paracyclophane in perspective, its
   rings face to face, built from geometry and relaxed to bond length 1 (`tools/library/hosts.mjs`).
+  α-, β- and γ-cyclodextrin (issue 97) drawn flat round a hexagon, heptagon or octagon, the secondary OH out and the
+  CH2OH in, as the cone looks from its wide rim; each glucose wedged as its Haworth projection reads, the wedges picked
+  by the build from 32 ways against a reference made from OPSIN's α-1,4 chain closed into a ring. Cucurbit[5]uril to
+  cucurbit[8]uril drawn flat as the cage looks down its axis: each glycoluril with its CH–CH bond along the circle, one
+  urea ring out and one in, the inner rim smaller (as the far portal looks), the CH2 bridges bent on both rims, and no
+  wedges (PubChem's standard InChI has no stereo layer). Each of the seven is PubChem's compound by InChI
+  (`src/hosts.check.ts`). "cyclodextrin" alone finds β-cyclodextrin and "cucurbituril" alone cucurbit[6]uril.
+  CB[5]'s five inner C=O are nearer each other than one bond length: no flat drawing of the ring keeps them further
+  apart, as a ring drawn inside another with the same number of bonds cannot also go round them. None of the seven is
+  marked for Clean Up as drawn; Clean Up of a cucurbituril gives crossing bonds (it keeps the compound).
 - Polyhedra (30): coordination geometries from linear to pentagonal bipyramidal, M with ligands L, as chemists draw
   them: plain bonds in the page, wedges towards the viewer and hashes away, each M-L bond 1.7 bond lengths so the bond
   between two labels shows; 14 coordination polyhedra as frames (issue 97), from the trigonal bipyramid to the
@@ -174,12 +184,13 @@ one list, the drawings after Paddlewheels.
 ## Photochemistry (issue 43)
 
 ChemDraw has no photochemistry set; its users draw a wavy line, add a head and type the text. Octet's Photochemistry
-set (17, `tools/library/photochem.mjs`) is made of Octet's own lines and arrows, text with subscripts and
+set (18, `tools/library/photochem.mjs`) is made of Octet's own lines and arrows, text with subscripts and
 superscripts, and brackets, so every part stays editable: a Jablonski diagram (S0, S1 and T1 with two vibrational
 levels each, absorption, fluorescence, intersystem crossing and phosphorescence, in one group that is not integral, so
 a double-click picks a part); light (a wavy arrow with hν), a photochemical step (hν) and a thermal step (Δ) as
 conditions on their arrows; absorption, fluorescence, phosphorescence, intersystem crossing and internal conversion;
-[X]* (brackets with an asterisk mark); ¹O₂ and ³O₂; S₀, S₁ and T₁; Sens and Sens*.
+energy transfer (a wavy arrow with EnT, a transition and not a reaction arrow, so the species beside it are not read as
+a reaction); [X]* (brackets with an asterisk mark); ¹O₂ and ³O₂; S₀, S₁ and T₁; Sens and Sens*.
 
 - As IUPAC draws a Jablonski diagram, radiative transitions are straight arrows and radiationless ones wavy. h and ν
   are italic, as quantities are.
@@ -188,8 +199,8 @@ conditions on their arrows; absorption, fluorescence, phosphorescence, intersyst
 - State labels have Interpret Chemically off, so S1 and T1 are not read as sulfur and tritium.
 - The library's thumbnails draw text as the page sets it (conditions beside their arrow, text under its structure, runs
   with their subscripts and superscripts) and a bracket's mark.
-- Not done: energy transfer between two species, and an energy-level diagram object whose transitions stay on their
-  levels when a level moves (ChemDraw has none).
+- Not done: an energy-level diagram object whose transitions stay on their levels when a level moves (ChemDraw has
+  none).
 
 ## Not done
 
@@ -198,11 +209,11 @@ conditions on their arrows; absorption, fluorescence, phosphorescence, intersyst
   stereocentres (r and s on norbornane), and Structure to Name gives them no name. The flat drawings and the crowded
   biaryl phosphines (BINAP, Xantphos, XPhos, SPhos) are marked for Clean Up as drawn.
 - Not named by Structure to Name: functional groups (R), the M templates, Cp2TiCl2, Cp2ZrCl2, (benzene)Cr(CO)3,
-  CpMn(CO)3, bis(benzene)chromium, Mo2(OAc)4, IMes and IPr (carbenes), cis- and trans-decalin, cubane.
+  CpMn(CO)3, bis(benzene)chromium, Mo2(OAc)4, IMes and IPr (carbenes), cis- and trans-decalin, cubane, the
+  cucurbiturils.
 - ChemDraw writes a Newman projection's depth to CDXML as `xyz`; ChemDraw draws it without the circle.
-- Left out because they did not look right: cyclodextrins and cucurbiturils (no clear drawing of a ring of six to
-  eight sugars, or of glycolurils, came out of a flat layout or a simple 3D build), the nucleosome, and from the drawn
-  sets the heart, the stomach and the brain.
+- Left out because they did not look right: the nucleosome, and from the drawn sets the heart, the stomach and the
+  brain.
 - ChemDraw's Animals set has many farm and zoo animals; Organisms has the lab model organisms only (mouse, rat, rabbit,
   zebrafish, frog, nematode, plant). Its Shapes set's weather clouds, recycling and biohazard symbols, skull and
   crossbones, caduceus and rod of Asclepius are not in Symbols.
@@ -218,4 +229,5 @@ conditions on their arrows; absorption, fluorescence, phosphorescence, intersyst
 own, has clear labels (every template with atoms, none let off), has the CIP labels and InChI of its reference compound
 (the dashed cages let off), gets a name from Structure to Name that reads back to its structure, and survives Clean
 Up. `src/lab.check.ts` covers the 153 drawings of the Lab group and the eight drawn sets,
-`src/photochem.check.ts` the Photochemistry set, and `src/perspective.check.ts` the Newman circle.
+`src/photochem.check.ts` the Photochemistry set, `src/hosts.check.ts` the cyclodextrins and cucurbiturils, and
+`src/perspective.check.ts` the Newman circle.

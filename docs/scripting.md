@@ -6,6 +6,11 @@ are the tools that AI apps use, and the script reads and writes the files itself
 You can write the script in any language. This page gives a client and four examples in Python and in JavaScript
 (Node). You do not need to install a package.
 
+Scripts need the AI features, which are in Octet Draw 1.2 and later. This is true for every section from "How it
+works" to "Example 4", and for "What a script cannot do". In Octet Draw 1.1.3, `--headless --mcp` gives an error and
+exit code 2. To convert files with no script, use `--convert` (see [Convert many files](#convert-many-files)). It
+works in 1.1.3 and later.
+
 ## Where the program is
 
 Set the environment variable `OCTET` to the path of the program:
@@ -475,6 +480,8 @@ process.exitCode = found ? 1 : 0;
 
 ## Convert many files
 
+This works in Octet Draw 1.1.3 and later, with or without the AI features.
+
 To convert files with no script, use `--convert`:
 
 ```
@@ -490,11 +497,34 @@ Converted 2 of 2 files.
 - Give files, folders or both. Add `--recursive` to include the folders in a folder.
 - `--to` takes every format that Export or Save writes. `--to sdf --each` writes one SDF file for each drawing,
   with each compound and its number.
+- `--to sdf --into FILE` writes one SDF file with every compound of every file (see below).
 - `--out` is the folder for the new files. Without it, each file goes next to its input.
 - `--width` and `--dpi` are Export's options. `--style` applies a journal's style, or the style of a CDXML or `.oct`
   file, before Octet converts.
 - Octet does not write over a file. It adds a number to the new name. Add `--overwrite` to write over files.
 - If Octet cannot read a file, it gives the reason, converts the other files, and the exit code is 1.
+
+To put every compound of a manuscript in one SDF file, for example for the supporting information, use `--into`:
+
+```
+octet --convert figures --to sdf --into compounds.sdf
+```
+
+```
+scheme1.cdxml: 3 compounds
+scheme2.cdx: 2 compounds
+Converted 2 of 2 files into compounds.sdf.
+```
+
+- Each compound is one record. Its data fields are `Number`, when it has a compound number, and `File`.
+- `File` is the file's path from the folder that you give, for example `scheme1.cdxml` or `inner/scheme2.cdx`.
+- Octet writes the SDF file when all the files are read. A file that Octet cannot read is not in it.
+- `--into` names the file, so it does not take `--out`. Add `--recursive`, `--style` and `--overwrite` as before.
+- Octet does not read the `--into` file, or a copy of it with a number (`compounds 2.sdf`), when it is in a folder
+  that it converts.
+- Octet reads the other SDF files in a folder. Move the SDF files from an earlier `--each` out of the folder first,
+  or their compounds are in the new file twice.
+- `--to sdf2000` writes the records as V2000.
 
 On Windows, `octet.exe` is a window program. PowerShell and the Command Prompt do not wait for a window program to
 stop, so you do not get the exit code. Send the output to another command. Then the shell waits.

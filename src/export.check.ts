@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { apartShapes, type Drawing } from "./render.ts";
-import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin, withWidth } from "./export.ts";
+import { CARRY_CDXML, dpiFor, frameOf, glyphInk, inkOfText, onWholePoints, pasteRefused, pictureAs, pixelsAt, tooLarge, UI, withBackground, withMargin, withWidth } from "./export.ts";
 import { EMPTY, extractSelection, sprout } from "./edit.ts";
 
 // Export, Copy and Print take the canvas, less the layers UI names. An aria-hidden element on the canvas is one of
@@ -154,6 +154,18 @@ assert.match(editor, /const t = el instanceof SVGTextElement \? inkOfText\(el, g
   for (const style of [{ dominantBaseline: "middle" }, { dominantBaseline: "central" }, { alignmentBaseline: "middle" }, { textDecorationLine: "underline" }]) assert.equal(glyphInk("R", el(style)), undefined, JSON.stringify(style));
 }
 assert.equal(withMargin('<svg width="56.21pt" height="36.55pt" viewBox="-33.1 -21.54 56.21 36.55"><g/></svg>', 7.2), '<svg width="70.61pt" height="50.95pt" viewBox="-40.3 -28.74 70.61 50.95"><g/></svg>', "no rounding noise");
+// Issue 171: Word for Mac cut the fraction of a point off the top and right of a pasted picture. Copy's picture is
+// whole points wide and high, as ChemDraw's clipboard PDF is, the drawing in the middle (0 to 0.5 pt spare a side).
+assert.equal(onWholePoints('<svg width="56.21pt" height="36.55pt" viewBox="-33.1 -21.54 56.21 36.55"><g/></svg>'), '<svg width="57pt" height="37pt" viewBox="-33.495 -21.765 57 37"><g/></svg>');
+assert.equal(onWholePoints('<svg width="44.52pt" height="32.73pt" viewBox="-19.01 -17.98 44.52 32.73"><g/></svg>'), '<svg width="45pt" height="33pt" viewBox="-19.25 -18.115 45 33"><g/></svg>', "bromobenzene");
+assert.equal(onWholePoints('<svg width="72pt" height="36pt" viewBox="0 0 72 36"><g/></svg>'), '<svg width="72pt" height="36pt" viewBox="0 0 72 36"><g/></svg>', "a whole size stays as it is");
+assert.equal(onWholePoints("<svg/>"), "<svg/>");
+// Copy, Update in Word and the Office object take that picture on every system; Export takes the tight one and its
+// own margin.
+assert.match(editor, /copyToClipboard\(\{ dpi: settings\.files\.dpi, svg: on\.pdf \? copyPicture\(bare\) : undefined,/);
+assert.equal((editor.match(/invoke\("ole_update", \{ oct(: "")?, svg(: copyPicture\((sent|doc|bare)\) \?\? BLANK_SVG)?,/g) ?? []).length, 3, "each ole_update sends copyPicture");
+assert.ok(!/ole_update", \{[^}]*pictureOf/.test(editor) && !/const svg = pictureOf\(doc\);\s*if \(svg\) invoke\("ole_update"/.test(editor), "no ole_update sends pictureOf");
+assert.ok(!body("openExport").includes("copyPicture") && body("quickExport").includes("svg = pictureOf(part)"), "Export and Quick export are as they were");
 // Issue 23: a paste that finds nothing it can use says so when the clipboard holds something (a ChemDraw picture
 // copied back out of Word on Windows: an EMF with no CDXML and OLE formats), and nothing for an empty clipboard. Text
 // that is not a structure keeps its own reason. The app's paste calls it after every other route fails.
