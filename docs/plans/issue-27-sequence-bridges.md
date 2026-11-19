@@ -347,7 +347,7 @@ HELM and field text up to 20,000 characters; up to 50 polymers; up to 1,000 unit
 to 500 links; unit numbers of up to 4 digits; R1 to R3 only; brackets and parentheses nested at most 32 deep; an
 inline SMILES up to 2,000 characters and 256 atoms; a code up to 40 characters when read (12 when defined). A
 document's monomers: up to 500, each checked as a defined one, read lazily and never added to the user's monomers
-by opening a file.
+by opening a file. A monomer has at most 256 atoms and 512 bonds, as a residue label keeps (long-text.md, L18).
 
 ## 10. Cut from 1.2
 

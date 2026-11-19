@@ -8,7 +8,7 @@ import type { Atom, Mol } from "./render.ts";
 import { canonicalSmiles, fullMol, handsDrawn, indigoLayout, parseStructure, toMolfile, toSmiles } from "./chem.ts";
 import { chainLayout } from "./chain.ts";
 import { fragments } from "./edit.ts";
-import { byLabel, endMonomers, extraCodes, isEnd, isLinker, modifiedNucleic, monomer, peptideMonomers, smilesKey, smilesLinks, type Own, type PolymerKind } from "./monomers.ts";
+import { byLabel, endMonomers, extraCodes, isEnd, isLinker, modifiedNucleic, monomer, peptideMonomers, smilesKey, smilesLinks, smilesProblem, type Own, type PolymerKind } from "./monomers.ts";
 import { labelLayout } from "./sequence.ts";
 import { ELEMENTS } from "./labels.ts";
 import type { End, Seq, SeqUnit } from "./helm.ts";
@@ -407,7 +407,8 @@ export function monomerOf(part: Mol): { smiles: string } | { problem: string } {
   const marked: Mol = { ...part, atoms: part.atoms.map((a, i) => { const k = rs.indexOf(i); return k > 0 ? { label: "Ne", location: a.location, isotope: k } : a; }) };
   let smiles: string;
   try { smiles = canonicalSmiles(marked).replace(/\[([123])Ne\]/g, "[*:$1]"); } catch { return { problem: "Octet cannot write this structure as SMILES." }; }
-  if (/[\s.]/.test(smiles) || smiles.length > 2000) return { problem: "Octet cannot read this structure as a monomer." };
+  // What every reader of the user's monomers takes (monomers.ts smilesProblem), so a monomer defined opens again.
+  if (smilesProblem(smiles)) return { problem: "Octet cannot read this structure as a monomer." };
   const p = prepare(smiles);
   if (!p || !alpha(p)) return { problem: "Octet cannot read this structure as a monomer." };
   return { smiles };

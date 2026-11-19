@@ -55,8 +55,15 @@ export function writeCdx(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}): Ui
   out.set(body.subarray(28), 28 + head + json.length);
   return out;
 }
+// What readOct and readCdx give. fallback: the file has Octet's own drawing for the CDXML or CDX it has, unchanged,
+// but Octet cannot read it, so the drawing is the CDXML's (docs/plans/long-text.md); `lost` then counts it as a
+// FALLBACK, and the style is Octet's own. foreign: the drawing is the CDXML's or CDX's.
+export type Read = { mol: Mol; lost: Record<string, number>; foreign?: true; resaved?: true; fallback?: true };
+export const FALLBACK = "part Octet cannot read";
+const fellBack = (read: { mol: Mol; lost: Record<string, number> }): Read => ({ ...read, lost: { [FALLBACK]: 1, ...read.lost }, foreign: true, fallback: true });
+
 // A .cdx file: Octet's own drawing when the rest of the file is unchanged, otherwise the CDX as ChemDraw's drawing.
-export function readCdx(bytes: Uint8Array): { mol: Mol; lost: Record<string, number>; foreign?: true } {
+export function readCdx(bytes: Uint8Array): Read {
   if (bytes.length > 36 && bytes[28] === (OWN & 0xff) && bytes[29] === OWN >> 8) {
     const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), short = d.getUint16(30, true), head = short === 0xffff ? 8 : 4;
     const n = head === 8 ? d.getUint32(32, true) : short;
@@ -64,15 +71,17 @@ export function readCdx(bytes: Uint8Array): { mol: Mol; lost: Record<string, num
       const own = bytes.subarray(28 + head, 28 + head + n), rest = new Uint8Array(bytes.length - head - n);
       rest.set(bytes.subarray(0, 28));
       rest.set(bytes.subarray(28 + head + n), 28);
-      try {
-        const text = new TextDecoder("utf-8", { fatal: true }).decode(own), cut = text.indexOf(" ");
-        if (text.slice(0, cut) === hashBytes(rest)) { const mol = parse(text.slice(cut + 1)); return { mol, lost: leftOf(mol) }; }
-      } catch { /* a damaged copy: read the CDX */ }
+      let text: string | undefined;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(own); } catch { /* a damaged copy: read the CDX */ }
+      const cut = text?.indexOf(" ") ?? -1;
+      if (text && text.slice(0, cut) === hashBytes(rest)) {
+        try { const mol = parse(text.slice(cut + 1)); return { mol, lost: leftOf(mol) }; } catch { return fellBack(cdxRead(bytes)); }
+      }
     }
   }
-  const read = fromCdxml(cdxToXml(bytes));
-  return { mol: { ...read.mol, style: read.style }, lost: read.lost, foreign: true };
+  return { ...cdxRead(bytes), foreign: true };
 }
+const cdxRead = (bytes: Uint8Array) => { const read = fromCdxml(cdxToXml(bytes)); return { mol: { ...read.mol, style: read.style }, lost: read.lost }; };
 
 // The program that last saved a CDXML file, from its CDXML element: "ChemDraw 25.5.0.5789", or "".
 const programOf = (text: string) => /\sCreationProgram="([^"]*)"/.exec(/<CDXML\s[^>]*/.exec(text.slice(0, 65536))?.[0] ?? "")?.[1] ?? "";
@@ -82,26 +91,43 @@ const programOf = (text: string) => /\sCreationProgram="([^"]*)"/.exec(/<CDXML\s
 // bytes in base64 (from the app, which reads it). oct: the file is named .oct, so Octet wrote it. `resaved` is set
 // when Octet wrote the file (its comment is there, or the name is .oct) and ChemDraw saved it last: ChemDraw 25.5
 // drops Octet's comment and attributes when it saves (issue 19), so Octet's own extras are gone.
-export function readOct(text: string, oct = false): { mol: Mol; lost: Record<string, number>; foreign?: true; resaved?: true } {
+// A copy Octet cannot read gives `fallback` (see Read).
+export function readOct(text: string, oct = false): Read {
   if (text.startsWith(BASE64_MAGIC)) return readCdx(bytesOf(text));
   if (/^\s*\{/.test(text)) { const mol = parse(text); return { mol, lost: leftOf(mol) }; }
-  const at = text.lastIndexOf(MARK);
+  const at = text.lastIndexOf(MARK), read = () => { const r = fromCdxml(text); return { mol: { ...r.mol, style: r.style }, lost: r.lost }; };
   if (at >= 0) {
     const m = /^([0-9a-f]{16}) ([A-Za-z0-9+/=]+)-->\s*$/.exec(text.slice(at + MARK.length));
     if (m && hash(text.slice(0, at)) === m[1]) {
-      try { const mol = parse(new TextDecoder("utf-8", { fatal: true }).decode(bytesOf(m[2]))); return { mol, lost: leftOf(mol) }; } catch { /* a damaged copy: read the CDXML */ }
+      try { const mol = parse(new TextDecoder("utf-8", { fatal: true }).decode(bytesOf(m[2]))); return { mol, lost: leftOf(mol) }; } catch { return fellBack(read()); }
     }
   }
-  const read = fromCdxml(text), resaved = (at >= 0 || oct) && /ChemDraw/i.test(programOf(text));
-  return { mol: { ...read.mol, style: read.style }, lost: read.lost, foreign: true, ...(resaved ? { resaved: true as const } : {}) };
+  const resaved = (at >= 0 || oct) && /ChemDraw/i.test(programOf(text));
+  return { ...read(), foreign: true, ...(resaved ? { resaved: true as const } : {}) };
 }
 
 // Whether a file's text is a drawing readOct reads (a .oct, CDXML, CDX or an old .octet file), not a structure file
 // (MOL, SDF, SMILES), which Indigo reads.
 export const isDrawingText = (text: string) => text.startsWith(BASE64_MAGIC) || /^\s*\{/.test(text) || /<CDXML[\s>/]/.test(text.slice(0, 65536));
 
-// What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape".
+// What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape". Its own
+// copy it cannot read (FALLBACK) is "Octet's own extras".
 export function lostText(lost: Record<string, number>): string {
-  const parts = Object.entries(lost).map(([what, n]) => `${n} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
+  const parts = Object.entries(lost).map(([what, n]) => (what === FALLBACK ? "Octet's own extras" : `${n.toLocaleString("en-GB")} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`));
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] ?? "";
+}
+// What Octet says when it opens or adds a drawing (done: "opened", "added"): its own copy it cannot read first (Read
+// fallback), then what it left out. "" when nothing is lost.
+export function lostNotice(lost: Record<string, number>, done: string): string {
+  const { [FALLBACK]: copy, ...rest } = lost;
+  return [copy ? `Octet cannot read its own copy of this drawing. It ${done} the ChemDraw copy, without Octet's own extras.` : "", Object.keys(rest).length ? `Octet left out ${lostText(rest)}.` : ""].filter(Boolean).join(" ");
+}
+// What Save says before Replace writes over a file it opened with something lost (the Replace dialog).
+export function replaceNote(lost: Record<string, number>): string {
+  const { [FALLBACK]: copy, ...rest } = lost, n = Object.values(rest).reduce((a, b) => a + b, 0);
+  return [
+    copy ? "Octet cannot read its own copy of this drawing. Replace removes Octet's own extras from this file." : "",
+    n ? `Replace ${copy ? "also removes" : "removes"} ${lostText(rest)}${copy ? "" : " from this file"}, because Octet cannot keep ${n > 1 ? "them" : "it"}.` : "",
+    "Save As keeps the original file.",
+  ].filter(Boolean).join(" ");
 }

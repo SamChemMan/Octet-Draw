@@ -474,6 +474,9 @@ export function pastedRows(text: string, most = MAX_STATES + 1, wide = MAX_PATHS
 }
 // An energy diagram's table: the paths' names, and a row for each state (its name, then a cell for each path).
 export type EnergyTable = { paths: string[]; rows: string[][] };
+// Whether a value's own name in the table is longer than the chart keeps it (parseCell keeps 80 characters): the
+// chart dialog says so (docs/plans/long-text.md). Its fields hold a name, the paths' and the states', to 80.
+export const longNames = (t: EnergyTable) => t.rows.some((r) => r.slice(1).some((x) => (CELL.exec(cut(plain(x), 200))?.[3]?.length ?? 0) > 80));
 export const tableOfEnergy = (c: Pick<EnergyChart, "states" | "paths" | "places">): EnergyTable =>
   ({ paths: c.paths.map((p) => p.name), rows: c.states.map((s, k) => [s, ...c.paths.map((p) => cellText(p.energies[k], p.second?.[k], p.names?.[k], c.places))]) });
 // The table as a record's states and paths. A row with no energy and a path with none are left out. was: the record
@@ -555,6 +558,8 @@ export function coverScale(c: Pick<RadarChart, "axes" | "min" | "max" | "step">)
 // data: a value that is no number stays a label.
 // On a Jablonski diagram, text over a state's name or a transition's label is that name or label (J5), drawn again
 // with its scripts when it was typed as plain text (rich: it has a style of its own, which stays as typed).
+// The roles whose text retyped takes as data: it keeps 80 characters of it, as the record holds (str).
+export const isDataRole = (role: string) => role === "axis-title" || /^(?:(?:value|second|name|keyname|axis):\d+(?::\d+)?|(?:state|label):\d+)$/.test(role);
 export function retyped(c: Chart, role: string, text: string, rich = false): { chart: Chart; redraw: boolean } | undefined {
   const m = /^(value|second|name|keyname|axis):(\d+)(?::(\d+))?$/.exec(role), t = cut(plain(text), 80);
   if (!t) return undefined;

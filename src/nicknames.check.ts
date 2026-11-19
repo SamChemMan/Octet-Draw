@@ -71,6 +71,10 @@ assert.equal(capped(made.smiles), capped("OC(=O)C(C)(C)C"));
 assert.equal(typeof chem.nicknameGroup(ester, new Set(ester.atoms.map((_, i) => i))), "string", "a whole structure has no bond to join by");
 assert.equal(typeof chem.nicknameGroup(ester, new Set([2, 3])), "string", "two bonds to the rest");
 assert.equal(typeof chem.nicknameGroup(ester, new Set([3])), "string", "a double bond to the rest");
+// A group larger than a label keeps (Contract Label's 256 atoms) is no nickname (docs/plans/long-text.md).
+const chain: Mol = { atoms: Array.from({ length: 258 }, (_, k) => A("C", k, 0)), bonds: Array.from({ length: 257 }, (_, k) => ({ atoms: [k, k + 1] as [number, number], type: 1 })) };
+assert.equal(chem.nicknameGroup(chain, new Set(Array.from({ length: 257 }, (_, k) => k + 1))), "Select a group of 256 atoms or fewer.");
+assert.equal(typeof chem.nicknameGroup(chain, new Set(Array.from({ length: 256 }, (_, k) => k + 2))), "object", "256 atoms");
 // A group with a label in it is written out.
 const labelled = setLabel(ester, 4, "tBu");
 const withLabel = chem.nicknameGroup({ ...labelled, atoms: labelled.atoms.slice(0, 5), bonds: labelled.bonds.slice(0, 4) }, new Set([1, 2, 3, 4]));

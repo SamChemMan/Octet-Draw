@@ -1,11 +1,11 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
-import { normalise, plainOf, type TextRun } from "./richtext.ts";
-import { readMonomers } from "./monomers.ts";
+import { MAX_TEXT, normalise, plainOf, type TextRun } from "./richtext.ts";
+import { MOST_OWN_MONOMERS, readMonomers } from "./monomers.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
-import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD } from "./annotate.ts";
+import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, MAX_NOTES, noteCount } from "./annotate.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
 import { settleMeasures, soundMeasure } from "./measurement.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
@@ -16,7 +16,8 @@ import { readTie, tieable } from "./arrowlink.ts";
 import { keyOf, readMeasured, writeMeasured } from "./measured.ts";
 import { readPart, readPlot, type PlotPart } from "./pageplot.ts";
 import { readRisk } from "./riskassess.ts";
-import { fromProperties, markLeft, readData, withProperties, writeData } from "./datafields.ts";
+import { fromProperties, markLeft, MAX_DATA, readData, withProperties, writeData } from "./datafields.ts";
+import { MAX_GRIDS } from "./experiment.ts";
 import pkg from "../package.json" with { type: "json" };
 
 export const FORMAT = "octet";
@@ -24,7 +25,22 @@ export const VERSION = 1;
 // app: the Octet that wrote the file (from 1.1.0; files from 1.0.x have none).
 const MAX_ATOMS = 100_000;
 const DISPLAYS: Display[] = ["bold", "dashed", "hashed", "wavy", "dative", "hollow", "either", "aromatic"];
-const MAX_CAPTIONS = 10_000, MAX_TEXT = 2_000;
+// Texts, arrows, shapes, cycles, ring fills and groups, each. A text's length is MAX_TEXT (richtext.ts).
+const MAX_CAPTIONS = 10_000;
+// Why an edit would make a drawing this reader refuses or opens with less (more atoms, bonds, objects of a kind,
+// reagent tables, data fields, notes or monomers than it takes), as the editor says it; undefined when it is within
+// every count (docs/plans/long-text.md).
+export function overLimit(m: Mol): string | undefined {
+  const most = (n: number, what: string) => `A drawing holds up to ${n.toLocaleString("en-GB")} ${what}.`;
+  if (m.atoms.length > MAX_ATOMS) return most(MAX_ATOMS, "atoms");
+  if (m.bonds.length > 4 * MAX_ATOMS) return most(4 * MAX_ATOMS, "bonds");
+  for (const [k, what] of [["captions", "texts"], ["arrows", "arrows"], ["shapes", "shapes"], ["cycles", "cycles"], ["fills", "ring fills"], ["groups", "groups"]] as const) if ((m[k]?.length ?? 0) > MAX_CAPTIONS) return most(MAX_CAPTIONS, what);
+  if ((m.grids?.length ?? 0) > MAX_GRIDS) return most(MAX_GRIDS, "reagent tables");
+  if ((m.data?.length ?? 0) > MAX_DATA) return most(MAX_DATA, "data fields");
+  if (noteCount(m) > MAX_NOTES) return most(MAX_NOTES, "notes");
+  if ((m.monomers?.length ?? 0) > MOST_OWN_MONOMERS) return most(MOST_OWN_MONOMERS, "monomers");
+  return undefined;
+}
 const HEADS: Head[] = ["none", "full", "left", "right"];
 
 // A label's kept group (Contract Label's, or a residue label's): its atoms (element, place, charge) and bonds (order,
@@ -110,9 +126,10 @@ const scaled = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? { scale: x
 const isScale = (v: unknown) => v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= 0.01 && v <= 100);
 // Sizes in points: 0.1 to 999, so a scaled document's text keeps its size.
 const isSize = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0.1 && v <= 999;
-// A caption's runs, if they are sound: up to 2000, each with text and only known styles, joining to the caption's text.
+// A caption's runs, if they are sound: up to MAX_TEXT (each has a character), each with text and only known styles,
+// joining to the caption's text.
 function readRuns(v: unknown, text: string): TextRun[] | undefined {
-  if (!Array.isArray(v) || !v.length || v.length > 2000) return undefined;
+  if (!Array.isArray(v) || !v.length || v.length > MAX_TEXT) return undefined;
   const ok = (r: Record<string, unknown>) => typeof r === "object" && r && typeof r.text === "string" && r.text.length <= MAX_TEXT
     && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
     && (r.script === undefined || r.script === "sub" || r.script === "super") && (r.font === undefined || fontName(r.font))
@@ -291,7 +308,9 @@ export function parse(text: string): Mol {
   if (d.guides !== undefined) out.guides = readGuides(d.guides);
   if (d.fields === true) out.fields = true;
   // The user's monomers the drawing uses (issue 27), each checked as a defined one; never added to the user's own.
-  if (d.monomers !== undefined) { const own = readMonomers(d.monomers); if (own.length) out.monomers = own; }
+  // Those left out (past MOST_OWN_MONOMERS, or not of a defined one's form) are counted.
+  let monomersLeft = 0;
+  if (d.monomers !== undefined) { const own = readMonomers(d.monomers); if (own.length) out.monomers = own; monomersLeft = Array.isArray(d.monomers) ? d.monomers.length - own.length : 0; }
   // Arrows take ids after the captions'.
   const captionCount = Array.isArray(d.captions) ? d.captions.length : 0;
   if (d.arrows !== undefined) {
@@ -374,7 +393,7 @@ export function parse(text: string): Mol {
   if (d.grids !== undefined) {
     // Each grid's arrow by its place among the file's arrows; what it holds read by readGrid (stoich.ts).
     const saved = (out.arrows ?? []).slice(0, Array.isArray(d.arrows) ? d.arrows.length : 0);
-    if (!Array.isArray(d.grids) || d.grids.length > 100) throw new Error("This drawing is damaged.");
+    if (!Array.isArray(d.grids) || d.grids.length > MAX_GRIDS) throw new Error("This drawing is damaged.");
     out.grids = (d.grids as Record<string, unknown>[]).map((g) => {
       const grid = int(g?.arrow, 0, saved.length - 1) ? readGrid(g, saved[g.arrow as number].id) : undefined;
       if (!grid) throw new Error("This drawing is damaged.");
@@ -410,10 +429,13 @@ export function parse(text: string): Mol {
   // as this version keeps them, and π rings from 1.0.x as ligand() orders them. Hydrogens set by hand only where they
   // are fewer than usual (settleHydrogens).
   // Data fields (datafields.ts): a sound entry is kept and the rest left out, so the drawing opens.
+  // A shown field's text over MAX_SHOWN is cut, in Octet's own fields and in 1.1.2's (fromProperties), and counted.
   const fields = readData(d.data, out.atoms.length, out.captions ?? []);
   if (fields.data) out.data = fields.data;
-  // At most 10,000 notes (annotate.ts capNotes): a drawing pasted into twice may have had more when it was saved.
-  return markLeft(capNotes(settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(fromProperties(out)) : fromProperties(out)))), undefined, true)), fields.left);
+  const shown = fromProperties(out), settled = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(shown.mol) : shown.mol))), undefined, true);
+  // At most 10,000 notes (annotate.ts capNotes): a file from before the editor kept that limit; the rest are counted.
+  const kept = capNotes(settled);
+  return markLeft(kept, { "data field": fields.left, character: fields.cut + shown.cut, annotation: noteCount(settled) - noteCount(kept), monomer: monomersLeft });
 }
 
 // An object's notes, if any: checked as annotations are (a bad list makes the drawing damaged).

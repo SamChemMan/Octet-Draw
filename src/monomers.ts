@@ -138,10 +138,11 @@ export { residueSmiles };
 // ——— Reading a monomer's SMILES ———
 // Its atoms in SMILES order (bracket atoms and the organic subset), and for each [*:n] its place among them. Ring
 // closures, bonds and branches are not atoms. Linear in the length.
-// stereo: the atoms the SMILES gives a hand (@ or @@).
-export function smilesLinks(smiles: string): { atoms: number; r: (number | undefined)[]; stereo: number[] } | undefined {
+// stereo: the atoms the SMILES gives a hand (@ or @@). bonds: as many as one structure (no ".") of these atoms has, each
+// ring closure one more (at most: a closure left open counts half).
+export function smilesLinks(smiles: string): { atoms: number; bonds: number; r: (number | undefined)[]; stereo: number[] } | undefined {
   const r: (number | undefined)[] = [undefined, undefined, undefined, undefined], stereo: number[] = [];
-  let atoms = 0;
+  let atoms = 0, closures = 0;
   for (let k = 0; k < smiles.length; k++) {
     const ch = smiles[k];
     if (ch === "[") {
@@ -155,12 +156,16 @@ export function smilesLinks(smiles: string): { atoms: number; r: (number | undef
       k = end;
     } else if ((ch === "B" || ch === "C") && (smiles[k + 1] === "r" || smiles[k + 1] === "l")) { atoms++; k++; }
     else if ("BCNOPSFIbcnops*".includes(ch)) { if (ch === "*") return undefined; atoms++; }
+    else if (ch === "%") { closures++; k += 2; }
+    else if (ch >= "0" && ch <= "9") closures++;
   }
-  return { atoms, r, stereo };
+  return { atoms, bonds: Math.max(0, atoms - 1) + Math.ceil(closures / 2), r, stereo };
 }
 
 // ——— The user's monomers (J10) ———
-export const MOST_OWN_MONOMERS = 500, CODE_MOST = 12, OWN_ATOMS = 256, OWN_SMILES = 2000;
+// A monomer's atoms and bonds are at most what a residue label keeps (file.ts innerIn, edit.ts groupTooBig), so a chain
+// drawn with its residue labels saves and opens again whole (docs/plans/long-text.md).
+export const MOST_OWN_MONOMERS = 500, CODE_MOST = 12, OWN_ATOMS = 256, OWN_BONDS = 512, OWN_SMILES = 2000;
 // Why a code cannot name a new monomer, or undefined when it can: 1 to 12 letters, digits or _ ("-" is an end in a
 // sequence's words), and no code or residue label of Octet's own in any case (Ala, D-Phe, NH2, rA, P), so a label never
 // means two things.
@@ -176,10 +181,11 @@ export function withMonomer(list: Own, m: OwnMonomer): OwnMonomer[] {
   return [...list.filter((x) => x.code !== m.code), m].slice(-MOST_OWN_MONOMERS);
 }
 // Whether a monomer's SMILES will not do, by its form only (seqbuild.ts checks it is an α-amino acid when it is used).
-function smilesProblem(smiles: string): boolean {
+// Every reader of the user's monomers asks it, and Define Monomer too (seqbuild.ts monomerOf).
+export function smilesProblem(smiles: string): boolean {
   if (smiles.length > OWN_SMILES || /\s|\./.test(smiles)) return true;
   const links = smilesLinks(smiles);
-  return !links || links.atoms > OWN_ATOMS || links.r[1] === undefined || links.r[2] === undefined;
+  return !links || links.atoms > OWN_ATOMS || links.bonds > OWN_BONDS || links.r[1] === undefined || links.r[2] === undefined;
 }
 // A list of monomers read from a file or settings: each a code and SMILES of the right form, up to the limit. Anything
 // else is left out, so no file brings a monomer Octet could not define.
@@ -236,8 +242,9 @@ export function readHelmLibrary(text: string, usable: (smiles: string) => boolea
   // A list, or an object holding one (some libraries put it under "monomers").
   const list = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as { monomers?: unknown }).monomers) ? (data as { monomers: unknown[] }).monomers : undefined;
   if (!list) return { problem: "This file is not a HELM monomer library." };
+  // A monomer past the 20,000th is not looked at, and counts as left out.
   const out: OwnMonomer[] = [], seen = new Set<string>();
-  let left = 0, tried = 0;
+  let left = Math.max(0, list.length - 20_000), tried = 0;
   for (const x of list.slice(0, 20_000)) {
     const m = x && typeof x === "object" ? (x as Record<string, unknown>) : {};
     const code = typeof m.symbol === "string" ? m.symbol.trim() : "", raw = typeof m.smiles === "string" ? m.smiles.trim() : "";
