@@ -1181,7 +1181,7 @@ await check("N39", "Modified nucleotides (2'-OMe, 2'-F, MOE, LNA, 5-methyl-C) an
 // ==================================================================================================================
 // ChemDraw 22.2 (S19) and the app in WebKit (U1 to U6, U8)
 // ==================================================================================================================
-await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms), saves CDXML, Octet reads it: the same InChI, labels kept as labels", async () => {
+await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms) and Boc-A-Aib-Nle-G-OMe (labels), saves CDXML, Octet reads it: the same InChI, labels kept as labels", async () => {
   if (!process.env.OCTET_STRESS_CHEMDRAW) return "set OCTET_STRESS_CHEMDRAW=1 to run ChemDraw 22.2 by AppleScript";
   const app = "/Applications/ChemDraw 22.2.0.app", lock = process.env.OCTET_STRESS_CHEMDRAW_LOCK ?? join(fileURLToPath(new URL("../..", import.meta.url)), "chemdraw.lock");
   if (!existsSync(app)) return "no ChemDraw 22.2";
@@ -1189,7 +1189,9 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms),
   const tell = (body: string) => spawnSync("osascript", ["-e", `tell application id "com.perkinelmer.ChemDraw.22"\n${body}\nend tell`], { encoding: "utf8", timeout: 60000 });
   const dir = mkdtempSync(join(tmpdir(), "octet-cd27-")), done: string[] = [];
   try {
-    for (const [k, m] of [["oxytocin-atoms", atoms(S.oxytocin)], ["oxytocin-labels", labels(S.oxytocin)], ["insulin-atoms", atoms(S.insulin)], ["insulin-labels", labels(S.insulin)]] as const) {
+    // And a chain with Octet's ends and non-natural residues as labels (Boc, Aib, Nle, OMe; issue 27).
+    const ends = (buildLabels((fieldSeq("peptide: Boc-A[Aib][Nle]G-OMe") as { seq: Seq }).seq) as { mol: Mol }).mol, want: Record<string, string> = { oxytocin: S.oxytocin, insulin: S.insulin, ends: "PEPTIDE1{[Boc].A.[Aib].[Nle].G.[-OMe]}$$$$V2.0" };
+    for (const [k, m] of [["oxytocin-atoms", atoms(S.oxytocin)], ["oxytocin-labels", labels(S.oxytocin)], ["insulin-atoms", atoms(S.insulin)], ["insulin-labels", labels(S.insulin)], ["ends-labels", ends]] as const) {
       const name = `stress27-${k}-${process.pid}.cdxml`, src = join(dir, name), out = join(dir, `saved-${k}.cdxml`);
       writeFileSync(src, toCdxml(m, DEFAULT_STYLE));
       execFileSync("open", ["-g", "-a", app, src]);
@@ -1201,7 +1203,7 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms),
       const back = fromCdxml(readFileSync(out, "utf8")).mol;
       assert.equal(inchi(back), inchi(m), `${k}: the same compound after ChemDraw`);
       if (k.endsWith("labels")) assert.equal(back.atoms.filter((a) => a.inner).length, m.atoms.filter((a) => a.inner).length, `${k}: labels kept as labels`);
-      assert.equal(toHelm(back), k.startsWith("oxytocin") ? S.oxytocin : S.insulin, `${k}: HELM after ChemDraw`);
+      assert.equal(toHelm(back), want[k.split("-")[0]], `${k}: HELM after ChemDraw`);
       done.push(k);
     }
   } finally { rmSync(lock, { recursive: true, force: true }); rmSync(dir, { recursive: true, force: true }); }
@@ -1211,7 +1213,7 @@ await check("S19", "ChemDraw 22.2 opens oxytocin and insulin (labels and atoms),
 // nothing from this file. It reads the editor's state from React's own records (the undo history) and drives the
 // canvas and the name field with pointer and key events, as scripts/look/sweep.js does.
 const ui = process.env.OCTET_STRESS_URL;
-await check("U", "The app in WebKit: U1 to U6", async () => {
+await check("U", "The app in WebKit: U1 to U6 and U9", async () => {
   if (!ui) return "set OCTET_STRESS_URL to the dev server (npx vite --port 1467) to drive the app in WebKit";
   if (process.platform !== "darwin" || spawnSync("which", ["swift"]).status !== 0) return "needs a Mac with Xcode's swift";
   const dir = mkdtempSync(join(tmpdir(), "octet-ui27-")), script = join(dir, "stress.js");
@@ -1375,6 +1377,36 @@ async function uiStress(helmText: string) {
       counts.push(world().querySelectorAll("path, polygon").length);
     }
     result("U5", "(S20) Zoomed right out and right in: the chain still draws, no error", counts.every((n) => n > 0) && !w.__errors.length, `shapes ${counts.join(", ")}, errors ${w.__errors.length}`);
+  });
+  await step("U9", "Ends, a non-natural residue and a modified nucleotide typed; a drawn chain opened in the field and drawn again in place", async () => {
+    // New words: Boc-, [Aib], -OMe (issue 27). The structure lands selected.
+    await openField();
+    type("peptide: Boc-A[Aib]GF-OMe");
+    await wait(900);
+    const shown = note(), at0 = hist().at, n0 = doc().atoms.length;
+    key({ key: "Enter", code: "Enter" }, field());
+    await until(() => doc().atoms.length > n0 && !field(), 8000);
+    await wait(500);
+    const landed = doc().atoms.length - n0, parts0 = parts(doc());
+    // Structure > Sequence > Peptide… with the chain selected: the field holds its sequence.
+    await palette("Insert Peptide");
+    const f = await until(() => field(), 3000), held = f?.value ?? "";
+    type("peptide: Boc-A[Aib]GGF-OMe");
+    await wait(900);
+    const at1 = hist().at, n1 = doc().atoms.length;
+    key({ key: "Enter", code: "Enter" }, field());
+    await until(() => doc().atoms.length !== n1 && !field(), 8000);
+    await wait(500);
+    const grew = doc().atoms.length - n1, steps = hist().at - at1, same = parts(doc()) === parts0;
+    // A gapmer in DNA's words.
+    await openField();
+    type("dna: [LA]*[LT]*G*C*[LG]");
+    await wait(900);
+    const gap = note();
+    key({ key: "Escape", code: "Escape" }, field());
+    await wait(300);
+    result("U9", "(issue 27) Boc-A[Aib]GF-OMe draws; with it selected, Structure > Sequence opens the field with its words; Gly typed in draws it again in place, one step; a gapmer reads", !shown && landed > 0 && hist().at - at0 >= 1 && held === "peptide: Boc-A[Aib]GF-OMe" && grew > 0 && steps === 1 && same && !gap,
+      `under the field "${shown}", landed ${landed}, field held "${held}", grew ${grew}, steps ${steps}, structures the same ${same}, gapmer "${gap}"`);
   });
   await step("U6", "Escape while it builds", async () => {
     const before = doc();

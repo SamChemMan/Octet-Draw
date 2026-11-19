@@ -487,3 +487,43 @@ by opening a file.
   (chem.ts chainsDrawnOut), as Sequences > Atoms draws it, in the same undo step. A chain with a label left keeps its
   places.
 - Stress cases N34 to N36.
+
+## 17. The rest of #27 (19 November 2026, afternoon)
+
+Built on this branch after the 1.1.3 hand-over (5bea9cb), each with its checks: `monomers.check.ts`,
+`seqextras.check.ts`, stress cases N37 to N39 and U9, and S19 (ChemDraw 22.2, run by AppleScript, passed).
+
+- **Custom monomers (J10) are back**, with the review's faults mended. A code has 1 to 12 letters, digits or _ (no
+  "-", which the field reads as an end) and is no code or residue label of Octet's in any case (Ala, D-Phe, NH2, rA,
+  Aib, Boc). A residue is named by its kept atoms, never its text. Contract Label and Copy As HELM try only the monomers
+  whose elements (but O and H, which caps add) match the residue (`monomers.ts smilesKey`), so a file's 500 monomers cost
+  no time. A built sequence carries the monomers it uses (`Mol.monomers`); `edit.ts withMonomers` merges them into the
+  drawing on every insert, paste and Return, the drawing's own code first. .oct, CDXML and CDX keep them in Octet's
+  root data. The menu item, the right-click item (its own icon), the dialog and Settings > Dictionary > Monomers are as
+  J10 planned. The AI apps' `define_monomer` is not back (the AI apps are off in 1.1.3).
+- **HELM monomer libraries.** Settings > Dictionary > Monomers > Export… writes the user's monomers as a HELM library
+  (JSON, `[*:n]` SMILES, a cap for each R); Import… reads one (up to 4 MB; `[*:n]` or ChemAxon's `|$…_R1…$|`), keeps
+  peptide monomers that are α-amino acids and new codes, up to 500, and says how many it left out. Rust: an
+  `import_monomers` command and a "json" export format (left out of `--convert`).
+- **Non-natural amino acids**, by the codes that IUPAC and the HELM library (monomerLib2.0) share, each L and checked
+  against the library's structure: Abu, Aib, Cha, Cit, Dab, Hcy, Hse, Hyp, Nle, Nva, Orn, Pen, Phg, Sar; R3 on Dab, Orn
+  (N), Hcy and Pen (S), as the library has it. FASTA writes the library's natural analogue (Nle L, Orn K) or X.
+- **A peptide's ends**: Boc-, Cbz- (Z- reads as Cbz-), Fmoc-, Bz-, Biotin- and -OMe, -OtBu, -OBn, -NHMe, -NHEt, by the
+  HELM library's codes ([Boc], [Cbz], [fmoc], [Bz], [-OMe], [OtBu], [-OBn], [NHMe], [NHEt]). Biotin has no library code:
+  HELM writes D-biotin's SMILES and Octet reads that back as Biotin. In the field they are typed as words; the two
+  choices under the field stay N-acetyl and C-amide. As residue labels an end is a label with its atoms. A dipeptide
+  drawn as atoms with such an end stays a small molecule, as aspartame (Asp-Phe-OMe) does.
+- **Modified nucleotides**: the library's sugars mR, fR, MOE and LR (LNA) with any base, 5meC on any sugar, and sP. In
+  the words a modified nucleotide is its label in brackets ([mA], [fU], [moeG], [LT], [d5mC], [r5mC]) and * between two
+  nucleotides is a phosphorothioate. A modified sugar goes with ribose or 2-deoxyribose (gapmers); ribose and
+  2-deoxyribose still not together. The chain reader finds an LNA's C5' by its O5', which bonds to no ring atom.
+- **Structure > Sequence** holds Peptide…, DNA… and RNA… in place of the three Insert items. Settings > Keyboard
+  shortcuts lists them under Structure › Sequence and the Sequence tool under Tools, with no default key (ChemDraw has
+  none).
+- **A drawn chain back in the field**: the Sequence tool's click on a chain, or Structure > Sequence with a chain
+  selected, opens the field with its sequence (words, or HELM), and Return draws the field's text in its place
+  (`helm.ts inPlaceOf`): centre, scale, caption and group kept, one undo step. A residue is put in or taken out by typing.
+
+Cut, for a later stage: deleting a residue on the page closing the gap (ChemDraw's Removing Residues), a menu of ends
+under the field, renaming a residue label to a non-natural or user's code, custom RNA/DNA monomers, the AI apps'
+`define_monomer`, and Schramm's display asks (residues per line, termini style).
