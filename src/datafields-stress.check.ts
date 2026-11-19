@@ -1,5 +1,5 @@
 // Run: node src/datafields-stress.check.ts. The stress list of issue 68 (docs/plans/issue-68-data-fields.md, S1 to
-// S32): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
+// S33): data fields on structures through big and hostile files, odd names and values, every edit that renumbers atoms,
 // undo, copy and paste, every format in a chain, AI apps with odd arguments and two at once, and speed. Each case runs on
 // its own, and the file fails at the end with the cases that fail. What only the window does (the dialog, a notice) is
 // checked here in the source the editor runs for it. S18 (ChemDraw 22.2) and S19 (Octet 1.1.2's own readers) need
@@ -398,6 +398,25 @@ test("S32 Attach data with no structure selected", () => {
   assert.match(handler, /gs\.length === 1 \? gs\[0\] : undefined/, "one structure, or none");
   assert.match(handler, /if \(!atoms\) return setNotice\("Select a structure first\.", "info"\)/);
   assert.match(editor, /setNotice\("Select attached data first\.", "info"\)/);
+});
+
+test("S33 Indigo's own SD reader reads the data items Octet writes", async () => {
+  // Indigo's SD loader (a registration toolkit's, apart from Octet's readSd) gives each record's items as KET
+  // properties. It drops a lone record's items, so the file has two records.
+  const Indigo = (await import("indigo-ketcher/binaryWasmNoRender")).default, ind = await Indigo();
+  const u = "α °C 日本 🧪 مرحبا";
+  let m = fielded(two(), 0, [["Batch", "B-001", true], ["Note", "two\nlines"], ["ID", "a"], ["ID", "b"], ["e", ""], [`名 ${u}`, u]]);
+  m = fielded(m, 1, [["ID", "X-2"]]);
+  // Indigo keeps one item of each name, the last, at the first's place (most readers keep one); Octet keeps both (S5).
+  const want = all(m).map((s) => [...new Map(s.map(([name, value]) => [name, value])).entries()].map(([key, value]) => ({ key, value })));
+  for (const v2000 of [true, false]) {
+    const opts = new ind.MapStringString();
+    try {
+      opts.set("output-content-type", "application/json");
+      const ket = JSON.parse(JSON.parse(ind.convert(chem.toSdf(m, v2000), "ket", opts)).struct);
+      assert.deepEqual(ket.root.nodes.map((n: { $ref: string }) => ket[n.$ref].properties), want, v2000 ? "V2000" : "V3000");
+    } finally { opts.delete(); }
+  }
 });
 
 const failed: string[] = [];
