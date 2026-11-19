@@ -430,8 +430,8 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv, changed: Set<nu
   const movedEnds = (a: Arrow, e: Line, level: boolean): [boolean, boolean] => {
     const mf = !close(minus(a.from, a.role!.at), shift);
     if (level) return [mf, !close(minus(minus(a.to, a.role!.at), shift), minus(e.to, e.from))];
-    const b = before.get(a.id) as Arrow | undefined;
-    return [mf, !close(own(a).to, e.to) && (!b || !close(a.to, b.to))];
+    const b = before.get(a.id);
+    return [mf, !close(own(a).to, e.to) && (!b || !("from" in b) || !close(a.to, b.to))];
   };
   const states: Absolute[] = p.states.map((s) => ({ name: s.name, x0: s.x[0] * W, x1: s.x[1] * W, y: s.y * H, vib: s.vib })), was0 = states.slice();
   const moved: number[] = [];
@@ -525,7 +525,7 @@ function settleLevels(was: Mol, m: Mol, og: Group, env: PlotEnv, changed: Set<nu
   // Each part read back is where Octet puts it now (its offset the group's move); a transition reversed takes its
   // heads back the other way, so its head stays at the state it now goes to. A name or a label this edit moved with
   // its level or its transition goes with it: its offset loses that move.
-  const moveOf = (x: Arrow | Caption | undefined): P | undefined => { const o = x && before.get(x.id); return o && x ? ("from" in x ? minus(x.from, (o as Arrow).from) : [x.x - (o as Caption).x, x.y - (o as Caption).y]) : undefined; };
+  const moveOf = (x: Arrow | Caption | undefined): P | undefined => { const o = x && before.get(x.id); return !o || !x || "from" in x !== "from" in o ? undefined : "from" in x ? minus(x.from, (o as Arrow).from) : [x.x - (o as Caption).x, x.y - (o as Caption).y]; };
   const anchors = new Map((m.arrows ?? []).filter((a) => ids.has(a.id) && a.role).map((a) => [a.role!.role, a]));
   const back = ({ start, end, ...a }: Arrow): Arrow => ({ ...a, ...(end ? { start: end } : {}), ...(start ? { end: start } : {}) });
   const settled: Mol = { ...m,

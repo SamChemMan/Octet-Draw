@@ -1083,14 +1083,15 @@ export default function Editor() {
   // joins a cycle as a structure dragged there does.
   // The drawing the last edit made, so an experiment page grows its Reaction scheme box after an edit only.
   const lastSet = useRef<Mol>(undefined);
-  const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true) => {
+  const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
     // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
-    // transitions stay on their levels (followLevels), in the same step. Hydrogens set by hand
-    // that are no longer fewer than usual go (settleHydrogens).
+    // transitions stay on their levels (followLevels), in the same step. A drawing opened (load) is no edit of the
+    // drawing before it, so none of these runs: a part with the same id there can be another part. Hydrogens set by
+    // hand that are no longer fewer than usual go (settleHydrogens).
     // A table moved by hand keeps its place when its reaction moves (gridview.ts keepPlace).
     const env = plotEnv();
-    mol = keepPlace(doc, settleHydrogens(followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
+    mol = keepPlace(doc, settleHydrogens(opened ? mol : followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env)));
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
     // On an experiment page, a reaction drawn in this drawing (not one opened) gets its stoichiometry grid at once,
     // the compound numbers follow the compounds' order (numbering.ts), and the details agree with their text on the
@@ -2060,7 +2061,7 @@ export default function Editor() {
       // on the structures, or on everything else when there are none (text, arrows, pictures).
       const b = bounds(mol) ?? extent(mol);
       setGuides(saved ?? { ...freshGuides(b && [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], readStyle(mol.style ?? newStyle)), ...(typeof kept.style?.grid === "number" ? { grid: true } : {}) });
-      set(mol);
+      set(mol, false, joinNext.current, true, true);
       // As ChemDraw does, a drawing with a structure turned in 3D opens with Select as Structure Perspective, to turn it.
       if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });

@@ -853,6 +853,20 @@ await check("U8", "(P32) The look sweep in light and dark: the Jablonski diagram
   rmSync(dir, { recursive: true, force: true });
 });
 
+await check("N29", "File > Revert to Saved, and a drawing opened in the same window, after a part was deleted and one added: the drawing is the file", () => {
+  // The editor's load() calls set() as opened, so nothing follows the drawing before it (a part with the same id there
+  // is another part).
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), load = editor.slice(editor.indexOf("function load("), editor.indexOf("function readFile("));
+  assert.match(editor, /const set = \(mol: Mol, [^)]*opened = false\) => \{[\s\S]{0,900}?opened \? mol : followLevels\(/, "set() skips the follows for a drawing opened");
+  assert.match(load, /\bset\(mol, false, joinNext\.current, true, true\);/, "load() opens the drawing with set(…, opened)");
+  // And followLevels never throws on two drawings that are not one edit apart, as a drag's preview after an open would
+  // run it: the review's two edits (the IC arrow deleted and S2 linked to S1; S2's level deleted and a singlet added).
+  const ic = edit(page, deleteGraphics(page, new Set([idOf(page, "trans:2")]))), level = edit(page, deleteGraphics(page, new Set([idOf(page, "level:2")])));
+  for (const [what, doc] of [["IC deleted, S2 linked to S1", edit(ic, act(ic, "chart.link.1", [idOf(ic, "level:2")]))], ["S2 deleted, a singlet added", edit(level, act(level, "chart.add.singlet", []))]] as const)
+    for (const [how, file] of [[".oct", readOct(writeOct(page, style), true).mol], ["CDXML", readOct(toCdxml(page, style)).mol]] as const)
+      assert.doesNotThrow(() => followLevels(doc, file, env), `${what}, then ${how} opened`);
+});
+
 // --- Report -------------------------------------------------------------------------------------------------------
 const failed = results.filter((r) => r.state === "failed"), skipped = results.filter((r) => r.state === "skipped");
 for (const r of skipped) console.log(`  skipped ${r.id} ${r.title}: ${r.note}`);
