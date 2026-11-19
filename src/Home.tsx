@@ -40,7 +40,7 @@ import markWhite from "../brand/logos/octet-mark-white.svg";
 import lockup from "../brand/logos/octet-lockup.svg";
 import lockupWhite from "../brand/logos/octet-lockup-white.svg";
 import { ColourPop, colourItems, pickColour } from "./ColourPicker";
-import { ADD, addColour, colourOptions, PICK, rememberColour } from "./colours";
+import { ADD, colourOptions, PICK } from "./colours";
 import type { Swatch } from "./settings";
 import { Dialog, useModal } from "./Dialog";
 import { boxPicks, tileTo } from "./keys";
@@ -228,8 +228,8 @@ export function Home(p: Props) {
   // A project being named: a new one (with the drawings it takes when it is made), or one being renamed.
   const [naming, setNaming] = useState<{ id?: string; value: string; then?: { path: string; name?: string }[] }>();
   const [deleting, setDeleting] = useState<Project>();
-  // A project's colour being picked freely (Add colour…): shown on its folder as it changes, kept when it closes, and
-  // kept with the user's own colours when it changed.
+  // A project's colour being picked freely (Custom colour…): shown on its folder as it changes and kept when it closes.
+  // Save to colours keeps it with the user's own colours.
   const [picking, setPicking] = useState<{ id: string; from: string; hex: string; anchor: DOMRect; keep: HTMLElement | null }>();
   const open = projectOf(lib.store, lib.open);
   // The Experiments list, open in Home's place, with its search and sort.
@@ -659,7 +659,7 @@ export function Home(p: Props) {
   // A folder's colours: Octet's colour menu (colourOptions), as every colour menu has them.
   const colourGroups = (id: string): MenuItem[][] => {
     const x = projectOf(lib.store, id), now = x ? colourOf(x) : PROJECT_COLOUR;
-    return colourItems(colourOptions(COLOURS, p.palette ?? [], now), (o) => `colour:${o.hex ?? o.key}`, now);
+    return colourItems(colourOptions(COLOURS, p.palette ?? [], [], now), (o) => `colour:${o.hex ?? o.key}`, now);
   };
   const menuGroups = (m: MenuFor): MenuItem[][] => {
     if (m.kind === "drawing") {
@@ -756,7 +756,7 @@ export function Home(p: Props) {
         return;
       }
       if (key === `colour:${PICK}`) return void pickColour().then((hex) => { if (hex) void lib.colour(m.id, hex); });
-      if (key.startsWith("colour:")) { rememberColour(key.slice(7)); return void lib.colour(m.id, key.slice(7)); }
+      if (key.startsWith("colour:")) return void lib.colour(m.id, key.slice(7));
     }
     if (m.kind === "section") {
       if (key === "fold") return fold(m.id);
@@ -1134,7 +1134,7 @@ export function Home(p: Props) {
       {menu && <ContextMenu label={menuLabel(menu)} at={menu.at} keyboard={menu.keyboard} groups={menuGroups(menu).filter((g) => g.length)} sub={sub} onChoose={choose} onClose={() => setMenu(undefined)} />}
       <Exit>{picking && (
         <ColourPop anchor={picking.anchor} keep={picking.keep} label="Folder colour" value={picking.hex} onChange={(hex) => setPicking((x) => x && { ...x, hex })}
-          onClose={() => { void lib.colour(picking.id, picking.hex); setPicking(undefined); if (picking.hex !== picking.from) { rememberColour(picking.hex); p.onPalette?.(addColour(p.palette ?? [], picking.hex)); } }} />
+          own={p.onPalette && (p.palette ?? [])} onOwn={p.onPalette} presets={COLOURS} onClose={() => { void lib.colour(picking.id, picking.hex); setPicking(undefined); }} />
       )}</Exit>
       <Exit>{deleting && (
         <Dialog title={`Delete “${deleteName}”?`} action="Delete" onClose={() => setDeleting(undefined)} onAction={() => { const id = deleting.id; setDeleting(undefined); void lib.remove(id); }}>

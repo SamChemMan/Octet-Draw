@@ -1,5 +1,5 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
+// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
 // offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
@@ -51,6 +51,14 @@ if (name) {
 }
 if (!labelled("Add a caption")) key({ key: "a", code: "KeyA", metaKey: true });
 await measure("the Structure panel", !!(await until(() => labelled("Add a caption"), 4000)));
+
+// The colour rows' palette (every colour as a swatch), then Custom colour… with Save to colours under the picker.
+document.querySelector(".colour-row .colour-more")?.click();
+await measure("the colour palette", !!(await until(() => document.querySelector(".strip.list .menu-group.swatches"), 3000)));
+[...document.querySelectorAll(".strip.list .variant")].find((b) => /Custom colour/.test(b.textContent))?.click();
+await measure("the custom colour picker", !!(await until(() => document.querySelector(".colour-pop .picker-save"), 3000)));
+key({ key: "Escape" });
+await wait(600);
 
 // Choose Nickname (the = key over an atom): the user's nicknames and Octet's, with a field to find one.
 const oxygen = [...document.querySelectorAll("svg.canvas text")].find((t) => t.textContent.trim() === "O")?.getBoundingClientRect();
