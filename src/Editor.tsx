@@ -65,7 +65,7 @@ import { figureBox, isChart, isDataRole, kindOf as transitionKind, NEW_ENERGY, N
 import { ChartDialog, type ChartData } from "./ChartDialog";
 import { DataDialog } from "./DataDialog";
 import { Paperclip, SelectionBackground } from "@phosphor-icons/react";
-import { fieldCaptions, fieldOfCaption, leftOf, linked, rowsOf, setRows, type DataRow } from "./datafields";
+import { fieldCaptions, fieldOfCaption, leftOf, linked, MAX_SHOWN, rowsOf, setRows, type DataRow } from "./datafields";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, nucleusText, regroup, type Measured } from "./measured";
 import { isNmredata, nmredataDrawing, writeNmredata, type Written } from "./nmredata";
@@ -73,7 +73,7 @@ import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, parseXml, toCdxml, union, type CdxmlOptions } from "./cdxml";
-import { FALLBACK, isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
+import { isDrawingText, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
 import { WhatsNew } from "./WhatsNew";
@@ -1782,7 +1782,8 @@ export default function Editor() {
     own: (text) => !!ownNickname(text),
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
-  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(`Octet left out ${lostText(lost)}.`); };
+  // What a drawing added (inserted, dropped, pasted) lost, its own copy Octet cannot read first (oct.ts lostNotice).
+  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(lostNotice(lost, "added")); };
   // Resolves true when the drawing was saved. Over a file another app changed since Octet opened or saved it (issue 2),
   // Save asks first, as Mac apps do: Save Anyway writes over it, Save As keeps it. Over a file that had things Octet
   // could not hold (REL-11), Save asks too: Save As keeps the original file, Replace writes over it. anyway: the first
@@ -2311,10 +2312,10 @@ export default function Editor() {
       if (mol.spectra?.length) { openSpectrum(spectrumKeyOf(mol.spectra[0]), [...fragments(mol)].sort((p, q) => q.length - p.length)[0] ?? [], mol); setSpectrumShow("measured"); setChosenGroup(undefined); }
       // Once for each open: a file Octet wrote that ChemDraw saved since has lost Octet's own extras (issue 19).
       // With things left out too it stays an error, as sayLost's notice is.
-      const left = Object.keys(lost).length > 0, { [FALLBACK]: _, ...rest } = lost, more = Object.keys(rest).length ? ` Octet left out ${lostText(rest)}.` : "";
+      const left = Object.keys(lost).length > 0;
       // A file whose own copy Octet cannot read opened from its CDXML (docs/plans/long-text.md): said once, as an
       // error, and Save asks before it writes over the file (its lost counts the copy).
-      if (read.fallback) setNotice(`Octet cannot read its own copy of this drawing. It opened the ChemDraw copy, without Octet's own extras.${more}`, "error");
+      if (read.fallback) setNotice(lostNotice(lost, "opened"), "error");
       else if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
       else sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
@@ -4865,10 +4866,12 @@ export default function Editor() {
     // A name typed as LaTeX's, \delta, is its character, δ (escapes.ts, Stefan Schramm's idea in PR 42).
     const was = w.id !== undefined ? doc.captions?.find((c) => c.id === w.id) : undefined, written = expandRuns(w.runs ?? [{ text: w.value }], keptText(was?.text));
     // What the text holds (docs/plans/long-text.md): a chart's label 80 characters and an experiment's detail 200, as
-    // their records keep them, any other text MAX_TEXT. A tab is a space, and no other control character but a line
-    // break is kept. More is cut, and Octet says so.
+    // their records keep them, a data field's shown value MAX_SHOWN (as the Attached data dialog shows it), any other
+    // text MAX_TEXT. A tab is a space, and no other control character but a line break is kept. More is cut, and Octet
+    // says so.
     const chartLabel = !!was?.role && isDataRole(was.role.role) && !!doc.groups?.some((g) => g.plot && isChart(g.plot) && g.items.includes(was.id));
-    const [most, what] = chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"] : [MAX_TEXT, "A text"];
+    const [most, what] = chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"]
+      : was && fieldOfCaption(doc, was.id) >= 0 ? [MAX_SHOWN, "A shown value"] : [MAX_TEXT, "A text"];
     const clean = written.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "") })), over = plainOf(clean).length > most;
     if (over) setNotice(cutNotice(what, most));
     const typed = over ? cutRuns(clean, most) : clean, text = plainOf(typed).replace(/\s+$/, "");
@@ -8541,6 +8544,15 @@ export default function Editor() {
     }
     return m;
   }
+  // A key holds MAX_TEXT characters, as any text does (docs/plans/long-text.md): a longer one (a spectrum of many
+  // multiplets or signals) keeps the lines that fit, and Octet says so.
+  const fitKey = (runs: TextRun[]) => {
+    const all = normalise(runs);
+    if (plainOf(all).length <= MAX_TEXT) return all;
+    setNotice(cutNotice("A text", MAX_TEXT));
+    const cut = cutRuns(all, MAX_TEXT), end = plainOf(cut).lastIndexOf("\n");
+    return end > 0 ? cutRuns(cut, end) : cut;
+  };
   function addKey() {
     if (measuredShown && measured && spectrumAnalysis) return addMeasuredKey(measured, spectrumAnalysis.groups.filter((g) => !g.other));
     const p = nmr?.prediction;
@@ -8558,8 +8570,8 @@ export default function Editor() {
       runs.push({ text: NUCLEI[p.nucleus].trace ? `${shiftText(s.shift, p.nucleus)} (${multiplicity(s)}${j}, ${countText(s, p.nucleus)})`
         : `${shiftText(s.shift, p.nucleus)}${split ? ` (${multiplicity(s)}${j}${s.nuclei > 1 ? `, ${countText(s, p.nucleus)}` : ""})` : s.nuclei > 1 ? ` (${countText(s, p.nucleus)})` : ""}` });
     }
-    const atoms = [...new Set(nmr!.toDoc)];
-    const [k, id] = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, under: atoms, runs: normalise(runs) });
+    const atoms = [...new Set(nmr!.toDoc)], kept = fitKey(runs);
+    const [k, id] = addCaption(m, { text: plainOf(kept), x: 0, y: 0, under: atoms, runs: kept });
     set(landText(k, [id]), true);
     revealNext.current = new Set([id]);
   }
@@ -8576,8 +8588,8 @@ export default function Editor() {
       const c = fresh ? give.get(g.id) : colourOf(g);
       runs.push({ text: "\n" }, ...(c ? [{ text: "● ", colour: c }] : []), { text: groupText(ms, g) });
     }
-    const under = [...new Set(linked.flatMap((g) => linkedEnds(g.id)))];
-    const [k, id] = addCaption(m, { text: plainOf(normalise(runs)), x: 0, y: 0, ...(under.length ? { under } : {}), runs: normalise(runs) });
+    const under = [...new Set(linked.flatMap((g) => linkedEnds(g.id)))], kept = fitKey(runs);
+    const [k, id] = addCaption(m, { text: plainOf(kept), x: 0, y: 0, ...(under.length ? { under } : {}), runs: kept });
     set(landText(k, [id]), true);
     revealNext.current = new Set([id]);
   }
@@ -12282,7 +12294,8 @@ export default function Editor() {
         const label = dialog.label.trim(), problem = label ? nicknameProblem(label) : undefined, there = !!label && !!ownNickname(label), octets = !!label && !there && !problem && !!labelSmiles(label);
         const keepIt = () => {
           const d = dialog;
-          if (!label || problem || !d.group.every((i) => doc.atoms[i])) return;
+          // A group Contract Label refuses (over 256 atoms) is no nickname: nicknameGroup says so, and none is saved.
+          if (!label || problem || !d.group.every((i) => doc.atoms[i]) || groupTooBig(doc, new Set(d.group))) return;
           setDialog(undefined);
           setSettings((st) => ({ ...st, nicknames: withNickname(st.nicknames, { label, smiles: d.smiles }) }));
           set(contractLabel(doc, d.keep, new Set(d.group), label));
@@ -12352,7 +12365,7 @@ export default function Editor() {
         <Dialog title={`Replace “${file.path ? fileName(file.path) : name}”?`} action="Save As…" onClose={() => { const d = dialog; setDialog(undefined); d.done(false); }}
           alt={{ label: "Replace", onClick: () => { const d = dialog; setDialog(undefined); void save(false, true, true).then(d.done); } }}
           onAction={() => { const d = dialog; setDialog(undefined); void save(true).then(d.done); }}>
-          <p className="dialog-note">Replace removes {lostText(dialog.lost)} from this file, because Octet cannot keep {Object.values(dialog.lost).reduce((a, b) => a + b, 0) > 1 ? "them" : "it"}. Save As keeps the original file.</p>
+          <p className="dialog-note">{replaceNote(dialog.lost)}</p>
         </Dialog>
       )}</Exit>
       <Exit>{dialog?.kind === "changed" && (

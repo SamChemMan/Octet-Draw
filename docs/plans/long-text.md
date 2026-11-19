@@ -1,6 +1,7 @@
 # Long text and the other limits of Octet's own readers
 
-Branch `item/long-text`, from release-1.1.3 (f2c6b9d). For 1.1.3 (Friday 20 November).
+Branch `item/long-text`, from release-1.1.3 (f2c6b9d); `item/long-on-113` has it merged with release-1.1.3 at 99c9586
+(data fields, measurements, notes, nicknames, the colour menu). For 1.1.3 (Friday 20 November).
 
 ## The fault
 
@@ -24,8 +25,11 @@ The same kind of fault is in other limits. Each one is in the table below.
    memory (stress list, H1 to H6).
 4. When a file's JSON copy is there and matches its CDXML but cannot be read, Octet opens the CDXML and says so:
    "Octet cannot read its own copy of this drawing. It opened the ChemDraw copy, without Octet's own extras."
-   Save then asks before it writes over the file (as for a file with things Octet left out). The style the CDXML
-   holds is Octet's, so it is kept. A file another program changed keeps its message as it is.
+   Save then asks before it writes over the file (as for a file with things Octet left out): "Octet cannot read its
+   own copy of this drawing. Replace removes Octet's own extras from this file. Save As keeps the original file." A
+   drawing added from such a file (Insert, a drop, Paste) says "It added the ChemDraw copy" (`oct.ts` `lostNotice`,
+   `replaceNote`). The style the CDXML holds is Octet's, so it is kept. A file another program changed keeps its
+   message as it is.
 
 ## Limits
 
@@ -43,8 +47,11 @@ made to keep it.
 | Table cell | 500 characters, no tab | file.ts and cdxml.ts refuse | Cell box (no cap); a row pasted from a spreadsheet keeps its tabs | Kept. The cell box turns tabs into spaces and cuts at 500 with the notice. |
 | Reagent table text cell | 200 (`oneLine`) | stoich.ts cuts | `writeGridCell` cut with no notice | Kept, with the notice |
 | Experiment detail on the page | 200 (`oneLine`) | experiment.ts cuts the detail | A detail's text typed on the page was cut with no notice | Kept: the text is cut to 200 with the notice |
-| Chart label | 80 | charts.ts drops the chart record | Text typed over a chart's label, and names in the chart dialog, were cut with no notice | Kept: cut with the notice on the page; the dialog's name cells take 80 |
-| Kept group (Contract Label) | 256 atoms, 512 bonds | file.ts refuses; cdxml.ts drops the group | Contract Label took any group | Kept: Contract Label says "Select a group of 256 atoms or fewer." `contractLabel` contracts no larger group, for any caller (Define Nickname in release-1.1.3 too). |
+| Chart label | 80 | charts.ts drops the chart record | Text typed over a chart's label, and names in the chart dialog, were cut with no notice | Kept: cut with the notice on the page. In the chart dialog (`Cells.tsx` `limit`, by column and row) the paths' and states' names and the conditions take 80, and a value's own name the chart cuts is said on Apply (`charts.ts` `longNames`) |
+| Data field shown (release-1.1.3, issue 68) | 2,000 (`datafields.ts` MAX_SHOWN, the Attached data dialog's Show) | datafields.ts readData leaves the field out and counts it | Its text on the page is a caption (20,000) | Kept: the text is cut to 2,000 with "A shown value holds up to 2,000 characters." A value not shown keeps 10,000, as before |
+| Kept group (Contract Label) | 256 atoms, 512 bonds | file.ts refuses; cdxml.ts drops the group | Contract Label took any group | Kept: Contract Label says "Select a group of 256 atoms or fewer." `contractLabel` contracts no larger group, for any caller. Define Nickname (release-1.1.3) says the same (`chem.ts` `nicknameGroup`), and saves no nickname |
+| A nickname's SMILES | 2,000 | nicknames.ts readNicknames drops it at the next start | Define Nickname on a large group | Kept: `nicknameGroup` says "Octet cannot keep this group as a nickname." |
+| A spectrum's key (Add to drawing > Key) | 20,000, as a caption | file.ts refuses | A measured spectrum of up to 2,000 multiplets, or a large structure's predicted signals | Kept: the key keeps the lines that fit in 20,000 characters, with the notice |
 | Cycle steps | 64 | file.ts refuses | A click on an arc adds a step, with no cap | Kept: `resplice` adds none past 64; the click says "A cycle holds up to 64 steps." |
 | Side arrow's structure | 512 atoms | cycle.ts refuses the cycle, so the file | A larger structure at a side arrow | Raised to 100,000 (every index is checked; reading stays linear) |
 | Pen curve | 1,000 points | file.ts refuses; cdxml.ts drops | Each click adds a point | Kept: the Pen stops at 1,000 with "A curve holds up to 1,000 points." |
@@ -112,3 +119,14 @@ chart labels, the comment, risk texts, names (a live name of 20,000 characters, 
 
 Not checked here: ChemDraw's own limit on a text's length (no ChemDraw run for this item), and the editor's speed
 while typing in a text of 20,000 characters (H6 times the layout alone: under 0.1 s in Node, with Arial's widths).
+
+## What's New
+
+- When you type or paste a long text, such as a procedure with its characterisation data, the text keeps up to
+  20,000 characters. It saves and opens again whole, in .oct, CDXML and CDX files and on the clipboard.
+- When you type or paste past a limit (a text, a label, a table cell, a chart label, a shown data field), Octet keeps
+  what fits and says so.
+- When Octet cannot read its own copy of a drawing in a file, it opens the ChemDraw copy and says so. Save asks
+  before it replaces the file.
+- When you contract a label or define a nickname for a group of more than 256 atoms, Octet says to select a smaller
+  group.

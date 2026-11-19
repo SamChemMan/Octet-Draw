@@ -14,7 +14,7 @@ import { runInNewContext } from "node:vm";
 const { overLimit, parse, serialize } = await import("./file.ts");
 const { fromCdxml, parseXml, toCdxml } = await import("./cdxml.ts");
 const { cdxToXml, xmlToCdx } = await import("./cdx.ts");
-const { FALLBACK, lostText, readCdx, readOct, writeCdx, writeOct } = await import("./oct.ts");
+const { FALLBACK, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
 const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
 const { cutNotice } = await import("./notice.ts");
@@ -24,6 +24,7 @@ const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("
 const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
 const { COMMENT, MAX_COMMENT, MAX_VALUE, oneLine } = await import("./experiment.ts");
 const { readRisk } = await import("./riskassess.ts");
+const { MAX_SHOWN, leftOf, setRows } = await import("./datafields.ts");
 const { readGrid } = await import("./stoich.ts");
 const { placeCaptions } = await import("./render.ts");
 const { widthOf } = await import("./arial.ts");
@@ -186,8 +187,19 @@ it("L7 just over the limit (a 1.1.2 file): the JSON copy is refused, and the .oc
       // Its style is Octet's own (the editor keeps it, as for Octet's own copy).
       assert.equal(r.mol.style?.bond, style.bond);
     }
-    assert.equal(lostText(readOct(writeOct(m, style)).lost), `1 ${FALLBACK} and ${extra === 1 ? "1 character" : `${(t.length - MAX_TEXT).toLocaleString("en-GB")} characters`}`);
+    const lost = readOct(writeOct(m, style)).lost, chars = extra === 1 ? "1 character" : `${(t.length - MAX_TEXT).toLocaleString("en-GB")} characters`;
+    assert.equal(lostText(lost), `Octet's own extras and ${chars}`);
+    // What Octet says when it opens or adds it, and before Save writes over it (plain STE: no "part", no "could not").
+    assert.equal(lostNotice(lost, "opened"), `Octet cannot read its own copy of this drawing. It opened the ChemDraw copy, without Octet's own extras. Octet left out ${chars}.`);
+    assert.equal(lostNotice(lost, "added"), `Octet cannot read its own copy of this drawing. It added the ChemDraw copy, without Octet's own extras. Octet left out ${chars}.`);
+    assert.equal(replaceNote(lost), `Octet cannot read its own copy of this drawing. Replace removes Octet's own extras from this file. Replace also removes ${chars}, because Octet cannot keep ${extra === 1 ? "it" : "them"}. Save As keeps the original file.`);
   }
+  // Only the copy, and nothing of it: the same words, without the rest. A file that lost something else reads as before.
+  assert.equal(lostNotice({ [FALLBACK]: 1 }, "added"), "Octet cannot read its own copy of this drawing. It added the ChemDraw copy, without Octet's own extras.");
+  assert.equal(replaceNote({ [FALLBACK]: 1 }), "Octet cannot read its own copy of this drawing. Replace removes Octet's own extras from this file. Save As keeps the original file.");
+  assert.equal(lostNotice({ annotation: 6 }, "added"), "Octet left out 6 annotations.");
+  assert.equal(replaceNote({ "data field": 1 }), "Replace removes 1 data field from this file, because Octet cannot keep it. Save As keeps the original file.");
+  assert.equal(lostNotice({}, "opened"), "");
   // A label over the limit, from a version that let it be typed: opened from the CDXML, cut and counted.
   const label = readOct(writeOct({ ...ETHANOL, atoms: ETHANOL.atoms.map((a, i) => (i ? a : { ...a, text: "x".repeat(41) })) }, style));
   assert.equal(label.fallback, true);
@@ -261,6 +273,11 @@ it("L8 the editor's cuts: what the editor makes is within each reader's limit, a
   // The chart dialog: a value's own name longer than the chart keeps is found, so the dialog says it was cut.
   assert.ok(longNames({ paths: ["A"], rows: [["TS1", `12 (10) ${"n".repeat(81)}`]] }));
   assert.ok(!longNames({ paths: ["A".repeat(200)], rows: [["S".repeat(200), `12 (10) ${"n".repeat(80)}`]] }));
+  // A data field's shown value: a file keeps it shown up to MAX_SHOWN characters, so the editor cuts typing there. One
+  // longer is counted as left out when the file opens.
+  const shown = setRows(ETHANOL, [0, 1, 2], [{ name: "Batch", value: prose(MAX_SHOWN), show: true }]), id = shown.data![0].caption!, again = parse(serialize(shown));
+  assert.deepEqual([again.data?.[0].caption, leftOf(again)], [id, {}]);
+  assert.deepEqual(leftOf(parse(serialize({ ...shown, captions: shown.captions!.map((c) => (c.id === id ? { ...c, text: prose(MAX_SHOWN + 1) } : c)) }))), { "data field": 1 });
   // Settings keep an experiment page's text of MAX_START characters for new pages.
   const start = serialize(withTexts(prose(MAX_TEXT))).padEnd(MAX_START, " ");
   assert.equal(readPurposes({ experimentStart: start }).experimentStart, start);
@@ -274,21 +291,29 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /max=\{MAX_LABEL\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A label", MAX_LABEL\)\)\}/);
   assert.match(box, /const text = fit\(e\.clipboardData\.getData\("text\/plain"\)/, "a paste is cut to the room left, its tabs spaces");
   assert.match(box, /if \(p\.max !== undefined && plainOf\(now\)\.length > p\.max\) \{\n\s+p\.onCut\?\.\(\);\n\s+const \{ text, at \} = typedIn\(plainOf\(runs\.current\), plainOf\(now\), p\.max\);/, "typing past the limit cuts what went in");
-  // Committed text: a chart label 80, a detail MAX_VALUE, any other text MAX_TEXT; tabs spaces.
-  assert.match(editor, /const \[most, what\] = chartLabel \? \[80, "A chart label"\] : was\?\.field && DETAILS\.some\(\(\[k\]\) => k === was\.field\) \? \[MAX_VALUE, "A detail"\] : \[MAX_TEXT, "A text"\];/);
+  // Committed text: a chart label 80, a detail MAX_VALUE, a shown data field MAX_SHOWN, any other text MAX_TEXT; tabs
+  // spaces.
+  assert.match(editor, /const \[most, what\] = chartLabel \? \[80, "A chart label"\] : was\?\.field && DETAILS\.some\(\(\[k\]\) => k === was\.field\) \? \[MAX_VALUE, "A detail"\]\n\s+: was && fieldOfCaption\(doc, was\.id\) >= 0 \? \[MAX_SHOWN, "A shown value"\] : \[MAX_TEXT, "A text"\];/, "a data field's shown value keeps MAX_SHOWN, as its file does");
   assert.match(editor, /if \(over\) setNotice\(cutNotice\(what, most\)\);\n\s+const typed = over \? cutRuns\(clean, most\) : clean/);
   assert.match(editor, /if \(\/\[<>\]\/\.test\(text\)\) setNotice\("A label cannot hold < or >\. Octet left them out\."\);/);
   assert.equal(editor.match(/e\.target\.value\.replace\(\/\[<>\]\/g, ""\)\.slice\(0, MAX_LABEL\)/g)?.length, 2, "the Element and Label fields");
   assert.match(editor, /if \(v\.length <= MAX_CELL\) return setCell\(\{ \.\.\.cell, value: v \}\);\n\s+setNotice\(cutNotice\("A table cell", MAX_CELL\)\);\n\s+const \{ text, at \} = typedIn\(cell\.value, v, MAX_CELL\)/);
   assert.match(editor, /setNotice\(cutNotice\("A table cell", MAX_VALUE\)\)/, "a reagent table's text cell");
   assert.match(editor, /if \(groupTooBig\(doc, group\)\) return setNotice\("Select a group of 256 atoms or fewer\.", "info"\);/);
+  // Define Nickname: no nickname is saved for a group Contract Label refuses.
+  assert.match(src("./chem.ts"), /if \(groupTooBig\(m, inGroup\)\) return "Select a group of 256 atoms or fewer\.";/);
+  assert.match(editor, /!d\.group\.every\(\(i\) => doc\.atoms\[i\]\) \|\| groupTooBig\(doc, new Set\(d\.group\)\)\) return;\n\s+setDialog\(undefined\);\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, nicknames: withNickname/);
   assert.equal(editor.match(/>= MAX_CURVE\) return setNotice\(`A curve holds up to \$\{MAX_CURVE\.toLocaleString\("en-GB"\)\} points\.`, "info"\)/g)?.length, 2, "Pen and Edit Curve");
   assert.match(editor, /c\.nodes\.length >= MAX_STEPS\) return setNotice\(`A cycle holds up to \$\{MAX_STEPS\} steps\.`, "info"\)/);
   assert.match(editor, /const over = opened \? undefined : overLimit\(risked\);\n\s+if \(over && !overLimit\(doc\)\) \{ setNotice\(over, "info"\); return doc; \}/);
   assert.match(editor, /all\.length <= MAX_START \? all : undefined;\n\s+if \(all && !start\) setNotice\(/);
   // A file opened from its CDXML because its own copy failed says so, keeps its style, and Save asks first.
   assert.match(editor, /const other = read\.foreign && !read\.fallback;/);
-  assert.match(editor, /if \(read\.fallback\) setNotice\(`Octet cannot read its own copy of this drawing\. It opened the ChemDraw copy, without Octet's own extras\.\$\{more\}`, "error"\);/);
+  assert.match(editor, /if \(read\.fallback\) setNotice\(lostNotice\(lost, "opened"\), "error"\);/);
+  assert.match(editor, /const sayLost = \(lost: Record<string, number>\) => \{ if \(Object\.keys\(lost\)\.length\) setNotice\(lostNotice\(lost, "added"\)\); \};/);
+  assert.match(editor, /<p className="dialog-note">\{replaceNote\(dialog\.lost\)\}<\/p>/);
+  // Generated keys (a spectrum's multiplets or signals) keep MAX_TEXT, the lines that fit, with the notice.
+  assert.equal(editor.match(/kept = fitKey\(runs\);/g)?.length, 2, "the predicted and the measured key");
   assert.match(editor, /setFile\(path \? \{ path, saved: mol, lost: Object\.keys\(lost\)\.length \? lost : undefined \}/, "lost (with the copy counted) makes Save ask");
   // The chart dialog's name cells take 80, as the chart keeps (Cells.tsx limit, by column and row), and a value's own
   // name the chart cuts is said.

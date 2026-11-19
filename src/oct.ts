@@ -110,8 +110,24 @@ export function readOct(text: string, oct = false): Read {
 // (MOL, SDF, SMILES), which Indigo reads.
 export const isDrawingText = (text: string) => text.startsWith(BASE64_MAGIC) || /^\s*\{/.test(text) || /<CDXML[\s>/]/.test(text.slice(0, 65536));
 
-// What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape".
+// What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape". Its own
+// copy it cannot read (FALLBACK) is "Octet's own extras".
 export function lostText(lost: Record<string, number>): string {
-  const parts = Object.entries(lost).map(([what, n]) => `${n.toLocaleString("en-GB")} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`);
+  const parts = Object.entries(lost).map(([what, n]) => (what === FALLBACK ? "Octet's own extras" : `${n.toLocaleString("en-GB")} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`));
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] ?? "";
+}
+// What Octet says when it opens or adds a drawing (done: "opened", "added"): its own copy it cannot read first (Read
+// fallback), then what it left out. "" when nothing is lost.
+export function lostNotice(lost: Record<string, number>, done: string): string {
+  const { [FALLBACK]: copy, ...rest } = lost;
+  return [copy ? `Octet cannot read its own copy of this drawing. It ${done} the ChemDraw copy, without Octet's own extras.` : "", Object.keys(rest).length ? `Octet left out ${lostText(rest)}.` : ""].filter(Boolean).join(" ");
+}
+// What Save says before Replace writes over a file it opened with something lost (the Replace dialog).
+export function replaceNote(lost: Record<string, number>): string {
+  const { [FALLBACK]: copy, ...rest } = lost, n = Object.values(rest).reduce((a, b) => a + b, 0);
+  return [
+    copy ? "Octet cannot read its own copy of this drawing. Replace removes Octet's own extras from this file." : "",
+    n ? `Replace ${copy ? "also removes" : "removes"} ${lostText(rest)}${copy ? "" : " from this file"}, because Octet cannot keep ${n > 1 ? "them" : "it"}.` : "",
+    "Save As keeps the original file.",
+  ].filter(Boolean).join(" ");
 }
