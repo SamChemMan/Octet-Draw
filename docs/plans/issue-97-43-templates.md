@@ -74,7 +74,7 @@ Each job is done only when its last line holds.
 
 - **J1. Energy transfer.** A template "Energy transfer" in Photochemistry, after "Internal conversion": a horizontal
   wavy arrow with a full head, 2.165 bond lengths (the set's `L`), with "EnT" above it as its conditions, no colour,
-  width, size or font of its own. Also words: `EnT, ET, triplet energy transfer, TTET, sensitisation, sensitization,
+  width, size or font of its own. Also words: `EnT, triplet energy transfer, TTET, sensitisation, sensitization,
   Dexter, Förster, FRET, radiationless transition, wavy arrow, Jablonski`.
   *Done:* `photochem.check.ts` lists it and checks it as the other transitions (style, head, length, text, Interpret
   Chemically adds no atoms, placed whole, back the same from CDXML, CDX and .oct), and `place_template` places it by
@@ -402,3 +402,34 @@ Small commits, one per job where it stands alone.
 | Speed (medians of interleaved runs; load average 120 to 162) | `library-more.json` +41,683 bytes, parse 4.9 ms against 4.7 ms (noise). Drawing a page of 40 paclitaxels with γ-cyclodextrin 101 ms against 109 ms with Pillar[5]arene. Placing (addTemplate) by those 2,480 atoms: γ-cyclodextrin 53 ms, Pillar[5]arene 23 ms (88 atoms and 98 bonds against 55 and 60; the Template tool's own cost per atom). By 4,008 atoms of peptide: β-cyclodextrin 248 ms, Pillar[5]arene 241 ms. A drag frame over 50 β-cyclodextrins: 204 ms against 302 ms for 350 α-D-glucopyranoses (1.1.2's template: the same rings, wedges and OH labels). Background name, once per new shape: α 0.65×, β 1.2 to 1.5×, γ 1.8 to 1.9× Pillar[5]arene's; a cucurbituril 10 to 15 ms (no name). Library search per keystroke: 0.4 ms against 0.2 ms for "e" over all 558 templates. |
 | Browser preview, port 1464 | Supramolecules lists the 7 at the end with thumbnails, in light and dark; search as stress 18; command palette lists the cyclodextrins; γ-cyclodextrin kept in the Ring menu comes back after a reload and places (C48H80O40, 1297.13 g/mol); ⌘A, Convert structure to name, turning Energy transfer; Clean up structure not marked for the placed hosts; console clean |
 | `npm run look -- http://localhost:1464/` | after the search change: 22 places, every control matches. (The first run, on a fresh WebKit profile, went from the welcome page straight to a drawing and missed Home; the second reached it.) |
+
+## Finish (19 November)
+
+Rebased on `release-1.2-mcp` bd7c684 (the 1.2 bug sweep, the trim and the reagent table). One conflict: the trim moved
+`hosts.mjs`'s vector helpers into `perspective.mjs`, so `hosts.mjs` imports them from there. `node tools/library/build.mjs
+--keep-shipped` on the rebased branch gives `library.json` byte for byte and `library-more.json` with only the 8 new
+items. `git merge-tree` with `release-1.1.3` has no conflict.
+
+The stress list is `src/hosttemplates-stress.check.ts` (the plan's cases P1 to P27 and our own N1 on). Its first run
+found these, fixed here:
+
+- **The search lost 1.1.2's order** (N17): with the other-word rule, 12 templates typed by their full name no longer came
+  first, because another template had that name as an other word. The order is now three steps: the name as typed,
+  then an other word as typed, then the rest (`exactFirst` in `src/library.ts`, which `TemplateLibrary.tsx` and the
+  check both run). One pattern per keystroke in place of a split per template: four one-letter searches 0.70 ms
+  against 0.94 ms with 1.1.2's rule (N24).
+- **ET is not energy transfer** (N18): D8 says ET and SET are electron transfer, and "Et" is ethyl. ET is out of Energy
+  transfer's other words, so `place_template` with "ET" places nothing, and typing "Et" does not list it first.
+- **`place_template` on an atom put a template with no atoms at the page's origin** (N6): the MCP now gives `addTemplate`
+  the atom's place (the bond's middle on a bond), as the Template tool's click does. A structure template is placed
+  as before.
+
+Stress cases changed, with the reason: P5 allows the 2 open centres that 1.1.2's α-D-Glucopyranose gets fused the same
+way (the fused C2 and C3 take the cyclohexane where their OH was); N7 compares with Pillar[5]arene (both report
+`off_page` from the top left, by design for the AI to move); N13 does not ask for no overlap (an inner O6 has no free
+side for any template); P15's page and P17's drag are measured against 1.1.2's α-D-Glucopyranose with the same
+number of atoms (the same rings, wedges and OH labels), as Pillar[5]arene has a quarter of the labels. Cases left out: N15 (the MCP's draw reads "CB[7]" as SMILES, CH4B, and OPSIN reads
+"beta-cyclodextrin" but not "β-cyclodextrin": the name and SMILES readers, not this item) and N16 (the search matches
+what is typed as part of a name or other word, the same for every template, so "beta cyclodextrin" or "CB-7" finds no
+template; a looser search is a change for all 558). The check bugs in P8a, P20, N10, N14, N21 and N22 are fixed. Timing cases are
+measured again, up to three times, before they fail. Result: 46 cases, 45 pass, P11 (ChemDraw 22.2) skipped.
