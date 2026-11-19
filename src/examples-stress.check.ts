@@ -351,6 +351,13 @@ await test("menu: File > Open Example comes before Open Recent", () => {
   assert.match(rust, /file\.insert\(&item\("edit_word", "Edit Picture from Word", ""\)\?, 8\)/);
 });
 
+// An open starts a fresh history, so Undo cannot bring back the drawing it replaced. A spectrum dropped on Home over
+// a drawing with unsaved changes asks first, as File > Open does.
+await test("open: a spectrum dropped on Home asks before it replaces unsaved work", () => {
+  const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), body = editor.slice(editor.indexOf("function openSpectrumText"));
+  assert.match(body.slice(0, 2000), /if \(home\) keepWork\(\(\) => load\(undefined, next\)\)/);
+});
+
 // ---- The editor, in WebKit ----
 
 const url = process.env.OCTET_STRESS_URL?.replace(/\/$/, "");

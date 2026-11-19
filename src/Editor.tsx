@@ -7444,7 +7444,8 @@ export default function Editor() {
       added.push(m);
     }
     const next = { ...linksKept(base, spectra), spectra };
-    if (home) load(undefined, next); else set(next, true);
+    // On Home over a drawing with unsaved changes, Octet asks first, as File > Open does: load starts a fresh history.
+    if (home) keepWork(() => load(undefined, next)); else set(next, true);
     const first = added[0], key = spectrumKeyOf(first);
     if (first.kind === "nmr" && first.mhz && isNucleus(key)) {
       const mhz = first.mhz / NUCLEI[key].ratio, near = [60, 80, 90, 200, 300, 400, 500, 600, 700, 800].reduce((b, f) => (Math.abs(f - mhz) < Math.abs(b - mhz) ? f : b));
