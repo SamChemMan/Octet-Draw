@@ -1902,7 +1902,7 @@ export default function Editor() {
     if (!dirty) return setNotice("There are no changes since the last save.", "info");
     setDialog({ kind: "revert" });
   };
-  const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
+  const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text, undefined, undefined, true)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
   // Back in front: a drawing with no unsaved changes whose file another app changed opens again, as Mac apps do. One
   // step to undo. With unsaved changes, Save asks before it writes over the file (issue 2). An edit made meanwhile (the
   // click that brought the window to the front can draw) stays, and Save asks.
@@ -2056,9 +2056,10 @@ export default function Editor() {
   // A drawing read from a file, into the editor. With no path and a title, a recovered drawing or a file Octet cannot
   // save over: its changes are not saved yet. With neither (a starter drawing from Home) it is a new drawing. A MOL,
   // SDF or SMILES file opens as a new drawing of its structures, in the middle. A drawing made already (of a picture)
-  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). Gives why it did not open, or
-  // what it left out.
-  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string): { failed?: string; lost?: string } {
+  // comes as it is. styleText: a drawing whose whole style it takes (--convert --style). keepSteps: Revert to Saved, after
+  // which Undo brings the changes back; any other drawing opened starts with nothing to undo. Gives why it did not open,
+  // or what it left out.
+  function load(path: string | undefined, text: string | Mol, title?: string, styleText?: string, keepSteps = false): { failed?: string; lost?: string } {
     drawingColours.current = [];
     passing.current.clear();
     try {
@@ -2078,6 +2079,8 @@ export default function Editor() {
       // As ChemDraw does, a drawing with a structure turned in 3D opens with Select as Structure Perspective, to turn it.
       if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
       setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
+      // Undo cannot take the drawing back to the one it replaced (a blank one, or another file under this one's name).
+      if (!keepSteps) dispatch({ type: "reset", h: { stack: [lastSet.current ?? mol], at: 0 } });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
       // A drawing with a measured spectrum opens with it in the Spectrum panel.
       setSessions([]); setShownId(undefined);
