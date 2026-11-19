@@ -8077,6 +8077,7 @@ export default function Editor() {
     // As File > Close (src-tauri/src/mcp.rs mcp_close). A client with no session opened nothing. This window's unsaved
     // changes go with it: the page tells the window list after it draws, which can be after a change call's reply.
     close: async (session, drawing) => (TAURI && session ? invoke<"closed" | "unsaved" | "theirs" | "none">("mcp_close", { session, drawing, edited: unsaved && drawing === getCurrentWindow().label }) : "theirs"),
+    office: () => !!officeRef.current,
     // A command that opens a dialog or a box to type in: its name ends in "…" (the menu's and the palette's), Save on a
     // drawing with no file (it asks where), and a step's text above or below its arrow (Octet waits for the user to type).
     dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id) || id === "add_to_libreoffice",
