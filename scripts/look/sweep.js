@@ -75,13 +75,13 @@ await measure("the Properties panel", !!(await until(() => document.querySelecto
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
 await wait(600);
 
-// Export…: PDF with Pages > Document pages, the pages as the preview, then One page again.
+// Export…: PDF with Pages > All pages, the pages as the preview, then One page again.
 document.querySelector(".export-button")?.click();
 await wait(400);
 (await until(() => document.querySelector('.export-menu [data-item="export"]'), 2000))?.click();
 const pagesRow = await until(() => labelled("Pages"), 4000);
-[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Document pages")?.click();
-await measure("Export… with document pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
+[...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "All pages")?.click();
+await measure("Export… with all pages", !!pagesRow && !!(await until(() => document.querySelector(".export-sheets"), 3000)));
 [...(pagesRow?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "One page")?.click();
 await wait(300);
 key({ key: "Escape" });
