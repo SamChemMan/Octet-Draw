@@ -90,7 +90,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
         <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
         {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length} data-tip="Find the GHS hazards in PubChem"><WarningDiamond size={16} aria-hidden /> Find hazards</button>}
         <span className="prop-decimals">
-          <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values with their names" : "Add the values without their names"} onClick={() => onNames(!names)}>Names</button>
+          <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>
           <span className="prop-name">Decimals</span>
           <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
         </span>
