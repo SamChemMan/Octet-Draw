@@ -3535,6 +3535,54 @@ div.facts {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
+/* The template in hand, large, under the templates: its atoms and bonds take a click (TemplateLibrary AttachPicker). */
+.library-attach {
+  position: relative;
+  display: flex;
+  flex: none;
+  justify-content: center;
+  height: 112px;
+  padding: var(--space-2);
+  border-top: 1px solid var(--hairline);
+  color: var(--ink);
+}
+.library-attach svg {
+  height: 100%;
+  overflow: visible;
+}
+.library-attach-name {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  color: var(--ink-muted);
+  font: 600 11px/14px var(--font-sans);
+}
+.attach-ink {
+  pointer-events: none;
+}
+.attach-hit {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  outline: none;
+}
+circle.attach-hit:hover,
+circle.attach-hit:focus-visible {
+  fill: var(--brand-mist);
+}
+line.attach-hit:hover,
+line.attach-hit:focus-visible {
+  stroke: var(--brand-mist);
+}
+circle.attach-hit[aria-checked="true"] {
+  fill: var(--brand-mist);
+  stroke: var(--link);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+line.attach-hit[aria-checked="true"] {
+  stroke: var(--link);
+}
 .library-group + .library-group .library-group-name {
   padding-top: var(--space-3);
 }
@@ -4172,7 +4220,7 @@ div.facts {
   user-select: text;
 }
 /* Mapping an atom: rings on the two atoms and a dashed line between, in brand blue. */
-.mapping circle, .mapping line {
+.mapping circle, .mapping line, .mapping polyline {
   fill: none;
   stroke: var(--brand-bright);
   stroke-width: 1.4px;

@@ -8,6 +8,7 @@ import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind,
 import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, legible, MY_SET, ringStrip, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
+import type { TemplateAnchor } from "./edit";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
@@ -18,7 +19,7 @@ import { PeriodicTable } from "./PeriodicTable";
 import { followDrag } from "./cursor";
 import { optionCommand } from "./keys";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "measure" | "text" | "erase";
 
 // The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
 export { ARROWS, BONDS, SHAPES, type BondKind };
@@ -96,7 +97,7 @@ export type SelectKind = keyof typeof SELECTS;
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
 export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
 type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
 const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
@@ -350,6 +351,37 @@ export const MapGlyph = () => (
   </Icon>
 );
 
+// Measure: an angle with its arc, and a dashed line across the ends of its two bonds (a distance).
+export const MeasureGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <polyline points="200,200 48,200 160,72" />
+    <path d="M120,200A72,72 0 0 0 95.4,145.8" />
+    <line x1={200} y1={200} x2={160} y2={72} strokeDasharray="8 30" />
+  </Icon>
+);
+// Measure distance: two atoms and the dashed line between them.
+export const DistanceGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx={52} cy={128} r={20} />
+    <circle cx={204} cy={128} r={20} />
+    <line x1={92} y1={128} x2={164} y2={128} strokeDasharray="8 24" />
+  </Icon>
+);
+// Measure angle: two bonds at an angle, with its arc.
+export const AngleGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <polyline points="200,200 48,200 160,72" />
+    <path d="M120,200A72,72 0 0 0 95.4,145.8" />
+  </Icon>
+);
+// Measure dihedral: a Newman projection, the near bonds from the middle and the far bonds out from the circle.
+export const DihedralGlyph = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx={128} cy={128} r={52} />
+    <path d="M128,128V24M128,128L218.1,180M128,128L37.9,180M173,102L218.1,76M128,180V232M83,102L37.9,76" />
+  </Icon>
+);
+
 // Mass fragmentation: a chain cut by a dashed line.
 export const FragmentGlyph = () => (
   <Icon>
@@ -404,7 +436,7 @@ export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
 // The specialist tools' names and icons.
 const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, gel: { name: "Gel", icon: <GelGlyph /> }, plasmid: { name: "Plasmid map", icon: <PlasmidGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
   massspec: { name: "Mass spec analysis", icon: <MassSpecGlyph /> },
-  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
+  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> }, measure: { name: "Measure", icon: <MeasureGlyph /> } };
 
 // A curved arrow's icon: its arc at its true sweep, bulging up, with a head at the right-hand end (both ends for a
 // double-headed arrow, and one barb on the outside for a fishhook).
@@ -536,6 +568,8 @@ type PaletteProps = {
   curvedArrows: string[]; // curved arrow variants in the Arrow strip
   onCurvedArrows: (list: string[]) => void;
   libraryRings: string[]; // templates kept in the Ring strip (built-in, named and own), in order
+  anchorOf: (kind: string) => TemplateAnchor | undefined; // the atom or bond a template attaches by (addTemplate)
+  onAnchor: (kind: string, anchor: TemplateAnchor | undefined) => void;
   onLibraryRings: (list: string[]) => void;
   wide: boolean; // the toolbar in two columns
   onWide: (wide: boolean) => void;
@@ -627,7 +661,13 @@ export function Palette(p: PaletteProps) {
   // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
   const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined, size: p.librarySize, onSize: p.onLibrarySize,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
-    onRename: p.onRename, find: p.findNamed });
+    onRename: p.onRename, find: p.findNamed, attach: attachFor(p.variants[tool]) });
+  // The template in hand, drawn large under the library's templates to choose the atom or bond it attaches by: none
+  // for a plain ring, or a template of one atom.
+  const attachFor = (kind: string) => {
+    const own = template(kind), item = libraryItem(kind), mol = own?.mol ?? item?.mol ?? p.named(kind), name = own?.name ?? item?.name ?? kindName(kind) ?? "";
+    return mol && mol.atoms.length > 1 ? { kind, name, mol, anchor: p.anchorOf(kind), onAnchor: (a: TemplateAnchor | undefined) => p.onAnchor(kind, a) } : undefined;
+  };
   // A floating palette's templates: a set of the user's, or one of Octet's.
   const setTemplates = (set: string): LibraryItem[] => (set === MY_SET || p.templateSets.includes(set) ? mine.filter((t) => t.category === set) : LIBRARY.find((c) => c.name === set)?.items ?? []);
   // Palettes closing (by their button, View > Templates, or Home opening): kept a moment, so each leaves with its motion
