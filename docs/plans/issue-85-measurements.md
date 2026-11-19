@@ -361,3 +361,7 @@ What the build changed in this plan, and why:
   server a distance and then an angle on 3-methylpentane put "110.4°" against "3.23 Å", so they read as one line.
 - Plane, normal and centroid stay cut (see Cut). A distance between two groups needs a centroid, which needs a point
   that is not an atom, with its own drawing and file forms.
+- The ChemDraw 22.2 round trip did not run on 19 November either. With the lock held, ChemDraw 22.2 (started at
+  12:41) listed no documents after `open -g -a`, and an AppleScript open timed out (-1712), as on 17 November. It needs
+  a run with the ChemDraw window in view: open Octet's CDXML and CDX with three measurements, save each, and open the
+  saves in Octet (S21).
