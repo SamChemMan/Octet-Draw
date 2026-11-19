@@ -29,7 +29,7 @@ Every dependency Octet uses, with its licence. Rules: [docs/licence.md](docs/lic
 | objc2, objc2-foundation, objc2-app-kit (Rust) | 0.6, 0.3, 0.3 | MIT; MIT; Zlib OR Apache-2.0 OR MIT | The macOS clipboard (NSPasteboard). Already used by Tauri |
 | dispatch2 (Rust) | 0.3 | Zlib OR Apache-2.0 OR MIT | Quit from the Dock answers AppKit on the main queue (macOS). Already used by Tauri's dialogs (rfd) |
 | objc2-web-kit, block2 (Rust) | 0.3, 0.6 | Zlib OR Apache-2.0 OR MIT; MIT | Feedback's picture of the window (WKWebView snapshot), for testers: not in the public release (REL-8). Already used by Tauri |
-| windows-sys (Rust, Microsoft) | 0.61 | MIT OR Apache-2.0 | The Windows clipboard (copy and paste), and the menu bar's access keys. Already used by Tauri |
+| windows-sys (Rust, Microsoft) | 0.61 | MIT OR Apache-2.0 | The Windows clipboard (copy and paste), the menu bar's access keys, and Window > Cascade and the Tiles (each window's visible frame, and whether it is on another virtual desktop). Already used by Tauri |
 | windows, windows-core (Rust, Microsoft) | 0.62 | MIT OR Apache-2.0 | Octet Drawing objects in Office for Windows (decision 0023, `src-tauri/src/ole_windows.rs`): the COM server's interfaces (`#[implement]`), the OLE clipboard and the per-user registry keys. Windows only. Already in the build through webview2-com, at the same versions |
 | webview2-com (Rust, Bill Avery) | 0.39 | MIT | Alt and a menu's access key on Windows, from the web view to the menu bar (WebView2's AcceleratorKeyPressed). Already used by Tauri |
 | gtk (Rust, gtk-rs project) | 0.18 | MIT | The Linux clipboard (copy and paste, through GTK). Already used by Tauri |

@@ -8,7 +8,7 @@ import {
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
   TreeStructure, BracketsCurly, CodeBlock, Barcode, Lightbulb, Prohibit, SelectionForeground, PaintRoller, WarningDiamond, TextTSlash, NotePencil, ArrowSquareOut, ImageSquare, MarkdownLogo, Notebook, Eyedropper, CubeFocus,
-  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle,
+  BracketsAngle, TrayArrowDown, TrayArrowUp, Quotes, FileDoc, PlayCircle, Browsers, SquareHalf, SquareHalfBottom,
 } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
@@ -40,7 +40,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST, rememberColour } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth } from "./Menu";
-import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -2615,6 +2615,9 @@ export default function Editor() {
     quit: () => (officeRef.current ? void officeClose() : closeWindow()),
     // File > Close Window on Windows and Linux, where there is no Close Window of the system's (REL-18).
     close: () => (officeRef.current ? void officeClose() : closeDrawing()),
+    // Window > Cascade, Tile Top to Bottom and Tile Side by Side (Windows, and Linux under X11): Octet moves the
+    // drawing windows (src-tauri/src/arrange.rs).
+    ...Object.fromEntries(ARRANGE.map((how) => [how, () => void invoke("arrange_windows", { how }).catch(() => {})])),
     tutorial: () => startTutorial(),
     shortcuts: () => setSettingsOpen("keys"),
     // Connect an AI app (MCP, decision 0021): Settings > General, where AI apps are.
@@ -8175,6 +8178,10 @@ export default function Editor() {
     font_other: ["Other font…", "", <TextAa size={18} />], size_other: ["Other size…", "", <ArrowsVertical size={18} />], line_spacing: ["Line spacing…", "", <Paragraph size={18} />],
     bring_front: ["Bring to front", `${MOD}[`, <StackSimple size={18} />], send_back: ["Send to back", `${MOD}]`, <Stack size={18} />],
     colour_pick: ["Pick colour from screen", "", <Eyedropper size={18} />],
+    // Window > Cascade and the Tiles, where the Window menu has them (Windows, and Linux under X11).
+    ...(menuReady && ACTIONS.some((a) => a.id === "menu.cascade") ? {
+      cascade: ["Cascade", "", <Browsers size={18} />], tile_top_bottom: ["Tile top to bottom", "", <SquareHalfBottom size={18} />], tile_side_by_side: ["Tile side by side", "", <SquareHalf size={18} />],
+    } as Record<string, [string, string, React.ReactNode]> : {}),
     ...Object.fromEntries(moreFormats.map(([id, name, icon]): [string, [string, string, React.ReactNode]] => [id, [name, "", icon]])),
     ...(settings.onlineSearch ? {
       search_reaxys: ["Search Reaxys", `⌥${MOD}F`, <SearchGlyph letter="R" />], search_reaxys_exact: ["Search Reaxys for exact structure", `⇧⌥${MOD}F`, <SearchGlyph letter="R" />],
@@ -8183,7 +8190,8 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", "caption.names": "labels quantity live values properties", chart_jablonski: "add chart photophysics photochemistry excited state singlet triplet fluorescence phosphorescence intersystem crossing internal conversion energy level" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", "caption.names": "labels quantity live values properties", chart_jablonski: "add chart photophysics photochemistry excited state singlet triplet fluorescence phosphorescence intersystem crossing internal conversion energy level",
+    cascade: "arrange windows stack", tile_top_bottom: "tile horizontal arrange windows above below", tile_side_by_side: "tile vertical arrange windows compare" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };

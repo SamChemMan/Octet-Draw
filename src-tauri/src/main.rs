@@ -25,6 +25,8 @@ macro_rules! say {
 #[cfg(windows)]
 mod access_keys;
 mod aiapps;
+// Window > Cascade and the Tiles (issue 73).
+mod arrange;
 mod clipboard;
 mod convert;
 mod crashlog;
@@ -1146,8 +1148,25 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let window = Submenu::with_id(app, "window", "&Window", true)?;
     #[cfg(not(target_os = "linux"))]
     window.append(&PredefinedMenuItem::minimize(app, None)?)?;
+    // The Mac: Zoom and Bring All to Front, as ChemDraw's Window menu has them. macOS adds its own Move & Resize (which
+    // tiles two to four windows), Zoom All, and Arrange in Front (Bring All to Front with Option, a cascade).
     #[cfg(target_os = "macos")]
-    window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    {
+        window.append(&PredefinedMenuItem::maximize(app, None)?)?;
+        window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+        window.append(&sep()?)?;
+        window.append(&PredefinedMenuItem::bring_all_to_front(app, None)?)?;
+    }
+    // Windows, and Linux under X11: ChemDraw's Cascade, Tile Horizontal (Tile Top to Bottom) and Tile Vertical (Tile
+    // Side by Side). No default keys, as ChemDraw has none; Settings can give each one.
+    if arrange::places_windows() {
+        if cfg!(windows) {
+            window.append(&sep()?)?;
+        }
+        for (id, name) in arrange::ITEMS {
+            window.append(&item(id, name, "")?)?;
+        }
+    }
     if !cfg!(target_os = "macos") {
         windows::list(app, &window)?;
     }
@@ -1369,7 +1388,7 @@ fn main() {
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an
@@ -1399,6 +1418,8 @@ fn main() {
             if (std::env::var_os("OCTET_MCP").is_some() || option_env!("OCTET_BETA").is_some()) && !headless {
                 let _ = mcp::mcp_set(handle.clone(), app.state::<mcp::Mcp>(), true, None);
             }
+            #[cfg(target_os = "linux")]
+            arrange::x11();
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true, None)?;
             windows::set_menu(handle, None, bar)?;
             #[cfg(windows)]

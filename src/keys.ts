@@ -204,10 +204,13 @@ export function toAccelerator(key: string): string {
 // Paste (Octet's own items on Linux) run everywhere too: they work on the text being typed, and the drawing takes them
 // only when nothing covers it.
 const HOME_COMMANDS = ["home", "new", "open", "edit_word", "settings", "about", "tutorial", "shortcuts", "report_problem", "check_updates", "select_all"];
+// Window > Cascade and the Tiles (Windows, and Linux under X11; src-tauri/src/arrange.rs) move the windows, not the
+// drawing, so they run everywhere too.
+export const ARRANGE = ["cascade", "tile_top_bottom", "tile_side_by_side"] as const;
 // While an AI app's call runs (calling), the menu works on the drawing as over a dialog: what the user did would join
 // the call's undo step.
 export function menuRuns(id: string, over: { home: boolean; modal: boolean; typing: boolean; calling?: boolean }) {
-  if (["quit", "close", "cut", "copy", "paste"].includes(id)) return true;
+  if (["quit", "close", "cut", "copy", "paste", ...ARRANGE].includes(id)) return true;
   if (over.typing && ["undo", "redo", "select_all"].includes(id)) return true;
   if (over.modal || over.calling) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_");
