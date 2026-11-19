@@ -52,6 +52,9 @@ export type Host = {
   cleanReactions: (arrows: Set<number>) => number; // Clean Up Reaction on the reactions of these arrows
   tidyCycle: (id: number) => void; // Clean Up on a catalytic cycle (Tidy the cycle)
   command: (id: string) => boolean; // a menu command by its id
+  // Settings > General > Add to LibreOffice: LibreOffice's Extension Manager asks the user. The text the window showed
+  // when LibreOffice cannot be opened, else undefined.
+  libreoffice: () => Promise<string | undefined>;
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
@@ -2651,6 +2654,10 @@ async function runCommand(host: Host, a: { command: string; ids?: string[] }): P
     if (unknown.length) return { text: `There is nothing with the id ${unknown.join(", ")}. Call read for the ids.`, error: true };
     host.select([...atoms], [...items]);
     await host.settle();
+  }
+  if (id === "add_to_libreoffice") {
+    const failed = await host.libreoffice();
+    return failed ? { text: `${failed} Octet did not add its extension.`, error: true } : { text: "Ran add_to_libreoffice. LibreOffice's Extension Manager asks the user to add Octet's extension." };
   }
   const ran = (MENU_COMMANDS as readonly string[]).includes(id) ? host.command(id) || host.act(id) : host.act(id);
   await host.settle();

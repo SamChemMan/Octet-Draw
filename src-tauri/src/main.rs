@@ -1212,14 +1212,9 @@ fn absolute(dir: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
 // --app open an object in a file (the LibreOffice extension, objects.rs): the word after each is its value, never an
 // option (a document named --convert is only a name). Any other option (--x) is refused: only file paths (from
 // Explorer and file managers) open in the app.
-#[derive(Debug, PartialEq)]
-enum Start {
-    App,
-    Relay,
-    Headless,
-    Convert(convert::Job),
-}
-fn start(args: &[String]) -> Result<Start, String> {
+// The arguments that can be Octet's own options: each word after --object, --host or --app is that flag's value, so a
+// document named --unregister-ole or -Embedding is only a name (the LibreOffice extension passes the document's name).
+fn own(args: &[String]) -> Vec<&str> {
     let mut options = vec![];
     let mut words = args.iter();
     while let Some(x) = words.next() {
@@ -1228,6 +1223,18 @@ fn start(args: &[String]) -> Result<Start, String> {
         }
         options.push(x.as_str());
     }
+    options
+}
+
+#[derive(Debug, PartialEq)]
+enum Start {
+    App,
+    Relay,
+    Headless,
+    Convert(convert::Job),
+}
+fn start(args: &[String]) -> Result<Start, String> {
+    let options = own(args);
     let has = |a: &str| options.contains(&a);
     if has("--convert") {
         return convert::parse(&args.iter().filter(|x| *x != "--convert").cloned().collect::<Vec<_>>()).map(Start::Convert);
@@ -1282,10 +1289,10 @@ fn main() {
     // octet.exe --register-ole and --unregister-ole write and remove this user's keys for Octet Drawing objects, for
     // this program, and end (the CI harness, and a copy with no installer). The installer writes the same keys.
     #[cfg(windows)]
-    for a in std::env::args_os().skip(1) {
-        match a.to_str() {
-            Some("--register-ole") => std::process::exit(match std::env::current_exe() { Ok(me) if ole::win::register(&me) => 0, _ => 1 }),
-            Some("--unregister-ole") => {
+    for a in own(&args) {
+        match a {
+            "--register-ole" => std::process::exit(match std::env::current_exe() { Ok(me) if ole::win::register(&me) => 0, _ => 1 }),
+            "--unregister-ole" => {
                 ole::win::unregister();
                 std::process::exit(0)
             }
@@ -1293,7 +1300,7 @@ fn main() {
         }
     }
     // Started by Windows for Word (-Embedding, decision 0023): Octet serves an Octet Drawing object and opens no Home.
-    let embedding = cfg!(windows) && ole::embedding(std::env::args_os());
+    let embedding = cfg!(windows) && ole::embedding(&own(&args));
     // Started for Word, Home's window is made hidden. Every other start (and the Mac and Linux) is as in 1.1.1: Home
     // is made visible by tauri.conf.json, so no start can leave Octet with no window.
     let mut context = tauri::generate_context!();
@@ -1555,6 +1562,16 @@ mod tests {
         for line in ["--object a.pdf --host --convert", "--object a.pdf --host --headless", "--object a.pdf --host --mcp", "--object --colour"] {
             assert_eq!(start(line), Ok(Start::App), "{line}");
         }
+        // Nor are they Windows' own options for Octet: a document named --unregister-ole removes no keys, and one named
+        // -Embedding does not start Octet for Word.
+        let words = |line: &str| line.split(' ').map(String::from).collect::<Vec<_>>();
+        for name in ["--unregister-ole", "--register-ole", "-Embedding", "/Embedding"] {
+            let args = words(&format!("--object a.emf --app Writer --host {name}"));
+            assert!(!own(&args).contains(&name), "{name}");
+            assert!(!ole::embedding(&own(&args)));
+        }
+        assert_eq!(own(&words("--register-ole")), ["--register-ole"]);
+        assert!(ole::embedding(&own(&words("-Embedding"))));
     }
 
     #[test]

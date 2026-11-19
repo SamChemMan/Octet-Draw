@@ -56,7 +56,7 @@ assert.ok(/if let Some\(\(_, mount\)\) = appimage\(\) \{\n\s*for \(key, value\) 
 assert.ok(settings.includes("onClick={p.onAddToLibreOffice}>Add to LibreOffice<"), "Settings has the button");
 assert.ok(/\n {6}d\("general", "LibreOffice", "Edit structures in LibreOffice", "libreoffice writer impress draw calc [^"]*", \(\n\s*<button className="text-button" onClick=\{p\.onAddToLibreOffice\}>/.test(settings), "the row shows on every system");
 const editor = read("./Editor.tsx");
-assert.ok(editor.includes('add_to_libreoffice: () => void invoke("add_to_libreoffice").catch((e) => setNotice(failure("Octet cannot open LibreOffice.", e))),') && editor.includes("onAddToLibreOffice={() => commands.current.add_to_libreoffice()}"), "a failure shows a notice");
+assert.ok(editor.includes('const addToLibreOffice = () => invoke("add_to_libreoffice").then(() => undefined, (e) => { const text = failure("Octet cannot open LibreOffice.", e); setNotice(text); return text; });') && editor.includes("add_to_libreoffice: () => void addToLibreOffice(),") && editor.includes("onAddToLibreOffice={() => commands.current.add_to_libreoffice()}"), "a failure shows a notice");
 // MCP: run_command add_to_libreoffice, as a command that opens a dialog (LibreOffice's Extension Manager asks the user),
 // so Octet with no window refuses it (mcp.check.ts).
 assert.ok(/\n {2}"add_to_libreoffice",\n\] as const;/.test(read("./mcp.ts")) && /dialog: \(id\) => .*\|\| id === "add_to_libreoffice",/.test(editor), "the MCP command");

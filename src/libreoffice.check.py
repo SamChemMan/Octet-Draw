@@ -11,6 +11,12 @@ import sys
 import tempfile
 import time
 import types
+import atexit
+import shutil
+
+# Every folder the extension makes goes in a temporary folder of this check's own, removed at the end.
+tempfile.tempdir = tempfile.mkdtemp(prefix="octet-check-")
+atexit.register(shutil.rmtree, tempfile.tempdir, True)
 
 
 class Any:
@@ -153,13 +159,13 @@ folder = tempfile.mkdtemp()
 for name, data, want in [("a.pdf", pdf, pdf), ("b.emf", octet_emf, octet_emf), ("c.png", b"\x89PNG", None), ("d.pdf", b"", None)]:
     with open(os.path.join(folder, name), "wb") as f:
         f.write(data)
-    assert od.read_picture(os.path.join(folder, name)) == want, name
+    assert od.read_picture(os.path.join(folder, name))[0] == want, name
 os.symlink(os.path.join(folder, "a.pdf"), os.path.join(folder, "link.pdf"))
-assert od.read_picture(os.path.join(folder, "link.pdf")) is False, "a link is not read"
+assert od.read_picture(os.path.join(folder, "link.pdf")) == (False, None), "a link is not read"
 with open(os.path.join(folder, "huge.pdf"), "wb") as f:
     f.write(b"%PDF")
     f.truncate(od.MAX_BYTES + 1)
-assert od.read_picture(os.path.join(folder, "huge.pdf")) is None, "over 64 MB"
+assert od.read_picture(os.path.join(folder, "huge.pdf"))[0] is None, "over 64 MB"
 
 
 # ---- Documents, pictures and sessions ----
@@ -379,9 +385,35 @@ s = session(Document(), Picture(octet_emf), "emf")
 od.start(s)
 assert said == [NOT_FOUND] * 2 and not os.path.exists(s.folder)
 popen.fail = False
-# Insert > Octet Drawing on Windows asks for an EMF, as Copy gives one there.
-assert od.new_kind() == "emf"
+# Insert > Octet Drawing on Windows asks for a PDF, as on the Mac and Linux: LibreOffice on Windows keeps a PDF's own
+# bytes, where it converts a pasted EMF.
+real_start, begun = od.start, []
+od.start = begun.append
+od.insert(None, Controller(Document("com.sun.star.presentation.PresentationDocument")))
+od.start = real_start
+assert os.path.basename(begun[0].path) == "drawing.pdf"
+shutil.rmtree(begun[0].folder)
 said.clear()
+# The first double-click after LibreOffice starts removes the extension's folders that Octet closed (LibreOffice quit
+# first), and nothing else: not one Octet may still update, a link, or another program's folder.
+base = tempfile.gettempdir()
+for name, files in [("octet-libreoffice-done", ["closed"]), ("octet-libreoffice-open", ["gone"]), ("octet-other", ["closed"]), ("target", ["closed", "keep"])]:
+    os.mkdir(os.path.join(base, name))
+    for f in files:
+        open(os.path.join(base, name, f), "wb").close()
+os.symlink(os.path.join(base, "target"), os.path.join(base, "octet-libreoffice-link"))
+od.SWEPT.clear()
+od.sweep()
+mine = {"octet-libreoffice-done", "octet-libreoffice-open", "octet-other", "target", "octet-libreoffice-link"}
+assert sorted(mine & set(os.listdir(base))) == ["octet-libreoffice-link", "octet-libreoffice-open", "octet-other", "target"], os.listdir(base)
+assert os.path.exists(os.path.join(base, "target", "keep")), "never through a link"
+os.mkdir(os.path.join(base, "octet-libreoffice-later"))
+open(os.path.join(base, "octet-libreoffice-later", "closed"), "wb").close()
+od.sweep()
+assert os.path.isdir(os.path.join(base, "octet-libreoffice-later")), "once each time LibreOffice starts"
+for name in ["octet-libreoffice-open", "octet-other", "target", "octet-libreoffice-later"]:
+    shutil.rmtree(os.path.join(base, name))
+os.unlink(os.path.join(base, "octet-libreoffice-link"))
 
 
 # The command line: Python writes it by Microsoft's rules (list2cmdline), and Octet's Rust reads it back by them
@@ -473,7 +505,6 @@ os.symlink(os.path.join(folder, "a.pdf"), os.path.join(s.folder, "object"))
 assert od.launch_mac(s.folder, s.path, "Writer", "R"), "a link where object goes is never written through"
 with open(os.path.join(folder, "a.pdf"), "rb") as f:
     assert f.read() == pdf
-assert od.new_kind() == "pdf"
 
 
 # ---- Linux: the arguments as in 1.1.2, now with Calc (J6) ----
@@ -567,7 +598,7 @@ with od.LOCK:
 with open(s.path, "wb") as f:
     f.write(pdf)
 real_read = od.read_picture
-od.read_picture = lambda p: False
+od.read_picture = lambda p: (False, None)
 od.look(s)
 assert put == [] and s.seen is None, "busy: looked at again"
 od.read_picture = real_read

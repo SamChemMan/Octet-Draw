@@ -351,7 +351,9 @@ def launch_windows(args):
 
 # The Mac: `object` beside the picture, with the program's name, a line end, then the document's name (its own line
 # ends made spaces), written once, at the first request. Then `open -b`, which gives the picture to the Octet that runs,
-# or starts one. False if Octet is not installed (open ends with 1).
+# or starts one. False if Octet is not installed (open ends with 1 at once). An open that takes over 10 s (a first start
+# that waits for macOS's question about a program from the Internet) has asked for the picture already: Octet opens it
+# when it starts, so the session and its folder stay.
 LINE_ENDS = re.compile("[\r\n\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
 
 
@@ -364,7 +366,9 @@ def launch_mac(folder, path, program, title):
         return False
     try:
         done = subprocess.run(["/usr/bin/open", "-b", APP_ID, path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        return True
+    except (OSError, ValueError):
         return False
     return done.returncode == 0
 
@@ -401,18 +405,21 @@ def stamp(path):
     return (st.st_ino, st.st_mtime_ns, st.st_size) if stat.S_ISREG(st.st_mode) else None
 
 
-# The picture that Octet wrote, a PDF or an EMF: 64 MB at most, never through a link. None if it is not one. False if
-# it cannot be read now (Windows: Octet is putting the next one in its place), so it is looked at again.
+# The picture that Octet wrote, a PDF or an EMF (64 MB at most, never through a link, else None), and the stamp of the
+# file that was read: Octet can rename a newer one over it between a look and the read. False if it cannot be read now
+# (Windows: Octet is putting the next one in its place), so it is looked at again.
 def read_picture(path):
     try:
         fd = os.open(path, os.O_RDONLY | NOFOLLOW | BINARY)
         with os.fdopen(fd, "rb") as f:
-            if os.fstat(f.fileno()).st_size > MAX_BYTES:
-                return None
+            st = os.fstat(f.fileno())
+            read = (st.st_ino, st.st_mtime_ns, st.st_size)
+            if st.st_size > MAX_BYTES:
+                return None, read
             data = f.read(MAX_BYTES + 1)
     except OSError:
-        return False
-    return data if len(data) <= MAX_BYTES and kind_of(data) else None
+        return False, None
+    return (data if len(data) <= MAX_BYTES and kind_of(data) else None), read
 
 
 def message(ctx, controller, text):
@@ -511,7 +518,12 @@ class Session:
             shape = self.doc.createInstance("com.sun.star.text.TextGraphicObject")
             shape.AnchorType = uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER")
             swap(shape, graphic, size)
-            self.at.getText().insertTextContent(self.at, shape, False)
+            # The place saved at Insert can be gone (its table or frame deleted): then where the cursor is now.
+            try:
+                self.at.getText().insertTextContent(self.at, shape, False)
+            except Exception:
+                self.at = text_cursor(self.controller)
+                self.at.getText().insertTextContent(self.at, shape, False)
             return shape
         fd, name = tempfile.mkstemp(suffix="." + (kind_of(data) or "pdf"))
         try:
@@ -561,11 +573,19 @@ class Swap(unohelper.Base, XUndoAction):
         self.Title = "Octet Drawing"
         self.shape, self.before, self.after = shape, before, after
 
+    # A picture deleted since (or put back as a new copy by LibreOffice's own Undo) is gone: LibreOffice clears its whole
+    # Undo list when an undo action raises, so this one does nothing then.
     def undo(self):
-        swap(self.shape, *self.before)
+        try:
+            swap(self.shape, *self.before)
+        except Exception:
+            pass
 
     def redo(self):
-        swap(self.shape, *self.after)
+        try:
+            swap(self.shape, *self.after)
+        except Exception:
+            pass
 
 
 class Closing(unohelper.Base, XCloseListener):
@@ -582,7 +602,32 @@ class Closing(unohelper.Base, XCloseListener):
         self.session.went()
 
 
+# Windows and the Mac: a session whose LibreOffice quit before Octet's window closed leaves its folder, which no one
+# watches; Windows does not empty its temporary folder. At the first double-click or Insert after LibreOffice starts,
+# the extension's own folders in which Octet wrote `closed` go. (Linux's are in $XDG_RUNTIME_DIR, emptied at log-out.)
+SWEPT = []
+
+
+def sweep():
+    if SWEPT or SYSTEM not in ("win32", "darwin"):
+        return
+    SWEPT.append(True)
+    base = tempfile.gettempdir()
+    try:
+        names = [n for n in os.listdir(base) if n.startswith("octet-libreoffice-")]
+    except OSError:
+        return
+    for name in names:
+        folder = os.path.join(base, name)
+        try:
+            if stat.S_ISDIR(os.lstat(folder).st_mode) and os.path.lexists(os.path.join(folder, "closed")):
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def start(session):
+    sweep()
     if not session.launch():
         shutil.rmtree(session.folder, ignore_errors=True)
         return
@@ -596,7 +641,8 @@ def start(session):
 
 
 # Four times a second: each new picture from Octet goes into its document, and a closed window's folder goes. `closed`
-# is looked for first: Octet writes the last picture before it.
+# is looked for first: Octet writes the last picture before it. A folder that is gone (removed by hand, or by a tidy-up)
+# ends its session too.
 def watch():
     while True:
         time.sleep(0.25)
@@ -610,12 +656,14 @@ def watch():
 
 
 def look(s):
-    closed = os.path.lexists(os.path.join(s.folder, "closed"))
+    closed = os.path.lexists(os.path.join(s.folder, "closed")) or not os.path.isdir(s.folder)
     now = stamp(s.path)
     if now is not None and now != s.seen:
-        data = read_picture(s.path)
+        data, read = read_picture(s.path)
         if data is not False:
-            s.seen = now
+            # The file that was read: the one looked at, or the newer one Octet renamed over it in between, which is
+            # there now. (Compared lstat to lstat, so Windows' two ways of reading a file's stamp never meet.)
+            s.seen = now if read == now else stamp(s.path)
         if data:
             on_main(s.ctx, lambda: s.put(data))
     if closed:
@@ -640,10 +688,14 @@ def edit(ctx, controller, shape):
     return True
 
 
-# The picture Insert > Octet Drawing asks Octet for: the kind Copy gives LibreOffice on this system (Windows: EMF; the
-# Mac and Linux: PDF).
-def new_kind():
-    return "emf" if SYSTEM == "win32" else "pdf"
+# Writer's cursor as a place to insert at: the view cursor, else the selection's start.
+def text_cursor(controller):
+    try:
+        cursor = controller.getViewCursor()
+        return cursor.getText().createTextCursorByRange(cursor.getStart())
+    except Exception:
+        anchor = controller.getSelection().getAnchor()
+        return anchor.getText().createTextCursorByRange(anchor)
 
 
 # Insert > Octet Drawing: an empty file is a new drawing. In Writer it goes in where the cursor is now, or beside the
@@ -653,15 +705,10 @@ def insert(ctx, controller):
     if read_only(controller):
         message(ctx, controller, READ_ONLY)
         return
-    at = None
-    if controller.getModel().supportsService("com.sun.star.text.TextDocument"):
-        try:
-            cursor = controller.getViewCursor()
-            at = cursor.getText().createTextCursorByRange(cursor.getStart())
-        except Exception:
-            anchor = controller.getSelection().getAnchor()
-            at = anchor.getText().createTextCursorByRange(anchor)
-    session = Session(ctx, controller, None, new_kind(), at)
+    at = text_cursor(controller) if controller.getModel().supportsService("com.sun.star.text.TextDocument") else None
+    # A PDF on every system, which LibreOffice reads the same way on each. (Windows' Copy is an EMF, but LibreOffice on
+    # Windows does not keep a pasted EMF as its own bytes, so the PDF is the one kind that stays an Octet drawing.)
+    session = Session(ctx, controller, None, "pdf", at)
     write_new(session.path, b"")
     start(session)
 

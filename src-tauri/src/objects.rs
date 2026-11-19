@@ -144,7 +144,10 @@ pub async fn ole_update(app: AppHandle, window: Window, oct: String, svg: String
             };
             let Some((to, host, oct, picture)) = sent else { return Ok(()) };
             let name = match to {
-                To::Path(path) => write(&path, &picture, &host).map(|_| None),
+                To::Path(path) => match write(&path, &picture, &host, seq)? {
+                    true => Ok::<_, String>(None),
+                    false => return Ok(()),
+                },
                 #[cfg(target_os = "macos")]
                 To::Word { mark, placed } => {
                     use crate::word::Fail;
@@ -276,11 +279,40 @@ impl File {
 }
 
 // Update of a file object: the new picture replaces the file in one step (a temporary file renamed over it). Windows
-// refuses to replace a file while the extension reads it, so there Octet tries again, 20 times at most, 25 ms apart.
-// Save is not changed (write_atomic).
-fn write(path: &Path, picture: &[u8], host: &str) -> Result<(), String> {
-    retry(if cfg!(windows) { 20 } else { 1 }, Duration::from_millis(25), || crate::write_atomic(path, picture)).map_err(|_| format!("Octet cannot update {host}. Try again."))
+// refuses to replace a file while the extension reads it, so there Octet renames again, 20 times at most, 25 ms
+// apart; the picture is written once. Updates go one at a time, and one whose message is older than the last written
+// to that file is dropped (false): an older Update that waited for its rename never lands after a newer one. Close's
+// picture is the newest (seq None). Save is not changed (write_atomic).
+fn write(path: &Path, picture: &[u8], host: &str, seq: Option<u64>) -> Result<bool, String> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = seq.unwrap_or(u64::MAX);
+    let mut written = WRITTEN.lock().unwrap();
+    let at = written.iter().position(|(p, _)| p == path);
+    if at.is_some_and(|k| written[k].1 >= n) {
+        return Ok(false);
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.updating-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let result = (|| {
+        let mut file = std::fs::File::create_new(&tmp)?;
+        std::io::Write::write_all(&mut file, picture)?;
+        file.sync_all()?;
+        drop(file);
+        retry(if cfg!(windows) { 20 } else { 1 }, Duration::from_millis(25), || std::fs::rename(&tmp, path))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("Octet cannot update {host}. Try again."));
+    }
+    match at {
+        Some(k) => written[k].1 = n,
+        None => written.push((path.to_path_buf(), n)),
+    }
+    Ok(true)
 }
+
+// Each object file's newest message written, while its window is open (a new window counts from 0 again).
+static WRITTEN: Mutex<Vec<(PathBuf, u64)>> = Mutex::new(Vec::new());
 
 // `f` until it works or fails for a reason other than a file in use, `tries` times at most.
 fn retry(tries: u32, gap: Duration, mut f: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
@@ -361,9 +393,10 @@ pub fn object_arg(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Optio
 // Apple Event, which reaches an Octet that runs, or starts one, and carries no arguments. So the extension writes
 // `object` beside the picture first: the program's name (Writer), a line end, then the document's name. A file is an
 // object only when all of this holds, so a drawing.pdf opened from Finder anywhere else stays an ordinary drawing:
-// its name is drawing.pdf or drawing.emf; its folder is a real folder (no link), the user's own, that no one else can
-// read or enter (0700); and `object` is a real file (no link), the user's own, 4 KB at most, in UTF-8. Gives the
-// document's name and the program's.
+// its name is drawing.pdf or drawing.emf, and it is a real file (no link); its folder is named octet-libreoffice-…
+// (the extension's mkdtemp; ~/Downloads and ~/Documents are 0700 too) and is a real folder (no link), the user's own,
+// that no one else can read or enter (0700); and `object` is a real file (no link), the user's own, 4 KB at most, in
+// UTF-8. Gives the document's name and the program's.
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn marked(path: &Path) -> Option<(String, String)> {
@@ -371,7 +404,13 @@ pub fn marked(path: &Path) -> Option<(String, String)> {
     if !matches!(path.file_name()?.to_str()?, "drawing.pdf" | "drawing.emf") {
         return None;
     }
+    if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+        return None;
+    }
     let folder = path.parent()?;
+    if !folder.file_name()?.to_str()?.starts_with("octet-libreoffice-") {
+        return None;
+    }
     let me = uid();
     let dir = std::fs::symlink_metadata(folder).ok()?;
     if !dir.file_type().is_dir() || dir.uid() != me || dir.permissions().mode() & 0o077 != 0 {
@@ -410,11 +449,16 @@ fn uid() -> u32 {
 // Files opened from Finder or by `open` (RunEvent::Opened): each picture LibreOffice's extension marked opens as an
 // object; the others are given back, for open::offer. A picture that started Octet can come before Octet's setup
 // (AppKit sends it while it launches): it waits for `ready`, as an --object start waits on Linux and Windows. Both run
-// on the main thread.
+// on the main thread. Octet with no window (--headless, --convert) opens no object window and never calls `ready`: it
+// writes `closed` at once, so the extension ends that session and the next double-click asks again.
 #[cfg(target_os = "macos")]
 pub fn opened(app: &AppHandle, paths: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
     paths
         .filter_map(|p| match marked(&p) {
+            Some(_) if crate::windows::HEADLESS.load(Ordering::Relaxed) => {
+                mark(&p, "closed");
+                None
+            }
             Some((host, program)) => {
                 match EARLY.lock().unwrap().as_mut() {
                     Some(early) => early.push((p, host, program)),
@@ -465,6 +509,7 @@ pub fn open_file(app: &AppHandle, path: PathBuf, host: String, program: String) 
         }
         opening.push(path.clone());
     }
+    WRITTEN.lock().unwrap().retain(|(p, _)| *p != path);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let opened = File::open(path.clone(), &host, &program);
@@ -569,7 +614,7 @@ fn close(files: &Files, id: u64, back: bool) {
     match f.to {
         To::Path(path) => {
             if let Some((_, picture)) = latest {
-                let _ = write(&path, &picture, "");
+                let _ = write(&path, &picture, "", None);
             }
             mark(&path, "closed");
         }
@@ -710,7 +755,7 @@ mod tests {
         assert_eq!(*f.session.host.borrow(), "Report.odt", "no control characters");
         assert_eq!(*f.session.app.borrow(), "Writer", "Update in Writer");
         let picture = Kind::Pdf.picture(svg, "<CDXML><page><n/></page></CDXML>").unwrap();
-        write(&pdf, &picture, "R").unwrap();
+        write(&pdf, &picture, "R", Some(1)).unwrap();
         assert_eq!(std::fs::read(&pdf).unwrap(), picture);
         assert!(crate::export::cdxml_from_pdf(&std::fs::read(&pdf).unwrap()).unwrap().ends_with("<CDXML><page><n/></page></CDXML>"));
         let leftovers = std::fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name() != "a.pdf").count();
@@ -756,13 +801,13 @@ mod tests {
         assert_eq!(*f.session.oct.borrow(), "<CDXML><page/></CDXML>");
         let picture = Kind::Emf.picture(svg, "<CDXML><page><n/></page></CDXML>").unwrap();
         assert_eq!(picture, crate::vector::make_emf(&crate::export::tree(svg).unwrap(), Some("<CDXML><page><n/></page></CDXML>"), None), "as Copy on Windows makes it");
-        write(&path, &picture, "R").unwrap();
+        assert_eq!(write(&path, &picture, "R", Some(2)), Ok(true));
         assert_eq!(crate::export::cdxml_from_picture(&std::fs::read(&path).unwrap()).as_deref(), Some("<CDXML><page><n/></page></CDXML>"));
         let leftovers = std::fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name() != "drawing.emf").count();
         assert_eq!(leftovers, 0, "no temporary file stays");
         // Update with nothing drawn: the blank page's picture, which still holds the (empty) drawing.
         let blank = r#"<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="72pt" viewBox="0 0 72 72"></svg>"#;
-        write(&path, &Kind::Emf.picture(blank, "<CDXML><page/></CDXML>").unwrap(), "R").unwrap();
+        write(&path, &Kind::Emf.picture(blank, "<CDXML><page/></CDXML>").unwrap(), "R", Some(3)).unwrap();
         assert_eq!(*File::open(path.clone(), "R", "").unwrap().session.oct.borrow(), "<CDXML><page/></CDXML>");
         // Office's EMF on the Mac: the PDF in a comment, then Octet's.
         let office = dir.join("office.emf");
@@ -818,6 +863,21 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(retry(3, Duration::from_millis(25), || Err(busy())).is_err());
         assert!(start.elapsed() >= Duration::from_millis(50), "25 ms apart");
+        // Updates land in order: one older than the last written is dropped, and Close's picture (no number) is the
+        // newest. No temporary file stays.
+        let dir = std::env::temp_dir().join(format!("octet-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("drawing.pdf");
+        assert_eq!(write(&p, b"2", "R", Some(2)), Ok(true));
+        assert_eq!(write(&p, b"1", "R", Some(1)), Ok(false));
+        assert_eq!(std::fs::read(&p).unwrap(), b"2");
+        assert_eq!(write(&p, b"c", "R", None), Ok(true));
+        assert_eq!(write(&p, b"3", "R", Some(3)), Ok(false));
+        assert_eq!(std::fs::read(&p).unwrap(), b"c");
+        assert_eq!(write(&dir.join("gone").join("drawing.pdf"), b"x", "R", Some(1)), Err("Octet cannot update R. Try again.".into()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary file stays");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // The Mac's hand-off: a drawing.pdf or drawing.emf in the extension's own folder, with `object` beside it, is an
@@ -830,7 +890,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let folder = |name: &str, object: Option<&[u8]>| {
-            let d = base.join(name);
+            let d = base.join(format!("octet-libreoffice-{name}"));
             std::fs::create_dir(&d).unwrap();
             std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)).unwrap();
             std::fs::write(d.join("drawing.pdf"), "").unwrap();
@@ -847,8 +907,18 @@ mod tests {
         assert_eq!(marked(&good.join("object")), None);
         let no_program = folder("none", Some(b"\n"));
         assert_eq!(marked(&no_program.join("drawing.pdf")), Some((String::new(), String::new())), "no names: Octet says Document");
-        symlink(&good, base.join("link")).unwrap();
-        assert_eq!(marked(&base.join("link").join("drawing.pdf")), None, "the folder a link");
+        symlink(&good, base.join("octet-libreoffice-link")).unwrap();
+        assert_eq!(marked(&base.join("octet-libreoffice-link").join("drawing.pdf")), None, "the folder a link");
+        // A 0700 folder of another name (~/Downloads, ~/Documents) with a drawing.pdf and a file named object in it.
+        let downloads = base.join("Downloads");
+        std::fs::rename(folder("downloads", Some(b"Writer\nR")), &downloads).unwrap();
+        assert_eq!(marked(&downloads.join("drawing.pdf")), None, "a folder that is not the extension's");
+        // The picture a link to another PDF.
+        let pointed = folder("pointed", Some(b"Writer\nR"));
+        std::fs::remove_file(pointed.join("drawing.pdf")).unwrap();
+        symlink(good.join("drawing.pdf"), pointed.join("drawing.pdf")).unwrap();
+        assert_eq!(marked(&pointed.join("drawing.pdf")), None, "the picture a link");
+        assert!(marked(&pointed.join("drawing.emf")).is_some());
         let open = folder("open", Some(b"Writer\nR"));
         std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(marked(&open.join("drawing.pdf")), None, "a folder others can read");

@@ -24,7 +24,7 @@ await ready;
 
 // The editor's stand-in: a drawing, its undo steps, its selection and what it told the user.
 const NAMES: Record<string, string> = { "acetic acid": "CC(=O)O", ethanol: "CCO", "ethyl acetate": "CCOC(C)=O", water: "O", benzene: "c1ccccc1", toluene: "Cc1ccccc1", phenol: "Oc1ccccc1" };
-let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined, windowless = false, readied: (boolean | undefined)[] = [];
+let m: Mol = EMPTY, steps: string[] = [], open = 0, said: string[] = [], picked = { atoms: [] as number[], items: [] as number[] }, experiment = false, commands: string[] = [], shown: Box | undefined, windowless = false, readied: (boolean | undefined)[] = [], libreOfficeFails: string | undefined;
 // A box to type in or a dialog the last command left open (asking), and how often Escape closed one (dismiss).
 let asking = false, dismissed = 0;
 // What the window shows of an AI app at work after each Host.working: the text, whether Stop is offered, how far. As
@@ -55,6 +55,7 @@ const host: Host = {
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
+  libreoffice: async () => { commands.push("add_to_libreoffice"); return libreOfficeFails; },
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => "theirs",
@@ -1138,8 +1139,13 @@ assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write 
 // use instead, and so is Export. With a window it runs, and the user finishes it.
 commands = [];
 assert.match(text(await call("advanced", { tool: "run_command", args: { command: "print" } })), /^Ran print\. Octet shows its dialog/);
-// Add to LibreOffice (issue 48): LibreOffice's Extension Manager asks the user, each time it is asked for.
-for (let k = 0; k < 2; k++) assert.match(text(await call("advanced", { tool: "run_command", args: { command: "add_to_libreoffice" } })), /^Ran add_to_libreoffice\. Octet shows its dialog/);
+// Add to LibreOffice (issue 48): LibreOffice's Extension Manager asks the user, each time it is asked for. When
+// LibreOffice cannot be opened, the AI app hears what the window said.
+for (let k = 0; k < 2; k++) assert.match(text(await call("advanced", { tool: "run_command", args: { command: "add_to_libreoffice" } })), /^Ran add_to_libreoffice\. LibreOffice's Extension Manager asks the user to add Octet's extension\.\n/);
+libreOfficeFails = "Octet cannot open LibreOffice.";
+out = await call("advanced", { tool: "run_command", args: { command: "add_to_libreoffice" } });
+assert.ok(out.isError && text(out) === "Octet cannot open LibreOffice. Octet did not add its extension.", text(out));
+libreOfficeFails = undefined;
 windowless = true;
 for (const command of ["print", "rotate_dialog", "add_to_libreoffice"]) {
   out = await call("advanced", { tool: "run_command", args: { command } });
@@ -1148,7 +1154,7 @@ for (const command of ["print", "rotate_dialog", "add_to_libreoffice"]) {
 assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "clean_up" } })).isError);
 out = await call("advanced", { tool: "export", args: { format: "pdf" } });
 assert.ok(out.isError && text(out) === "Octet with no window has no dialogs. read with a format gives the drawing as a file.", text(out));
-assert.deepEqual(commands, ["print", "print", ...Array(4).fill("add_to_libreoffice"), "clean_up", "clean_up"]);
+assert.deepEqual(commands, ["print", "print", ...Array(3).fill("add_to_libreoffice"), "clean_up", "clean_up"]);
 // An action whose name says nothing of it (Add to dictionary…, a caption's box to type in) that opens a dialog or a
 // box all the same: with no window, it is closed again (Escape) and refused, and the drawing still answers. With a
 // window, the user finishes it.

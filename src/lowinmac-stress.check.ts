@@ -328,10 +328,10 @@ def a_cases():
     with open(p, "wb") as f:
         f.write(b"%PDF")
         f.truncate(od.MAX_BYTES)
-    exact = od.read_picture(p)
+    exact = od.read_picture(p)[0]
     with open(p, "ab") as f:
         f.write(b"\0")
-    over = od.read_picture(p)
+    over = od.read_picture(p)[0]
     case("S2.read", "Octet's Update file of exactly 64 MB is read, and of 64 MB and 1 byte is not", exact is not None and exact is not False and len(exact) == od.MAX_BYTES and over is None, "exact %s, over %r" % (len(exact) if exact else exact, over))
     shutil.rmtree(d)
 
@@ -362,7 +362,9 @@ def a_cases():
     listed = []
     od.SYSTEM = "darwin"
     for k, name in enumerate(names):
-        folder = tempfile.mkdtemp(dir=objects, prefix="%02d-" % k)
+        # As the extension makes it (new_folder, then the picture, then launch).
+        folder = tempfile.mkdtemp(dir=objects, prefix="octet-libreoffice-%02d-" % k)
+        od.write_new(os.path.join(folder, "drawing.pdf"), PDF)
         title = name.replace("\0", "")[:260]
         ok = od.launch_mac(folder, os.path.join(folder, "drawing.pdf"), "Writer", title)
         with open(os.path.join(folder, "object"), "rb") as f:
@@ -439,7 +441,7 @@ def a_cases():
 
     def flaky(p):
         flip[0] += 1
-        return False if flip[0] % 3 == 0 else real_read(p)
+        return (False, None) if flip[0] % 3 == 0 else real_read(p)
 
     od.read_picture = flaky
     pics = [PDF.replace(b"<page/>", b"<page><n%d/></page>" % k) for k in range(20)]
@@ -553,11 +555,23 @@ def a_cases():
         def getText(self):
             return Text()
 
+    # Writer's view cursor, where the user is now: there the drawing goes in.
+    inserted = []
+
+    class Here:
+        def getText(self):
+            return types.SimpleNamespace(insertTextContent=lambda at, shape, absorb: inserted.append(shape), createTextCursorByRange=lambda r: Here())
+
+        def getStart(self):
+            return self
+
     doc = Document()
     doc.createInstance = lambda name: types.SimpleNamespace(supportsService=lambda n: False)
-    s = od.Session(None, Controller(doc), None, "pdf", At())
+    controller = Controller(doc)
+    controller.getViewCursor = lambda: Here()
+    s = od.Session(None, controller, None, "pdf", At())
     s.put(pics[2])
-    case("O24.anchor", "Writer: Insert > Octet Drawing in a table cell, then the table is deleted before the first Update: the session is not marked as a closed document", not s.gone, "gone %s (Octet's title then says Report.odt is closed)" % s.gone)
+    case("O24.anchor", "Writer: Insert > Octet Drawing in a table cell, then the table is deleted before the first Update: the drawing goes in at the cursor, and the session is not marked as a closed document", not s.gone and inserted == [s.shape], "gone %s (Octet's title then says Report.odt is closed), inserted %d" % (s.gone, len(inserted)))
     shutil.rmtree(s.folder, ignore_errors=True)
 
     # Calc: a double-click on a picture on the sheet goes the Impress and Draw way, with --app Calc (Linux).
@@ -609,7 +623,7 @@ def b_cases():
     p = os.path.join(OUT, "photo.emf")
     if os.path.exists(p):
         size = os.path.getsize(p)
-        got = od.read_picture(p)
+        got = od.read_picture(p)[0]
         case("O2.photo", "Windows: Update of a drawing with a 24-megapixel photo (an EMF of %d MB): the extension takes Octet's picture" % (size >> 20), got not in (None, False), "the extension reads it" if got else "the extension reads nothing: LibreOffice keeps the old picture, and Octet says nothing")
         os.unlink(p)
     fuzz = os.path.join(OUT, "fuzz")
@@ -679,14 +693,20 @@ check("copy.formats", "Octet's copy: Windows puts the EMF and a bitmap, the Mac 
 const WRITER = ["SVXB", "SD_OLE", "RICHTEXT", "EMBED_SOURCE", "EMBEDDED_OBJ", "RTF", "PDF", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "GDIMETAFILE", "EMBED_SOURCE_OLE", "EMBEDDED_OBJ_OLE"];
 const windowsOffer = new Set(["BITMAP", "EMF", "GDIMETAFILE"]);
 const writerTakes = WRITER.find((f) => windowsOffer.has(f));
-check("O14.writer.windows", "LibreOffice source: Writer on Windows pastes Octet's copy as the EMF (so Edit in Octet Draw is there)", writerTakes === "GDIMETAFILE", `Writer takes ${writerTakes}: a bitmap with no CDXML, ahead of the EMF`);
+// So a paste from Octet into LibreOffice on Windows is LibreOffice's own picture (issue 48 cuts it for 1.1.3: a new
+// Windows clipboard type needs a real run). Decision 0025 and the checklist say what LibreOffice does, and no What's
+// New line or checklist step promises the paste opens in Octet.
+const decision = read("../docs/decisions/0025-libreoffice.md"), manual = read("../docs/testing/libreoffice-manual.md"), plan = read("../docs/plans/issue-48-libreoffice-win-mac.md");
+const whatsNew = plan.slice(plan.indexOf("## 13."), plan.indexOf("## 14."));
+const noPromise = !/So a paste from Octet is the EMF picture/.test(decision) && !/Paste it into Writer\. Right-click the picture: Edit in Octet Draw is first/.test(manual) && !/paste a structure from Octet into LibreOffice on Windows/i.test(whatsNew);
+check("O14.writer.windows", "LibreOffice source: Writer on Windows takes Octet's bitmap before the EMF, and Octet's documents and What's New say so, with no promise that the paste opens in Octet", writerTakes === "BITMAP" && /takes BITMAP \(the `CF_DIB`\) before\s+GDIMETAFILE/.test(decision) && noPromise, `Writer takes ${writerTakes}`);
 // Impress and Draw (sd View::InsertData, InsertMetaFile) and Calc (ScViewFunc::PasteDataFormat) read GDIMETAFILE with
 // GetGDIMetaFile, which converts the EMF to LibreOffice's own metafile: its bytes, and Octet's comment, are not kept.
 // Only GetGraphic keeps an EMF's own bytes, and only from LibreOffice 26.2 (tdf#168886).
-check("O15.impress.calc.windows", "LibreOffice source: Impress, Draw and Calc on Windows keep the pasted EMF's own bytes (Octet's CDXML comment)", false, "they read it with GetGDIMetaFile, which converts it, in 24.8, 25.8, 26.8 and master; the plan's checklist asks for LibreOffice 24.x or later");
+check("O15.impress.calc.windows", "LibreOffice source: Impress, Draw and Calc on Windows convert a pasted EMF (Octet's CDXML comment is lost): decision 0025 says so, and Insert > Octet Drawing on Windows asks for a PDF", /`TransferableDataHelper::GetGDIMetaFile`, which converts\s+the EMF/.test(decision) && noPromise && /Session\(ctx, controller, None, "pdf", at\)/.test(readFileSync(ext + "octet_draw.py", "utf8")), "decision 0025 or the extension's Insert");
 // Calc's paste table (formats.cxx, Calc free-area copy table) and ScViewFunc::PasteFromSystem have no PDF.
 const CALC = ["SVXB", "GDIMETAFILE", "PNG", "JPEG", "BITMAP", "HTML", "STRING", "EMBED_SOURCE_OLE"];
-check("O16.calc.mac", "LibreOffice source: Calc on the Mac and Linux pastes Octet's PDF (so a pasted structure opens in Octet)", CALC.includes("PDF"), "Calc's paste has no PDF: the Mac's copy gives Calc no picture with the drawing; Linux's gives the PNG or SVG");
+check("O16.calc.mac", "LibreOffice source: Calc's paste has no PDF, so a structure pasted into Calc is LibreOffice's picture: decision 0025 says so, and Calc's way in is Insert > Octet Drawing", !CALC.includes("PDF") && /Calc's paste table and `ScViewFunc::PasteFromSystem` have no PDF/.test(decision) && /In Calc a structure goes in by Insert > Octet Drawing/.test(decision) && !/paste[^.]*Calc/i.test(whatsNew), "decision 0025 or What's New");
 const writerMac = WRITER.find((f) => ["PDF", "PNG", "BITMAP"].includes(f));
 check("mac.writer", "LibreOffice source: Writer and Impress on the Mac paste Octet's PDF before any bitmap", writerMac === "PDF");
 
@@ -695,12 +715,16 @@ check("mac.writer", "LibreOffice source: Writer and Impress on the Mac paste Oct
 const main = read("../src-tauri/src/main.rs"), objects = read("../src-tauri/src/objects.rs");
 const readyOnlyWithWindow = /#\[cfg\(target_os = "macos"\)\]\s*if !headless \{\s*objects::ready\(handle\);/.test(main);
 const openedAlways = /RunEvent::Opened \{ urls \} => open::offer\(_app, objects::opened\(/.test(main);
-check("O22.headless", "The Mac: a LibreOffice picture sent to an Octet with no window (--headless --mcp, --convert) is opened or refused, never kept waiting", !(readyOnlyWithWindow && openedAlways && /static EARLY: Mutex<Option<Vec<\(PathBuf, String, String\)>>> = Mutex::new\(Some\(Vec::new\(\)\)\);/.test(objects)), "objects::opened queues every marked picture until objects::ready, which only an Octet with a window calls; open -b gives the picture to whichever Octet runs, and LibreOffice hears that it started");
+// Octet with no window never calls objects::ready, so objects::opened refuses each marked picture there first: it
+// writes `closed`, and the extension ends that session.
+const refusedFirst = /\.filter_map\(\|p\| match marked\(&p\) \{\s*Some\(_\) if crate::windows::HEADLESS\.load\(Ordering::Relaxed\) => \{\s*mark\(&p, "closed"\);\s*None\s*\}\s*Some\(\(host, program\)\) => \{\s*match EARLY/.test(objects);
+check("O22.headless", "The Mac: a LibreOffice picture sent to an Octet with no window (--headless --mcp, --convert) is opened or refused, never kept waiting", readyOnlyWithWindow && openedAlways && refusedFirst, "objects::opened queues a marked picture in an Octet with no window, which never calls objects::ready");
 
 // ---- MCP: run_command add_to_libreoffice from an AI app, with odd arguments (S23) ----
 
-let windowless = false, ran: string[] = [];
+let windowless = false, ran: string[] = [], libreOfficeFails: string | undefined;
 const base: Partial<Host> = {
+  libreoffice: async () => { ran.push("add_to_libreoffice"); return libreOfficeFails; },
   doc: () => EMPTY, style: () => DEFAULT_STYLE, dialog: (id) => id === "add_to_libreoffice", windowless: () => windowless, experiment: () => false,
   command: (id) => { ran.push(id); return true; }, act: (id) => { ran.push(id); return true; }, settle: async () => {}, asking: () => false, dismiss: () => {},
   select: () => {}, selection: () => ({ atoms: [], items: [] }), window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true,
@@ -736,13 +760,16 @@ windowless = true;
   check("S23.windowless", "MCP: Octet with no window refuses add_to_libreoffice", r.error && r.text.includes("Octet with no window has no dialogs"), r.text);
 }
 windowless = false;
-// The Editor runs Add to LibreOffice and does not wait for it (void invoke), so run_command says "Octet shows its
-// dialog" also when LibreOffice is not there and the window shows "Octet cannot open LibreOffice." instead.
+// run_command waits for Add to LibreOffice: when LibreOffice is not there, the AI app hears what the window said
+// ("Octet cannot open LibreOffice."), never that a dialog shows. The Editor's MCP host and its menu command run the one
+// function that shows that notice.
 const editor = read("./Editor.tsx");
-const fireAndForget = editor.includes('add_to_libreoffice: () => void invoke("add_to_libreoffice").catch(');
+const oneWay = editor.includes("add_to_libreoffice: () => void addToLibreOffice(),") && editor.includes("libreoffice: () => addToLibreOffice(),");
 {
+  libreOfficeFails = "Octet cannot open LibreOffice.";
   const r = await call({ command: "add_to_libreoffice" });
-  check("S23.truth", "MCP: when LibreOffice cannot be opened, run_command add_to_libreoffice does not tell the AI app it showed a dialog", !(fireAndForget && /Octet shows its dialog/.test(r.text)), `reply: ${r.text}`);
+  libreOfficeFails = undefined;
+  check("S23.truth", "MCP: when LibreOffice cannot be opened, run_command add_to_libreoffice does not tell the AI app it showed a dialog", oneWay && r.error && r.text.startsWith("Octet cannot open LibreOffice.") && !/dialog/.test(r.text), `reply: ${r.text}`);
 }
 
 // ---- Rust (OCTET_STRESS_RUST=1): a copy of this tree with a test module added to objects.rs ----
@@ -761,9 +788,10 @@ mod lowinmac_stress {
         t.sort_by(|a, b| a.partial_cmp(b).unwrap());
         t[2]
     }
+    // A folder named as the extension's (octet-libreoffice-…), so each case meets marked's other rules.
     fn folder(base: &Path, name: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
-        let d = base.join(name);
+        let d = base.join(format!("octet-libreoffice-{name}"));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -792,7 +820,7 @@ mod lowinmac_stress {
             let file = File::open(path.clone(), "Report.odt", "Writer").unwrap();
             let same = *file.session.oct.borrow() == cdxml;
             let next = Kind::of(&path).unwrap().picture(&svg, &cdxml.replacen("<page", "<page id=\"9\"", 1)).unwrap();
-            write(&path, &next, "Report.odt").unwrap();
+            write(&path, &next, "Report.odt", Some(1)).unwrap();
             let left: Vec<_> = std::fs::read_dir(&f).unwrap().map(|e| e.unwrap().file_name()).filter(|n| n != name).collect();
             let again = File::open(path.clone(), "R", "").map(|f| f.session.oct.borrow().contains("<page id=\"9\"")).unwrap_or(false);
             say(&format!("S19.roundtrip.{name}"), &format!("The 200-structure drawing opens from {name}, and an Update reads back, with no file left over"), same && again && left.is_empty(), format!("same {same}, again {again}, left {left:?}"));
@@ -865,7 +893,7 @@ mod lowinmac_stress {
         let gone = folder(&base, "gone");
         let path = gone.join("drawing.emf");
         std::fs::remove_dir_all(&gone).unwrap();
-        let r = write(&path, &emf, "Report.odt");
+        let r = write(&path, &emf, "Report.odt", Some(1));
         say("S21.gone", "The folder is gone: Update says Octet cannot update Report.odt", r.clone().err().as_deref() == Some("Octet cannot update Report.odt. Try again."), format!("{r:?}"));
 
         // S2: Octet opens 64 MB at most.
