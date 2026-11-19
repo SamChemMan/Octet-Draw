@@ -24,6 +24,23 @@ pub struct Recent {
     pub at: u64, // seconds since 1970
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumb: Option<String>,
+    // The drawing's Title and Author (Settings > Document > Properties) when it was last opened or saved (issue 100).
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub author: Option<String>,
+}
+
+const MAX_ABOUT: usize = 200; // characters in a title or author (experiment.ts MAX_VALUE)
+
+// A title or author as the list keeps it: one line of 1 to MAX_ABOUT characters, else none.
+fn about(v: Option<String>) -> Option<String> {
+    v.map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && t.chars().count() <= MAX_ABOUT && !t.chars().any(char::is_control))
+}
+
+// A title or author from recent.json: one that is not text or fails the check is dropped, and the drawing stays.
+fn lenient<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(about(serde_json::Value::deserialize(d)?.as_str().map(str::to_string)))
 }
 
 #[derive(Default)]
@@ -94,9 +111,9 @@ pub fn note(app: &AppHandle, path: &Path) {
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let before = titles(app);
     with_list(app, |list| {
-        let thumb = list.iter().find(|r| r.path == key).and_then(|r| r.thumb.clone());
+        let (thumb, title, author) = list.iter().find(|r| r.path == key).map(|r| (r.thumb.clone(), r.title.clone(), r.author.clone())).unwrap_or_default();
         list.retain(|r| r.path != key);
-        list.insert(0, Recent { path: key, name, at, thumb });
+        list.insert(0, Recent { path: key, name, at, thumb, title, author });
         list.truncate(MOST);
         save_list(app, list);
     });
@@ -119,6 +136,8 @@ pub struct RecentView {
     name: String,
     at: u64,
     thumb: Option<String>,
+    title: Option<String>,
+    author: Option<String>,
     found: bool, // the file is still where it was
 }
 
@@ -127,20 +146,25 @@ pub struct RecentView {
 pub async fn recent_list(app: AppHandle) -> Vec<RecentView> {
     with_list(&app, |list| list.clone())
         .into_iter()
-        .map(|r| RecentView { found: Path::new(&r.path).is_file(), path: r.path, name: r.name, at: r.at, thumb: r.thumb })
+        .map(|r| RecentView { found: Path::new(&r.path).is_file(), path: r.path, name: r.name, at: r.at, thumb: r.thumb, title: r.title, author: r.author })
         .collect()
 }
 
-// The drawing's picture, from the page, for a drawing already on the list.
+// The drawing's picture, title and author, from the page, for a drawing already on the list. A picture too large, or
+// not a picture, leaves the one kept (the tile shows the drawing's name only); a title or author that fails the
+// check is none.
 #[tauri::command]
-pub fn recent_thumb(app: AppHandle, path: String, svg: String) -> Result<(), String> {
-    if svg.len() > MAX_THUMB || !svg.trim_start().starts_with("<svg") {
-        return Ok(()); // too large, or not a picture: the tile shows the drawing's name only
-    }
+pub fn recent_thumb(app: AppHandle, path: String, svg: Option<String>, title: Option<String>, author: Option<String>) -> Result<(), String> {
+    let svg = svg.filter(|s| s.len() <= MAX_THUMB && s.trim_start().starts_with("<svg"));
+    let (title, author) = (about(title), about(author));
     with_list(&app, |list| {
-        if list.iter_mut().find(|r| r.path == path).map(|r| r.thumb = Some(svg)).is_some() {
-            save_list(&app, list);
+        let Some(r) = list.iter_mut().find(|r| r.path == path) else { return };
+        if svg.is_none() && r.title == title && r.author == author {
+            return;
         }
+        r.thumb = svg.or(r.thumb.take());
+        (r.title, r.author) = (title, author);
+        save_list(&app, list);
     });
     Ok(())
 }
@@ -277,6 +301,24 @@ mod tests {
 
     fn experiment(pairs: &[(&str, &str)], yld: Option<f64>) -> Experiment {
         Experiment { details: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), yld }
+    }
+
+    #[test]
+    fn a_title_and_author_are_checked_and_a_bad_one_keeps_the_drawing() {
+        assert_eq!(about(Some("  Aspirin, route 2 ".into())).as_deref(), Some("Aspirin, route 2"));
+        assert_eq!(about(Some("é".repeat(MAX_ABOUT))).map(|t| t.chars().count()), Some(MAX_ABOUT), "characters, not bytes");
+        for bad in ["", "  ", "two\nlines", "tab\there", "\u{7}"] {
+            assert_eq!(about(Some(bad.into())), None, "{bad:?}");
+        }
+        assert_eq!(about(Some("x".repeat(MAX_ABOUT + 1))), None);
+        let long = "x".repeat(10_000);
+        let text = format!(r#"[{{"path":"/a.oct","name":"a","at":1,"title":"Zoë 😀","author":"Sam"}},{{"path":"/b.oct","name":"b","at":2,"title":{{"x":1}},"author":"{long}"}},{{"path":"/c.oct","name":"c","at":3,"title":"a\nb","author":7}},{{"path":"/d.oct","name":"d","at":4}}]"#);
+        let list: Vec<Recent> = serde_json::from_str(&text).unwrap();
+        assert_eq!(list.len(), 4, "every drawing stays");
+        assert_eq!((list[0].title.as_deref(), list[0].author.as_deref()), (Some("Zoë 😀"), Some("Sam")));
+        assert!(list[1..].iter().all(|r| r.title.is_none() && r.author.is_none()));
+        let again = serde_json::to_string(&list).unwrap();
+        assert!(again.contains(r#""title":"Zoë 😀""#) && !again.contains(r#""path":"/d.oct","name":"d","at":4,"title""#));
     }
 
     #[test]

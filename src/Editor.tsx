@@ -81,7 +81,7 @@ import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, pasteRefused, 
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
-import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
+import { FIELDS as DETAILS, PROPERTIES, detailsOf, stamped, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
@@ -1617,10 +1617,13 @@ export default function Editor() {
       return new Promise((done) => setDialog({ kind: "lossy", lost, done }));
     }
     try {
+      // The drawing says who saved it last (issue 100): the save's own step takes the name, so it is not left changed.
+      const out = stamped(doc, systemName);
       // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
-      const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...doc, guides }, savedStyle(), cdxmlOptions())) : undefined;
-      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()), cdx, format: settings.files.saveAs });
-      if (path) setFile({ path, saved: doc });
+      const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...out, guides }, savedStyle(), cdxmlOptions())) : undefined;
+      const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct({ ...out, guides }, savedStyle(), cdxmlOptions()), cdx, format: settings.files.saveAs });
+      if (path && out !== doc && now.current === doc) { lastSet.current = out; dispatch({ type: "amend", mol: out }); }
+      if (path) setFile({ path, saved: out });
       // A save to a new place says where it went. A save in place does not: the window's title shows it.
       if (path && path !== file.path) saved(path);
       return !!path;
@@ -1677,7 +1680,7 @@ export default function Editor() {
   // Save Copy As…: the drawing to a file of its own; the window stays the object's.
   const saveCopy = async () => {
     try {
-      const contents = writeOct({ ...doc, guides }, savedStyle(), cdxmlOptions()), cdx = toBase64(writeCdx({ ...doc, guides }, savedStyle(), cdxmlOptions()));
+      const contents = writeOct({ ...stamped(doc, systemName), guides }, savedStyle(), cdxmlOptions()), cdx = toBase64(writeCdx({ ...stamped(doc, systemName), guides }, savedStyle(), cdxmlOptions()));
       const path = await invoke<string | null>("save_drawing", { path: null, name: "Octet Drawing", contents, cdx, format: settings.files.saveAs });
       if (path) saved(path);
       return !!path;
@@ -1930,11 +1933,17 @@ export default function Editor() {
   useEffect(() => { if (home) refreshRecents(); }, [home, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   // Home's projects and thumbnails (src/projects.ts).
   const library = useHomeLibrary({ active: home, recents, notice: (text, kind) => setNotice(text, kind) });
-  // Opened or saved: the drawing's picture goes to its Home tile, and to Octet's copy for a drawing in a project.
+  // Opened or saved: the drawing's picture, title and author go to its Home tile, and to Octet's copy for a drawing in
+  // a project.
   useEffect(() => {
     if (!TAURI || !file.path) return;
     const path = file.path;
-    const t = window.setTimeout(() => { const svg = pictureOf(file.saved); if (svg) { invoke("recent_thumb", { path, svg }).catch(() => {}); library.autoSvg(path, svg); } }, 0);
+    const t = window.setTimeout(() => {
+      const svg = pictureOf(file.saved), { title, author } = detailsOf(file.saved.annotations, PROPERTIES), about = { title, author };
+      invoke("recent_thumb", { path, svg: svg ?? null, title: about.title ?? null, author: about.author ?? null }).catch(() => {});
+      if (svg) library.autoSvg(path, svg);
+      library.about(path, about);
+    }, 0);
     return () => clearTimeout(t);
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
   // When Octet was last opened, for the next "Welcome back".

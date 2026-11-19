@@ -16,7 +16,7 @@ import { ASCENT, hydrogens, straightArrow, curved, ORBITAL_SHAPES, PHASES, TABLE
 import { BONDS, type BondKind } from "./kinds.ts";
 import { addSide, centreText, isSide, labelEnd, removeEnd, textOn, type Cycle, type CycleEnd } from "./cycle.ts";
 import { buildRisk, isSignificant, riskGroup, riskLayout, significantOf, ticked, TICKS, MAX_TEXT as RISK_TEXT } from "./riskassess.ts";
-import { withDetails, detailsOf, markupCaption, oneLine, FIELDS, MAX_COMMENT, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
+import { withDetails, detailsOf, changedBy, markupCaption, oneLine, FIELDS, MAX_COMMENT, PROPERTIES, type Details, type Properties, type Sheet } from "./experiment.ts";
 import { readPlasmid, union } from "./cdxml.ts";
 import { emptyRows, GRID_ROWS, movedAt, NUMBER_ROW, setRole, stepGrids, TABLE, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, solve, type Field } from "./stoich.ts";
@@ -3473,7 +3473,8 @@ function summary(host: Host, m: Mol, full = false, withAtoms = false, only?: str
   // The document's properties (Settings > Document > Properties), when set; a long comment cut short (between
   // characters) unless full.
   const props = detailsOf(m.annotations, PROPERTIES), cut = (t: string) => (t.length <= 1000 ? t : `${t.slice(0, /[\ud800-\udbff]/.test(t[999]) ? 999 : 1000)}…`);
-  const properties = Object.keys(props).length ? { properties: { ...props, ...(props.comment && !full ? { comment: cut(props.comment) } : {}) } } : {};
+  // Who saved it last (issue 100), read-only.
+  const by = changedBy(m.annotations), properties = Object.keys(props).length || by ? { properties: { ...props, ...(props.comment && !full ? { comment: cut(props.comment) } : {}), ...(by ? { changed_by: by } : {}) } } : {};
   const head = { drawing: { id: host.window().id, title: host.window().name }, style: s.preset, page: s.page, landscape: s.landscape || undefined, circled_charges: s.circled || undefined, ...properties };
   if (!full) {
     // A compound goes by its number when that is on no other structure and is no id itself, else by its id.
