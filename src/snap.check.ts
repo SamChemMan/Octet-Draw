@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { EMPTY, fragments, merge, pos, sprout, type P } from "./edit.ts";
 import type { Mol } from "./render.ts";
-import { type Guide, snapBoxes, snapMove } from "./snap.ts";
+import { readFileSync } from "node:fs";
+import { type Guide, heldAxis, oneAxis, snapBoxes, snapMove } from "./snap.ts";
 
 // Two ethanes side by side. Moving the second (atoms 2, 3) a little off line snaps it back level.
 const a = sprout(EMPTY, [0, 0]), m = merge(a, a, [3, 0.04]);
@@ -124,3 +125,48 @@ for (const d of [[0, 0], [2.95, 2.97], [0.4, -0.1], [NaN, 1]] as P[]) assert.dee
   assert.ok(!snapBoxes([0, 0, 2, 2], [...row, [5.3, 0, 5.6, 2]], [6.05, 0.5], 0.1).guides.some((g) => g.gap));
 }
 console.log("snap.check: ok");
+// Shift on a move (#169): one axis, the one the pointer has gone further along (heldAxis gives the other, held at 0).
+// The snaps are worked out with the held axis at 0 and snap the free axis only.
+{
+  assert.equal(heldAxis([2, 0.3], false), undefined, "no Shift: no axis held");
+  assert.equal(heldAxis([2, 0.3], true), 1, "across: y held");
+  assert.equal(heldAxis([0.3, -2], true), 0, "up or down: x held");
+  assert.equal(heldAxis([1, 1.01], true), 0, "it changes axis as the pointer goes");
+  assert.deepEqual(oneAxis([2.05, 0.4], 1), [2.05, 0]);
+  assert.deepEqual(oneAxis([2.05, 0.4], 0), [0, 0.4]);
+  assert.deepEqual(oneAxis([2.05, 0.4]), [2.05, 0.4]);
+  // Three flat boxes in a row with a space of 1. The third, Shift-dragged 0.85 across with the pointer 0.3 down,
+  // snaps to the same space (0.8) with both spacing marks level with the row, as if the pointer had not drifted.
+  const row = [[0, 0, 1, 0.2], [2, 0, 3, 0.2]], drift: P = [0.85, -0.3], held = heldAxis(drift, true);
+  const r = snapBoxes([3.2, 0, 4.2, 0.2], row, oneAxis(drift, held), 0.1, held);
+  assert.ok(Math.abs(r.d[0] - 0.8) < 1e-9 && r.d[1] === 0, `spacing on the free axis: ${r.d}`);
+  assert.equal(r.guides.length, 2);
+  assert.ok(r.guides.every((g) => g.gap && g.axis === "y" && Math.abs(g.at - 0.1) < 1e-9), "the marks sit on the row");
+  // The held axis does not snap and has no guide.
+  assert.deepEqual(snapBoxes([0, 0, 1, 1], [[0.05, 3, 1, 4]], [0, 1.5], 0.1, 0), { d: [0, 1.5], guides: [] });
+  assert.ok(snapBoxes([0, 0, 1, 1], [[0.05, 3, 1, 4]], [0, 1.5], 0.1).guides.some((g) => g.axis === "x"), "free: it snaps across");
+  // An atom snap stays when the atom is level with the moving one, and goes when it is not.
+  const level = merge(a, a, [3, 0]), on = snapMove(level, new Set([2, 3]), [-2.97, 0], 0.1, undefined, 1);
+  assert.ok(on.point && Math.abs(on.d[0] + 3) < 1e-9 && on.d[1] === 0, "joins an atom level with it");
+  assert.ok(snapMove(m, new Set([2, 3]), [-2.97, 0], 0.1).point, "free: joins the atom 0.04 above");
+  const off = snapMove(m, new Set([2, 3]), [-2.97, 0], 0.1, undefined, 1);
+  assert.ok(!off.point && off.d[1] === 0, "held: the atom 0.04 above does not join");
+}
+// The editor's move (every object, and copies) and reagent table drags lock on the move's own Shift, so Shift pressed
+// or let go mid-drag counts; a bond tool's Shift-drag of an atom (alone) stays free. startMove makes every move drag.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /case "move": \{[^]*?held = heldAxis\(d0, e\.shiftKey && !drag\.alone\), raw = oneAxis\(d0, held\)[^]*?snapMove\(base, moving, raw, tol, boxes, held\)[^]*?snapBoxes\(boxes\.moving, boxes\.targets, raw, tol, held\)[^]*?const d = oneAxis\(snapped\.d, held\);[^]*?moveAll\(base, d,/);
+  assert.match(editor, /case "grid": \{[^]*?held = heldAxis\(d0, e\.shiftKey\), raw = oneAxis\(d0, held\)[^]*?snapBoxes\(boxes\.moving, boxes\.targets, raw, [^,]+, held\)[^]*?d: oneAxis\(snapped\.d, held\)/);
+  // Shift on a reagent table adds it and grabs it (the whole selection when more is picked); a Shift-click with no move
+  // toggles it in click, from the selection before the press.
+  assert.match(editor, /if \(table && shift\) \{[^]*?return selection\.size \|\| picks\.size > 1 \? startMove\(p, screen, t, picks\) : grabTable\(table\.arrow\);/);
+  assert.match(editor, /case "grid": \{\n[^]*?if \(!drag\.moved && pressMods\.current\?\.shift\) return click\(\{\}, drag\.from\);/);
+  assert.match(editor, /if \(tool === "select" && mods && \(mods\.shift \|\| mods\.alt\)\) \{[^]*?gridAt\(at\)[^]*?TABLE\(table\.arrow\)/);
+  assert.equal(editor.match(/setDrag\(\{ kind: "move"/g)?.length, 1, "startMove makes every move drag");
+  assert.match(editor, /const startMove = [^]*?\.\.\.\(alone \? \{ alone: true as const \} : \{\}\)/);
+  // The copy key with Shift, pressed on the selection or in a selected group's frame, copies.
+  assert.match(editor, /function pressSelect[^]*?if \(\(!shift \|\| copy\) && \(selection\.size \|\| picked\.size\) && onSelection[^]*?if \(\(!shift \|\| copy\) && f && /);
+}
+console.log("snap.check: one axis ok");
+
