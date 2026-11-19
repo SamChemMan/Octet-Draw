@@ -96,7 +96,8 @@ const cases: Case[] = [
       // GDI-only EMF, Office object off or on).
       assert.match(editor, /const object = WINDOWS && on\.office !== false && on\.pdf;/);
       assert.match(clipboard, /let object = oct\.filter\(\|o\| text\.is_none\(\) && o\.len\(\) <= MAX_TYPE && crate::ole::win::offered\(\)\);/);
-      assert.match(clipboard, /let emf = \|\| crate::vector::make_office_emf\(&tree, cdxml\);/);
+      // Since issue 48 (1.1.3) the EMF's thread also makes the PDF for LibreOffice's copy, after the EMF.
+      assert.match(clipboard, /let emf = \|\| \(crate::vector::make_office_emf\(&tree, cdxml\), /);
       // The switch the reporter asked for (D9): Settings > Import and export > Copy > Office object, Windows only, on
       // by default, found by "word".
       assert.match(settingsUi, /\["office", "Office object", "[^"]*\bword\b[^"]*"\]/);

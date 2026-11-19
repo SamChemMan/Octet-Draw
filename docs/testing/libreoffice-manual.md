@@ -9,14 +9,24 @@ Linux ran in an Ubuntu 24.04 VM in 1.1.2. Windows and the Mac have not run with 
 installed on the build Mac. They are proved with stand-ins (decision 0025, How it was proved). Each step below checks
 one thing the stand-ins could not. Write what you see beside each step; a step that fails names what to change.
 
+The paste from Octet on Windows, and into Calc on Windows and Linux (Copy's SVXB, added 19 November 2026), is proved
+from LibreOffice's source only. Steps W3, W3a, W3b, L4 and L5 check it.
+
 ## Windows
 
 1. Settings > General > Add to LibreOffice, first with LibreOffice closed, then with it open. The Extension Manager
    asks once. No console window shows. (Octet found unopkg.exe through `UNO\InstallPath`.)
 2. In Writer, choose Insert > Octet Drawing. An empty Octet window opens, with the button Update in Writer. Draw a
    structure and press Ctrl+S: the structure goes in at the cursor. Right-click it: Edit in Octet Draw is first.
-3. Copy a structure in Octet and paste it into Writer, then into Impress. Write down whether Edit in Octet Draw shows
-   in the context menu. (LibreOffice's source says it does not: Writer takes the bitmap, and Impress converts the EMF.)
+3. (W3) Copy a structure in Octet and paste it into Writer, Impress, Draw and Calc. In each, right-click the picture:
+   Edit in Octet Draw is first. Double-click it: it opens in Octet, titled "Octet Drawing in <document>", with the
+   button Update in Writer (Impress, Draw, Calc). Change it and press Ctrl+S: the picture changes. The picture is the
+   drawing's true size and sharp at 400% zoom. If a paste gives nothing, write down the LibreOffice version (Help >
+   About) and whether it reads a PDF from Insert > Image.
+   (W3a) Settings > Import and export > Copy > Office object on, then off: step W3 in Writer and Calc each time. Then
+   paste the same copy into Word, PowerPoint and Excel: each pastes as in 1.1.2 (an Octet Drawing object with the
+   setting on; a sharp picture with it off).
+   (W3b) Paste Special in Writer (Ctrl+Shift+V): write down the names it lists, and which one the plain paste matched.
    Then double-click the picture from step 2. Octet's window comes to the front, titled "Octet Drawing in
    <document>", with the button Update in Writer. Change the drawing and press Ctrl+S: the picture changes. Edit >
    Undo in Writer: the old picture. Edit > Redo: the new one.
@@ -44,7 +54,8 @@ one thing the stand-ins could not. Write what you see beside each step; a step t
    `org.libreoffice.script`.
 2. Settings > General > Add to LibreOffice, with LibreOffice closed and then open.
 3. Copy a structure in Octet and paste it into Writer, Impress and Draw. Edit in Octet Draw is in the context menu
-   (LibreOffice pasted the PDF). In Calc, write down whether it is (LibreOffice's source says it is not).
+   (LibreOffice pasted the PDF). In Calc, write down whether it is (LibreOffice's source says it is not: LibreOffice
+   for the Mac reads no SVXB from another program, and Calc takes no PDF).
 4. Double-click the picture with Octet open, then with Octet quit. Each time there is one Octet in the Dock, and the
    object window is in front, titled "Octet Drawing in <document>". Write down whether Writer stops answering while
    Octet starts (the extension waits for `open`, 10 s at most).
@@ -62,3 +73,7 @@ one thing the stand-ins could not. Write what you see beside each step; a step t
 1. Writer, Impress, Draw and Calc: double-click, Update, Undo, Insert > Octet Drawing.
 2. A read-only document, and a cropped picture (Windows steps 11 and 12).
 3. A copy of Octet 1.1.2's extension already in LibreOffice: Add to LibreOffice replaces it.
+4. (L4) Copy a structure in Octet and paste it into Calc: Edit in Octet Draw is first in its context menu, and a
+   double-click opens it in Octet. Paste it into Writer, Impress and Draw: the same as in 1.1.2.
+5. (L5) Copy a structure in Octet, then paste it into GIMP, Inkscape and a text editor: each pastes what it pasted in
+   1.1.2 (GIMP the PNG, Inkscape the SVG, the editor nothing).
