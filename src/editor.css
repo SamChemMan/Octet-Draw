@@ -4881,10 +4881,13 @@ line.attach-hit[aria-checked="true"] {
   min-height: 0;
 }
 .prop-group {
-  flex: 1 1 240px;
+  flex: 1 1 280px;
   min-width: 0;
   padding-top: var(--space-1);
   border-top: 1px solid var(--hairline);
+}
+.prop-group.structure {
+  flex: 1 1 200px;
 }
 .prop-group.predicted {
   flex: 2 1 480px;
@@ -5184,6 +5187,14 @@ line.attach-hit[aria-checked="true"] {
   padding: var(--space-4) 0;
   color: var(--ink-muted);
   text-align: center;
+}
+div.suppliers-none {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+}
+div.suppliers-none p {
+  margin: 0;
 }
 .suppliers-list {
   display: grid;

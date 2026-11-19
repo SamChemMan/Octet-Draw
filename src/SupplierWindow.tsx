@@ -4,6 +4,7 @@
 // logos), its name, its catalogue numbers for the compound and how many products PubChem lists, and a star that keeps
 // it as a favourite (favourites go first, for every compound). A supplier opens its product page in the browser. With
 // several structures, a list at the top picks the structure. Open in PubChem opens the compound's vendor section.
+// With no network it says so and offers Try again.
 import { useState, type CSSProperties } from "react";
 import { ArrowSquareOut, Star } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
@@ -11,15 +12,16 @@ import { MarkParts } from "./McpMagic";
 import { Select } from "./Select";
 import { monogram, shownSuppliers, supplierKey, type Found } from "./suppliers";
 
+// found undefined: no answer (no network, or Stop), so the window offers Try again.
 export type SupplierTarget = { label: string; found: Found };
 
 type Props = {
   targets: SupplierTarget[]; at: number; onAt: (k: number) => void;
   favourites: string[]; onStar: (name: string, on: boolean) => void;
-  onOpen: (url: string) => void; onVendors: (cid: number) => void; onClose: () => void;
+  onOpen: (url: string) => void; onVendors: (cid: number) => void; onRetry: () => void; onClose: () => void;
 };
 
-export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen, onVendors, onClose }: Props) {
+export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen, onVendors, onRetry, onClose }: Props) {
   const [search, setSearch] = useState(""), [turn, setTurn] = useState(0);
   const found = targets[at]?.found, list = found && found !== "busy" ? found.suppliers : [];
   const shown = shownSuppliers(list, favourites, search), fav = new Set(favourites);
@@ -37,7 +39,12 @@ export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen,
           <h2>Suppliers</h2>
           {targets.length > 1 && <Select label="Structure" value={String(at)} options={targets.map((t, k): [string, string] => [String(k), t.label])} onChange={(v) => { onAt(Number(v)); setSearch(""); }} />}
         </div>
-        {found === "busy" || found === undefined ? (
+        {found === undefined ? (
+          <div className="suppliers-none">
+            <p>Octet cannot reach PubChem.</p>
+            <button className="prop-add" onClick={onRetry}>Try again</button>
+          </div>
+        ) : found === "busy" ? (
           <div className="suppliers-wait" role="status">
             <div className="suppliers-mark" aria-hidden>
               <div className="suppliers-scale">

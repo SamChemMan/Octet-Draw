@@ -12026,6 +12026,7 @@ export default function Editor() {
           onStar={(name, on) => setSettings((s) => ({ ...s, favouriteSuppliers: starred(s.favouriteSuppliers ?? [], name, on) }))}
           onOpen={(url) => void invoke("open_link", { name: `supplier:${url}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
           onVendors={(cid) => void invoke("open_link", { name: `pubchem-vendors:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
+          onRetry={() => void lookUp("suppliers", supplierView.keys)}
           onClose={() => setSupplierView(undefined)}
         />
       )}</Exit>

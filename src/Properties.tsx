@@ -107,7 +107,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
       {tab === "properties" ? (
         <div className="prop-list">
           {calculated.map(([heading, rows]) => (
-            <div key={heading} className={heading === "Predicted" ? "prop-group predicted" : "prop-group"}>
+            <div key={heading} className={`prop-group ${heading.toLowerCase()}`}>
               <h3 className="prop-heading">{heading}</h3>
               <div className="prop-rows">{rows.map(valueRow)}</div>
             </div>
