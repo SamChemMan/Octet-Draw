@@ -23,6 +23,7 @@ import { conditionItems, conditionKind, parseAmount, ROLES, solve, type Field } 
 import { stereoFacts, stereoLabels } from "./chem.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
+import EXAMPLE_LIST from "./examples/examples.json" with { type: "json" };
 import { blank, fromLines, linesOf, NOTATION, REFERENCE, written } from "./notation.ts";
 import { chemicalText, formulaTextRuns, givenLabel, labelSmiles, standsIn, units, unknownLabel } from "./labels.ts";
 import { looksLikeSmiles, namesLoaded } from "./names.ts";
@@ -61,7 +62,7 @@ export type Host = {
   act: (id: string) => boolean; // any menu command or Actions panel action by its id, on the selection (run_command)
   // Map Reaction Atoms for one step (chem.ts mapReaction): each structure's atom numbers, or undefined.
   map: (reactants: Mol[], products: Mol[]) => { reactants: (number | undefined)[][]; products: (number | undefined)[][] } | undefined;
-  newWindow: (purpose: string, session?: string, text?: string) => Promise<string | undefined> | undefined; // File > New For, or a file's text opened, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
+  newWindow: (purpose: string, session?: string, text?: string, example?: string) => Promise<string | undefined> | undefined; // File > New For, a file's text or an example (its id) opened, always in a new window: its id (none, at once, where there are no windows); the session's drawing from then on
   reaction: (arrow: number) => Reaction | undefined;
   ink: (atoms: number[]) => Box | undefined; // drawing units, y up
   textBox: (caption: number) => Box | undefined; // a caption's box as drawn, drawing units, y up
@@ -405,6 +406,8 @@ const CHANGE = { type: "object", required: ["done", "made", "warnings", "check"]
 // detail on a read, and on every operation whose result is a change: short unless full is asked for (R6).
 const detail = (unlisted?: true) => pick(["summary", "full"], undefined, { also: { short: "summary", brief: "summary" }, ...(unlisted && { unlisted }) });
 const PICTURE_SIZE = Object.keys(SIZES), PURPOSES = ["paper", "thesis", "slides", "poster", "experiment", "quick"];
+// Octet's example drawings (File > Open Example, src/examples/examples.json), by id; their names read as their ids.
+const EXAMPLE = pick(EXAMPLE_LIST.map((x) => x.id), "new: a copy of one of Octet's example drawings, in its own style", { also: Object.fromEntries(EXAMPLE_LIST.flatMap((x) => [x.name.toLowerCase(), x.name.toLowerCase().replace("β", "beta")].filter((n) => n !== x.id).map((n) => [n, x.id]))) });
 // drawings use and close: an id that names no open drawing.
 const noDrawing = (id: string) => `There is no drawing ${id}. Call drawings for the ids.`;
 // drawings new and use: the drawing the session's calls go to now. Nothing is drawn, so no change is reported: they are
@@ -561,8 +564,8 @@ const OPS: Op[] = [
   },
   {
     name: "new", hints: ADD, outputSchema: OPENED, done: "opened a new drawing",
-    description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, CIF, SMILES or InChI), which opens as File > Open opens it, in its own style.",
-    inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }), text: { ...str(1_000_000), unlisted: true } }, ["for"]),
+    description: "drawings new: a new drawing for a purpose, in a window of its own. text: a file's text (CDXML, CDX in base64, .oct, MOL, SDF, RXN, CML, CIF, SMILES or InChI), which opens as File > Open opens it, in its own style. example: a copy of one of Octet's example drawings, in its own style.",
+    inputSchema: obj({ for: pick(PURPOSES, undefined, { default: "quick" }), text: { ...str(1_000_000), unlisted: true }, example: EXAMPLE }, ["for"]),
     run: newDrawing,
   },
   {
@@ -763,7 +766,7 @@ select: ids, for advanced run_command.
 draw: lines of one drawing, or kind (structures, cycle, figure, reaction) and its JSON (advanced help of the kind).` }, brief: str(2000, "As draw's"), ...REPLY }, ["operations"]);
 const READ_IN = obj({ ...opOf("file").inputSchema.properties, ...opOf("read").inputSchema.properties });
 const ADVANCED_IN = obj({ tool: pick([...ADVANCED, "help"]), args: { type: "object", properties: {}, additionalProperties: true, description: "As that tool takes them" }, ...REPLY }, ["tool"]);
-const DRAWINGS_IN = obj({ action: pick(["list", "use", "new", "close"], undefined, { default: "list" }), drawing: str(40, "use, close: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true } }, ["action"]);
+const DRAWINGS_IN = obj({ action: pick(["list", "use", "new", "close"], undefined, { default: "list" }), drawing: str(40, "use, close: an id that list gave"), for: pick(PURPOSES, "new: quick when not given"), text: { ...str(1_000_000), unlisted: true }, example: EXAMPLE }, ["action"]);
 // The brief as draw takes it (plan 3.1, 19.2): the user's answers in one line, read into set_brief's arguments; or
 // set_brief's own object. Words that are no destination, column, size or emphasis are the journal, which set_brief
 // refuses with the nearest when Octet has nothing for it.
@@ -855,7 +858,8 @@ const TOOLS: Tool[] = [
     name: "drawings", title: "Octet's drawings", ops: ["list", "use", "new", "close"],
     description: "Octet's open drawings. list: each one's id, title and unsaved changes, and the one this session uses. use: this session's calls go to drawing. new: a new drawing for a purpose (experiment: a page with a reagent table), in a new window when this one has work in it; later calls go to it. close: a drawing this session opened with new (drawing, else the one it uses); in a window, one with unsaved changes stays open.",
     inputSchema: DRAWINGS_IN,
-    route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args }))(a),
+    // (An example has its own style, so new with one and no purpose is not said to be read as quick.)
+    route: (a, notes) => wrongWith(DRAWINGS_IN, a, notes) ?? (({ action, ...args }) => ({ op: action, args: action === "new" && args.example !== undefined ? { for: "quick", ...args } : args }))(a),
   },
   {
     name: "advanced", title: "Other tools, and help", ops: [...ADVANCED.map(opName), "help"],
@@ -2128,7 +2132,9 @@ async function select(host: Host, a: { ids: string[] }): Promise<Result> {
 // 17.5), so nothing here waits for it. A client with no session has the new window in front. A file's text (text) needs
 // a window of its own (add_file adds one to this drawing): it is read here first, as File > Open reads it, so a file
 // that does not open opens no window and says why.
-async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ctx): Promise<Result> {
+// example: a copy of one of Octet's example drawings, which opens in a window of its own as text does.
+async function newDrawing(host: Host, a: { for: string; text?: string; example?: string }, ctx: Ctx): Promise<Result> {
+  if (a.example !== undefined && a.text !== undefined) return { text: "Give example or text.", error: true };
   let lost: string | undefined;
   if (a.text !== undefined) {
     const read = await host.opens(a.text);
@@ -2138,7 +2144,7 @@ async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ct
   // The window this call opened, by its id: two AI apps opening drawings at once each get their own. No windows (the
   // web component, headless): this page, queued at once (newWindow gives nothing there, with no wait), so the calls
   // sent after this one run in the new drawing; one undo step, said to the user, and a cancel puts the drawing back.
-  const opening = host.newWindow(a.for, ctx.session, a.text);
+  const opening = host.newWindow(a.for, ctx.session, a.text, a.example);
   const here = () => queued(async (): Promise<Result> => {
     const was = host.doc();
     host.begin(`mcp-${++steps}`);
@@ -2152,10 +2158,11 @@ async function newDrawing(host: Host, a: { for: string; text?: string }, ctx: Ct
     } catch (e) { if (host.doc() !== was) host.set(was); throw e; } finally { host.end(); }
   });
   // (A file's text never goes into this page's drawing.)
-  const none = () => (a.text === undefined ? here() : { text: "Octet cannot open a new drawing now.", error: true as const });
+  const none = () => (a.text === undefined && a.example === undefined ? here() : { text: "Octet cannot open a new drawing now.", error: true as const });
   if (!opening) return none();
-  const opened = await opening;
-  return opened ? { text: `Octet opened a new drawing ${a.text === undefined ? `for ${a.for}` : "of the file"}: ${opened}.${lost ? ` Octet left out ${lost}.` : ""} This session's calls go to it now.`, data: { opened } } : none();
+  // (An example keeps its own style: a purpose given with it is left out.)
+  const opened = await opening, example = EXAMPLE_LIST.find((x) => x.id === a.example), purpose = example && a.for !== "quick" ? ` Octet left out for ${a.for}: an example opens in its own style.` : "";
+  return opened ? { text: `Octet opened a new drawing ${example ? `with a copy of its example ${example.name}, in its own style` : a.text === undefined ? `for ${a.for}` : "of the file"}: ${opened}.${lost ? ` Octet left out ${lost}.` : ""}${purpose} This session's calls go to it now.`, data: { opened } } : none();
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's

@@ -179,6 +179,13 @@ assert.equal(tileTo("ArrowDown", -1, []), undefined);
 const onHome = { home: true, modal: false, typing: false };
 for (const id of ["flip_h", "mirror_v", "clean_up", "zoom_in", "export", "save", "import", "command_palette", "colour_0"]) assert.equal(menuRuns(id, onHome), false, id);
 for (const id of ["new", "new_quick", "new_paper", "new_own_0", "open", "settings", "about", "tutorial", "home", "recent_0", "recent_clear", "check_updates", "quit", "select_all"]) assert.equal(menuRuns(id, onHome), true, id);
+// File > Open Example opens a copy of an example from Home and over a drawing, but not over a dialog or an AI app's call.
+for (const id of ["example_oseltamivir", "example_hydrolysis", "example_lactams"]) {
+  assert.equal(menuRuns(id, onHome), true, id);
+  assert.equal(menuRuns(id, { home: false, modal: false, typing: false }), true, id);
+  assert.equal(menuRuns(id, { home: false, modal: true, typing: false }), false, id);
+  assert.equal(menuRuns(id, { home: true, modal: false, typing: false, calling: true }), false, id);
+}
 // Quit and Close Window ask about unsaved changes over any dialog (the Dock's Quit too).
 for (const id of ["quit", "close"]) assert.equal(menuRuns(id, { home: false, modal: true, typing: false }), true, id);
 // Cut, Copy and Paste (Octet's own on Linux) run everywhere: on a field's text, or on the drawing, which takes them only

@@ -1,0 +1,258 @@
+{
+ "for": "paper",
+ "calls": [
+  {
+   "name": "set_brief",
+   "arguments": {
+    "destination": {
+     "kind": "paper"
+    }
+   }
+  },
+  {
+   "name": "advanced",
+   "arguments": {
+    "tool": "place_template",
+    "args": {
+     "name": "Jablonski diagram",
+     "set": "Photochemistry"
+    }
+   }
+  },
+  {
+   "name": "change",
+   "arguments": {
+    "operations": [
+     {
+      "op": "text",
+      "runs": [
+       {
+        "text": "3",
+        "script": "super"
+       },
+       {
+        "text": "Sens* + "
+       },
+       {
+        "text": "3",
+        "script": "super"
+       },
+       {
+        "text": "O"
+       },
+       {
+        "text": "2",
+        "script": "sub"
+       }
+      ],
+      "right_of": "t3",
+      "gap": 2.5,
+      "align": "middle"
+     },
+     {
+      "op": "text",
+      "runs": [
+       {
+        "text": "Sens + "
+       },
+       {
+        "text": "1",
+        "script": "super"
+       },
+       {
+        "text": "O"
+       },
+       {
+        "text": "2",
+        "script": "sub"
+       }
+      ],
+      "right_of": "t22",
+      "gap": 6,
+      "align": "middle"
+     },
+     {
+      "op": "arrow",
+      "kind": "reaction",
+      "from": "t22",
+      "to": "t23"
+     },
+     {
+      "op": "text",
+      "text": "energy transfer",
+      "arrow": "a24",
+      "side": "above"
+     }
+    ]
+   }
+  },
+  {
+   "name": "draw",
+   "arguments": {
+    "kind": "reaction",
+    "start": [
+     {
+      "text": "α-terpinene",
+      "number": "1",
+      "caption": "α-terpinene"
+     }
+    ],
+    "steps": [
+     {
+      "products": [
+       {
+        "molecule": {
+         "atoms": [
+          {
+           "x": -1,
+           "y": 0
+          },
+          {
+           "x": -0.5,
+           "y": 0.866
+          },
+          {
+           "x": 0.5,
+           "y": 0.866
+          },
+          {
+           "x": 1,
+           "y": 0
+          },
+          {
+           "x": 0.5,
+           "y": -0.866
+          },
+          {
+           "x": -0.5,
+           "y": -0.866
+          },
+          {
+           "x": -0.4,
+           "y": 0.2,
+           "label": "O"
+          },
+          {
+           "x": 0.4,
+           "y": 0.2,
+           "label": "O"
+          },
+          {
+           "x": -2,
+           "y": 0
+          },
+          {
+           "x": 2,
+           "y": 0
+          },
+          {
+           "x": 2.5,
+           "y": 0.866
+          },
+          {
+           "x": 2.5,
+           "y": -0.866
+          }
+         ],
+         "bonds": [
+          {
+           "from": 0,
+           "to": 1
+          },
+          {
+           "from": 1,
+           "to": 2
+          },
+          {
+           "from": 2,
+           "to": 3
+          },
+          {
+           "from": 3,
+           "to": 4
+          },
+          {
+           "from": 4,
+           "to": 5,
+           "kind": "double"
+          },
+          {
+           "from": 5,
+           "to": 0
+          },
+          {
+           "from": 0,
+           "to": 6
+          },
+          {
+           "from": 6,
+           "to": 7
+          },
+          {
+           "from": 7,
+           "to": 3
+          },
+          {
+           "from": 0,
+           "to": 8
+          },
+          {
+           "from": 3,
+           "to": 9
+          },
+          {
+           "from": 9,
+           "to": 10
+          },
+          {
+           "from": 9,
+           "to": 11
+          }
+         ]
+        },
+        "number": "2",
+        "caption": "ascaridole"
+       }
+      ],
+      "above": [
+       "hν, O2, rose bengal"
+      ],
+      "below": [
+       "MeOH"
+      ]
+     }
+    ],
+    "keep_orientation": false
+   }
+  },
+  {
+   "name": "change",
+   "arguments": {
+    "operations": [
+     {
+      "op": "edit",
+      "ids": [
+       "t29"
+      ],
+      "runs": [
+       {
+        "text": "hν",
+        "italic": true
+       },
+       {
+        "text": ", O"
+       },
+       {
+        "text": "2",
+        "script": "sub"
+       },
+       {
+        "text": ", rose bengal"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

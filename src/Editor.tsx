@@ -3,7 +3,7 @@ import {
   ArrowClockwise, ArrowCounterClockwise, ArrowsOutSimple, Atom as AtomIcon, Dna, Scan, Graph as GraphIcon, SelectionInverse, Cube, Flask, Circle, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom,
   AlignCenterHorizontal, AlignCenterVertical, ArrowsOutLineHorizontal, ArrowsOutLineVertical, Eraser, FileArrowDown, FileArrowUp, FileImage, FilePlus, FlipHorizontal, FlipVertical, FloppyDisk, FolderOpen, FrameCorners,
   GearSix, Keyboard, Lasso, MagicWand, MagnifyingGlassMinus, MagnifyingGlassPlus, Selection, SelectionAll, SlidersHorizontal, ChartLine, ChartPolar, ChartLineUp, GridNine, ArrowsOut, XCircle, TextAlignCenter, TextAlignJustify, TextAlignLeft, TextAlignRight, TextAa,
-  TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
+  TextB, TextItalic, TextT, TextUnderline, Warning, Stack, StackSimple, ArrowsDownUp, FileText, Cards, CaretDown, ClockCounterClockwise, X, Info, Printer, Export as ExportIcon, Hash, ArrowsInSimple, Table,
   FileDashed, ArrowsLeftRight, Angle, CornersOut, Faders, FloppyDiskBack, Broom, Files, Unite, MagnetStraight, Paragraph, Resize, Ruler, GridFour, CrosshairSimple, Swatches, DotsNine, CompassTool, ArrowsVertical,
   EyeSlash, Crosshair, Repeat, CubeTransparent, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, CaretLineUp, Sparkle, PlugsConnected, PencilRuler, CloudArrowDown, Bug, GraduationCap, CopySimple, IdentificationBadge, Key, FileCode, FileTxt, Notepad,
   File as PageIcon, CheckCircle, BracketsSquare, SquaresFour, Database, FlowArrow, BracketsRound,
@@ -69,6 +69,7 @@ import { WhatsNew } from "./WhatsNew";
 import { notesFor } from "./releases";
 import { version } from "../package.json";
 import { Home, NameBox, type RecentEntry, type RecoveredEntry, type OpenWindow } from "./Home";
+import { EXAMPLES, exampleAsked, exampleOf, exampleText } from "./examples";
 import { useHomeLibrary } from "./homeLibrary";
 import { call as homeCall, HOME_API } from "./homeApi";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
@@ -462,8 +463,8 @@ const OCTET_CLIP = "application/x-octet+json";
 // write over it. at: where it was dropped, in CSS pixels from the window's top left.
 type OpenedFile = { name: string; path: string | null; text: string | null; picture: string | null; error: string | null; at: [number, number] | null };
 // What a new drawing window opens: a new drawing for a purpose, the tutorial, a recent or recovered drawing, an example
-// drawing's text, a file picked in Open, or files Octet was asked to open.
-type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
+// (its id), a file's text, a file picked in Open, or files Octet was asked to open.
+type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { example: string } | { text: string; name?: string; style?: string } | { picked: [string, string] } | { files: OpenedFile[] } | ObjectStart;
 // An Octet Drawing object in an Office document, opened from Word (decision 0023, src-tauri/src/ole_windows.rs): its
 // drawing as a .oct file (empty for a new object), the document's name and the window's title.
 type ObjectStart = { object: number; oct: string; host: string; title: string; app?: string };
@@ -1917,6 +1918,28 @@ export default function Editor() {
   // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
   const openRecovered = (r: RecoveredEntry) => elsewhere ? inNew({ recovered: r.id }) : keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
     .catch((e) => { keepFailed()(e); setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
+  // An example drawing (issue 94: File > Open Example, Home's examples, an AI app's drawings new): a copy, named after
+  // the example and in its own style. It has no changes until the user makes one, and goes on Recent only once saved;
+  // Save asks where. The drawing in Octet is never written. It opens as a recent drawing does: in a window of its own
+  // when this one holds a drawing. It is fetched before anything changes, so one that cannot load changes nothing, and
+  // can be asked for again at once. The same example asked for again less than 800 ms after the last request (a
+  // double-click, or a held key's repeats, in this window or the new one it opened) opens once. Of two examples asked
+  // for close together, the one asked for last opens.
+  const exampleShow = useRef<(text: string, name: string) => void>(undefined), exampleAsks = useRef(0), examplesShown = useRef(0);
+  const showExample = (text: string, name: string) => { const r = load(undefined, text); if (!r.failed) { setFile((f) => ({ ...f, name })); examplesShown.current++; } return r; };
+  exampleShow.current = (text, name) => keepWork(() => void showExample(text, name));
+  const openExample = (id: string) => {
+    const x = exampleOf(id), last = exampleAsked(), at = Date.now();
+    exampleAsked({ id, at });
+    if (!x || (last.id === id && at - last.at >= 0 && at - last.at < 800)) return;
+    if (elsewhere) return inNew({ example: id });
+    const ask = ++exampleAsks.current;
+    void exampleText(id).then((text) => { if (ask === exampleAsks.current) exampleShow.current?.(text, x.name); },
+      (e) => { exampleAsked({ id: "", at: Date.now() }); setNotice(failure("Octet cannot open this example.", e)); });
+  };
+  // In development only (never in a build): scripts/gallery/pictures.mjs opens each example and takes its picture as
+  // the window draws it, for Home's tiles; the stress check counts the examples this window has shown.
+  if (import.meta.env.DEV) (window as { octetGallery?: unknown }).octetGallery = { open: openExample, picture: () => pictureOf(doc), name: () => name, edited: () => dirty, shown: () => examplesShown.current };
   // Remove from Home: one at a time, as each changes the list file, then Home reads the list again.
   const removeRecents = (list: RecentEntry[]) => void list.reduce((done, r) => done.then(() => homeCall("recent_remove", { path: r.path })).then(() => void library.forget(r.path)), Promise.resolve())
     .catch(() => {}).finally(refreshRecents);
@@ -2996,6 +3019,8 @@ export default function Editor() {
       if (TAURI) void invoke<RecentEntry[]>("recent_list").then((list) => { if (list[k]) openRecent(list[k]); }).catch(() => {});
     }])),
     recent_clear: () => refreshRecents(),
+    // File > Open Example: a copy of that example (openExample).
+    ...Object.fromEntries(EXAMPLES.map((x) => [`example_${x.id}`, () => openExample(x.id)])),
     revert: () => revertToSaved(),
     // The online searches (the Search menu and the Actions panel), while Settings > Online search is on.
     ...(settings.onlineSearch ? Object.fromEntries(Object.entries(SEARCHES).map(([id, [site, exact]]) => [id, () => searchOnline(site, exact)])) : {}),
@@ -3237,6 +3262,13 @@ export default function Editor() {
       else if ("tutorial" in s) startTutorial();
       else if ("recent" in s) openRecent({ path: s.recent });
       else if ("recovered" in s) openRecovered({ id: s.recovered, name: "", at: 0 });
+      else if ("example" in s) {
+        const x = exampleOf(s.example), text = x && await exampleText(x.id).catch(() => undefined);
+        if (x && text !== undefined) return showExample(text, x.name);
+        const failed = "Octet cannot open this example.";
+        setNotice(failed);
+        return { failed };
+      }
       // (A structure file's text needs Indigo, as a file opened does.)
       else if ("text" in s) { if (!isDrawingText(s.text)) await ready; return load(undefined, s.text, s.name, s.style); }
       else if ("picked" in s) openPicked(s.picked);
@@ -7895,7 +7927,7 @@ export default function Editor() {
     // Waits on messages the page sends itself, as settle does: a timer in a window behind others can wait a second.
     // A file needs Indigo alone (names false): a window that has just opened (--convert) loads no names engine for it.
     ready: async (names = true) => { await ready; if (names) { await loadNames(); setNamesLoaded(true); } setLoaded(true); for (const end = Date.now() + 3000; !(names ? mcpHost.current!.loaded : mcpHost.current!.indigo) && Date.now() < end;) await tick(); },
-    newWindow: (purpose, session, text) => (TAURI ? invoke<string>("open_window", { start: text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
+    newWindow: (purpose, session, text, example) => (TAURI ? invoke<string>("open_window", { start: example ? { example } : text === undefined ? { new: purpose } : { text }, session }).catch((e) => { setNotice(failure("Octet cannot open a new window.", e)); return undefined; }) : undefined), // a dialog here does not stop it
     loaded: loaded && namesLoaded, indigo: loaded,
     structure: (text) => structureFromText(text),
     tidy: (m) => { try { return cleanUp(m); } catch { return m; } },
@@ -8202,6 +8234,8 @@ export default function Editor() {
       ...(TAURI && file.path && (selection.size || picked.size) ? [{ id: "home-thumb", name: "Use selection as thumbnail", group: "Commands", words: "home picture preview", icon: <ImageSquare size={18} />,
         run: () => { const path = file.path, part = selectedPart(), svg = part && pictureOf(part); if (path && svg) library.ownSvg(path, svg); } }] : []),
       ...purposeList.map((p) => ({ id: `new:${p.id}`, name: `New ${p.name}`, group: "Commands", words: "new drawing template", icon: <FilePlus size={18} />, run: () => newDrawing(p.id) })),
+      // File > Open Example's items. A name that began with the example's ("Aspirin…") would come before Draw aspirin.
+      ...EXAMPLES.map((x) => ({ id: `menu:example_${x.id}`, name: `Open ${x.name} example`, group: "Examples", keys: hint(`example_${x.id}`), words: "sample", icon: <Cards size={18} />, run: () => openExample(x.id) })),
       ...purposeList.map((p) => ({ id: `for:${p.id}`, name: `For ${p.name}`, group: "Document", words: "template size page scale", icon: <FileText size={18} />, run: () => applyPurpose(p.id) })),
       { id: "tool:select", name: "Select", group: "Tools", keys: toolKey("tool.select"), icon: <Selection size={18} />, run: pick("select", ["select", "box"]) },
       { id: "tool:lasso", name: "Lasso", group: "Tools", icon: <Lasso size={18} />, run: pick("select", ["select", "lasso"]) },
@@ -11219,7 +11253,7 @@ export default function Editor() {
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             back={overDrawing ? { name, key: keyLabel("escape"), go: () => setHome(false) } : undefined}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entries, recents = []) => setDialog({ kind: "discard", entries, recents })} selectAll={homeSelectAll}
-            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => (elsewhere ? inNew({ text }) : keepWork(() => load(undefined, text)))}
+            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onExample={openExample}
             windows={homeWindow ? openWindows : undefined} onWindow={(w: OpenWindow) => void invoke("window_show", { label: w.label }).catch(() => {})}
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
