@@ -9,6 +9,7 @@ import { fragments } from "./edit.ts";
 import { elementalAnalysis, isotopePattern } from "./mass.ts";
 import { massText } from "./query.ts";
 import { common, normalise, plainOf, runsOf, styled, type TextRun } from "./richtext.ts";
+import { logS, properties as calculate } from "./props.ts";
 
 // What Octet's own calculators (props.ts) give for a structure.
 export type Calculated = {
@@ -16,6 +17,13 @@ export type Calculated = {
   joback?: { tb: number; tm: number; tc: number; pc: number; vc: number; hf: number; gf: number };
   logS?: number;
 };
+// Octet's own calculators' values for a structure, kept with the structure's values they are from (chem.ts keeps those
+// by structure), so each structure is worked out once; pKa sites above 13 (alcohols, amides) are left out.
+const known = new WeakMap<Structure, Calculated>();
+export function calculated(s: Structure, g: Graph): Calculated {
+  if (!known.has(s)) { const p = calculate(g); known.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
+  return known.get(s)!;
+}
 // method: how the value is found, and the source, for the report. places: the decimals set for the masses (unset:
 // 4 for the exact mass, 2 for the molecular weight and m/z). predicted: a model's estimate of a measured property,
 // which the panel, Add to drawing, Copy and the report all mark (rowLabel). g: the structure's hazards from PubChem,
@@ -87,34 +95,52 @@ export function withCas(values: PropertyValues, cas: (string | undefined)[]): Pr
 
 // The text Add to drawing writes for the rows with these keys: each row's name and value on a line, the formula's
 // counts as subscripts. k: one structure's values; unset, every structure's, separated by semicolons as in the panel.
-export function propertyRuns(values: PropertyValues, keys: string[], k?: number): TextRun[] {
+// names false: the values alone (issue 77), a predicted one still marked, after it.
+export function propertyRuns(values: PropertyValues, keys: string[], k?: number, names = true): TextRun[] {
   const runs: TextRun[] = [];
   for (const r of values.flat()) {
     const v = !keys.includes(r.key) ? undefined : k === undefined ? r.values.filter((x) => x !== undefined).join("; ") || undefined : r.values[k];
     if (v === undefined) continue;
     if (runs.length) runs.push({ text: "\n" });
-    runs.push({ text: `${rowLabel(r)}: ` });
+    if (names) runs.push({ text: `${rowLabel(r)}: ` });
     if (r.key === "formula") for (const [, letters, digits] of v.matchAll(/(\D*)(\d*)/g)) { if (letters) runs.push({ text: letters }); if (digits) runs.push({ text: digits, script: "sub" }); }
     else runs.push({ text: v });
+    if (!names && r.predicted) runs.push({ text: " (predicted)" });
   }
   return runs;
 }
 
+// A live value's rows (property.attrs.rows) are row keys, and NO_NAMES when it shows its values without their names
+// (issue 77). The setting is a word in rows, as Octet 1.1.2 refuses a drawing with a key it does not know in a live
+// value, and skips a word in rows that is no row key: it opens such a drawing from its own data, with the names.
+export const NO_NAMES = "-names";
+export const namesShown = (rows: string) => !rows.split(" ").includes(NO_NAMES);
+export const withNames = (rows: string, on: boolean) => [...rows.split(" ").filter((w) => w && w !== NO_NAMES), ...(on ? [] : [NO_NAMES])].join(" ");
+// Hide property names and Show property names: the live values among these captions with their names shown (on) or
+// hidden; on unset, hidden while one of them shows its names. changed: the captions whose setting changed, for
+// liveValues to work out their text at once.
+export function nameValues(m: Mol, ids: Set<number>, on?: boolean): { mol: Mol; changed: Set<number> } {
+  const live = (m.captions ?? []).filter((c) => ids.has(c.id) && c.property?.attrs.rows), show = on ?? !live.some((c) => namesShown(c.property!.attrs.rows!));
+  const changed = new Set(live.filter((c) => namesShown(c.property!.attrs.rows!) !== show).map((c) => c.id));
+  if (!changed.size) return { mol: m, changed };
+  return { mol: { ...m, captions: m.captions!.map((c) => (changed.has(c.id) ? { ...c, property: { ...c.property!, attrs: { ...c.property!.attrs, rows: withNames(c.property!.attrs.rows!, show) } } } : c)) }, changed };
+}
+
 // Live values (Add to drawing): each caption with rows of its own (property.attrs.rows) worked out again for its
-// structure as it is now, with the decimals it was added with (property.attrs.places). Its structure is every atom
-// joined to the atoms it is for, so an atom drawn on counts. A style on all of its text stays. values: the rows' values
-// for those atoms, undefined when there are none (Indigo loading, or a structure it cannot read). Returns the drawing
-// itself when nothing changes.
-export function liveValues(m: Mol, values: (atoms: number[], places?: number) => PropertyValues | undefined): Mol {
-  if (!m.captions?.some((c) => c.property?.attrs.rows)) return m;
+// structure as it is now, with the decimals it was added with (property.attrs.places), with or without names
+// (NO_NAMES). Its structure is every atom joined to the atoms it is for, so an atom drawn on counts. A style on all of
+// its text stays. values: the rows' values for those atoms, undefined when there are none (Indigo loading, or a
+// structure it cannot read). only: these captions alone. Returns the drawing itself when nothing changes.
+export function liveValues(m: Mol, values: (atoms: number[], places?: number) => PropertyValues | undefined, only?: Set<number>): Mol {
+  if (!m.captions?.some((c) => c.property?.attrs.rows && (!only || only.has(c.id)))) return m;
   const of = new Map<number, number[]>();
   for (const g of fragments(m)) for (const i of g) of.set(i, g);
   let changed = false;
   const captions = m.captions.map((c) => {
     const p = c.property, rows = p?.attrs.rows;
-    if (!p || !rows) return c;
-    const atoms = [...new Set(p.atoms.flatMap((i) => of.get(i) ?? []))].sort((a, b) => a - b);
-    const v = atoms.length ? values(atoms, /^[0-8]$/.test(p.attrs.places ?? "") ? Number(p.attrs.places) : undefined) : undefined, built = v ? propertyRuns(v, rows.split(" ")) : [];
+    if (!p || !rows || (only && !only.has(c.id))) return c;
+    const atoms = [...new Set(p.atoms.flatMap((i) => of.get(i) ?? []))].sort((a, b) => a - b), keys = rows.split(" ");
+    const v = atoms.length ? values(atoms, /^[0-8]$/.test(p.attrs.places ?? "") ? Number(p.attrs.places) : undefined) : undefined, built = v ? propertyRuns(v, keys, undefined, !keys.includes(NO_NAMES)) : [];
     if (!built.length) return c;
     const { script: _, ...all } = common(runsOf(c), 0, c.text.length), runs = normalise(built.map((r) => ({ ...all, ...r }))), text = plainOf(runs);
     if (text === c.text && String(atoms) === String([...p.atoms].sort((a, b) => a - b))) return c;

@@ -16,6 +16,9 @@ const { handle, MAX_TEXT, resetIds, TOOL_NAMES, TOOL_TABLE, OP_TABLE } = await i
 const { NOTATION } = await import("./notation.ts");
 const { bandSize } = await import("./render.ts");
 const { detailsOf, PROPERTIES } = await import("./experiment.ts");
+const { calculated, propertyValues } = await import("./proprows.ts");
+const { structures: structuresIn } = await import("./chem.ts");
+const { addCaption, subset } = await import("./edit.ts");
 const { strict } = await import("../scripts/headless/listed.ts");
 type Mol = import("./render.ts").Mol;
 type Host = import("./mcp.ts").Host;
@@ -58,6 +61,8 @@ const host: Host = {
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
   window: () => ({ id: "draw-1", name: "Untitled" }), windows: async () => [], target: async () => true, close: async () => "theirs",
+  // As the editor's live values (Indigo and Octet's calculators), with a CAS number for benzene alone.
+  values: (x, atoms, places, cas) => { const found = structuresIn(subset(x, new Set(atoms)))?.filter((v): v is NonNullable<typeof v> => !!v); return found?.length ? propertyValues(found, calculated, places).map((g) => (cas && g.some((r) => r.key === "formula") && found[0].formula === "C6H6" ? [...g, { key: "cas", name: "CAS number", method: "", value: () => undefined, values: ["71-43-2"] }] : g)) : undefined; },
 };
 let n = 0;
 // Each session's brief (set_brief), as mcp.rs keeps it: a new session has none.
@@ -186,8 +191,8 @@ assert.deepEqual(Object.keys((tools[0].inputSchema as any).$defs.compound.proper
         for (const x of own) within(q, x, `steps.${key}`);
       }
     }
-  assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment"]);
-  assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "draw_route", "help"]);
+  assert.deepEqual(listed("change").properties.operations.items.properties.op.enum, ["draw", "edit", "replace", "number", "delete", "move", "arrange", "text", "arrow", "shape", "select", "set_style", "place_template", "add_file", "fill_experiment", "add_values"]);
+  assert.deepEqual(listed("advanced").properties.tool.enum, ["run_command", "set_style", "export", "place_template", "add_file", "fill_experiment", "add_values", "draw_route", "help"]);
   // help of draw_route gives what each scheme and step must have, and keep_orientation (true unless set false).
   const route = (await call("advanced", { tool: "help", args: { of: "draw_route" } })).structuredContent, scheme = route.arguments.properties.schemes.items;
   assert.deepEqual([route.call, scheme.required, scheme.properties.steps.items.required, "keep_orientation" in route.arguments.properties], ["advanced with tool: 'draw_route' and args", ["start", "steps"], ["products"], true]);
@@ -546,7 +551,7 @@ assert.equal(steps.length, 0);
   await no("change", { operations: [{ op: "move", ids: ["s1"], by: [1, 0] }] }, /^Octet changed nothing\. operations\[0\]: by is not an argument of this tool\. advanced help of move gives its arguments\.$/);
   await no("change", { operations: [{ op: "number", structure: "s1" }] }, /^Octet changed nothing\. operations\[0\]: number is missing\. advanced help of number gives its arguments\.$/);
   await no("advanced", { args: {} }, /arguments: tool is missing/);
-  await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, draw_route, help\.$/);
+  await no("advanced", { tool: "edit", args: {} }, /tool: not one of run_command, set_style, export, place_template, add_file, fill_experiment, add_values, draw_route, help\.$/);
   await no("advanced", { tool: "export", args: "pdf" }, /args: not an object/);
   // (A tool's own argument beside tool is taken into args, plan 19.10: one the tool does not take is refused there.)
   await no("advanced", { tool: "export", format: "pdf", colour: "red" }, /^Octet changed nothing\. args: colour is not an argument of this tool\. advanced help of export gives its arguments\.$/);
@@ -2414,7 +2419,7 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   for (const k of ["detail", "picture", "picture_size"]) assert.deepEqual(tools.filter((t) => k in t.inputSchema.properties).map((t) => t.name), ["draw", "change", "read", "advanced"], k);
   assert.deepEqual(tools[0].inputSchema.properties.detail, { type: "string", enum: ["summary", "full"] });
   // (Not drawings new and use: they report no change, as they run outside the page's queue, plan 17.5.)
-  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 23);
+  assert.equal(OP_TABLE.filter((t) => "detail" in t.inputSchema.properties).length, 24);
   assert.match((await send("initialize", {})).result.instructions, /detail: 'full' on any write call adds all it changed, with boxes\./);
   assert.ok(!/"unlisted"/.test(JSON.stringify(tools)));
   // What the tools' own text says is as a default result is: a command's changes come with detail: full, and a
@@ -2827,6 +2832,103 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   assert.ok((await call("change", { operations: [{ op: "shape", kind: "box", at: [0, 0] }] })).isError);
   // The Actions panel's kind chips, by run_command.
   assert.ok(!(await call("advanced", { tool: "run_command", args: { command: "shape.symbol.minus", ids: [id] } })).isError);
+  fresh();
+}
+
+// Live values without their names (issue 77) and the drawing's comment (issue 100): add_values is Add to drawing, read
+// gives each value's setting, edit's names and run_command caption.names change it, at once and as one undo step; text
+// typed over a value stops it following. set_style takes the comment, read gives the properties. Bad arguments change
+// nothing.
+{
+  fresh();
+  const s = sids(await call("draw", { kind: "structures", structures: [{ text: "ethanol" }, { text: "benzene" }] }));
+  steps = [];
+  let o = await call("advanced", { tool: "add_values", args: { ids: [s[0]], rows: ["weight", "formula"] } });
+  assert.ok(!o.isError, text(o));
+  assert.match(text(o), /^Octet added t\d+: values that follow their structures\. One undo step\.$/m);
+  assert.equal(steps.length, 1);
+  const t = m.captions!.at(-1)!, tid = `t${t.id}`;
+  assert.equal(t.text, "Formula: C2H6O\nMolecular weight: 46.07", "in the panel's order");
+  assert.deepEqual(t.property, { attrs: { rows: "formula weight" }, atoms: fragments(m)[0] });
+  assert.deepEqual(t.runs?.filter((r) => r.script === "sub").map((r) => r.text), ["2", "6"]);
+  // Without names, decimals 3: the values alone; a predicted value keeps its mark after the value.
+  o = await call("advanced", { tool: "add_values", args: { ids: [s[1]], rows: ["weight", "logp"], decimals: 3, names: false } });
+  assert.ok(!o.isError, text(o));
+  const u = m.captions!.at(-1)!, uid = `t${u.id}`;
+  assert.match(u.text, /^78\.114\n\d\.\d\d \(predicted\)$/);
+  assert.deepEqual(u.property!.attrs, { rows: "weight logp -names", places: "3" });
+  // read: the summary gives each structure's values, a full read each text's.
+  const summary = (await call("read", {})).structuredContent;
+  assert.deepEqual(summary.structures.map((x: { values?: unknown }) => x.values), [[{ id: tid, rows: ["formula", "weight"] }], [{ id: uid, rows: ["weight", "logp"], decimals: 3, names: false }]]);
+  assert.deepEqual((await read()).captions.find((c: { id: string }) => c.id === uid).values, { rows: ["weight", "logp"], decimals: 3, names: false });
+  // edit names: at once, one step; the decimals, rows and a style on all of it stay.
+  steps = [];
+  m = { ...m, captions: m.captions!.map((c) => (c.id === u.id ? { ...c, colour: "#c42b2b", size: 14, angle: 30, font: "Times New Roman", runs: c.runs?.map((r) => ({ ...r, bold: true as const })) ?? [{ text: c.text, bold: true }] } : c)) };
+  o = await call("change", { operations: [{ op: "edit", ids: [uid], names: true }] });
+  assert.ok(!o.isError, text(o));
+  const shown = m.captions!.find((c) => c.id === u.id)!;
+  assert.match(shown.text, /^Molecular weight: 78\.114\nlogP \(predicted\): \d\.\d\d$/);
+  assert.deepEqual([shown.property!.attrs, shown.colour, shown.size, shown.angle, shown.font, shown.runs!.every((r) => r.bold)], [{ rows: "weight logp", places: "3" }, "#c42b2b", 14, 30, "Times New Roman", true]);
+  assert.equal(steps.length, 1);
+  // The same setting again changes no text.
+  const before = m.captions;
+  assert.ok(!(await call("change", { operations: [{ op: "edit", ids: [uid], names: true }] })).isError);
+  assert.deepEqual(m.captions, before);
+  // On text that is no live value, names does not fit; a value that is not true or false is refused by the schema.
+  let note: number;
+  [m, note] = addCaption(m, { text: "plain note", x: 0, y: 5 });
+  o = await call("change", { operations: [{ op: "edit", ids: [`t${note}`], names: false }] });
+  assert.match(text(o), new RegExp(`t${note} takes no names: it is not live values \\(add_values adds them\\)`));
+  assert.equal(m.captions!.find((c) => c.id === note)!.text, "plain note");
+  const was = m;
+  for (const [args, why] of [
+    [{ op: "edit", ids: [uid], names: "no" }, /operations\[0\]\.names: not true or false\./],
+  ] as const) { o = await call("change", { operations: [args] }); assert.ok(o.isError && why.test(text(o)), text(o)); }
+  for (const [args, why] of [
+    [{ ids: [s[0]], rows: ["weight", "nope"] }, /rows\[1\]: not one of formula, cas, exact, weight, mz, analysis, tpsa, /],
+    [{ ids: [s[0]], rows: ["weight"], decimals: 9 }, /decimals: not between 0 and 8/],
+    [{ ids: [s[0]], rows: [] }, /rows: fewer than 1 items/],
+    [{ ids: ["a9"], rows: ["weight"] }, /^Octet added nothing\. There is no structure a9\. Call read for the ids\.$/],
+  ] as const) { o = await call("advanced", { tool: "add_values", args }); assert.ok(o.isError && why.test(text(o)), `${JSON.stringify(args)}: ${text(o)}`); }
+  assert.equal(m, was, "nothing changed");
+  // A CAS row: the number from the dictionary (the stand-in's), names hidden.
+  o = await call("advanced", { tool: "add_values", args: { ids: [s[1]], rows: ["cas"], names: false } });
+  assert.equal(m.captions!.at(-1)!.text, "71-43-2", text(o));
+  // run_command caption.names: the Actions panel's action, on the ids.
+  commands = [];
+  o = await call("advanced", { tool: "run_command", args: { command: "caption.names", ids: [tid] } });
+  assert.ok(!o.isError, text(o));
+  assert.deepEqual([commands.at(-1), picked.items], ["caption.names", [t.id]]);
+  // New text over a value stops it following, as typing over it does.
+  o = await call("change", { operations: [{ op: "edit", ids: [tid], text: "My own words" }] });
+  assert.deepEqual([m.captions!.find((c) => c.id === t.id)!.text, m.captions!.find((c) => c.id === t.id)!.property], ["My own words", undefined]);
+  // The comment: several lines, cleaned as Settings cleans it; read gives the properties; '' takes it away; over
+  // 10,000 characters is refused. Two calls that set different properties keep both.
+  o = await call("advanced", { tool: "set_style", args: { properties: { comment: "Line 1\r\n\tLine 2\n\n😀" } } });
+  assert.match(text(o), /^Octet set the drawing's comment\. One undo step\.$/m);
+  assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { comment: "Line 1\n Line 2\n\n😀" });
+  await call("advanced", { tool: "set_style", args: { properties: { keywords: "k1" } } }, "s-other");
+  assert.deepEqual((await call("read", {})).structuredContent.properties, { keywords: "k1", comment: "Line 1\n Line 2\n\n😀" });
+  await call("advanced", { tool: "set_style", args: { properties: { comment: "c".repeat(10_000) } } });
+  assert.equal((await call("read", {})).structuredContent.properties.comment, `${"c".repeat(1000)}…`, "a summary cuts a long comment");
+  assert.equal((await read()).properties.comment.length, 10_000);
+  await call("advanced", { tool: "set_style", args: { properties: { comment: `${"c".repeat(999)}😀 and more` } } });
+  assert.equal((await call("read", {})).structuredContent.properties.comment, `${"c".repeat(999)}…`, "cut between characters");
+  o = await call("advanced", { tool: "set_style", args: { properties: { comment: "c".repeat(10_001) } } });
+  assert.ok(o.isError && /properties\.comment: longer than 10000 characters/.test(text(o)), text(o));
+  // 10,000 emoji are 10,000 code points (the schema's count) and 20,000 UTF-16 units (Octet's, the files'): the refusal
+  // says how it counts.
+  o = await call("advanced", { tool: "set_style", args: { properties: { comment: "😀".repeat(10_000) } } });
+  assert.ok(o.isError && /properties\.comment: longer than 10000 characters \(an emoji counts as 2\)/.test(text(o)), text(o));
+  await call("advanced", { tool: "set_style", args: { properties: { comment: "" } } });
+  assert.deepEqual(detailsOf(m.annotations, PROPERTIES), { keywords: "k1" });
+  // add_values is an op of change too, so one call draws a series and adds their values.
+  fresh();
+  steps = [];
+  o = await call("change", { operations: [{ op: "draw", kind: "structures", structures: [{ text: "ethanol" }, { text: "benzene" }] }, { op: "add_values", ids: ["$1.s"], rows: ["weight"], names: false }] });
+  assert.ok(!o.isError, text(o));
+  assert.equal(steps.length, 1);
+  assert.deepEqual(m.captions!.filter((c) => c.property).map((c) => [c.text, c.property!.attrs.rows]), [["46.07", "weight -names"], ["78.11", "weight -names"]]);
   fresh();
 }
 

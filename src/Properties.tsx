@@ -5,7 +5,8 @@
 // rows only); Copy report copies every value with the method and source it comes from (ChemDraw's Report…). The
 // groups of predicted values have a Predicted heading, and every copy of their values says (predicted). With Online
 // search on, Find hazards adds each structure's GHS hazards from PubChem (ChemDraw's PubChem GHS LCSS add-in): the
-// pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser.
+// pictograms are drawn, and a PubChem CID opens the compound's Safety and Hazards page in the browser. Names off: Add
+// to drawing writes the values without their names (issue 77; ChemDraw's empty Property Labels word does the same).
 import { useLayoutEffect, useMemo, useState } from "react";
 import { ArrowSquareOut, Check, CopySimple, WarningDiamond } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
@@ -21,7 +22,7 @@ const DECIMALS: [string, string][] = [["", "Standard"], ...Array.from({ length: 
 
 type Props = {
   values: PropertyValues; chosen: string[]; onChoose: (key: string) => void; onCopy: (text: string) => void; onAdd: () => void; onClose: () => void; stacked?: string; // the panel it sits on, when one is open
-  decimals?: number; onDecimals: (places?: number) => void;
+  decimals?: number; onDecimals: (places?: number) => void; names: boolean; onNames: (on: boolean) => void;
   online: boolean; onHazards: () => void; onOpen: (cid: string) => void;
 };
 
@@ -33,7 +34,7 @@ const Pictogram = ({ code }: { code: string }) => (
   </svg>
 );
 
-export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, online, onHazards, onOpen }: Props) {
+export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, stacked, decimals, onDecimals, names, onNames, online, onHazards, onOpen }: Props) {
   // Pictograms are drawn, and hazard statements go one to a line: each structure's, in turn (from its own value, as a
   // statement can hold a semicolon: H360FD).
   const show = (row: PropertyValues[number][number], v: string) => (row.key === "formula" ? v.replace(/\d/g, (d) => SUB[Number(d)])
@@ -89,6 +90,7 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
         <button className="prop-add" onClick={() => onCopy(propertyReport(values))} disabled={!groups.length} data-tip="Copy every value with its method and source"><CopySimple size={16} aria-hidden /> Copy report</button>
         {online && <button className="prop-add" onClick={onHazards} disabled={!groups.length} data-tip="Find the GHS hazards in PubChem"><WarningDiamond size={16} aria-hidden /> Find hazards</button>}
         <span className="prop-decimals">
+          <button className="spectrum-button" aria-pressed={names} aria-label="Property names" data-tip={names ? "Add the values without their names" : "Add the values with their names"} onClick={() => onNames(!names)}>Names</button>
           <span className="prop-name">Decimals</span>
           <Select label="Decimals" value={decimals === undefined ? "" : String(decimals)} options={DECIMALS} onChange={(v) => onDecimals(v === "" ? undefined : Number(v))} />
         </span>

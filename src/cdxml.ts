@@ -28,6 +28,7 @@ import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
 import { readPart, readPlot, type Plot } from "./pageplot.ts";
 import { readRisk, type Risk } from "./riskassess.ts";
+import { cleanComment, COMMENT, MAX_COMMENT } from "./experiment.ts";
 import { ASSIGN, OWN_TAG, assignGroups, assignRanges, assignValue, fromSpectrumObject, keyOf, nextGroupId, spectrumObject, type Measured } from "./measured.ts";
 import pkg from "../package.json" with { type: "json" };
 import { advance, widthOf } from "./arial.ts";
@@ -119,7 +120,9 @@ export function parseXml(src: string): Xml {
       if (e < 0) fail();
       const raw = src.slice(i + 1, e);
       if (raw.includes("<") || key in el.attrs) fail();
-      el.attrs[key] = decode(raw.replace(/\r\n|[\r\n\t]/g, " "));
+      // A line break in an attribute is a space (XML's rule), but in Comment (ChemDraw's document comment, which
+      // ChemDraw writes with its line breaks as they are) it is a line feed.
+      el.attrs[key] = decode(key === "Comment" ? raw.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : raw.replace(/\r\n|[\r\n\t]/g, " "));
       i = e + 1;
     }
   }
@@ -127,9 +130,10 @@ export function parseXml(src: string): Xml {
   return top.kids[0];
 }
 
-// Text for XML: control characters and lone surrogates dropped, the five special characters escaped. In an
-// attribute, line breaks and tabs are escaped too so they survive the reader's whitespace rule.
-const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "");
+// Text for XML: control characters, U+FFFE, U+FFFF and lone surrogates (none of them XML characters) dropped, the five
+// special characters escaped. In an attribute, line breaks and tabs are escaped too so they survive the reader's
+// whitespace rule.
+const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "");
 const SPECIAL: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;", "\n": "&#10;", "\t": "&#9;", "\r": "&#13;" };
 const escText = (s: string) => clean(s).replace(/\r/g, "").replace(/[&<>"']/g, (c) => SPECIAL[c]);
 const escAttr = (s: string) => clean(s).replace(/[&<>"'\n\t\r]/g, (c) => SPECIAL[c]);
@@ -1200,14 +1204,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map(ids), at: c.at, colour: c.colour, width: c.width, gap: c.gap, scale: c.scale, order: c.order, head: c.head, arrowSize: c.arrowSize,
     steps: c.steps?.some(Boolean) ? c.steps : undefined, branches: c.branches?.map((b) => ({ ...b, ...(b.in ? { in: { ...b.in, atoms: ids(b.in.atoms) } } : {}), ...(b.out ? { out: { ...b.out, atoms: ids(b.out.atoms) } } : {}) })),
     sides: c.branches?.flatMap((b) => (["in", "out"] as const).flatMap((side) => (b[side]?.atoms?.length ? [{ side, atoms: ids(b[side]!.atoms) }] : []))).slice(0, 32) }));
-  const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations));
+  // The drawing's comment (its first Document comment annotation) is ChemDraw's document comment, on the root (issue
+  // 100). An annotation with the keyword Comment is someone's own and stays an annotation.
+  const said = mol.annotations?.findIndex((a) => a.keyword === COMMENT) ?? -1, comment = said < 0 ? undefined : mol.annotations![said].content;
+  const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations?.filter((_, k) => k !== said)));
   const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
   for (const c of style.palette ?? []) colour(c.hex);
   const rgb = (c: string) => [1, 3, 5].map((k) => fmtColour(parseInt(c.slice(k, k + 2), 16) / 255));
   const tables = `<colortable>\n${colours.map((c) => { const [r, g, b] = rgb(c); return `<color r="${r}" g="${g}" b="${b}"/>`; }).join("\n")}\n</colortable><fonttable>\n${fonts.map((f, k) => `<font id="${k + 1}" charset="${CHARSET}" name="${escAttr(f)}"/>`).join("\n")}\n</fonttable>`;
   const root = el("CDXML", {
-    CreationProgram: PROGRAM, Name: opts.name ?? "Untitled Document", BoundingBox: boxText(all), WindowPosition: "0 0", WindowSize: "0 0", FractionalWidths: "yes", InterpretChemically: style.interpret === false ? "no" : "yes",
+    CreationProgram: PROGRAM, Name: opts.name ?? "Untitled Document", Comment: comment, BoundingBox: boxText(all), WindowPosition: "0 0", WindowSize: "0 0", FractionalWidths: "yes", InterpretChemically: style.interpret === false ? "no" : "yes",
     ShowAtomQuery: "yes", ShowAtomStereo: "no", ShowAtomEnhancedStereo: "yes", ShowAtomNumber: "no", ShowResidueID: "no", ShowBondQuery: "yes", ShowBondRxn: "yes", ShowBondStereo: "no",
     ShowTerminalCarbonLabels: style.terminalLabels ? "yes" : "no", ShowNonTerminalCarbonLabels: style.carbonLabels ? "yes" : "no", HideImplicitHydrogens: style.hideH ? "yes" : "no", LabelFont: font(style.labelFont), LabelSize: fmtSize(style.labelSize), LabelFace: 96,
     CaptionFont: font(style.captionFont), CaptionSize: fmtSize(style.captionSize), HashSpacing: fmt(style.hash), MarginWidth: fmt(style.margin), LineWidth: fmt(style.line), BoldWidth: fmt(style.bold),
@@ -2720,6 +2727,11 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   if (grids.length) mol.grids = grids;
   const ids = new Set([...captions, ...arrows, ...shapes, ...cycles].map((x) => x.id));
   const kept = groups.map((g): Group => ({ id: g.id, atoms: [...g.atoms].map(ix).sort((p, q) => p - q), items: [...new Set(g.items.filter((id) => ids.has(id)))].sort((p, q) => p - q), ...(g.integral ? { integral: true } : {}), ...(g.annotations ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
+  // ChemDraw's document comment (the root's Comment) is the drawing's comment, before any annotation. One that is too
+  // long is left out and counted, as an annotation is.
+  const comment = root.attrs.Comment === undefined ? "" : cleanComment(root.attrs.Comment);
+  if (comment.length > MAX_COMMENT || (comment && annotations.length >= MAX_ANNOTATIONS)) lose("comment");
+  else if (comment) annotations.unshift({ keyword: COMMENT, content: comment });
   if (annotations.length) mol.annotations = annotations;
   if (kept.length) mol.groups = kept;
   if (fills.length) mol.fills = fills.map((f) => ({ ...f, atoms: f.atoms.map(ix) }));

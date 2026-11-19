@@ -12,7 +12,7 @@ import { Select } from "./Select";
 import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch, TextField } from "./Fields";
-import { PROPERTIES, detailsOf, withDetails } from "./experiment";
+import { MAX_COMMENT, PROPERTIES, detailsOf, withDetails } from "./experiment";
 import type { Annotation } from "./render";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
 import { SELECT_DEFAULT } from "./selectcolour";
@@ -495,6 +495,10 @@ export function SettingsWindow(p: Props) {
 
   const presets: [string, string][] = [...Object.keys(PRESETS).map((x): [string, string] => [x, x]), ...(style.preset === "Custom" ? [["Custom", "Custom"] as [string, string]] : [])];
   const files = p.files, setFiles = (patch: Partial<FilePrefs>) => p.onFiles({ ...files, ...patch });
+  // The drawing as it is when a property is set: the memo below keeps its controls while the annotations stay the same,
+  // so a change to the drawing in that time (a live value, an AI app) is not undone by an old callback.
+  const onAnnotations = useRef(p.onAnnotations);
+  onAnnotations.current = p.onAnnotations;
 
   const defs: Def[] = useMemo(() => {
     const d = (module: ModuleId, section: string, label: string, keywords: string, control: React.ReactNode, wide?: boolean): Def => ({ module, section, label, keywords, control, wide });
@@ -569,14 +573,14 @@ export function SettingsWindow(p: Props) {
       d("document", "Page", "Background", "background page colour custom dark mode night white system engineering paper blueprint blue grid", (
         <Backgrounds value={style.background} onChange={(background) => change({ background })} />
       )),
-      // The drawing's title, author and keywords, saved in the file and written in a PDF's document information. A
-      // template being made has none.
-      ...(p.template ? [] : PROPERTIES.map(([k, name]) => d("document", "Properties", name, `document properties ${name} metadata pdf file info creator name tags`, (
-        <TextField label={name} value={properties[k] ?? ""} onChange={(v) => {
+      // The drawing's title, author, keywords and comment, saved in the file and written in a PDF's document
+      // information. The comment has lines of its own, across the row. A template being made has none.
+      ...(p.template ? [] : PROPERTIES.map(([k, keyword]) => [k, k === "comment" ? "Comment" : keyword] as const).map(([k, name]) => d("document", "Properties", name, `document properties ${name} metadata pdf file info creator name tags${k === "comment" ? " description notes subject remarks" : ""}`, (
+        <TextField label={name} value={properties[k] ?? ""} {...(k === "comment" ? { lines: 4, max: MAX_COMMENT } : {})} onChange={(v) => {
           const next = withDetails(p.annotations, { ...properties, [k]: v }, PROPERTIES);
-          if (JSON.stringify(next) !== JSON.stringify(p.annotations)) p.onAnnotations(next);
+          if (JSON.stringify(next) !== JSON.stringify(p.annotations)) onAnnotations.current(next);
         }} />
-      )))),
+      ), k === "comment"))),
       d("appearance", "Actions panel", "Small actions", "actions panel small actions show as menus sections pop out buttons", (
         <Segmented label="Show small actions as" value={p.panelMenus ? "menus" : "sections"} onChange={(v) => p.onPanelMenus(v === "menus")} options={[["sections", "Sections"], ["menus", "Menus"]]} />
       )),

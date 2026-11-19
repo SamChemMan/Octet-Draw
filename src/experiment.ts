@@ -18,20 +18,34 @@ export const FIELDS = [
 export type Field = (typeof FIELDS)[number][0];
 export type Details = Partial<Record<Field, string>>;
 // The document's properties (Settings > Document > Properties), kept as annotations in the same way, so its Title and
-// Author are an experiment page's. A PDF export writes them in its document information too.
-export const PROPERTIES = [["title", "Title"], ["author", "Author"], ["keywords", "Keywords"]] as const;
+// Author are an experiment page's. A PDF export writes them in its document information too. The comment (issue 100)
+// is ChemDraw's document comment in CDXML and CDX (cdxml.ts), and the PDF's Subject. Its keyword is not Comment: a
+// ChemDraw file can have an annotation with the keyword Comment, which is the user's own annotation (decision D9).
+export const COMMENT = "Document comment";
+export const PROPERTIES = [["title", "Title"], ["author", "Author"], ["keywords", "Keywords"], ["comment", COMMENT]] as const;
 export type Properties = Partial<Record<(typeof PROPERTIES)[number][0], string>>;
 type Fields = readonly (readonly [string, string])[];
-export const MAX_VALUE = 200;
+export const MAX_VALUE = 200, MAX_COMMENT = 10_000;
+// A UTF-16 unit that is half of a character (a lone surrogate), which JSON to the app's shell refuses, or U+FFFE or
+// U+FFFF, which an XML reader refuses.
+const LONE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]|[\ufffe\uffff]/g;
+// The first n UTF-16 units, without half a character at the end.
+const upTo = (v: string, n: number) => (v.length <= n ? v : v.slice(0, /[\ud800-\udbff]/.test(v[n - 1]) ? n - 1 : n));
 // A value as the page keeps it: one line, no control characters, MAX_VALUE characters at most. A grid's conditions too.
-export const oneLine = (v: string) => v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_VALUE).trim();
+export const oneLine = (v: string) => upTo(v.replace(LONE, "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim(), MAX_VALUE).trim();
+// A comment as the drawing keeps it: its lines (each line break a line feed), a tab as a space, no other control
+// characters, MAX_COMMENT units at most (the files' limit on an annotation).
+export const commentText = (v: string) => upTo(cleanComment(v), MAX_COMMENT).trim();
+// The comment with nothing cut, to tell a comment that is too long from one that fits (a file's is left out).
+export const cleanComment = (v: string) => v.replace(LONE, "").replace(/\r\n?/g, "\n").replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "").trim();
+const cleaned = (keyword: string, v: string) => (keyword === COMMENT ? commentText(v) : oneLine(v));
 
 // The details in a document's annotations (the first annotation with each keyword). fields: the keywords read
 // (PROPERTIES for the document's properties).
 export function detailsOf<F extends Fields = typeof FIELDS>(annotations?: Annotation[], fields: F = FIELDS as Fields as F): Partial<Record<F[number][0], string>> {
   const out: Record<string, string> = {};
   for (const [k, name] of fields) {
-    const a = annotations?.find((x) => x.keyword === name), v = a && oneLine(a.content);
+    const a = annotations?.find((x) => x.keyword === name), v = a && cleaned(name, a.content);
     if (v) out[k] = v;
   }
   return out as Partial<Record<F[number][0], string>>;
@@ -40,7 +54,7 @@ export function detailsOf<F extends Fields = typeof FIELDS>(annotations?: Annota
 // their order. An empty value leaves its keyword out. Undefined when there are none.
 export function withDetails<F extends Fields = typeof FIELDS>(annotations: Annotation[] | undefined, details: Partial<Record<F[number][0], string>>, fields: F = FIELDS as Fields as F): Annotation[] | undefined {
   const names = new Set<string>(fields.map(([, name]) => name)), values: Record<string, string | undefined> = details;
-  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...fields.flatMap(([k, keyword]) => { const v = oneLine(values[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
+  const out = [...(annotations ?? []).filter((a) => !names.has(a.keyword)), ...fields.flatMap(([k, keyword]) => { const v = cleaned(keyword, values[k] ?? ""); return v ? [{ keyword, content: v }] : []; })];
   return out.length ? out : undefined;
 }
 // Today as the Date field takes it: 4 November 2026.

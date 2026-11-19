@@ -2553,6 +2553,39 @@ div.facts {
 .unit-field.text input {
   text-align: left;
 }
+/* Text of several lines (Settings > Document > Properties > Comment): the same well, as wide as its row, as high as
+   its lines. Its name stays level with the first line. */
+.unit-field.text.lines {
+  width: 100%;
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+}
+.unit-field.lines textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/18px var(--font-sans);
+  resize: vertical;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.setting-control:has(> .unit-field.lines) {
+  flex: 1;
+  min-width: 0;
+}
+.setting:has(> .setting-control > .unit-field.lines) {
+  align-items: flex-start;
+}
+.setting:has(> .setting-control > .unit-field.lines) .setting-label {
+  padding-top: var(--space-1);
+  line-height: 20px;
+}
 .unit-field .unit {
   margin-left: var(--space-1);
   color: var(--ink-faint);
@@ -4759,6 +4792,10 @@ div.facts {
   align-items: center;
   gap: var(--space-2);
   margin-left: auto;
+}
+/* Names is a setting of its own: more room after it than between Decimals and its choice. */
+.prop-decimals .spectrum-button {
+  margin-right: var(--space-2);
 }
 .prop-add {
   display: inline-flex;

@@ -77,18 +77,21 @@ pub fn cdxml_document(cdxml: &str) -> String {
     format!("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!DOCTYPE CDXML SYSTEM \"http://www.cambridgesoft.com/xml/cdxml.dtd\" >\n{s}")
 }
 
-// The drawing's title, author and keywords (Settings > Document > Properties), for a PDF's document information.
+// The drawing's title, author, keywords and comment (Settings > Document > Properties), for a PDF's document
+// information. The comment is the Subject: the document information has no comment entry (ISO 32000-1, 14.3.3), XMP
+// reads Subject as the document's description, and PDF readers show it with the title.
 #[derive(serde::Deserialize)]
 pub struct Info {
     title: Option<String>,
     author: Option<String>,
     keywords: Option<String>,
+    comment: Option<String>,
 }
 
 // A vector PDF of the SVG at true size: the page is the SVG's box (1 pt per pt, CSS units honoured), text stays
 // text in embedded font subsets, and nothing paints the background. With CDXML, the catalog gets a /Metadata
 // stream holding it (/Type /Metadata /Subtype /XML, Flate, /Vendor /org.octet). With `info`, the document
-// information gets the title, author and keywords that are set.
+// information gets the title, author, keywords and comment (as Subject) that are set.
 pub fn make_pdf(svg: &str, cdxml: Option<&str>, info: Option<&Info>) -> Result<Vec<u8>, String> {
     pdf_pages(&[&tree(svg)?], cdxml, info)
 }
@@ -138,13 +141,16 @@ pub(crate) fn pdf_pages(trees: &[&usvg::Tree], cdxml: Option<&str>, info: Option
         let data = miniz_oxide::deflate::compress_to_vec_zlib(cdxml_document(x).as_bytes(), 6);
         pdf.metadata(meta, &data).filter(Filter::FlateDecode).pair(Name(b"Vendor"), Name(b"org.octet"));
     }
-    if let Some(i) = info.filter(|i| i.title.is_some() || i.author.is_some() || i.keywords.is_some()) {
+    if let Some(i) = info.filter(|i| i.title.is_some() || i.author.is_some() || i.keywords.is_some() || i.comment.is_some()) {
         let mut d = pdf.document_info(alloc.bump());
         if let Some(v) = &i.title {
             d.title(TextStr(v));
         }
         if let Some(v) = &i.author {
             d.author(TextStr(v));
+        }
+        if let Some(v) = &i.comment {
+            d.subject(TextStr(v));
         }
         if let Some(v) = &i.keywords {
             d.keywords(TextStr(v));
@@ -1137,16 +1143,77 @@ mod tests {
     // (text past ASCII as UTF-16), and the CDXML still reads back. None set writes no document information.
     #[test]
     fn pdf_has_the_drawings_properties() {
-        let info = Info { title: Some("Aspirin (route 2)".into()), author: Some("Zoë Ångström".into()), keywords: None };
+        let info = Info { title: Some("Aspirin (route 2)".into()), author: Some("Zoë Ångström".into()), keywords: None, comment: None };
         let pdf = make_pdf(SVG, Some(CDXML), Some(&info)).unwrap();
         assert!(find(&pdf, b"/Info").is_some() && find(&pdf, b"/Title (Aspirin (route 2))").is_some());
         let utf16: String = [0xFEFF].into_iter().chain("Zoë Ångström".encode_utf16()).map(|u| format!("{u:04X}")).collect();
         assert!(find(&pdf, format!("/Author <{utf16}>").as_bytes()).is_some());
         assert!(find(&pdf, b"/Keywords").is_none());
         assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
-        let none = Info { title: None, author: None, keywords: None };
+        assert!(find(&pdf, b"/Subject").is_none());
+        let none = Info { title: None, author: None, keywords: None, comment: None };
         assert_eq!(make_pdf(SVG, Some(CDXML), Some(&none)).unwrap(), make_pdf(SVG, Some(CDXML), None).unwrap());
         assert!(find(&make_pdf(SVG, None, None).unwrap(), b"/Info").is_none());
+    }
+
+    // A PDF literal string as a reader reads it: the text between its brackets, with its escapes undone.
+    fn literal(pdf: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+        let at = find(pdf, key)? + key.len();
+        let rest = &pdf[at..];
+        let start = rest.iter().position(|&b| b != b' ')?;
+        if rest[start] != b'(' {
+            return None;
+        }
+        let (mut out, mut depth, mut k) = (Vec::new(), 1, start + 1);
+        while k < rest.len() {
+            match rest[k] {
+                b'\\' => {
+                    k += 1;
+                    out.push(match rest[k] {
+                        b'n' => b'\n',
+                        b'r' => b'\r',
+                        b't' => b'\t',
+                        c => c,
+                    });
+                }
+                b'(' => {
+                    depth += 1;
+                    out.push(b'(');
+                }
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(out);
+                    }
+                    out.push(b')');
+                }
+                c => out.push(c),
+            }
+            k += 1;
+        }
+        None
+    }
+
+    // The comment (issue 100) is the Subject: printable ASCII as a literal string whose brackets and backslashes read
+    // back as typed, anything else (a line break, é, 日本) as UTF-16. A comment alone gives document information, and
+    // a PDF of several pages (an experiment page and its risk assessment) has one Subject.
+    #[test]
+    fn pdf_has_the_drawings_comment() {
+        let ascii = "a (b) \\c )( end";
+        let info = Info { title: None, author: None, keywords: None, comment: Some(ascii.into()) };
+        let pdf = make_pdf(SVG, Some(CDXML), Some(&info)).unwrap();
+        assert!(find(&pdf, b"/Info").is_some());
+        assert_eq!(literal(&pdf, b"/Subject").as_deref(), Some(ascii.as_bytes()));
+        assert_eq!(cdxml_from_pdf(&pdf).as_deref(), Some(CDXML));
+        let lines = "Line one\n\nline 3 é 日本 😀";
+        let info = Info { title: Some("T".into()), author: None, keywords: None, comment: Some(lines.into()) };
+        let pdf = make_pdf_pages(&[SVG.to_string(), SVG.to_string()], Some(CDXML), Some(&info)).unwrap();
+        let utf16: String = [0xFEFF].into_iter().chain(lines.encode_utf16()).map(|u| format!("{u:04X}")).collect();
+        assert!(find(&pdf, format!("/Subject <{utf16}>").as_bytes()).is_some());
+        assert_eq!(pdf.windows(8).filter(|w| w == b"/Subject").count(), 1);
+        let long = "x".repeat(10_000);
+        let info = Info { title: None, author: None, keywords: None, comment: Some(long.clone()) };
+        assert_eq!(literal(&make_pdf(SVG, None, Some(&info)).unwrap(), b"/Subject").as_deref(), Some(long.as_bytes()));
     }
 
     #[test]

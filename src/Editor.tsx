@@ -44,7 +44,7 @@ import { ACTIONS, DIALOGS, MENU_READ, menuKeysVersion, actionFor, addsToSelectio
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
-import { liveValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, type Calculated, type PropertyValues } from "./proprows";
+import { calculated as calc, liveValues, nameValues, namesShown, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, withNames, type PropertyValues } from "./proprows";
 import { ghsOf, type Ghs } from "./ghs";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
@@ -83,7 +83,6 @@ import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./st
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
 import { FIELDS as DETAILS, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
-import { logS, properties as calculate } from "./props";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
 import { inkOn, richSpans } from "./richspans";
@@ -110,7 +109,7 @@ import { readSequence, toFasta, toHelm } from "./helm";
 import { NUCLEIC, nucleicProblem } from "./nucleic";
 import { fullLayout, isSequence, laterSmiles, PREVIEW_PAUSE, quickLayout, warmLayout } from "./namepreview";
 import { commonKey } from "./common";
-import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation, type Graph } from "./naming";
+import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
 import { iupacLocants, iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
@@ -333,14 +332,6 @@ function pictureUrl(p: Record<string, string>): string | undefined {
   const b64 = found && hexToBase64(p[found[0]]), url = found && b64 ? `data:image/${found[1]};base64,${b64}` : undefined;
   pictureUrls.set(p, url);
   return url;
-}
-// Octet's own calculators' values (props.ts), kept with the structure's values they are from (chem.ts keeps those by
-// structure), so each structure is worked out once.
-const calculated = new WeakMap<Structure, Calculated>();
-// Octet's own calculators, once for each structure's values; pKa sites above 13 (alcohols, amides) are left out.
-function calc(s: Structure, g: Graph) {
-  if (!calculated.has(s)) { const p = calculate(g); calculated.set(s, { ...p, pka: p.pka.filter((x) => x.pka < 13), logS: s.logP !== undefined ? logS(s.logP, s.weight, p) : undefined }); }
-  return calculated.get(s);
 }
 // PubChem's CAS number for each InChIKey the Properties panel has asked for, once a session (null: none, or asking).
 const pubchemCas = new Map<string, string | null>();
@@ -4484,6 +4475,14 @@ export default function Editor() {
     if (!doc.captions?.some((c) => picked.has(c.id) && markupCaption(c))) return;
     set({ ...doc, captions: doc.captions.map((c) => (picked.has(c.id) ? markupCaption(c) ?? c : c)) }, true);
   }
+  // Hide property names and Show property names (issue 77): every live value among these captions, its text worked out
+  // at once (not when the live update comes), as one change. A value whose structure Indigo cannot read yet keeps its
+  // text until it can, as a CAS row keeps its number until the dictionary is loaded. on: show (true) or hide (false);
+  // unset, hide while one of them shows its names. Returns m itself when nothing changes.
+  function namedValues(m: Mol, ids: Set<number>, on?: boolean): Mol {
+    const { mol, changed } = nameValues(m, ids, on), cas = changed.size > 0 && casLive(mol, changed);
+    return !changed.size || !loaded || (cas && !namesLoaded) ? mol : liveValues(mol, liveOf(mol, cas), changed);
+  }
   // Applies a style change to the caption being typed, or to every picked caption.
   function restyle(change: (c: Partial<Caption>) => Partial<Caption>, with_: Partial<Mol> = {}) {
     if (writing) {
@@ -6808,6 +6807,12 @@ export default function Editor() {
     const whole = g.items.every((id) => picked.has(id));
     return { ...c, chart: p.kind === "energy" ? { kind: "energy", whole, join: p.join, axis: p.axis, key: p.key, paths: p.paths.map((x) => ({ name: x.name, colour: x.colour ?? style.colour })) } : { kind: "radar", whole, zones: p.zones, min: p.min, max: p.max, step: p.step } } as Context;
   };
+  // Live values among the picked text (issue 77): "shown" while one shows its names (Hide property names), else
+  // "hidden" (Show property names). ⌘A picks every one.
+  const valuesPicked = (): { values?: "shown" | "hidden" } => {
+    const live = (doc.captions ?? []).filter((c) => picked.has(c.id) && c.property?.attrs.rows);
+    return live.length ? { values: live.some((c) => namesShown(c.property!.attrs.rows!)) ? "shown" : "hidden" } : {};
+  };
   const contextBase = (): Context => {
     // Typing, or the Text tool in hand: the panel is a text editor for that text (or the next text).
     if (writing) {
@@ -6834,7 +6839,7 @@ export default function Editor() {
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
     const lined = mix.lines ? lineOf([...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => picked.has(x.id))) : undefined;
-    if (mix.kinds > 1) return { kind: "selection", count: mix.count, ...(mix.lone ? { name: groupTitle(doc, mix.lone), risk: !!mix.lone.risk } : {}), atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}) };
+    if (mix.kinds > 1) return { kind: "selection", ...valuesPicked(), count: mix.count, ...(mix.lone ? { name: groupTitle(doc, mix.lone), risk: !!mix.lone.risk } : {}), atoms: mix.atoms, joinable: mix.atoms && !!joinSelection(doc, selection), ...(lined ? { width: widthOf(lined) } : {}) };
     // A TLC spot picked on its plate.
     const plate = spotPick && !selection.size && picked.size === 1 && picked.has(spotPick.plate) ? doc.shapes?.find((x) => x.id === spotPick.plate) : undefined, spot = plate?.tlc?.spots[spotPick!.index];
     if (plate && spot) {
@@ -6884,6 +6889,7 @@ export default function Editor() {
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some((x) => labelable(x) || standInCaption(x)),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
+          ...valuesPicked(),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
@@ -6912,7 +6918,7 @@ export default function Editor() {
       const stereo = !centres.length ? undefined : flags.size > 1 ? "mixed" : flags.has("&1") ? "racemic" : flags.has("or1") ? "relative" : flags.has("") ? "absolute" : "mixed";
       // A 3D structure (Structure Perspective): depth shading on or off.
       const solid = ids.some((i) => Math.abs(doc.atoms[i].location[2] ?? 0) > 1e-3);
-      return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection),
+      return { kind: "structure", text: labelText(ids), atoms: ids.length, generic: genericSites(doc, fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat()), hydrogens: ids.some((i) => doc.atoms[i].label === "H" && !doc.atoms[i].text), structures: fragments(doc).filter((g) => g.some((i) => selection.has(i))).length, next: nextCompound(doc), roman: romanOrNone(), nameable, pairs, stereo, joinable: !!joinSelection(doc, selection), ...valuesPicked(),
         ...(solid ? { depth: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].shade) } : {}), opacity: opacityOf(doc, selection), cip: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().every((i) => doc.atoms[i].cip), numbers: ids.every((i) => doc.atoms[i].number),
         // Aromatic rings drawn with circles, so the aromatic display action can name what it shows next.
         circles: fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat().some((i) => doc.atoms[i].circle),
@@ -7030,6 +7036,16 @@ export default function Editor() {
     const frame = requestAnimationFrame(() => { clearTimeout(timer); timer = window.setTimeout(look); });
     return () => { casLook.current = undefined; cancelAnimationFrame(frame); clearTimeout(timer); };
   }, [properties, namesLoaded, settings.onlineSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The rows' values for these atoms of m, as a live value takes them (liveValues): undefined when Indigo cannot read
+  // them. cas: some live value has the CAS row.
+  const liveOf = (m: Mol, cas: boolean) => (atoms: number[], places?: number) => {
+    const part = subset(m, new Set(atoms)), found = structures(part)?.filter((s): s is Structure => !!s);
+    if (!found?.length) return undefined;
+    const key = (cas || ghsFound.current.size > 0) && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
+    const values = propertyValues(found, calc, places, key ? [ghsFound.current.get(key)] : []);
+    return key ? withCas(values, [dictionaryCas(key) ?? pubchemCas.get(key) ?? undefined]) : values;
+  };
+  const casLive = (m: Mol, only?: Set<number>) => !!m.captions?.some((c) => (!only || only.has(c.id)) && c.property?.attrs.rows?.split(" ").includes("cas"));
   // Live values (Add to drawing): a moment after the drawing last changes, each caption's rows are worked out again for
   // its structure (liveValues), so no pointer move works them out. Never during a drag, a glide or typing. They go into
   // the change's own undo step (amend), so Undo never stops at them, and Space still picks what the change added.
@@ -7038,16 +7054,10 @@ export default function Editor() {
   // hazards found for the structure in this window.
   useEffect(() => {
     if (!loaded || gliding || drag || writing || !doc.captions?.some((c) => c.property?.attrs.rows)) return;
-    const cas = doc.captions.some((c) => c.property?.attrs.rows?.split(" ").includes("cas"));
+    const cas = casLive(doc);
     if (cas && !namesLoaded) return;
     const t = setTimeout(() => {
-      const next = liveValues(doc, (atoms, places) => {
-        const part = subset(doc, new Set(atoms)), found = structures(part)?.filter((s): s is Structure => !!s);
-        if (!found?.length) return undefined;
-        const key = (cas || ghsFound.current.size > 0) && found.length === 1 && !found[0].repeat ? drawnInchiKey(part) : undefined;
-        const values = propertyValues(found, calc, places, key ? [ghsFound.current.get(key)] : []);
-        return key ? withCas(values, [dictionaryCas(key) ?? pubchemCas.get(key) ?? undefined]) : values;
-      });
+      const next = liveValues(doc, liveOf(doc, cas));
       if (next === doc) return;
       if (added.current?.mol === doc) added.current = { ...added.current, mol: next };
       before.current = next;
@@ -7784,23 +7794,24 @@ export default function Editor() {
     reselect(new Set(), new Set(items));
     say(`${plotName(record)} added`);
   }
-  // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts. One for a
-  // whole structure is live: its values follow the structure as it changes, with these decimals (liveValues).
+  // Add to drawing: the chosen rows as a caption under each structure, the formula's counts as subscripts, with their
+  // names unless Names is off. One for a whole structure is live: its values follow the structure as it changes, with
+  // these decimals and names (liveValues).
   function addProperties() {
     if (!properties) return;
-    const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k)), groups = fragments(doc);
+    const chosen = PROPERTY_ROWS.flat().map((r) => r.key).filter((k) => settings.propertyRows.includes(k)), groups = fragments(doc), names = settings.propertyNames !== false;
     const values = withCas(properties.values, casNumbers.get());
     let m = doc, id = 0;
     const items: number[] = [];
     properties.atoms.forEach((atoms, k) => {
-      const runs = propertyRuns(values, chosen, k);
+      const runs = propertyRuns(values, chosen, k, names);
       if (!runs.length) return;
       const clean = normalise(runs), text = { text: plainOf(clean), ...(styled(clean) ? { runs: clean } : {}) };
       // A caption that counts as chemistry is an atom after the drawing's (chem): its values go under the caption.
       const c = atoms[0] >= doc.atoms.length ? doc.captions?.find((x) => x.id === chem.captions[atoms[0] - doc.atoms.length]) : undefined;
       if (!c && atoms.some((i) => i >= doc.atoms.length)) return;
       const live = groups.find((g) => g.includes(atoms[0]))?.length === atoms.length
-        ? { property: { attrs: { rows: chosen.join(" "), ...(settings.decimals !== undefined ? { places: String(settings.decimals) } : {}) }, atoms: [...atoms].sort((p, q) => p - q) } } : {};
+        ? { property: { attrs: { rows: withNames(chosen.join(" "), names), ...(settings.decimals !== undefined ? { places: String(settings.decimals) } : {}) }, atoms: [...atoms].sort((p, q) => p - q) } } : {};
       [m, id] = addCaption(m, c ? { ...text, ...belowCaption(c) } : { ...text, x: 0, y: 0, under: atoms, ...live });
       items.push(id);
     });
@@ -7853,6 +7864,7 @@ export default function Editor() {
     act: (id) => { if (modal()) return false; mcpWait.current = { after: mcpRenders.current }; runAction(id); return true; },
     map: (reactants, products) => mapReaction(reactants, products),
     reaction: (id) => reactionOf(id),
+    values: (m, atoms, places, cas) => liveOf(m, !!cas)(atoms, places),
     ink: (atoms) => inkBox(atoms),
     textBox: (id) => captionBox(id),
     labelBox: (i) => { const b = drawing.label[i]; return b && [b[0] / L, -b[3] / L, b[2] / L, -b[1] / L]; },
@@ -8110,7 +8122,7 @@ export default function Editor() {
     } as Record<string, [string, string, React.ReactNode]> : {}),
   };
   // Other spellings people search with (American ones), by command.
-  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius" };
+  const WORDS: Record<string, string> = { stoichiometry: "analyze analysis", colour_pick: "eyedropper color sample", connect_ai: "claude chatgpt cursor mcp assistant model draw for me", chart_energy: "add chart profile reaction coordinate", chart_radar: "add chart radar glorius", "caption.names": "labels quantity live values properties" };
   const paletteCommands = (): Command[] => {
     const toolKey = (id: string) => { const k = keymap(settings.keys)[id]?.[0]; return k ? keyLabel(k) : undefined; };
     const pick = (t: Tool, variant?: [string, string]) => () => { if (variant) setSettings((s) => ({ ...s, variants: { ...s.variants, [variant[0]]: variant[1] } })); setTool(t); };
@@ -8621,6 +8633,7 @@ export default function Editor() {
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
+      if (what === "names") { const next = namedValues(doc, picked); return next === doc ? undefined : void set(next, true); }
       if (what === "detach" || what === "attach") {
         // Detach leaves the caption where it is, as free text. Attach centres it under the structure above it.
         const moves = new Map(placed.filter((c) => picked.has(c.id)).map((c) => [c.id, anchorOf(c)]));
@@ -10936,6 +10949,8 @@ export default function Editor() {
           stacked={spectrum && !panelHidden("nmr") ? "nmr" : msAtoms && !panelHidden("ms") ? "ms" : undefined}
           decimals={settings.decimals}
           onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
+          names={settings.propertyNames !== false}
+          onNames={(on) => setSettings((s) => ({ ...s, propertyNames: on ? undefined : false }))}
           online={settings.onlineSearch}
           onHazards={findHazards}
           onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
