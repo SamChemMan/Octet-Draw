@@ -77,10 +77,16 @@ const chem = await import(join(repo, "src/chem.ts"));
 await chem.ready;
 const { serialize } = await import(join(repo, "src/file.ts"));
 const jitter = (i) => Math.sin(i * 12.9898) * 0.3;
+// "backwards:" before a SMILES: each wedge or hash to an end atom turned round and made a hash or wedge, so it reads the
+// same to Octet but is drawn the wrong way round (for Redraw Stereo Bonds).
+const backwards = (m) => {
+  const ends = (i) => m.bonds.filter((b) => b.atoms.includes(i)).length;
+  return { ...m, bonds: m.bonds.map((b) => (b.stereo && ends(b.atoms[1]) === 1 ? { ...b, atoms: [b.atoms[1], b.atoms[0]], stereo: b.stereo === 1 ? 6 : 1 } : b)) };
+};
 const drawing = (s) => {
   const mol = s.startsWith("chain:")
     ? { atoms: Array.from({ length: +s.slice(6) }, (_, i) => ({ label: "C", location: [i * 0.87, (i % 2) * 0.5, 0] })), bonds: Array.from({ length: +s.slice(6) - 1 }, (_, i) => ({ type: 1, atoms: [i, i + 1] })) }
-    : chem.parseStructure(s);
+    : s.startsWith("backwards:") ? backwards(chem.parseStructure(s.slice(10))) : chem.parseStructure(s);
   return serialize({ ...mol, atoms: mol.atoms.map((a, i) => ({ ...a, location: [a.location[0] + jitter(i), a.location[1] + jitter(i + 999), 0] })) });
 };
 
