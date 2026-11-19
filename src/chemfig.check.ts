@@ -624,8 +624,7 @@ browser();
   console.log(`chemfig: 40 paclitaxels (${grid.atoms.length} atoms) in ${ms.toFixed(0)} ms (median of 5)`);
   assert.ok(ms < 300, `40 paclitaxels took ${ms.toFixed(0)} ms`);
   const { peptideSmiles } = await import("./peptide.ts");
-  // (Octet's peptide text takes 60 residues and a SMILES 1,000 atoms at most: five of 100 residues, each two of 50
-  // joined, one under another.)
+  // (A SMILES of 1,000 atoms at most: five of 100 residues, each two of 50 joined, one under another.)
   const fifty = peptideSmiles(`peptide: ${"ACDEFGHIKLMNPQRSTVWY".repeat(3).slice(0, 50)}`)!;
   assert.ok(fifty.endsWith("C(=O)O"));
   const hundred = chem.parseStructure(fifty.slice(0, -1) + fifty), pep: Mol = { atoms: [], bonds: [] };

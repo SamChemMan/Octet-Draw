@@ -21,6 +21,7 @@ import { readPlasmid, union } from "./cdxml.ts";
 import { emptyRows, GRID_ROWS, movedAt, NUMBER_ROW, setRole, stepGrids, TABLE, type GridView } from "./gridview.ts";
 import { conditionItems, conditionKind, parseAmount, ROLES, solve, type Field } from "./stoich.ts";
 import { stereoFacts, stereoLabels } from "./chem.ts";
+import { isSeqText, seqBuilt, withSequences } from "./helm.ts";
 import { COLUMNS, PRESETS, PAGES, QUICK_STYLE, forPurpose, pageSize, presetAt, purposeStyle, readStyle, sameStyle, type DocStyle, type PageName, type PurposeKind } from "./docstyle.ts";
 import { isDrawingText, readOct } from "./oct.ts";
 import EXAMPLE_LIST from "./examples/examples.json" with { type: "json" };
@@ -521,7 +522,7 @@ const OPS: Op[] = [
     description: `Sets the style and page, as Document settings do: a preset (${Object.keys(PRESETS).join("; ")}; it keeps the page) and a page (ACS1: JACS one column, 3.25 in; ACS2: two columns, 7 in), or page_size in mm. Octet redraws everything in the new style. properties: the drawing's title, author, keywords and comment (Settings > Document > Properties; the comment can have several lines), kept in the file and in exported PDFs; '' takes one away. circled_charges: Circle new charges (Settings > Document > Style), so a new charge on an atom is circled; what is drawn keeps its look.`,
     // (A preset as the user names it, Angewandte Chemie, is as set_brief reads a journal; style, name, value or journal
     // for preset is how Haiku gave it, plan 19.10.)
-    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200), comment: str(MAX_COMMENT) }), circled_charges: { type: "boolean" } }),
+    inputSchema: obj({ preset: pick(Object.keys(PRESETS), undefined, { reads: (v) => journalOf(v).preset, names: ["style", "name", "value", "journal"] }), page: pick(PURPOSE_PAGES), landscape: { type: "boolean" }, page_size: list(num(20, 2000), 2, 2), properties: obj({ title: str(200), author: str(200), keywords: str(200), comment: str(MAX_COMMENT) }), circled_charges: { type: "boolean" }, sequences: pick(["atoms", "labels"]) }),
     run: setStyle,
   },
   {
@@ -1037,7 +1038,12 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
     // A SMILES's map numbers name its atoms for later changes: they are kept as tags, and not drawn.
     const text = it.text.trim().includes("\n") ? it.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "") : clean(it.text), got = host.structure(text), read = got && tagged(got);
     let mol = read && crowded(read) ? host.tidy(read) : read;
-    if (!mol?.atoms.length) { const w = where && written(it as { text: string }), line = w ? where!.get(w) : undefined; failed.push(line ? { text: short(w!, 60), line } : { text: short(text, 60) }); lost.push(k); continue; }
+    if (!mol?.atoms.length) {
+      // A sequence Octet cannot draw says why, as the name field does (an unknown code, too many monomers).
+      const why = seqWhy(text, host.doc().style?.sequences === "labels");
+      if (why) { wrong.push(`${short(text, 60)}: ${why}`); lost.push(k); continue; }
+      const w = where && written(it as { text: string }), line = w ? where!.get(w) : undefined; failed.push(line ? { text: short(w!, 60), line } : { text: short(text, 60) }); lost.push(k); continue;
+    }
     // A label for each * (a generic group), in the order they come in the SMILES: Octet keeps a SMILES's atom order.
     if (it.labels?.length) {
       const stars = mol.atoms.flatMap((x, i) => (x.label === "*" && !x.text ? [i] : []));
@@ -1070,10 +1076,13 @@ async function read(host: Host, items: CompoundIn[], ctx?: Ctx, where = ctx?.whe
 }
 // The labels of a compound read from text or atom by atom that Octet reads no group in (labels.ts unknownLabel), each
 // once. A label set as text only is not chemistry by design: it is not named. One made by changes is named by them.
+// A residue label keeps its atoms, so Octet reads it.
 function unread(atoms: Atom[]): { unread?: string[] } {
-  const out = [...new Set(atoms.flatMap((x) => (x.text && x.chemical !== false && unknownLabel(chemicalText(x.text, x.runs)!) ? [x.text] : [])))];
+  const out = [...new Set(atoms.flatMap((x) => (x.text && !x.inner?.atoms.length && x.chemical !== false && unknownLabel(chemicalText(x.text, x.runs)!) ? [x.text] : [])))];
   return out.length ? { unread: out } : {};
 }
+// Why a sequence (Octet's words or HELM) is not drawn, as the name field says it; undefined for any other text.
+const seqWhy = (text: string, labels: boolean): string | undefined => { if (!isSeqText(text)) return undefined; try { const r = seqBuilt({ build: text, labels }); return r && "problem" in r ? r.problem : undefined; } catch { return undefined; } };
 // A group written where a label goes that is no label Octet reads, as a structure with the atom it joins by first: a
 // SMILES by its first atom (N1CCOCC1, whose ring digits are no counts though NCCOCC reads as a label); a substituent
 // name (morpholino, methyl) where its lithium compound has the lithium; a compound's name by its one N–H
@@ -1787,8 +1796,14 @@ const marked = (host: Host, c: Caption): Caption => (host.experiment() ? markupC
 
 // A list as said: "title", "title and author", "title, author and keywords".
 const andList = (l: (string | number)[]) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} and ${l[l.length - 1]}` : `${l[0] ?? ""}`);
-async function setStyle(host: Host, a: { preset?: string; page?: PageName; landscape?: boolean; page_size?: number[]; properties?: Properties; circled_charges?: boolean }): Promise<Result> {
+async function setStyle(host: Host, a: { preset?: string; page?: PageName; landscape?: boolean; page_size?: number[]; properties?: Properties; circled_charges?: boolean; sequences?: "atoms" | "labels" }): Promise<Result> {
   if (a.page_size && a.page) return { text: "Give page or page_size, not both.", error: true };
+  // Sequences (Settings > Document > Style > Sequences): every chain drawn again as atoms or as residue labels.
+  if (a.sequences) {
+    const m = host.doc();
+    host.set({ ...withSequences(m, a.sequences), style: { ...host.style(), ...m.style, sequences: a.sequences } });
+    if (!a.preset && !a.page && !a.page_size && a.landscape === undefined && !a.properties && a.circled_charges === undefined) return { text: `The drawing's sequences now show as ${a.sequences === "labels" ? "residue labels" : "atoms"}.${UNDO}` };
+  }
   // Circle new charges on its own: the style changes, and nothing drawn does (issue 60).
   const circled = a.circled_charges === undefined ? {} : { circled: a.circled_charges ? (true as const) : undefined };
   if (a.circled_charges !== undefined && !a.preset && !a.page && !a.page_size && a.landscape === undefined) {
