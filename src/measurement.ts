@@ -5,9 +5,9 @@
 // for other programs. Dashed lines join the ends that no bond joins, and an angle has an arc at its vertex (measureInk).
 //
 // The Å scale is 3D Clean Up's own unit (clean3d.ts): a bond's real length over a C–C single bond's (its ratio), so
-// a structure's median of (length / ratio) is the length of a 1.52 Å bond. Scaling the drawing or changing the style
-// never changes a value, and a bond reads the length 3D Clean Up gives it. With no atom end, the document's bond length
-// is 1.52 Å.
+// a structure's median of (length / ratio) is the length of a 1.52 Å bond. For a measurement with an atom end, scaling
+// the drawing or changing the style never changes a value, and a bond reads the length 3D Clean Up gives it. With no
+// atom end, the document's bond length is 1.52 Å, so scaling the drawing changes the value (D14).
 import { bondRatios } from "./clean3d.ts";
 import { widthOf } from "./arial.ts";
 import { DEFAULT_STYLE, type DocStyle } from "./docstyle.ts";

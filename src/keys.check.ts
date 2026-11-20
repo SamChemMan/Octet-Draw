@@ -110,6 +110,11 @@ assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /useL
 // The menu's Undo and Redo run the editor's undo (commands.current.undo and redo), which a curve or a measurement in
 // progress takes first: Undo takes off its last point, Redo does nothing, and the history stays as it is.
 assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const undo = \(redo = false\) => \{[^}]*?if \(pen \|\| measuring\) \{ if \(!redo\) takeBack\(\); return; \}/);
+// Taking a point back changes nothing in the drawing, so takeBack tells the screen reader itself.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), body = editor.slice(editor.indexOf("const takeBack = () => {"), editor.indexOf("const undo = (redo = false)"));
+  for (const said of ["Removed the last end.", "Stopped the measurement.", "Removed the last point.", "Stopped the curve."]) assert.ok(body.includes(`say(`) && body.includes(said), `takeBack says "${said}"`);
+}
 assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /undo: \(\) => \(typing\(\) \? void document\.execCommand\("undo"\) : undo\(\)\),\s+redo: \(\) => \(typing\(\) \? void document\.execCommand\("redo"\) : pen \|\| measuring \|\| h\.at < h\.stack\.length - 1 \? undo\(true\) : repeatLast\(\)\),/);
 // Feedback's keys: 1, 2 and 3 with ⌘ held, all within 400 ms, in any order. No key-up is needed.
 {

@@ -1279,10 +1279,14 @@ export default function Editor() {
     else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
   // Drawing with the Pen or measuring: Delete, Backspace and Undo take off the last point placed. With no point left,
-  // the curve or the measurement ends.
+  // the curve or the measurement ends. Nothing in the drawing changes, so the screen reader is told here.
   const takeBack = () => {
-    if (measuring) return setMeasuring(measuring.length > 1 ? measuring.slice(0, -1) : undefined);
-    if (pen && pen.length > 1) return setPen(pen.slice(0, -1));
+    if (measuring) {
+      say(measuring.length > 1 ? "Removed the last end." : "Stopped the measurement.");
+      return setMeasuring(measuring.length > 1 ? measuring.slice(0, -1) : undefined);
+    }
+    if (pen && pen.length > 1) { say("Removed the last point."); return setPen(pen.slice(0, -1)); }
+    if (pen) say("Stopped the curve.");
     setPen(undefined);
     setPenAt(undefined);
   };

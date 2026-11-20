@@ -124,8 +124,9 @@ Each job is done when its "done" line is true and its checks in the acceptance l
   Edit > Undo, the toolbar's Undo), with no change to the history; with no end left the measurement in progress ends,
   and the next Undo undoes as usual. Redo does nothing while one is in progress. The Pen's curve in progress is the same
   (20 November 2026). Changing tool or variant, the right-click menu or a menu command takes it away, but for Undo,
-  Redo and the View and Window menus' commands (Magnify, Show Grid), which change only what is shown. A click on the end just placed, or on an atom placed already, does
-  nothing. With Measure in hand and nothing picked, Delete takes nothing from under the pointer.
+  Redo and the View and Window menus' commands (Magnify, Show Grid), which change only what is shown. A click on the
+  end just placed, or on an atom placed already, does nothing. Undo, Delete and Backspace mid-way tell the screen
+  reader what they did ("Removed the last end.", "Stopped the measurement."). With Measure in hand and nothing picked, Delete takes nothing from under the pointer.
 - With Measure in hand no handle shows or takes a press (as with the Eraser): a press by the label of the measurement
   just made places an end.
 - With grid snapping on, an end off an atom or bond goes on the grid, and the dotted line and the value follow the
