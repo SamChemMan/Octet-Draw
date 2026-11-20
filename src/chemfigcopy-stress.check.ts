@@ -754,12 +754,16 @@ const two = lastClip(A);
   const notices = A.d.querySelectorAll(".notice:not(.leaving)").length;
   rec("ST16 U7 (S18) 50 copies in about a second: all the same, one notice, no error", A.w.__clip.length === 50 && A.w.__clip.every((c) => c === two) && notices <= 1 && A.w.__errors.length === 0, JSON.stringify({ n: A.w.__clip.length, same: A.w.__clip.every((c) => c === two), ms: Math.round(ms), notices, errors: A.w.__errors.slice(0, 3) }));
 }
-// U8: a reaction with an arrow and text: the notice names what the code leaves out.
+// U8: a pasted reaction: since 7e2285da (19 November 2026, issue 59) the code has its arrow, as a scheme's \arrow
+// or, for a lone reaction arrow, a \chemmove line, so the notice does not name the arrows (it names only what the code
+// leaves out: chemfig.check.ts has those).
 {
   await paste(A, "CCO>>CC=O");
   await wait(800);
+  A.w.__clip.length = 0;
   await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(300);
-  rec("ST1 U8 the notice names the arrows", /^Copied\. The code does not have the arrows/.test(notice(A)), notice(A));
+  const code = lastClip(A) ?? "";
+  rec("ST1 U8 a reaction's arrow is in the code, and the notice does not name it", (/\\schemestart[\s\S]*\\arrow/.test(code) || /\\chemmove\{\s*\\draw\[-/.test(code)) && /^Copied\./.test(notice(A)) && !/arrows/.test(notice(A)), JSON.stringify({ notice: notice(A), code: code.slice(-200) }));
 }
 // U9: a second window; Compact set in Settings in window A; window B copies compact code.
 const Bw = await openWindow("B");
