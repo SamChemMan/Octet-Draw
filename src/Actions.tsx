@@ -118,7 +118,7 @@ export type Context = ({ annotate?: true }) & (
   // steps: a scheme of several arrows, with a table for each step (join) or one for the scheme (split).
   // table: the table picked whole (no cell). own: the cell's row is one of the user's own. free: the table was moved by
   // hand and keeps its place (Attach to reaction puts it back under its reaction).
-  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join"; table?: boolean; own?: boolean; free?: boolean }
+  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join"; table?: boolean; own?: boolean; free?: boolean; styles?: { bold?: boolean; italic?: boolean; underline?: boolean } }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
@@ -152,6 +152,7 @@ type Props = {
   more?: boolean; // Settings > Pro > More formats: File > More Formats' copy commands are offered
   folded: string[]; // the titled sections folded to their title, by set
   onFold: (id: string, folded: boolean) => void;
+  cellOpen?: boolean; // a table cell is being typed in: the text style buttons keep it open
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -781,7 +782,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, more, folded, onFold }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, more, folded, onFold, cellOpen }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -932,8 +933,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       onPointerEnter={(e) => { folds.y = e.clientY; }}
       onPointerMove={(e) => { folds.y = e.clientY; [...folds.held].forEach((f) => f()); }}
       onPointerLeave={() => { folds.y = null; setTimeout(() => { folds.settle.forEach((f) => f()); folds.release(); }, PEEK_LINGER); }}
-      // While text is being typed, the panel's buttons style it without taking the focus away from it.
-      onMouseDown={(e) => { if (context.kind === "caption" && context.mode === "typing" && !(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
+      // While text is being typed, the panel's buttons style it without taking the focus away from it. In a table cell
+      // only the text style buttons do: the rest of the panel closes the cell first, as a click elsewhere does.
+      onMouseDown={(e) => { if (((context.kind === "caption" && context.mode === "typing") || (cellOpen && e.target instanceof Element && e.target.closest(".label-style"))) && !(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
     >
       <header>
         <h2>{title}</h2>
@@ -1090,6 +1092,16 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           {context.kind !== "shape" && <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" data-tip="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>}
           <button className="chip" aria-label="Character map" data-tip="Character map" onClick={() => run("char_map")}><span className="glyph-text">αβ</span></button>
+        </div>
+      )}
+
+      {context.kind === "grid" && context.styles && (
+        // A reagent table text cell being typed in: Bold, Italic and Underline on the characters selected, as in a
+        // Table cell. Pressed when every character of the cell has it.
+        <div className="chips label-style" role="group" aria-label="Cell style">
+          {([["bold", "Bold", <TextB size={16} />], ["italic", "Italic", <TextItalic size={16} />], ["underline", "Underline", <TextUnderline size={16} />]] as const).map(([id, name, icon]) => (
+            <button key={id} className="chip" aria-pressed={!!context.styles![id]} aria-label={name} data-tip={name} data-key={hint(`caption.${id}`)} onClick={() => run(`caption.${id}`)}>{icon}</button>
+          ))}
         </div>
       )}
 

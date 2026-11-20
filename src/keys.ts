@@ -163,7 +163,7 @@ export function keyOf(e: { key: string; code?: string; shiftKey: boolean; altKey
 }
 
 // How a key looks on screen.
-const MAC = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
+export const MAC = typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
 const NAMES: Record<string, string> = {
   delete: "Delete", backspace: MAC ? "⌫" : "Backspace", space: "Space", escape: "Esc", enter: MAC ? "↩" : "Enter", "-": "−",
   arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓",
@@ -306,11 +306,11 @@ export const textEntry = (el: Focus) => !!el && (el.tagName === "TEXTAREA" || el
 
 // ChemDraw's text keys with ⌘ (Ctrl on Windows and Linux) in a caption or atom label box: the command each runs. A label
 // takes Bold, Italic, Underline, Plain, Subscript and Superscript (Fe with III raised, issue 44); a caption takes
-// Formula too. ⇧⌘N in either is Convert Name to Structure.
+// Formula too. ⇧⌘N in either is Convert Name to Structure. A table cell (cell) takes a caption's styles, and not ⇧⌘N.
 const TEXT_KEYS: Record<string, string> = { b: "caption.bold", i: "caption.italic", u: "caption.underline", t: "caption.plain", f: "caption.formula", "-": "caption.sub", "=": "caption.super", "+": "caption.super" };
-export function textKey(e: { key: string; shiftKey: boolean }, label: boolean): string | undefined {
+export function textKey(e: { key: string; shiftKey: boolean }, label: boolean, cell = false): string | undefined {
   const k = e.key.toLowerCase();
-  if (e.shiftKey && k === "n") return "name_to_structure";
+  if (e.shiftKey && k === "n") return cell ? undefined : "name_to_structure";
   const command = TEXT_KEYS[k];
   return label && command && !["b", "i", "u", "t", "-", "=", "+"].includes(k) ? undefined : command;
 }

@@ -12,7 +12,7 @@
 import { pieces, units } from "./labels.ts";
 import { atomIndicator, bondIndicator, queryLabel } from "./query.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { lines as richLines, plainOf, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
+import { lines as richLines, plainOf, runsFor, runsOf, styleOf, wrap, type RunStyle, type TextRun } from "./richtext.ts";
 import type { DocStyle, Guides } from "./docstyle.ts";
 import type { Cycle, CycleText } from "./cycle.ts";
 import type { Measured } from "./measured.ts";
@@ -400,12 +400,16 @@ export type ShapeKind = "box" | "rounded" | "oval" | "highlight" | "brackets" | 
 // column is never narrower than its text). lines: the lines drawn, from the edges, the rule under the header row,
 // the lines between rows and the lines between columns (journal rules when unset: top, header and bottom; grid: true
 // in older files is every line). align: each column's text (centred when unset). weight: the lines' width in points.
+// runs: each cell's text styles (richtext.ts readCellRuns), the same shape as cells, null for a cell without; a cell's
+// runs count only while they join to its text (cellRuns). Added in 1.1.3: older Octets leave them out and keep the text.
 export type TableLine = "top" | "bottom" | "left" | "right" | "header" | "rows" | "cols";
 export type CellAlign = "left" | "centre" | "right";
-export type Table = { cells: string[][]; grid?: boolean; widths?: number[]; heights?: number[]; lines?: TableLine[]; align?: CellAlign[]; weight?: number };
+export type Table = { cells: string[][]; runs?: (TextRun[] | null)[][]; grid?: boolean; widths?: number[]; heights?: number[]; lines?: TableLine[]; align?: CellAlign[]; weight?: number };
 export const TABLE_LINES: Record<"journal" | "grid" | "box" | "none", TableLine[]> = {
   journal: ["top", "header", "bottom"], grid: ["top", "bottom", "left", "right", "header", "rows", "cols"], box: ["top", "bottom", "left", "right"], none: [],
 };
+// A cell's runs, while they join to its text.
+export const cellRuns = (t: Table | undefined, r: number, c: number) => runsFor(t?.runs?.[r]?.[c], t?.cells[r]?.[c] ?? "");
 export const linesOf = (t?: Table): TableLine[] => t?.lines ?? (t?.grid ? TABLE_LINES.grid : TABLE_LINES.journal);
 // A pen curve: anchor points joined by cubic Béziers. c1 is a point's incoming handle, c2 its outgoing one; a point
 // without handles is a corner. A closed curve joins its last point back to its first.
@@ -643,7 +647,9 @@ export type Annotation = { keyword: string; content: string };
 // reaction takes it off); own, rows of the user's own (a name, and text under each column, by its key; after: the row
 // it follows); text, text typed over a cell (by row id, then column key; "#" is the row's name), which shows in place of
 // the value worked out (a number typed over MW is the MW used); hidden.cells, cells shown blank (by row id, then column
-// keys), and hidden.lines, lines taken out (by line id, gridview.ts).
+// keys), and hidden.lines, lines taken out (by line id, gridview.ts). Added in 1.1.3: runs, the text styles of a text
+// cell (by row id, then column key or "#", as text), each character's whole style; they count only while they join to
+// the text the cell shows (gridview.ts shownCell).
 export type GridRole = "reactant" | "catalyst" | "solvent";
 export type GridOwnRow = { id: string; name: string; after?: string; values?: Record<string, string> };
 export type GridConditions = Partial<Record<"temperature" | "time" | "atmosphere" | "other", string>>;
@@ -651,7 +657,7 @@ export type Grid = {
   arrow: number; typed: Record<string, Partial<Record<"mass" | "moles" | "equiv" | "volume" | "density" | "molarity" | "purity" | "measured", number>>>; limiting?: string;
   hidden?: { rows?: string[]; cols?: string[]; cells?: Record<string, string[]>; lines?: string[] }; colour?: string; layout?: "rows";
   roles?: Record<string, GridRole>; taken?: Record<string, "mass" | "volume">; conc?: number; conditions?: GridConditions; step?: true; at?: [number, number];
-  free?: true; own?: GridOwnRow[]; text?: Record<string, Record<string, string>>;
+  free?: true; own?: GridOwnRow[]; text?: Record<string, Record<string, string>>; runs?: Record<string, Record<string, TextRun[]>>;
 };
 // A group (Object > Group): atoms and other objects (captions, arrows, shapes, cycles, by id) that select and move as
 // one. Groups nest: a group lists everything in it, the groups inside it too (edit.ts, tidyGroups). An integral group
@@ -2940,16 +2946,16 @@ export function spotPath(t: ReturnType<typeof tlcLayout>, x: Spot, grow = 0): [n
 
 // A table's layout (drawing units, y up). Each column is as wide as its widest text plus padding, and the columns
 // share out any width the box has to spare; rows are equal. measure: a cell's text width in drawing units at the
-// table's own text size (or the document's caption size). caption: the document's caption size (pt). The text,
+// table's own text size (or the document's caption size), with its runs when it has some (cellRuns). caption: the document's caption size (pt). The text,
 // padding and least sizes follow the table's scale.
 export const TABLE_PAD = 0.35, TABLE_ROW = 0.8; // bond lengths: padding each side of a column's text; least row height
 // A table's least row height: TABLE_ROW at its scale, taller for text larger than the document's caption size (pt).
 export const tableRow = (sh: Pick<Shape, "size" | "scale">, caption = 10) => TABLE_ROW * scaleOf(sh) * Math.max(1, (sh.size ?? caption) / caption);
-export function tableLayout(sh: Shape, measure: (text: string) => number = () => 0, caption?: number) {
+export function tableLayout(sh: Shape, measure: (text: string, runs?: TextRun[]) => number = () => 0, caption?: number) {
   const x0 = Math.min(sh.from[0], sh.to[0]), y1 = Math.max(sh.from[1], sh.to[1]);
   const cells = sh.table?.cells.length ? sh.table.cells : [[""]];
   const rows = cells.length, cols = Math.max(...cells.map((r) => r.length)), f = scaleOf(sh);
-  const natural = Array.from({ length: cols }, (_, c) => Math.max(f, ...cells.map((r) => (r[c] ? (measure(r[c]) + 2 * TABLE_PAD) * f : 0))));
+  const runs = sh.table?.runs, natural = Array.from({ length: cols }, (_, c) => Math.max(f, ...cells.map((r, k) => (r[c] ? (measure(r[c], runs && cellRuns(sh.table, k, c)) + 2 * TABLE_PAD) * f : 0))));
   const spare = Math.max(0, Math.abs(sh.to[0] - sh.from[0]) - natural.reduce((a, b) => a + b, 0)) / cols;
   // Columns and rows whose borders were dragged keep their sizes; the rest share the box.
   const widths = natural.map((w, c) => Math.max(w, sh.table?.widths?.[c] ?? w + spare)), edges = [x0];

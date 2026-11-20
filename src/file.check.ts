@@ -253,3 +253,33 @@ for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
   assert.deepEqual(parse(JSON.stringify({ ...base, guides: { grid: 1, crosshair: [NaN, 0], rulers: "y" } })).guides, {});
   console.log("file.check: grid and guides ok");
 }
+
+// Text styles in a Table's cells (render.ts Table.runs): kept through a save, beside the plain text, so an older Octet
+// opens the cells as plain text. Runs that do not join to their cell's text, that have keys a cell does not take (a
+// font, a size, a colour, anything unknown), or that are too many, are left out, and the drawing still opens.
+{
+  const cells = [["Entry", "Base"], ["1", "K2CO3"], ["2", "Cs2CO3"]];
+  const runs = [[null, [{ text: "Ba", bold: true as const }, { text: "se" }]], [null, [{ text: "K", italic: true as const }, { text: "2", script: "sub" as const }, { text: "CO3", underline: true as const }]], [null, null]];
+  const table = { kind: "table" as const, from: [0, 3] as [number, number], to: [6, 0] as [number, number], table: { cells, runs } };
+  const [m] = addShape(EMPTY, table);
+  const again = parse(serialize(m)).shapes![0].table!;
+  assert.deepEqual([again.cells, again.runs], [cells, runs]);
+  const open = (r: unknown) => parse(JSON.stringify({ ...JSON.parse(serialize(m)), shapes: [{ ...JSON.parse(serialize(m)).shapes[0], table: { cells, runs: r } }] })).shapes![0].table!;
+  // A cell's runs that no longer join to its text (an older Octet or an AI app changed the text alone) are left out.
+  assert.deepEqual(open([[null, [{ text: "Bas", bold: true }]], [null, runs[1][1]]]).runs, [[null, null], [null, runs[1][1]], [null, null]]);
+  for (const bad of [[{ text: "Base", font: "Arial" }], [{ text: "Base", size: 12 }], [{ text: "Base", colour: "#ff0000" }], [{ text: "Base", bold: 1 }], [{ text: "Base", script: "up" }], [{ text: "Base", onclick: "x" }], [{ text: 5 }], "Base", [], Array.from({ length: 2001 }, () => ({ text: "" }))]) {
+    const t = open([[null, bad]]);
+    assert.deepEqual([t.cells, t.runs], [cells, undefined], JSON.stringify(bad).slice(0, 60));
+  }
+  // Not a list of rows: no runs, the cells kept.
+  for (const bad of [{}, "x", [[null], [null], [null], [null]]]) assert.deepEqual(open(bad).runs, undefined);
+  // More rows of runs than cells (an AI app gave a row fewer): the rows that have cells keep theirs.
+  assert.deepEqual(open([...runs, [null, [{ text: "Base", bold: true }]]]).runs, runs.map((r, i) => (i === 2 ? [null, null] : r)));
+  // Every cell the editor can make keeps its runs: a 100 by 20 table with a style in each cell opens with all 2000.
+  const many = Array.from({ length: 100 }, () => Array.from({ length: 20 }, () => "ab".repeat(15))), each = Array.from({ length: 15 }, () => [{ text: "a", bold: true as const }, { text: "b" }]).flat();
+  const big = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 3, x2: 6, y2: 0, table: { cells: many, runs: many.map((row) => row.map(() => each)) } }] })).shapes![0].table!;
+  assert.equal(big.runs!.flat().filter(Boolean).length, 2000, "every styled cell of a 100 by 20 table kept");
+  // A cell's runs are never more than its characters.
+  assert.equal(open([[null, [{ text: "B" }, { text: "" }, { text: "a" }, { text: "s" }, { text: "e", bold: true }]]]).runs, undefined);
+  console.log("file.check: table cell styles ok");
+}

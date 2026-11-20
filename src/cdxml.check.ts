@@ -1402,3 +1402,29 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
   assert.deepEqual([pyridine.atoms[0].implicitHCount, pyridine.bonds.filter((x) => x.type === 2).length], [undefined, 3], "a pyridine's N");
   console.log("cdxml.check: hydrogens set by hand ok");
 }
+
+// Text styles in table cells: a Table's (Table.runs) and the reagent table's (Grid.runs) come back from CDXML, from it
+// as CDX, and from Octet's .cdx, as Octet's own data. ChemDraw sees each Table cell as text in <s> runs with the faces
+// the page draws: bold 1, italic 2, underline 4, subscript 32, superscript 64, and formula counts lowered (K₂CO₃).
+{
+  const table: Shape = { id: 5, kind: "table", from: [0, 3], to: [6, 0], bold: true, table: { cells: [["Base", "Yield"], ["K2CO3", "72%"]],
+    runs: [[[{ text: "Ba" }, { text: "se", bold: true }], null], [[{ text: "K2", italic: true }, { text: "CO3", bold: true }], [{ text: "72", underline: true }, { text: "%", script: "super" }]]] } };
+  const arrow: Arrow = { id: 6, kind: "reaction", from: [10, 0], to: [14, 0] };
+  const m: Mol = { atoms: [], bonds: [], shapes: [table], arrows: [arrow], grids: [{ arrow: 6, typed: {}, text: { formula: { "r:x": "C6H6" } }, runs: { formula: { "r:x": [{ text: "C6", italic: true }, { text: "H6", bold: true }] } } }] };
+  const xml = toCdxml(m, DEFAULT_STYLE);
+  for (const [what, back] of [["CDXML", fromCdxml(xml).mol], ["CDX", fromCdxml(cdxToXml(xmlToCdx(parseXml(xml)))).mol], ["Octet's .cdx", readCdx(writeCdx(m, DEFAULT_STYLE)).mol]] as const) {
+    assert.deepEqual(back.shapes?.find((x) => x.kind === "table")?.table, table.table, `${what}: a Table's cell styles`);
+    assert.deepEqual(back.grids?.[0].runs, m.grids![0].runs, `${what}: the reagent table's cell styles`);
+  }
+  const every = (x: Xml): Xml[] => [x, ...x.kids.flatMap(every)];
+  const texts = every(parseXml(xml)).filter((x) => x.name === "t" && x.kids.some((k) => k.name === "s")), cell = (text: string) => texts.find((t) => t.kids.map((k) => k.text).join("") === text)!;
+  const faces = (text: string) => cell(text).kids.map((k) => [k.text, Number(k.attrs.face ?? 0)]);
+  assert.deepEqual(faces("Base"), [["Ba", 0], ["se", 1]], "a cell's own runs, the table's bold left out where a run has none");
+  assert.deepEqual(faces("K2CO3"), [["K", 2], ["2", 2 | 32], ["CO", 1], ["3", 1 | 32]], "formula counts lowered on its own runs");
+  assert.deepEqual(faces("72%"), [["72", 4], ["%", 64]]);
+  assert.deepEqual(faces("Yield"), [["Yield", 1]], "a cell without runs in the table's style");
+  // A cell without runs in a table with no formula: one run, as before.
+  const plain = every(parseXml(toCdxml({ ...m, shapes: [{ ...table, bold: undefined, table: { cells: [["a", "Et3N"]] } }] }, DEFAULT_STYLE))).filter((x) => x.name === "t");
+  assert.deepEqual(plain.map((t) => t.kids.filter((k) => k.name === "s").map((k) => [k.text, Number(k.attrs.face ?? 0)])).filter((r) => r.length), [[["a", 0]], [["Et", 0], ["3", 32], ["N", 0]]]);
+  console.log("cdxml.check: table cell styles ok");
+}

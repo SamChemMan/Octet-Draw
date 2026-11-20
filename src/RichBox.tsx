@@ -2,7 +2,7 @@
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
 // each span's own data, and paste inserts plain text only (a citation's formatting can follow, from its runs: richpaste.ts).
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
+import { browserStyle, edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
 import { offerFor } from "./richpaste.ts";
 import { inMap } from "./CharMap";
 
@@ -23,6 +23,8 @@ type Props = {
   className?: string; // the box's look: a caption's (the default) or an atom label's
   label?: string; // its name for screen readers (Caption by default)
   onOffer?: (start: number, plain: string, runs: TextRun[]) => void; // a citation was pasted plain: its formatted runs
+  singleLine?: boolean; // one line (a table cell): every Return goes to onKeyDown, and a pasted line break is a space
+  base?: RunStyle; // the style of text typed outside the box's own spans (a cell's own look; none by default)
 };
 
 // Character offsets in the box, counting each span's text and each line break.
@@ -53,21 +55,24 @@ function pointAt(root: Node, index: number): [Node, number] {
   return [root, root.childNodes.length];
 }
 
-// The runs the box holds now: each text node in the style of the span it is in.
-function read(root: HTMLElement): TextRun[] {
+// The runs the box holds now: each text node in the style of the span it is in (base outside them).
+function read(root: HTMLElement, base: RunStyle = {}): TextRun[] {
   const out: TextRun[] = [];
   const walk = (n: Node, style: RunStyle) => {
     if (n.nodeType === Node.TEXT_NODE) { out.push({ ...style, text: n.textContent ?? "" }); return; }
     if (n instanceof HTMLBRElement) { if (!("end" in n.dataset)) out.push({ ...style, text: "\n" }); return; }
     if (n instanceof HTMLElement) {
       let s = style;
-      if (n.dataset.style) { try { s = JSON.parse(n.dataset.style) as RunStyle; } catch { s = style; } }
+      // A span's own style, with what the browser set on it over that (typing into a copy of a styled span, it keeps
+      // the look of the text it replaced): the text keeps the style it shows.
+      if (n.dataset.style) { try { s = browserStyle(n.tagName, n.style, JSON.parse(n.dataset.style) as RunStyle); } catch { s = style; } }
+      else if (n.tagName !== "DIV") s = browserStyle(n.tagName, n.style, style);
       // A block the browser made for a new line starts on a line of its own.
       if (n.tagName === "DIV" && out.length && !plainOf(out).endsWith("\n")) out.push({ ...s, text: "\n" });
       n.childNodes.forEach((c) => walk(c, s));
     }
   };
-  root.childNodes.forEach((c) => walk(c, {}));
+  root.childNodes.forEach((c) => walk(c, base));
   return normalise(out);
 }
 
@@ -106,6 +111,18 @@ export function RichBox(p: Props) {
     const r = p.api.current?.range(), old = plainOf(runs.current);
     if (r) p.onRuns(edited(runs.current, old.slice(0, r[0]) + text + old.slice(r[1]), p.pending), [r[0] + text.length, r[0] + text.length]);
   };
+  const typed = () => {
+    // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
+    // again. A cell's text never holds one (a file with one is refused).
+    // A line break at the end of one line is not text: the browser puts one in a box emptied of all its text.
+    const el = box.current!, all = read(el, p.base), got = p.singleLine && plainOf(all).endsWith("\n") ? edited(all, plainOf(all).slice(0, -1)) : all;
+    const flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
+    const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
+    // Kept here too: an owner may keep typed text without drawing again (a reagent table cell).
+    if (!p.pending) { runs.current = now; return p.onRuns(now, flat ? p.api.current?.range() : undefined); }
+    // Characters typed after a style was set with nothing selected take that style; the box is built again.
+    p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
+  };
   useEffect(() => {
     p.api.current = {
       range: () => {
@@ -124,20 +141,18 @@ export function RichBox(p: Props) {
       data-theme="light"
       role="textbox"
       aria-label={p.label ?? "Caption"}
-      aria-multiline
+      aria-multiline={!p.singleLine}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
       style={p.style}
-      onInput={() => {
-        const el = box.current!, now = read(el);
-        if (!p.pending) return p.onRuns(now);
-        // Characters typed after a style was set with nothing selected take that style; the box is built again.
-        p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
-      }}
+      // A style set with nothing selected waits for the end of a composition (an input method): building the box again
+      // in the middle of one would break it.
+      onInput={(e) => { if (!(p.pending && (e.nativeEvent as InputEvent).isComposing)) typed(); }}
+      onCompositionEnd={() => { if (p.pending) typed(); }}
       onPaste={(e) => {
         e.preventDefault();
-        const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), start = p.api.current?.range()?.[0];
+        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/[\u0000-\u001f]/g, " ") : lined, start = p.api.current?.range()?.[0];
         if (text.includes("\n")) insert(text);
         else if (text) document.execCommand("insertText", false, text);
         const runs = p.onOffer && start !== undefined ? offerFor(text, e.clipboardData.getData("text/html")) : undefined;
@@ -146,8 +161,10 @@ export function RichBox(p: Props) {
       onDrop={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         // A new line with Return (as ChemDraw's captions, unless its preference asks for Option-Return), and always with
-        // Option- or Shift-Return; the browser's own bold, italic and underline are not used (Octet's are).
-        if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
+        // Option- or Shift-Return; in one line, every Return is the box's owner's. The browser's own bold, italic and
+        // underline are not used (Octet's are).
+        if (e.key === "Enter" && p.singleLine) e.preventDefault();
+        else if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
         if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) e.preventDefault();
         p.onKeyDown(e);
       }}

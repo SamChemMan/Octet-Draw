@@ -1,7 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
-import { normalise, plainOf, type TextRun } from "./richtext.ts";
+import { normalise, plainOf, readTableRuns, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD } from "./annotate.ts";
@@ -152,9 +152,10 @@ function readHead(v: unknown): HeadSize | undefined {
   const h = v as Record<string, unknown>, ok = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n > 0 && n <= 500;
   return typeof h === "object" && h && ok(h.length) && ok(h.centre) && ok(h.width) ? { length: h.length as number, centre: h.centre as number, width: h.width as number } : undefined;
 }
-// A table's cells, if they are sound: up to 100 rows and 20 columns of short plain text.
+// A table's cells, if they are sound: up to 100 rows and 20 columns of short plain text, and their styles (runs), the
+// ones that are sound.
 function readTable(v: unknown): Table | undefined {
-  const t = v as { cells?: unknown; grid?: unknown; widths?: unknown; heights?: unknown; lines?: unknown; align?: unknown; weight?: unknown };
+  const t = v as { cells?: unknown; runs?: unknown; grid?: unknown; widths?: unknown; heights?: unknown; lines?: unknown; align?: unknown; weight?: unknown };
   const list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
   // Column and row sizes (bond lengths) and the line weight (pt) wide enough for a table scaled 1% to 10000%.
   const size = (n: unknown) => typeof n === "number" && n >= 0.002 && n <= 5000;
@@ -163,8 +164,9 @@ function readTable(v: unknown): Table | undefined {
   if (typeof t !== "object" || !t || !Array.isArray(t.cells) || !t.cells.length || t.cells.length > 100) return undefined;
   const cells = t.cells as unknown[];
   if (!cells.every((r) => Array.isArray(r) && r.length >= 1 && r.length <= 20 && r.every((c) => typeof c === "string" && c.length <= 500 && !/[\u0000-\u0009\u000b-\u001f]/.test(c)))) return undefined;
+  const runs = readTableRuns(t.runs, cells as string[][]);
   return {
-    cells: cells as string[][], ...(t.grid === true ? { grid: true } : {}),
+    cells: cells as string[][], ...(runs ? { runs } : {}), ...(t.grid === true ? { grid: true } : {}),
     ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
     ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as CellAlign[] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
   };
