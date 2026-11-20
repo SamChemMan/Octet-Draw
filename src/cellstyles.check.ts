@@ -3,7 +3,7 @@
 // value, as in a caption (docs/plans/cell-styles.md). The editor is a React page, so this reads how it is wired.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { normalise, ownRuns, plainOf, styleRange } from "./richtext.ts";
+import { browserStyle, normalise, ownRuns, plainOf, styleRange } from "./richtext.ts";
 import { formulaOver } from "./labels.ts";
 import { expandRuns } from "./escapes.ts";
 
@@ -76,4 +76,24 @@ assert.equal(ownRuns([{ text: "" }], {}), undefined);
 assert.equal(plainOf(expandRuns([{ text: "5 \\mu{}", ...bold }, { text: "L" }])), "5 μL");
 assert.deepEqual(formulaOver(normalise(styleRange([{ text: "K2CO3" }], 0, 2, (s) => ({ ...s, ...bold })))), [{ text: "K", bold: true }, { text: "2", bold: true, script: "sub" }, { text: "CO" }, { text: "3", script: "sub" }]);
 assert.deepEqual(formulaOver([{ text: "H2", script: "super" }, { text: "O" }]), [{ text: "H2", script: "super" }, { text: "O" }], "a character's own script stays");
+// Typing over a selection in WebKit wraps the new text in an element of its own that keeps the look of the first
+// character it took: the box reads it in that look, so the cell keeps what the box shows.
+const css = (c: Partial<Record<"fontWeight" | "fontStyle" | "textDecoration" | "verticalAlign", string>>) => ({ fontWeight: "", fontStyle: "", textDecoration: "", verticalAlign: "", ...c });
+assert.deepEqual(browserStyle("B", css({}), {}), { bold: true }, "a <b> over a plain table is bold");
+assert.deepEqual(browserStyle("SPAN", css({ fontWeight: "400" }), { bold: true }), {}, "font-weight 400 over a bold table is plain");
+assert.deepEqual(browserStyle("SPAN", css({ fontWeight: "700", fontStyle: "italic", textDecoration: "underline", verticalAlign: "sub" }), {}), { bold: true, italic: true, underline: true, script: "sub" });
+assert.deepEqual(browserStyle("SPAN", css({ fontStyle: "normal", textDecoration: "none", verticalAlign: "baseline" }), { italic: true, underline: true, script: "super" }), {});
+assert.deepEqual(browserStyle("SPAN", css({}), { bold: true }), { bold: true }, "a span with no style of its own keeps the style around it");
+assert.match(box, /else if \(n\.tagName !== "DIV"\) s = browserStyle\(n\.tagName, n\.style, style\)/, "read() uses it for elements without data-style");
+// Plain on a whole Table takes the cells' scripts off too, as in a cell and on a caption.
+assert.match(editor, /const keys = what === "plain" \? \["bold", "italic", "underline", "script"\]/);
+// Typing in a reagent table cell does not draw the editor again for each key; a style applied does.
+assert.match(editor, /if \(!rebuild\) \{ gridEdit\.runs = runs; gridEdit\.value = plainOf\(runs\); return; \}/);
+assert.match(box, /if \(!p\.pending\) \{ runs\.current = now;/, "the box keeps the runs typed itself");
+// A pending style waits for the end of a composition.
+assert.match(box, /onInput=\{\(e\) => \{ if \(!\(p\.pending && \(e\.nativeEvent as InputEvent\)\.isComposing\)\) typed\(\); \}\}/);
+assert.match(box, /onCompositionEnd=\{\(\) => \{ if \(p\.pending\) typed\(\); \}\}/);
+// The reagent table's panel has B, I and U while a text cell is open, in the group that keeps the cell open.
+assert.match(actions, /context\.kind === "grid" && context\.styles && \(\s*\/\/[^\n]*\n[^\n]*\n\s*<div className="chips label-style" role="group" aria-label="Cell style">/);
+assert.match(editor, /const cellStyles = gridEdit && gridStyles\(gridEdit, gridEdit\.value\) \? \{ styles: common\(gridEdit\.runs, 0, gridEdit\.value\.length\) \} : \{\};/);
 console.log("cellstyles.check: ok");

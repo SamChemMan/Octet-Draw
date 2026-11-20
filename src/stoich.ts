@@ -329,13 +329,13 @@ function readOwn(x: unknown): GridOwnRow[] | undefined {
   }
   return out.length ? out : undefined;
 }
-function readCells<T>(x: unknown, read: (v: unknown) => T | undefined): Record<string, Record<string, T>> | undefined {
+function readCells<T>(x: unknown, read: (v: unknown) => T | undefined, most = 400): Record<string, Record<string, T>> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   let n = 0;
   const out: Record<string, Record<string, T>> = {};
   for (const [row, cells] of Object.entries(x)) {
     if (!(CELL_ROWS.includes(row) || OWN.test(row)) || !cells || typeof cells !== "object" || Array.isArray(cells)) continue;
-    for (const [k, v] of Object.entries(cells)) { const got = read(v); if (cellKey(k) && got !== undefined && n++ < 400) (out[row] ??= {})[k] = got; }
+    for (const [k, v] of Object.entries(cells)) { const got = read(v); if (cellKey(k) && got !== undefined && n++ < most) (out[row] ??= {})[k] = got; }
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -343,14 +343,14 @@ function readCells<T>(x: unknown, read: (v: unknown) => T | undefined): Record<s
 // and the rows of the user's own. An amount cell's text is written again from its number each time it is drawn.
 const RUN_ROWS = ["formula", "mw", "number", "name"];
 export const takesRuns = (row: string, key: string) => key[0] === "#" || RUN_ROWS.includes(row) || OWN.test(row);
-// The text styles that are sound, each on a text cell and joining to the text kept there (at most 2000 runs in all).
+// The text styles that are sound, each on a text cell and joining to the text kept there. The text bounds them: 400
+// cells typed over (readCells) and 20 rows of the user's own with up to 61 cells each.
 function readGridRuns(x: unknown, text: Grid["text"], own: GridOwnRow[] | undefined): Grid["runs"] {
   const kept = (row: string, k: string) => { const o = own?.find((r) => r.id === row); return (o ? (k === "#" ? o.name : o.values?.[k]) : text?.[row]?.[k]) ?? ""; };
-  const raw = readCells(x, (v) => (Array.isArray(v) ? v : undefined)), out: NonNullable<Grid["runs"]> = {};
-  let count = 0;
+  const raw = readCells(x, (v) => (Array.isArray(v) ? v : undefined), 2000), out: NonNullable<Grid["runs"]> = {};
   for (const [row, cells] of Object.entries(raw ?? {})) for (const [k, v] of Object.entries(cells)) {
     const runs = takesRuns(row, k) ? readCellRuns(v, kept(row, k)) : undefined;
-    if (runs && (count += runs.length) <= 2000) (out[row] ??= {})[k] = runs;
+    if (runs) (out[row] ??= {})[k] = runs;
   }
   return Object.keys(out).length ? out : undefined;
 }

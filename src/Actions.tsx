@@ -118,7 +118,7 @@ export type Context = ({ annotate?: true }) & (
   // steps: a scheme of several arrows, with a table for each step (join) or one for the scheme (split).
   // table: the table picked whole (no cell). own: the cell's row is one of the user's own. free: the table was moved by
   // hand and keeps its place (Attach to reaction puts it back under its reaction).
-  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join"; table?: boolean; own?: boolean; free?: boolean }
+  | { kind: "grid"; product: boolean; limiting: boolean; hidden: boolean; rows: boolean; empty: boolean; role?: "reactant" | "catalyst" | "solvent"; mark?: boolean; marked?: boolean; steps?: "split" | "join"; table?: boolean; own?: boolean; free?: boolean; styles?: { bold?: boolean; italic?: boolean; underline?: boolean } }
   // groups: the and and or group numbers its structure uses, and the lowest new one of each. molecule: a lone atom's or
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
@@ -1068,6 +1068,16 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           ))}
           {context.kind !== "shape" && <button className="chip" aria-pressed={context.text.chemical} aria-label="Interpret chemically" data-tip="Interpret chemically" onClick={() => run("interpret")}><Graph size={16} /></button>}
           <button className="chip" aria-label="Character map" data-tip="Character map" onClick={() => run("char_map")}><span className="glyph-text">αβ</span></button>
+        </div>
+      )}
+
+      {context.kind === "grid" && context.styles && (
+        // A reagent table text cell being typed in: Bold, Italic and Underline on the characters selected, as in a
+        // Table cell. Pressed when every character of the cell has it.
+        <div className="chips label-style" role="group" aria-label="Cell style">
+          {([["bold", "Bold", <TextB size={16} />], ["italic", "Italic", <TextItalic size={16} />], ["underline", "Underline", <TextUnderline size={16} />]] as const).map(([id, name, icon]) => (
+            <button key={id} className="chip" aria-pressed={!!context.styles![id]} aria-label={name} data-tip={name} data-key={hint(`caption.${id}`)} onClick={() => run(`caption.${id}`)}>{icon}</button>
+          ))}
         </div>
       )}
 

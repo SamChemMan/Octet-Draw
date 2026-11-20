@@ -7645,8 +7645,10 @@ export default function Editor() {
     const wholeTable = picked.size === 1 && !selection.size ? tableOf([...picked][0]) : undefined, wholeGrid = wholeTable !== undefined ? gridViews.find((v) => v.arrow === wholeTable) : undefined;
     if (wholeGrid) return { kind: "grid", table: true, product: false, limiting: false, hidden: wholeGrid.hiding, rows: !!wholeGrid.texts, empty: emptyRows(wholeGrid).length > 0, free: !!wholeGrid.free, ...gridSteps(wholeGrid.arrow) };
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow) };
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
+    // A text cell being typed in: its Bold, Italic and Underline buttons, pressed when all of it has that style.
+    const cellStyles = gridEdit && gridStyles(gridEdit, gridEdit.value) ? { styles: common(gridEdit.runs, 0, gridEdit.value.length) } : {};
+    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow), ...cellStyles };
+    if (pickedGrid && pickedCol) return { kind: "grid", ...cellStyles, product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     const risk = expPage && !riskGroup(doc);
@@ -9591,8 +9593,8 @@ export default function Editor() {
           : what === "size" ? { size: Number(arg) === (isPlate(x) ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
         // Bold, Italic, Underline or Plain on a whole Table goes on every character of its cells too, so no cell keeps
-        // that style of its own (Table.runs).
-        const keys = what === "plain" ? ["bold", "italic", "underline"] : [what];
+        // that style of its own (Table.runs). Plain takes the scripts off too, as it does in a cell and on a caption.
+        const keys = what === "plain" ? ["bold", "italic", "underline", "script"] : [what];
         const even = (x: Shape): Shape => {
           if (!x.table?.runs || !["bold", "italic", "underline", "plain"].includes(what)) return x;
           const base = cellBase(x), on = Object.fromEntries(keys.filter((k) => base[k as keyof RunStyle]).map((k) => [k, true]));
@@ -11606,7 +11608,12 @@ export default function Editor() {
             // Caret at the end, as a spreadsheet opens a cell (and after the key that started it).
             style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h,
               font: `${base.bold ? "bold " : ""}${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}`, lineHeight: `${h}px` }}
-            onRuns={(runs, rebuild) => setGridEdit((x) => x && { ...x, runs, value: plainOf(runs), ...(rebuild ? { version: x.version + 1, caret: rebuild, pending: undefined } : {}) })}
+            // Typing alone changes nothing drawn (the box shows it), so it is kept on the open cell without drawing the
+            // editor again for each key, as the plain box before it was. A style applied builds the box again.
+            onRuns={(runs, rebuild) => {
+              if (!rebuild) { gridEdit.runs = runs; gridEdit.value = plainOf(runs); return; }
+              setGridEdit((x) => x && { ...x, runs, value: plainOf(runs), version: x.version + 1, caret: rebuild, pending: undefined });
+            }}
             // Return and Tab keep it and move on (Shift back), as do the up and down arrows (as in a Table); left and right
             // stay in the text. Escape leaves it as it was, the cell still picked. ChemDraw's text keys style a text cell.
             onKeyDown={(e) => {

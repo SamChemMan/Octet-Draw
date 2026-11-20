@@ -192,7 +192,7 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   // The row names end a little before the first column; the rules start at the longest name.
   const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = d.captionSize * 0.9 * f;
   // A name's width, in its characters' own styles where its cell has some (Grid.runs).
-  const wideAt = (t: string, row: string, k: string) => { const own = runsFor(g.runs?.[row]?.[k], t); return own ? own.reduce((w, r) => w + d.nameWidth(r.text, r.script ? 0.75 * size : size, !!r.bold), 0) : d.nameWidth(t, size); };
+  const wideAt = (t: string, row: string, k: string) => { const own = (g.text?.[row]?.[k] !== undefined || g.own?.some((o) => o.id === row)) && runsFor(g.runs?.[row]?.[k], t); return own ? own.reduce((w, r) => w + d.nameWidth(r.text, r.script ? 0.75 * size : size, !!r.bold), 0) : d.nameWidth(t, size); };
   const nameOf = (row: GridRow) => g.text?.[row.id]?.["#"] ?? row.name, names = Math.max(...rows.map((row) => wideAt(nameOf(row), row.id, "#")));
   // Every cell: its component and row, its middle, top and width, for picking and typing in it. As rows (Grid.layout),
   // the reagents each take a row and the products a section of their own under them, each section with its title and
@@ -360,8 +360,10 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
 export const NAME_ROW: GridRow = { id: "name", name: "" };
 export const rowOf = (v: Pick<GridView, "rows">, id: string): GridRow | undefined => v.rows.find((r) => r.id === id) ?? (id === "name" ? NAME_ROW : GRID_ROWS.find((r) => r.id === id));
 type Shown = { text: string; typed?: boolean; taken?: true; bold?: true; formula?: true; runs?: TextRun[] };
+// Runs count only on text kept in the table (Grid.text, or a row of the user's own), as readGrid keeps them: on a
+// default or worked-out text they would show now and be gone once the file opens again.
 export function shownCell(v: GridView, key: string, row: GridRow): Shown {
-  const out = cellShown(v, key, row), runs = v.runs && runsFor(v.runs[row.id]?.[key[0] === "#" ? "#" : key], out.text);
+  const k = key[0] === "#" ? "#" : key, out = cellShown(v, key, row), runs = v.runs && (row.own || v.text?.[row.id]?.[k] !== undefined) && runsFor(v.runs[row.id]?.[k], out.text);
   return runs ? { ...out, runs } : out;
 }
 function cellShown(v: GridView, key: string, row: GridRow): Shown {

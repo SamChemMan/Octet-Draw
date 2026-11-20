@@ -613,6 +613,14 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
   assert.deepEqual(show(styledView, "u1", "r:S0").runs, [{ text: "Sig" }, { text: "ma", script: "super" }]);
   assert.equal(show(view({ ...styledText, text: { formula: { "r:S0": "C7H8" } } }), "formula", "r:S0").runs, undefined, "runs that no longer join to the text are not used");
   assert.equal(show(view({ ...styledText, layout: "rows" }), "mass", "#0").runs?.[0].italic, true, "as rows, a row's name keeps its styles");
+  // Runs on a cell whose text is no longer kept (an AI app took off an MW name typed as "MW") are not used, as readGrid
+  // leaves them out on opening.
+  assert.equal(show(view({ runs: { mw: { "#": [{ text: "M", bold: true }, { text: "W" }] } } }), "mw", "#0").runs, undefined, "runs on a default name are not used");
+  // Up to 20 rows of the user's own, each styled in 61 cells, all kept.
+  const ownMany = Array.from({ length: 20 }, (_, i) => ({ id: `u${i + 1}`, name: "Lot", values: Object.fromEntries(Array.from({ length: 60 }, (_, j) => [`r:S${j}`, "ab"])) }));
+  const ownRuns = Object.fromEntries(ownMany.map((o) => [o.id, Object.fromEntries(["#", ...Object.keys(o.values)].map((k) => [k, k === "#" ? [{ text: "L", bold: true }, { text: "ot" }] : [{ text: "a", italic: true }, { text: "b" }]]))]));
+  const allRuns = readGrid({ typed: {}, own: ownMany, runs: ownRuns }, 9)!.runs!;
+  assert.equal(Object.values(allRuns).reduce((n, cells) => n + Object.keys(cells).length, 0), 1220, "every styled cell of the user's own rows kept");
   // .oct and CDXML keep them.
   assert.deepEqual(kept(parse(serialize(mol(styledText)))), kept(mol(styledText)), ".oct keeps the cells' styles");
   assert.deepEqual(kept(fromCdxml(toCdxml(mol(styledText), DEFAULT_STYLE)).mol), kept(mol(styledText)), "CDXML keeps them as Octet's own data");

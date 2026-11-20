@@ -2,7 +2,7 @@
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
 // each span's own data, and paste inserts plain text only (a citation's formatting can follow, from its runs: richpaste.ts).
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
+import { browserStyle, edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
 import { offerFor } from "./richpaste.ts";
 import { inMap } from "./CharMap";
 
@@ -64,6 +64,7 @@ function read(root: HTMLElement, base: RunStyle = {}): TextRun[] {
     if (n instanceof HTMLElement) {
       let s = style;
       if (n.dataset.style) { try { s = JSON.parse(n.dataset.style) as RunStyle; } catch { s = style; } }
+      else if (n.tagName !== "DIV") s = browserStyle(n.tagName, n.style, style);
       // A block the browser made for a new line starts on a line of its own.
       if (n.tagName === "DIV" && out.length && !plainOf(out).endsWith("\n")) out.push({ ...s, text: "\n" });
       n.childNodes.forEach((c) => walk(c, s));
@@ -108,6 +109,16 @@ export function RichBox(p: Props) {
     const r = p.api.current?.range(), old = plainOf(runs.current);
     if (r) p.onRuns(edited(runs.current, old.slice(0, r[0]) + text + old.slice(r[1]), p.pending), [r[0] + text.length, r[0] + text.length]);
   };
+  const typed = () => {
+    // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
+    // again. A cell's text never holds one (a file with one is refused).
+    const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
+    const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
+    // Kept here too: an owner may keep typed text without drawing again (a reagent table cell).
+    if (!p.pending) { runs.current = now; return p.onRuns(now, flat ? p.api.current?.range() : undefined); }
+    // Characters typed after a style was set with nothing selected take that style; the box is built again.
+    p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
+  };
   useEffect(() => {
     p.api.current = {
       range: () => {
@@ -131,15 +142,10 @@ export function RichBox(p: Props) {
       suppressContentEditableWarning
       spellCheck={false}
       style={p.style}
-      onInput={() => {
-        // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
-        // again. A cell's text never holds one (a file with one is refused).
-        const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
-        const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
-        if (!p.pending) return p.onRuns(now, flat ? p.api.current?.range() : undefined);
-        // Characters typed after a style was set with nothing selected take that style; the box is built again.
-        p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
-      }}
+      // A style set with nothing selected waits for the end of a composition (an input method): building the box again
+      // in the middle of one would break it.
+      onInput={(e) => { if (!(p.pending && (e.nativeEvent as InputEvent).isComposing)) typed(); }}
+      onCompositionEnd={() => { if (p.pending) typed(); }}
       onPaste={(e) => {
         e.preventDefault();
         const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/[\u0000-\u001f]/g, " ") : lined, start = p.api.current?.range()?.[0];

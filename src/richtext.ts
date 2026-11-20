@@ -171,13 +171,31 @@ export function wrap(runs: TextRun[], max: number, width: (text: string, style: 
   return { runs: runs.map((r) => { const t = r.text.split("").map((ch, k) => (breaks.has(at + k) ? "\n" : ch)).join(""); at += r.text.length; return { ...r, text: t }; }), soft };
 }
 
+// The style of an element the browser made itself in a text box (typing over a selection keeps the look of the first
+// character it took: a <b>, or a span with a font weight), from its tag and its own inline style, over the style
+// around it (s). So the box keeps what it shows.
+export function browserStyle(tag: string, css: { fontWeight: string; fontStyle: string; textDecoration: string; verticalAlign: string }, s: RunStyle): RunStyle {
+  const out: RunStyle = { ...s }, w = css.fontWeight, deco = css.textDecoration, va = css.verticalAlign;
+  if (tag === "B" || tag === "STRONG" || w === "bold" || w === "bolder" || Number(w) >= 600) out.bold = true;
+  else if (w === "normal" || w === "lighter" || (Number(w) > 0 && Number(w) < 600)) delete out.bold;
+  if (tag === "I" || tag === "EM" || css.fontStyle === "italic" || css.fontStyle === "oblique") out.italic = true;
+  else if (css.fontStyle === "normal") delete out.italic;
+  if (tag === "U" || deco.includes("underline")) out.underline = true;
+  else if (deco === "none") delete out.underline;
+  if (tag === "SUB" || va === "sub") out.script = "sub";
+  else if (tag === "SUP" || va === "super") out.script = "super";
+  else if (va === "baseline") delete out.script;
+  return out;
+}
+
 // Text styles in table cells (a Table's, and the reagent table's text cells): bold, italic, underline and a script on
 // each character. A cell's runs give each character's whole style: a run without bold is not bold, whatever the table
 // is. They are kept beside the cell's plain text and count only while they join to it, so a writer that changes the
 // text alone (an older Octet, an AI app) leaves them out of use, and the cell draws plain.
 const CELL_KEYS = ["text", "bold", "italic", "underline", "script"];
+// Each run kept holds at least one character, so a cell has no more runs than characters.
 export function readCellRuns(v: unknown, text: string): TextRun[] | undefined {
-  if (!text || !Array.isArray(v) || !v.length || v.length > 2000) return undefined;
+  if (!text || !Array.isArray(v) || !v.length || v.length > text.length) return undefined;
   const ok = (r: Record<string, unknown>) => !!r && typeof r === "object" && !Array.isArray(r) && typeof r.text === "string"
     && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
     && (r.script === undefined || r.script === "sub" || r.script === "super") && Object.keys(r).every((k) => CELL_KEYS.includes(k));
@@ -189,18 +207,16 @@ export function readCellRuns(v: unknown, text: string): TextRun[] | undefined {
 export const runsFor = (runs: TextRun[] | null | undefined, text: string) => (runs && text && plainOf(runs) === text ? runs : undefined);
 // The runs a cell keeps: none when every character has the cell's own look (base).
 export const ownRuns = (runs: TextRun[], base: RunStyle): TextRun[] | undefined => (plainOf(runs) && runs.some((r) => r.text && !sameStyle(styleOf(r), base)) ? normalise(runs) : undefined);
-// A Table's runs, the same shape as its cells (null for a cell without), if they are sound: at most 400 cells with
-// runs and 2000 runs in all. A cell's runs that are not sound, or do not join to its text, are left out, and so are
-// rows past the cells' (an AI app that gave fewer rows).
+// A Table's runs, the same shape as its cells (null for a cell without), if they are sound. Every cell the editor can
+// make may have them: the cells' own limits (100 rows, 20 columns, 500 characters) bound them. A cell's runs that are
+// not sound, or do not join to its text, are left out, and so are rows past the cells' (an AI app that gave fewer rows).
 export function readTableRuns(v: unknown, cells: string[][]): (TextRun[] | null)[][] | undefined {
   if (!Array.isArray(v)) return undefined;
-  let n = 0, count = 0;
+  let n = 0;
   const out = cells.map((row, r) => row.map((text, c) => {
     const x = Array.isArray(v[r]) && (v[r] as unknown[]).length <= 20 ? (v[r] as unknown[])[c] : undefined, runs = x ? readCellRuns(x, text) : undefined;
-    if (!runs || n >= 400 || count + runs.length > 2000) return null;
-    n++;
-    count += runs.length;
-    return runs;
+    if (runs) n++;
+    return runs ?? null;
   }));
   return n ? out : undefined;
 }

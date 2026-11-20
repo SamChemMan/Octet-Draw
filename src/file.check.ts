@@ -275,9 +275,11 @@ for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
   for (const bad of [{}, "x", [[null], [null], [null], [null]]]) assert.deepEqual(open(bad).runs, undefined);
   // More rows of runs than cells (an AI app gave a row fewer): the rows that have cells keep theirs.
   assert.deepEqual(open([...runs, [null, [{ text: "Base", bold: true }]]]).runs, runs.map((r, i) => (i === 2 ? [null, null] : r)));
-  // At most 2000 runs in all: the cells past it are left plain.
-  const many = Array.from({ length: 100 }, () => ["ab".repeat(15)]), each = Array.from({ length: 15 }, () => [{ text: "a", bold: true as const }, { text: "b" }]).flat();
-  const big = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 3, x2: 6, y2: 0, table: { cells: many, runs: many.map(() => [each]) } }] })).shapes![0].table!;
-  assert.equal(big.runs!.filter((r) => r[0]).length, 66, "66 cells of 30 runs fit in 2000");
+  // Every cell the editor can make keeps its runs: a 100 by 20 table with a style in each cell opens with all 2000.
+  const many = Array.from({ length: 100 }, () => Array.from({ length: 20 }, () => "ab".repeat(15))), each = Array.from({ length: 15 }, () => [{ text: "a", bold: true as const }, { text: "b" }]).flat();
+  const big = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 3, x2: 6, y2: 0, table: { cells: many, runs: many.map((row) => row.map(() => each)) } }] })).shapes![0].table!;
+  assert.equal(big.runs!.flat().filter(Boolean).length, 2000, "every styled cell of a 100 by 20 table kept");
+  // A cell's runs are never more than its characters.
+  assert.equal(open([[null, [{ text: "B" }, { text: "" }, { text: "a" }, { text: "s" }, { text: "e", bold: true }]]]).runs, undefined);
   console.log("file.check: table cell styles ok");
 }
