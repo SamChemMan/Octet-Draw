@@ -128,7 +128,7 @@ else {
       try { out = JSON.parse(run.stdout.trim().split("\n").pop()!); } catch { throw new Error(`${how}: the WebKit run did not finish: ${run.stdout.slice(-400)}${run.stderr.slice(-400)}`); }
       for (const c of out.cases) console.log(`  ${c.ok ? "ok" : "FAILED"} ${how}: ${c.id} ${c.title}${c.note ? ` (${c.note})` : ""}`);
       assert.deepEqual(out.cases.filter((c) => !c.ok).map((c) => c.id), [], `${how}: cases that failed`);
-      assert.ok(out.cases.length >= (height < 700 ? 2 : 12), `${how}: ${out.cases.length} cases ran`);
+      assert.ok(out.cases.length >= (height < 700 ? 2 : 13), `${how}: ${out.cases.length} cases ran`);
       assert.deepEqual(out.errors, [], `${how}: errors on the page`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -273,6 +273,29 @@ async function penStress(short: boolean, dark: boolean) {
     await until(() => inHand() === "Pen", 3000);
     result("T5", "Hold to Select with the Pen: a still press gives Select until it is let go, and ends a curve being drawn", held && back && none && mid && inHand() === "Pen",
       `Select while held ${held}, Pen after ${back}, nothing drawn ${none}, mid-curve ${mid}, in hand now ${inHand()}`);
+  });
+
+  await step("T13", "⌘Z mid-curve takes off the last point and leaves the history as it is; ⇧⌘Z and ⌘Y do nothing; with no point left, ⌘Z undoes as usual", async () => {
+    const cmd = (k: string, shiftKey = false) => press({ key: k, code: `Key${k.toUpperCase()}`, metaKey: true, shiftKey });
+    const at0 = hist().at, len0 = hist().stack.length, doc0 = doc(), n0 = curves().length, y = cy + 160;
+    for (const x of [cx + 100, cx + 180, cx + 260]) await click([x, y]);
+    await cmd("z");
+    const kept = hist().at === at0 && hist().stack.length === len0 && doc() === doc0;
+    await cmd("z", true); await cmd("y");
+    const still = hist().at === at0 && hist().stack.length === len0 && doc() === doc0;
+    await press({ key: "Enter", code: "Enter" });
+    const two = curves().length === n0 + 1 && curves().at(-1).curve.points.length === 2 && hist().at === at0 + 1;
+    // Two points, then ⌘Z twice: the curve ends with nothing drawn, so the next ⌘Z undoes the curve made above.
+    await click([cx + 100, y + 60]); await click([cx + 180, y + 60]);
+    await cmd("z"); await cmd("z");
+    const ended = curves().length === n0 + 1 && hist().at === at0 + 1;
+    await cmd("z");
+    const undid = curves().length === n0 && hist().at === at0;
+    await cmd("z", true);
+    const back = curves().length === n0 + 1 && hist().at === at0 + 1;
+    result("T13", "⌘Z mid-curve takes off the last point and leaves the history as it is; ⇧⌘Z and ⌘Y do nothing; with no point left, ⌘Z undoes as usual",
+      kept && still && two && ended && undid && back && inHand() === "Pen",
+      `⌘Z history kept ${kept}, ⇧⌘Z and ⌘Y nothing ${still}, Return made 2 points ${two} (${curves().at(-1)?.curve.points.length}), two ⌘Z ended it ${ended}, next ⌘Z undid ${undid}, ⇧⌘Z ${back}, in hand ${inHand()}`);
   });
 
   await step("T6", "Edit curve (its shortcut): a click picks the curve; a click away adds a point at its end, Option-click takes one out, a drag moves one", async () => {

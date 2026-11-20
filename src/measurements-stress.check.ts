@@ -275,7 +275,9 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.end
 // S46: the Measure tool in WebKit (the engine the Mac app runs in), driven with pointer and key events as a person gives
 // them, when OCTET_STRESS_URL names a dev server (npx vite --port 1522): two clicks, empty points, three clicks with the
 // live arc, a drag let go, a hold (Select), Escape, Backspace, a tool change, Dihedral off an atom, Undo, Redo and ⌘A,
-// 10% and the highest zoom, each live value equal to the value made, and pointer moves on 4000 atoms against Select's.
+// Undo and Redo while measuring, Measure length on a bond (the Actions panel, the right-click menu and the menu's
+// command), 10% and the highest zoom, each live value equal to the value made, and pointer moves on 4000 atoms against
+// Select's.
 // Then a measurement to an empty point moved with its structure, and the Measure tool's edges (followUi). Then the
 // toolbar's indicator on every tool in hand, in one column and two, with the section's lines.
 {
@@ -313,7 +315,7 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.end
       const flow = run(`return await (${measureUi.toString()})();`) as { cases: { id: string; title: string; ok: boolean; note?: string }[]; errors: string[] };
       for (const c of flow.cases) console.log(`measurements-stress: ${c.id} ${c.ok ? "ok" : "FAILED"}: ${c.title}${c.note ? ` (${c.note})` : ""}`);
       assert.deepEqual(flow.cases.filter((c) => !c.ok).map((c) => c.id), [], "every case in WebKit");
-      assert.equal(flow.cases.length, 14, "every case ran");
+      assert.equal(flow.cases.length, 16, "every case ran");
       assert.deepEqual(flow.errors, [], "no errors on the page");
       const follow = run(`return await (${followUi.toString()})();`) as typeof flow;
       for (const c of follow.cases) console.log(`measurements-stress: ${c.id} ${c.ok ? "ok" : "FAILED"}: ${c.title}${c.note ? ` (${c.note})` : ""}`);
@@ -506,6 +508,31 @@ async function measureUi() {
     await escape();
     result("W10", "Undo takes a measurement in progress away; Undo and Redo the made one; ⌘A picks it", undoTakesIt && measures().length >= n && undone && redone && all, `undo in progress ${undoTakesIt}, undone ${undone}, redone ${redone}, ⌘A ${all}`);
   });
+  await step("W15", "Undo and Redo while measuring", async () => {
+    await variant("Angle");
+    const at0 = hist().at, len0 = hist().stack.length, doc0 = doc(), n = measures().length;
+    const rings = async () => { await move(toScreen([2, -2])); return overlay()?.querySelectorAll("circle:not(.end)").length ?? 0; };
+    const cmd = async (k, shiftKey = false) => { key({ key: k, code: `Key${k.toUpperCase()}`, metaKey: true, shiftKey }); await wait(250); };
+    await click(atom(0)); await click(atom(1));
+    const two = await rings();
+    await cmd("z");
+    const one = await rings(), kept = hist().at === at0 && hist().stack.length === len0 && doc() === doc0;
+    await cmd("z", true); await cmd("y");
+    const still = await rings(), same = hist().at === at0 && hist().stack.length === len0 && doc() === doc0;
+    await click(atom(2)); await click(atom(3));
+    const m = measures().at(-1), made = !!m && JSON.stringify(m.measure.ends) === "[0,2,3]" && hist().at === at0 + 1;
+    // One end placed: ⌘Z takes it off and the measurement in progress ends; the next ⌘Z undoes the angle made above.
+    await click(atom(5));
+    await cmd("z");
+    const ended = !overlay() && hist().at === at0 + 1 && measures().length === n + 1;
+    await cmd("z");
+    const undid = hist().at === at0 && measures().length === n;
+    await cmd("z", true);
+    const back = hist().at === at0 + 1 && measures().length === n + 1;
+    result("W15", "⌘Z while measuring takes off the last end and leaves the history as it is; ⇧⌘Z and ⌘Y do nothing; with no end left, the next ⌘Z undoes as usual",
+      two === 2 && one === 1 && kept && still === 1 && same && made && ended && undid && back,
+      `ends ${two} → ⌘Z ${one} (history kept ${kept}) → ⇧⌘Z, ⌘Y ${still} (history kept ${same}); made ${JSON.stringify(m?.measure.ends)} ${made}; one end ⌘Z ended ${ended}; next ⌘Z undid ${undid}; ⇧⌘Z ${back}`);
+  });
   await step("W14", "Colour and the Text menu on a measurement with free ends", async () => {
     const palette = async (text) => {
       key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
@@ -532,6 +559,56 @@ async function measureUi() {
     result("W14", "The Actions panel's colour and Bold (the Text menu's, from the palette) go on a measurement with free ends, one step each, and it stays a measurement; Undo takes the last back",
       c?.colour === "#22775B" && c.bold && c.measure && steps === 2 && !!undone && !undone.bold && undone.colour === "#22775B", `colour ${c?.colour}, bold ${c?.bold}, measure ${!!c?.measure}, steps ${steps}, after undo ${undone ? `bold ${undone.bold}, colour ${undone.colour}` : "gone"}`);
     await escape();
+  });
+  await step("W16", "Measure length on a bond: the Actions panel, the right-click menu and Structure > Measure > Length", async () => {
+    // A bond clicked with Select (40% along it, clear of the measurements' lines and labels) or right-clicked: its two
+    // atoms are what is selected, and the panel shows the bond's actions.
+    [...document.querySelectorAll(".palette .slot > .tool")].find((b) => /^Select/.test(b.getAttribute("aria-label") ?? ""))?.click(); await wait(300); await escape();
+    const along = (i, j) => { const a = doc().atoms[i].location, b = doc().atoms[j].location; return toScreen([a[0] + (b[0] - a[0]) * 0.4, a[1] + (b[1] - a[1]) * 0.4]); };
+    const lengthOf = (i, j) => measures().find((c) => c.measure.ends.length === 2 && c.measure.ends.every((e) => e === i || e === j));
+    // Picked: the editor's picked set holds it alone (the selection of atoms is empty after a measurement is made).
+    const pickedIt = (id) => hooks().some((v) => v instanceof Set && v.size === 1 && v.has(id));
+    const n = measures().length;
+    // The Actions panel: Measure length beside 3D clean up, as for 2 atoms.
+    let at0 = hist().at;
+    await click(along(1, 2));
+    const bond = !!document.querySelector('.actions [data-command="bond_properties"]'), button = document.querySelector('.actions .tray-button[data-command="measure_distance"]');
+    const beside = !!button && button.parentElement === document.querySelector('.actions .tray-button[data-command="clean_3d"]')?.parentElement && button.getAttribute("aria-label") === "Measure length";
+    button?.click(); await wait(400);
+    // A C–C bond of the chain: 1.52 Å (with a no-break space, as measureText writes it).
+    const panel = lengthOf(1, 2), panelSteps = hist().at - at0, panelPicked = !!panel && pickedIt(panel.id), byPanel = panel?.text === "1.52\u00a0Å" && panelSteps === 1 && panelPicked;
+    await escape();
+    // The right-click menu: Measure length in 3D tools.
+    at0 = hist().at;
+    const p = along(3, 4);
+    ev("pointermove", p, { buttons: 0 }); await wait(60);
+    (document.elementFromPoint(p[0], p[1]) ?? document.body).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: p[0], clientY: p[1], button: 2 }));
+    await wait(600);
+    const menuItem = (name) => [...document.querySelectorAll(".context-menu button, .context-menu [role=menuitem]")].find((b) => (b.getAttribute("aria-label") ?? b.textContent.trim()) === name || b.textContent.trim() === name);
+    const tools3d = menuItem("3D tools");
+    tools3d?.click(); await wait(500);
+    const item = menuItem("Measure length");
+    item?.click(); await wait(500);
+    const menu = lengthOf(3, 4), menuSteps = hist().at - at0, byMenu = menu?.text === "1.52\u00a0Å" && menuSteps === 1;
+    await escape(); await escape();
+    // Structure > Measure > Length (the menu's command, run from the command palette) with a bond selected.
+    at0 = hist().at;
+    await click(along(4, 5));
+    key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
+    const find = await until(() => document.querySelector(".command-palette input"), 3000);
+    if (find) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(find, "Measure length");
+      find.dispatchEvent(new Event("input", { bubbles: true }));
+      await wait(500);
+      find.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+      await wait(700);
+    }
+    const command = lengthOf(4, 5), commandSteps = hist().at - at0, byCommand = command?.text === "1.52\u00a0Å" && commandSteps === 1;
+    await escape();
+    await variant("Length");
+    result("W16", "Measure length on a bond: in the Actions panel beside 3D clean up, in the right-click menu's 3D tools, and Structure > Measure > Length; each a length between its two atoms in one step",
+      bond && beside && byPanel && !!tools3d && byMenu && byCommand && measures().length === n + 3,
+      `bond actions ${bond}, button beside 3D clean up ${beside}, panel ${panel?.text} in ${panelSteps} step, picked ${panelPicked}; menu 3D tools ${!!tools3d}, item ${!!item}, ${menu?.text} in ${menuSteps} step; command ${command?.text} in ${commandSteps} step; made ${measures().length - n}`);
   });
   for (const [id, zoom] of [["W11", 0.1], ["W12", 8]]) await step(id, `Zoom ${zoom * 100}%`, async () => {
     const v = viewStore(), was = v.get();

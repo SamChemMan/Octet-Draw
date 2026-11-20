@@ -1255,9 +1255,18 @@ export default function Editor() {
     if (from !== undefined && !noMotion()) setSettle({ doc, from });
     else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Drawing with the Pen or measuring: Delete, Backspace and Undo take off the last point placed. With no point left,
+  // the curve or the measurement ends.
+  const takeBack = () => {
+    if (measuring) return setMeasuring(measuring.length > 1 ? measuring.slice(0, -1) : undefined);
+    if (pen && pen.length > 1) return setPen(pen.slice(0, -1));
+    setPen(undefined);
+    setPenAt(undefined);
+  };
   const undo = (redo = false) => {
-    // Measuring: Undo takes the measurement in progress away (nothing of it is in the history yet).
-    if (measuring) return setMeasuring(undefined);
+    // A curve or a measurement in progress: Undo takes off its last point and Redo does nothing. None of it is in the
+    // history yet, so the history stays as it is.
+    if (pen || measuring) { if (!redo) takeBack(); return; }
     // The last close of a panel, while the drawing is as it was then: Undo brings the panel back, Redo closes it again.
     const c = closedPanel.current;
     if (c && c.mol === h.stack[h.at] && c.at === h.at && !!c.undone === redo) {
@@ -2908,7 +2917,7 @@ export default function Editor() {
     paste: () => clipCommand("paste"),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
-    redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
+    redo: () => (typing() ? void document.execCommand("redo") : pen || measuring || h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
     select_all: () => {
       if (homeOpen.current && !typing()) return homeSelectAll.current?.();
       if (typing()) {
@@ -3475,8 +3484,9 @@ export default function Editor() {
     if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
     // (Undo, Redo, Select All, Cut, Copy and Paste work on the note's own text.)
     const go = () => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.(); };
-    // A measurement in progress goes, but for a command that changes only what is shown (Magnify, Show Grid).
-    if (!showsOnly(e.payload)) setMeasuring(undefined);
+    // A measurement in progress goes, but for a command that changes only what is shown (Magnify, Show Grid), and Undo
+    // and Redo, which act on it themselves.
+    if (!showsOnly(e.payload) && e.payload !== "undo" && e.payload !== "redo") setMeasuring(undefined);
     if (["undo", "redo", "select_all", "cut", "copy", "paste"].includes(e.payload)) go(); else afterNote(go);
   });
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
@@ -10216,10 +10226,10 @@ export default function Editor() {
       if (gridPick && !mod && !e.altKey && gridKeyDown(e)) return;
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
-      if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
+      if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return takeBack(); }
       // Measuring: Escape takes the measurement in progress away, Delete its last end.
       if (measuring && e.key === "Escape") { e.preventDefault(); return setMeasuring(undefined); }
-      if (measuring && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setMeasuring(measuring.length > 1 ? measuring.slice(0, -1) : undefined); }
+      if (measuring && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return takeBack(); }
       // Redo is ⌘Y (ChemDraw's) in the menu, and Repeat when there is nothing to redo; ⇧⌘Z, the Mac's own, works too.
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
       if (mod && key === "y") { e.preventDefault(); return commands.current.redo(); }
@@ -11957,8 +11967,8 @@ export default function Editor() {
         onLibrarySize={(librarySize) => setSettings((s) => ({ ...s, librarySize }))}
         onSaveSet={saveTemplateSet}
         popKey={pop?.n ?? 0}
-        canUndo={h.at > 0}
-        canRedo={h.at < h.stack.length - 1}
+        canUndo={h.at > 0 || !!pen || !!measuring}
+        canRedo={h.at < h.stack.length - 1 && !pen && !measuring}
         keys={hint}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
