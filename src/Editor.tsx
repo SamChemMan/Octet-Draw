@@ -5823,8 +5823,10 @@ export default function Editor() {
     return f && [(f.box[0] - pad) / L, -(f.box[3] + pad) / L, (f.box[2] + pad) / L, -(f.box[1] - pad) / L];
   };
   const frameSides = (b: RBox, zoom: number) => SIDES.filter((h) => selectionFrame?.handles && (isCorner(h) || (!selectionFrame.corners && ((h === "n" || h === "s" ? b[2] - b[0] : b[3] - b[1]) * L * zoom >= 30))));
+  // With Measure in hand the frame and its handles take no press (and do not show): every press goes to the
+  // measurement, as handleAt has it.
   const resizeAt = (p: P): Side | undefined => {
-    const zoom = views.get().zoom, b = tool !== "erase" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
+    const zoom = views.get().zoom, b = tool !== "erase" && tool !== "measure" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
     return b && sideAt(b, frameSides(b, zoom), p, 6 / (L * zoom), f && [f[0] / L, -f[3] / L, f[2] / L, -f[1] / L]);
   };
   // The rotation handle, as in ChemDraw: just off the frame's top right corner (px).
@@ -5832,10 +5834,10 @@ export default function Editor() {
     const b = frameBox(zoom);
     return b && selectionFrame!.turns ? [b[2] * L + 14 / zoom, -b[3] * L - 14 / zoom] : undefined;
   };
-  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
+  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = tool !== "measure" && turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
   // The centre mark: where the selection turns about, worked out once for each selection and drawing.
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
-  const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
+  const onCentreMark = (p: P) => tool !== "measure" && !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
   // What a pick for a template set takes from what is under the pointer: the whole structure (with its captions, as
   // selecting it would), or the object, with the rest of any integral group it is in.
@@ -11444,7 +11446,8 @@ export default function Editor() {
           {(() => {
             // The selection's frame with its resize handles and rotation handle, and the centre the selection turns
             // about (a +, which Option-drag moves); while resizing, the frame as it is now and the scale in its middle;
-            // while turning, the centre and the angle.
+            // while turning, the centre and the angle. None with Measure in hand (resizeAt).
+            if (tool === "measure") return null;
             const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom), c = drag?.kind === "turn" ? drag.centre : h && centreMark;
             const centre = c && <path className="turn-centre" d="M-5 0H5M0 -5V5" transform={`translate(${c[0] * L} ${-c[1] * L}) scale(${1 / view.zoom})`} aria-hidden />;
             if (drag?.kind === "turn") {

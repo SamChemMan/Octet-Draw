@@ -318,7 +318,7 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.end
       const follow = run(`return await (${followUi.toString()})();`) as typeof flow;
       for (const c of follow.cases) console.log(`measurements-stress: ${c.id} ${c.ok ? "ok" : "FAILED"}: ${c.title}${c.note ? ` (${c.note})` : ""}`);
       assert.deepEqual(follow.cases.filter((c) => !c.ok).map((c) => c.id), [], "every move case in WebKit");
-      assert.equal(follow.cases.length, 9, "every move case ran");
+      assert.equal(follow.cases.length, 10, "every move case ran");
       assert.deepEqual(follow.errors, [], "no errors on the page");
       const bar = run(`return await (${indicatorUi.toString()})();`) as { res: { how: string; tools: number; wide: boolean; bad: string[] }[]; errors: string[] };
       for (const r of bar.res) console.log(`measurements-stress: the indicator on each of ${r.tools} tools, ${r.how}: ${r.bad.length ? r.bad.join("; ") : "ok"}`);
@@ -589,7 +589,7 @@ async function measureUi() {
 // it with its structure too. F6: with grid
 // snapping on, the value shown before a click is the value the click makes. F7: Backspace once more than the ends
 // placed changes nothing. F8: the measurement just made shows no handle with Measure in hand, and a press there places
-// an end.
+// an end. F10: nor does its selection frame, so a click on the atom just measured places an end.
 async function followUi() {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const until = async (find, ms = 10000) => { const t = Date.now(); while (Date.now() - t < ms) { const v = find(); if (v) return v; await wait(100); } return null; };
@@ -762,6 +762,22 @@ async function followUi() {
     const placed = !!overlay(), width = doc().captions.find((c) => c.id === made.id)?.width;
     await escape();
     result("F8", "The measurement just made shows no handle with Measure in hand, and a press beside its label places an end", !handle && placed && hist().at === at0 && width === undefined, `handle ${!!handle}, end placed ${placed}, steps ${hist().at - at0}, width ${width}`);
+  });
+  await step("F10", "The selection frame", async () => {
+    // A length 0 to 3 at 100% (a new drawing's zoom): its label is picked, and a corner of its frame came within 5 px of
+    // atom 3.
+    await variant("Length");
+    await click(atom(0)); await click(atom(3));
+    const made = measures().at(-1), marks = document.querySelectorAll(".resize-handle, .turn-handle, .selection-frame").length, at0 = hist().at;
+    await click(atom(3));
+    const placed = !!overlay(), size = doc().captions.find((c) => c.id === made.id)?.size;
+    await escape();
+    // ⌘A with Measure in hand: no frame, so no turn handle to drag.
+    key({ key: "a", code: "KeyA", metaKey: true }); await wait(300);
+    const all = document.querySelectorAll(".resize-handle, .turn-handle, .selection-frame").length;
+    await escape();
+    result("F10", "With Measure in hand no selection frame or handle shows, so a click on the atom just measured places an end, and ⌘A gives no turn handle", made && !marks && placed && hist().at === at0 && size === made.size && !all,
+      `frame marks ${marks}, end placed ${placed}, steps ${hist().at - at0}, size ${made?.size} to ${size}, after ⌘A ${all}`);
   });
   out.errors = window.__errors;
   return JSON.stringify(out);
