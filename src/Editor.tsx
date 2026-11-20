@@ -7746,7 +7746,9 @@ export default function Editor() {
   // askingKey: the key being asked for suppliers; runs: each kind's run, which Stop moves on so the rest are not asked.
   // supplierView: the Suppliers window, while it is open: each structure it was opened for (its formula and key) and
   // the one it shows.
-  const suppliersFound = useRef(new Map<string, Suppliers | null>());
+  const suppliersFound = useRef(new Map<string, Suppliers | null>()), supplierErrors = useRef(new Map<string, string>());
+  // The keys whose suppliers came without the source table (partial): shown, and asked again on the next press.
+  const supplierKept = { has: (key: string) => suppliersFound.current.has(key) && !(suppliersFound.current.get(key)?.partial) };
   const [supplierView, setSupplierView] = useState<{ labels: string[]; keys: (string | undefined)[]; at: number }>();
   const [busy, setBusy] = useState<Partial<Record<Lookup, boolean>>>({}), [askingKey, setAskingKey] = useState<string>();
   const runs = useRef<Record<Lookup, number>>({ suppliers: 0, hazards: 0 }), pendingFind = useRef<Lookup>(undefined);
@@ -7770,8 +7772,10 @@ export default function Editor() {
     // Each structure's key while it keeps the content and atoms it was worked out for, and what the lookups found for it.
     const keyOf = (s: Structure, k: number) => (settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join() ? ghsKeys.keys[k] : undefined);
     const ghs = shown.map((s, k) => ghsFound.current.get(keyOf(s, k) ?? ""));
-    // looked: Find hazards has an answer for every structure (the Hazards tab then offers it no more).
-    const looked = shown.every((s, k) => { const key = keyOf(s, k); return key !== undefined && ghsFound.current.has(key); });
+    // looked: Find hazards has an answer for every structure (the Hazards tab then offers it no more). A structure
+    // with no key (an R group, a query atom) has its answer: PubChem cannot look it up.
+    const keyed = (s: Structure, k: number) => settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join();
+    const looked = shown.every((s, k) => { const key = keyOf(s, k); return keyed(s, k) && (key === undefined || ghsFound.current.has(key)); });
     // base and each structure's atoms in it, for the CAS row (a polymer has no CAS number).
     return { atoms, structures: shown, values: propertyValues(shown, calc, settings.decimals, ghs), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)), looked };
   }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -7873,11 +7877,12 @@ export default function Editor() {
   const askSuppliers = (key: string) => {
     const run = runs.current.suppliers;
     setAskingKey(key);
+    supplierErrors.current.delete(key);
     return invoke<unknown>("pubchem_suppliers", { key }).then((x) => {
       const f = suppliersOf(x);
-      if (f === undefined) return UNREACHED_NOTICE;
+      if (f === undefined) { supplierErrors.current.set(key, UNREACHED_NOTICE); return UNREACHED_NOTICE; }
       suppliersFound.current.set(key, f);
-    }, (e: unknown) => String(e)).finally(() => { if (runs.current.suppliers === run) setAskingKey((k) => (k === key ? undefined : k)); });
+    }, (e: unknown) => { supplierErrors.current.set(key, String(e)); return String(e); }).finally(() => { if (runs.current.suppliers === run) setAskingKey((k) => (k === key ? undefined : k)); });
   };
   // A lookup for the keys the panel shows: each key once a window, one at a time. Stop moves the run on and ends the
   // request in flight. Online search off: a notice with Open Settings. No network: a notice, and nothing is kept, so
@@ -7885,13 +7890,15 @@ export default function Editor() {
   // No structure with a key (an R group, a query atom, a polymer): a notice. Every key found before: their rows show.
   async function lookUp(kind: Lookup, keys: (string | undefined)[]) {
     if (!keys.some(Boolean)) return setNotice(NO_KEY, "info");
-    const run = ++runs.current[kind], live = () => runs.current[kind] === run, want = wanted(keys, kind === "suppliers" ? suppliersFound.current : ghsFound.current);
+    const run = ++runs.current[kind], live = () => runs.current[kind] === run, want = wanted(keys, kind === "suppliers" ? supplierKept : ghsFound.current);
     if (!want.length) return;
     setBusy((b) => ({ ...b, [kind]: true }));
     // A Stop just pressed reaches Rust first, so it cannot end this run's requests.
     await stopping.current[kind];
     const failed = live() ? await askEach(want, kind === "suppliers" ? askSuppliers : (key) => askHazards(key), live) : undefined;
     if (!live()) return;
+    // The keys a failure left unasked have the same answer as the one that failed.
+    if (failed && kind === "suppliers") for (const k of want) if (!supplierKept.has(k) && !supplierErrors.current.has(k)) supplierErrors.current.set(k, failed);
     setBusy((b) => ({ ...b, [kind]: false }));
     if (failed === OFF) setNotice(offNotice(kind), "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     else if (failed) setNotice(failedNotice(failed), "info");
@@ -12017,7 +12024,8 @@ export default function Editor() {
         <SuppliersWindow
           targets={supplierView.labels.map((label, k) => {
             const key = supplierView.keys[k];
-            const found: Found = !key ? null : key === askingKey ? "busy" : suppliersFound.current.has(key) ? suppliersFound.current.get(key) : busy.suppliers ? "busy" : undefined;
+            const error = key && supplierErrors.current.get(key);
+            const found: Found = !key ? { error: NO_KEY } : key === askingKey ? "busy" : error && !busy.suppliers ? { error } : suppliersFound.current.has(key) ? suppliersFound.current.get(key) : busy.suppliers ? "busy" : undefined;
             return { label, found };
           })}
           at={supplierView.at}

@@ -99,7 +99,8 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
   const hazardValue = (row: Row) => {
     if (row.key === "ghs") return row.values.map((one = "–", k) => <span key={k} className="ghs-set">{one.match(/GHS0[1-9]/g)?.map((c) => <Pictogram key={c} code={c} />) ?? one}</span>);
     if (row.key === "hazards") return row.values.map((one = "–", k) => <span key={k} className="prop-lines">{one.split(/, (?=(?:EUH|H)\d{3})/).map((line, i) => <span key={i}>{line}</span>)}</span>);
-    if (row.key === "precautions") return row.values.map((one = "–", k) => <span key={k} className="prop-codes">{one.split(", ").map((c, i) => <span key={i}>{c}</span>)}</span>);
+    // Each structure's codes in turn, "; " between structures as in every other row; a code never breaks inside itself.
+    if (row.key === "precautions") return <span className="prop-codes">{row.values.map((one = "–", k) => one.split(", ").map((c, i) => <span key={`${k}.${i}`}>{c}{i === one.split(", ").length - 1 && k < row.values.length - 1 ? ";" : ""}</span>))}</span>;
     if (row.key === "signal") return row.values.map((one = "–", k) => <span key={k} className="prop-signal">{one}</span>);
     return joined(row);
   };
@@ -110,7 +111,9 @@ export function Properties({ values, chosen, onChoose, onCopy, onAdd, onClose, s
         <Segmented label="Show" className="prop-tabs" value={tab} onChange={onTab} options={[["properties", "Properties"], ["hazards", "Hazards"]]} />
         <PanelControls close={onClose} />
       </header>
-      {tab === "properties" ? (
+      {!values.some((g) => g.length) ? (
+        <p className="prop-empty">Draw a structure first.</p>
+      ) : tab === "properties" ? (
         <div className="prop-list">
           {calculated.map(([heading, rows]) => (
             <div key={heading} className={`prop-group ${heading.toLowerCase()}`}>

@@ -10,9 +10,9 @@ import { ArrowSquareOut, Star } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
 import { MarkParts } from "./McpMagic";
 import { Select } from "./Select";
-import { shownSuppliers, supplierKey, type Found, type Supplier } from "./suppliers";
+import { lookupText, NO_KEY, shownSuppliers, supplierKey, type Found, type Supplier } from "./suppliers";
 
-// found undefined: no answer (no network, or Stop), so the window offers Try again.
+// found undefined: not asked yet; an error: why there is no answer, with Try again (but for a structure with no key).
 export type SupplierTarget = { label: string; found: Found };
 
 type Props = {
@@ -28,9 +28,10 @@ const details = (s: Supplier) => [s.codes.join(", "), s.products > 1 ? `${s.prod
 
 export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen, onVendors, onRetry, onClose }: Props) {
   const [search, setSearch] = useState(""), [turn, setTurn] = useState(0);
-  const found = targets[at]?.found, list = found && found !== "busy" ? found.suppliers : [];
+  const found = targets[at]?.found, error = found && typeof found === "object" && "error" in found ? found.error : undefined;
+  const list = found && found !== "busy" && !error ? (found as { suppliers: Supplier[] }).suppliers : [];
   const shown = shownSuppliers(list, favourites, search), fav = new Set(favourites);
-  const cid = found && found !== "busy" ? found.cid : undefined;
+  const cid = found && found !== "busy" && !error ? (found as { cid: number }).cid : undefined;
   // Return in the search field opens the first supplier it shows; elsewhere it presses Open in PubChem.
   const action = () => {
     if (document.activeElement?.classList.contains("list-find")) { if (shown[0]) onOpen(shown[0].url); }
@@ -44,12 +45,12 @@ export function SuppliersWindow({ targets, at, onAt, favourites, onStar, onOpen,
           <h2>Suppliers</h2>
           {targets.length > 1 && <Select label="Structure" value={String(at)} options={targets.map((t, k): [string, string] => [String(k), t.label])} onChange={(v) => { onAt(Number(v)); setSearch(""); }} />}
         </div>
-        {found === undefined ? (
+        {error !== undefined ? (
           <div className="suppliers-none">
-            <p>Octet cannot reach PubChem.</p>
-            <button className="prop-add" onClick={onRetry}>Try again</button>
+            <p>{lookupText(error)}</p>
+            {error !== NO_KEY && <button className="prop-add" onClick={onRetry}>Try again</button>}
           </div>
-        ) : found === "busy" ? (
+        ) : found === "busy" || found === undefined ? (
           <div className="suppliers-wait" role="status">
             <div className="suppliers-mark" aria-hidden>
               <div className="suppliers-scale">

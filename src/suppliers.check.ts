@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PROPERTY_ROWS } from "./proprows.ts";
-import { askEach, failedNotice, NO_KEY, offNotice, shownSuppliers, SLOW, starred, STOPPED, supplierKey, suppliersOf, UNREACHED_NOTICE, wanted, type Suppliers } from "./suppliers.ts";
+import { askEach, failedNotice, lookupText, NO_KEY, OFF, offNotice, shownSuppliers, SLOW, starred, STOPPED, supplierKey, suppliersOf, UNREACHED_NOTICE, wanted, type Suppliers } from "./suppliers.ts";
 
 // The answer from Rust, checked again: good entries kept, others dropped, a wrong shape refused.
 const aspirin: Suppliers = { cid: 2244, suppliers: [{ name: "abcr GmbH", url: "https://abcr.example.com/5", codes: ["AB123"], products: 1 },
@@ -22,6 +22,12 @@ assert.deepEqual(odd?.suppliers.map((s) => [s.codes, s.products]), [[[], 1], [[]
 const codes = suppliersOf({ cid: 7, suppliers: [{ name: "A", url: "https://a.example.com", codes: ["X1", 5, " ", "y".repeat(80), "Z", "W"], products: -3 }] })?.suppliers[0];
 assert.deepEqual(codes?.codes, ["X1", "y".repeat(40), "Z"], "codes kept as text: three at most, 40 characters each");
 assert.equal(codes?.products, 1);
+// Partial (no source table): kept as such, so the next press asks again; anything but true is not partial.
+assert.equal(suppliersOf({ cid: 3, suppliers: [], partial: true })?.partial, true);
+assert.equal(suppliersOf({ cid: 3, suppliers: [], partial: "yes" })?.partial, undefined);
+// The window says why there is no answer, each in its own words; anything else is no network.
+for (const e of [NO_KEY, SLOW, STOPPED, OFF]) assert.equal(lookupText(e), e);
+assert.equal(lookupText("error sending request"), UNREACHED_NOTICE);
 assert.equal(suppliersOf({ cid: 1, suppliers: Array.from({ length: 2000 }, (_, k) => ({ name: `S${k}`, url: `https://e.example.com/${k}` })) })?.suppliers.length, 1000);
 
 // The window's list: favourites first, then A to Z as Rust gave them; the search matches every word in the name or a
@@ -94,6 +100,20 @@ assert.match(editor, /favouriteSuppliers: starred\(s\.favouriteSuppliers \?\? \[
 assert.match(editor, /if \(!supplierView && busy\.suppliers\) stopLookup\("suppliers"\);/);
 assert.match(editor, /if \(kind === "suppliers"\) return busy\.suppliers \? undefined : findSuppliers\(\);/);
 assert.doesNotMatch(panel, /onSupplier|Storefront|<Pick/, "the Properties panel has no suppliers");
+// A structure with no key says so; each key keeps why it failed; a partial answer is asked for again.
+assert.match(editor, /const found: Found = !key \? \{ error: NO_KEY \}/);
+assert.match(editor, /\(e: unknown\) => \{ supplierErrors\.current\.set\(key, String\(e\)\); return String\(e\); \}/);
+assert.match(editor, /want = wanted\(keys, kind === "suppliers" \? supplierKept : ghsFound\.current\)/);
+assert.match(win, /<p>\{lookupText\(error\)\}<\/p>\s+\{error !== NO_KEY && <button className="prop-add" onClick=\{onRetry\}>Try again<\/button>\}/);
+// The Hazards tab: a structure with no key counts as looked; precautionary codes keep "; " between structures; no
+// structures, the usual message.
+assert.match(editor, /return keyed\(s, k\) && \(key === undefined \|\| ghsFound\.current\.has\(key\)\)/);
+assert.match(panel, /k < row\.values\.length - 1 \? ";" : ""/);
+assert.match(panel, /<p className="prop-empty">Draw a structure first\.<\/p>/);
+// The Second line: its keys in its tips; its commands leave the order a drag saves and a layout saved before 1.1.3.
+assert.match(actions, /\[v, shown, name, false, hint\(`bond\.\$\{v\}`\)\]/);
+assert.match(actions, /items = arrangement\.items\.filter\(\(i\) => setOf\(i\.command\) !== "position"\)/);
+assert.match(actions, /order: saved\.order\.filter\(\(c\) => !hidden\(c\)\), rows: saved\.rows - saved\.order\.slice\(0, saved\.rows\)\.filter\(hidden\)\.length/);
 // One call each; asked only on a press (findSuppliers, through lookUp); Stop asks Rust to end the request.
 assert.equal(editor.split('"pubchem_suppliers"').length, 2, "one call");
 assert.match(editor, /function findSuppliers\(\) \{\s+if \(!TAURI\) return;\s+const found = structuresIn\(selection\);/);

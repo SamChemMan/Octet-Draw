@@ -29,6 +29,7 @@ const SOURCES: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/categories
 const SOURCE_TABLE: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/sourcetable/substance/JSON";
 const MOST_TABLE: usize = 8 * 1024 * 1024;
 const MOST_TABLE_ROWS: usize = 100_000;
+const TABLE_TIME: Duration = Duration::from_secs(20);
 // A country as Octet shows it: the longest seen was 24 characters.
 const MOST_COUNTRY: usize = 60;
 const COMPOUND: &str = "https://pubchem.ncbi.nlm.nih.gov/compound/";
@@ -339,6 +340,10 @@ pub struct Supplier {
 pub struct Suppliers {
     pub cid: u64,
     pub suppliers: Vec<Supplier>,
+    // The source table could not be had, so the suppliers have no country or count: the page shows them but keeps
+    // no copy, and the next Find suppliers asks again.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 // PUG View's Source Categories answer, only the parts Octet reads. Any other part is skipped (serde reads it no deeper
@@ -406,8 +411,8 @@ async fn suppliers(key: &str, version: &str, stop: Option<&Stop>) -> Result<Opti
         Some(json) => suppliers_in(&json, cid)?,
         None => Vec::new(),
     };
-    let suppliers = with_about(suppliers, version, stop).await;
-    Ok(Some(Suppliers { cid, suppliers }))
+    let (suppliers, partial) = with_about(suppliers, version, stop).await?;
+    Ok(Some(Suppliers { cid, suppliers, partial }))
 }
 
 // The suppliers in PubChem's answer for compound cid, read as hostile: the "Chemical Vendors" category's entries, each
@@ -520,19 +525,25 @@ pub fn about_in(json: &str) -> Option<About> {
     Some(about)
 }
 
-// Each supplier's country and count, from the source table: asked once while Octet runs, after the suppliers. When it
-// cannot be had (no network, Stop, a broken answer), the suppliers go without them, and the next Find suppliers asks
-// again.
-async fn with_about(mut suppliers: Vec<Supplier>, version: &str, stop: Option<&Stop>) -> Vec<Supplier> {
+// Each supplier's country and count, from the source table: asked once while Octet runs, after the suppliers, with
+// TABLE_TIME to answer (it took 0.84 s). Stop ends the lookup (STOPPED). When the table cannot be had (no network, a
+// broken answer) the suppliers go without them and are partial (true), and the next Find suppliers asks again.
+async fn with_about(mut suppliers: Vec<Supplier>, version: &str, stop: Option<&Stop>) -> Result<(Vec<Supplier>, bool), String> {
     if suppliers.is_empty() {
-        return suppliers;
+        return Ok((suppliers, false));
     }
     if ABOUT.lock().unwrap().is_none() {
-        let Ok(client) = client(version) else { return suppliers };
-        if let Ok(Some(json)) = answer(client.get(SOURCE_TABLE).timeout(SOURCES_TIME), MOST_TABLE, stop).await {
-            if let Some(about) = about_in(&json) {
-                *ABOUT.lock().unwrap() = Some(about);
-            }
+        let about = match client(version) {
+            Ok(client) => match answer(client.get(SOURCE_TABLE).timeout(TABLE_TIME), MOST_TABLE, stop).await {
+                Err(e) if e == STOPPED => return Err(e),
+                Ok(Some(json)) => about_in(&json),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        match about {
+            Some(about) => *ABOUT.lock().unwrap() = Some(about),
+            None => return Ok((suppliers, true)),
         }
     }
     if let Some(about) = ABOUT.lock().unwrap().as_ref() {
@@ -542,7 +553,7 @@ async fn with_about(mut suppliers: Vec<Supplier>, version: &str, stop: Option<&S
             }
         }
     }
-    suppliers
+    Ok((suppliers, false))
 }
 
 // A supplier's name as Octet shows it: no control or format characters (bidirectional overrides among them), spaces
@@ -769,6 +780,17 @@ mod tests {
         // No SID at all: the compound's vendor section.
         let no_sid = r#"{"SourceCategories":{"Categories":[{"Category":"Chemical Vendors","Sources":[{"SourceName":"Odd"}]}]}}"#;
         assert_eq!(suppliers_in(no_sid, 5).unwrap()[0].url, "https://pubchem.ncbi.nlm.nih.gov/compound/5#section=Chemical-Vendors");
+    }
+
+    #[test]
+    fn partial_only_when_the_source_table_was_missing() {
+        let one = |partial| serde_json::to_value(Suppliers { cid: 1, suppliers: vec![], partial }).unwrap();
+        assert_eq!(one(false).get("partial"), None, "a complete answer says nothing");
+        assert_eq!(one(true)["partial"], true);
+        assert!(TABLE_TIME <= Duration::from_secs(20), "the table took 0.84 s; no 2-minute wait for it");
+        // An http link that is not safe over https (a user name, an address, another scheme): PubChem's substance page.
+        let json = vendors(9, &[(4, "Odd", Some("http://user@odd.example.com/p")), (5, "Ip", Some("http://10.0.0.1/p"))]);
+        assert!(suppliers_in(&json, 9).unwrap().iter().all(|s| s.url.starts_with(SUBSTANCE)));
     }
 
     #[test]

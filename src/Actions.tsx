@@ -338,10 +338,10 @@ export type Item = { icon: React.ReactNode; name: string; command: string; accen
 // all, Fit to window, Centre in window, Select structure), then Delete.
 // Reordered 19 November 2026 (Sam asked for the panel's order to be audited): turns and flips first, as they come
 // straight after drawing; then what is shown on the structure; Copy (the clipboard and library); Analyse (predictions);
-// Search online (the searches, then PubChem's hazards and suppliers); Query (Markush tools); 3D tools; Add frame.
+// Search literature (the searches, then PubChem's hazards and suppliers); Query (Markush tools); 3D tools; Add frame.
 const SETS = ["chart", "table", "plate", "cycle", "position", "turn", "more", "copy", "analysis", "search", "query", "depth", "frame", "group", "file", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "More", copy: "Copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search online", query: "Query", position: "Second line", file: "File", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "More", copy: "Copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", query: "Query", position: "Second line", file: "File", delete: "Delete" };
 // A structure's panels call Display and copy by what it acts on. A section with no turn or flip in it is Arrange, and
 // the last, untitled one is named for a screen reader by what it holds.
 const titleOf = (s: SetId, c: Context, list: readonly { command: string }[]) => {
@@ -420,7 +420,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
     it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true),
     // PubChem's GHS hazards (the Properties panel's Hazards tab) and suppliers (their own window) for the structures,
-    // side by side in Search online (Sam, 19 November 2026; issue 114).
+    // side by side in Search literature (Sam, 19 November 2026; issue 114).
     it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<FirstAidKit size={18} />, "Find hazards", "find_hazards", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
@@ -687,8 +687,10 @@ export function arrangedActions(context: Context, messy: boolean, hiddenWarnings
     ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
   if (grouping?.group) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
   if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <Unite size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
-  // The user's order first (actions it does not know keep their place after it), then their split into rows.
-  const mine = layout[context.kind];
+  // The user's order first (actions it does not know keep their place after it), then their split into rows. A double
+  // bond's second-line commands, rows in a layout saved before 1.1.3, leave it: the Second line control has them.
+  const saved = layout[context.kind], hidden = (c: string) => kindOf(c) === "position";
+  const mine = saved && { order: saved.order.filter((c) => !hidden(c)), rows: saved.rows - saved.order.slice(0, saved.rows).filter(hidden).length };
   const placeIn = (order: string[], c: string) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
   if (mine) items.sort((a, b) => placeIn(mine.order, a.command) - placeIn(mine.order, b.command));
   // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
@@ -874,8 +876,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   // as chemistry (the editor gives none for others).
   const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked") || ((context.kind === "atom" || context.kind === "bond") && !!context.molecule);
 
-  // The second line's set shows as the Second line control under the bond styles, so not as small buttons too.
-  const { items, rows, sets: arranged } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more), sets = arranged.filter(([s]) => s !== "position");
+  // The second line's set shows as the Second line control under the bond styles, so not as small buttons too, nor in
+  // the order a drag saves.
+  const arrangement = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more), { rows } = arrangement;
+  const sets = arrangement.sets.filter(([s]) => s !== "position"), items = arrangement.items.filter((i) => setOf(i.command) !== "position");
   const chart = "chart" in context ? context.chart : undefined;
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
@@ -1027,7 +1031,8 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
             <div className="scale-row bond-position">
               <span className="tray-title">Second line</span>
               <Segmented label="Second line" value={context.position ?? "auto"} onChange={(v) => run(`bond.${v}`)}
-                options={[["auto", "Auto", "Second line placed automatically"], ["left", "Left", "Second line on the left"], ["centre", "Centre", "Centre the double bond"], ["right", "Right", "Second line on the right"]]} />
+                options={([["auto", "Auto", "Second line placed automatically"], ["left", "Left", "Second line on the left"], ["centre", "Centre", "Centre the double bond"], ["right", "Right", "Second line on the right"]] as const)
+                  .map(([v, shown, name]): ["auto" | "left" | "centre" | "right", string, string, boolean, string | undefined] => [v, shown, name, false, hint(`bond.${v}`)])} />
             </div>
           )}
           <div className="chips rings" role="group" aria-label="Fuse a ring">

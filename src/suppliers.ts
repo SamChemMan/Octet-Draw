@@ -5,9 +5,11 @@
 // names and numbers only as text. PubChem has no prices, pack sizes, purity, ratings or
 // logos, so neither has this.
 export type Supplier = { name: string; url: string; codes: string[]; products: number; country?: string; listed?: number };
-export type Suppliers = { cid: number; suppliers: Supplier[] };
-// A structure's suppliers as far as they are found: null, PubChem has no compound for its key; "busy", being asked.
-export type Found = Suppliers | null | "busy" | undefined;
+// partial: PubChem's source table could not be had, so no country or count; the next Find suppliers asks again.
+export type Suppliers = { cid: number; suppliers: Supplier[]; partial?: true };
+// A structure's suppliers as far as they are found: null, PubChem has no compound for its key; "busy", being asked;
+// error, why there is no answer (the structure has no key, no network, PubChem slow, Stop).
+export type Found = Suppliers | null | "busy" | { error: string } | undefined;
 // The two PubChem lookups Octet runs on a press (pubchem_stop's kinds).
 export type Lookup = "suppliers" | "hazards";
 
@@ -24,7 +26,7 @@ export function suppliersOf(x: unknown): Suppliers | null | undefined {
       products: Number.isSafeInteger(s.products) && s.products > 0 ? s.products : 1,
       ...(typeof s.country === "string" && s.country.trim() ? { country: s.country.slice(0, MOST_CODE * 2) } : {}),
       ...(Number.isSafeInteger(s.listed) && s.listed! >= 0 ? { listed: s.listed } : {}) }));
-  return { cid, suppliers: list };
+  return { cid, suppliers: list, ...((x as { partial?: unknown }).partial === true ? { partial: true as const } : {}) };
 }
 
 // A supplier's key for favourites: its name, letter case and spaces aside (as Rust counts each supplier once).
@@ -52,6 +54,8 @@ export const NO_KEY = "PubChem cannot look up this structure.";
 export const failedNotice = (e: string) => (e === SLOW ? SLOW : UNREACHED_NOTICE);
 export const STOPPED = "Stopped.";
 export const OFF = "Online search is off in Settings.";
+// What the Suppliers window says for a lookup's error: each error in its own words, any other as no network.
+export const lookupText = (e: string) => ([NO_KEY, SLOW, STOPPED, OFF].includes(e) ? e : UNREACHED_NOTICE);
 
 // The keys a lookup asks for: each once, none found before (kept), in the panel's order.
 export const wanted = (keys: (string | undefined)[], kept: { has: (key: string) => boolean }) => [...new Set(keys)].filter((k): k is string => !!k && !kept.has(k));
