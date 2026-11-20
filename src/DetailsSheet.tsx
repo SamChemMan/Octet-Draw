@@ -2,7 +2,8 @@
 // detail's name and value in the page's two columns, at the page's sizes. Each value is rich text, styled with the
 // same controls as text on the canvas (bold, italic, underline, subscript, superscript, formula, font, size, colour,
 // the character map). A style goes on the text selected in a value, or on the whole value with only a caret in it.
-// Return saves, Tab goes to the next value. Nothing changes the drawing until Save.
+// Return saves, Tab goes to the next value. ChemDraw's text keys (⌘B, ⌘I, ⌘U, ⌘T, ⌘−, ⌘= and ⌘F) style a value as
+// the controls do: the Text menu does not reach a dialog. Nothing changes the drawing until Save.
 import { useEffect, useRef, useState } from "react";
 import { TextB, TextItalic, TextSubscript, TextSuperscript, TextUnderline } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
@@ -13,6 +14,7 @@ import { COLOURS, fontStack } from "./docstyle";
 import type { Swatch } from "./settings";
 import type { PinKind } from "./colours";
 import { formulaRuns } from "./labels";
+import { MAC, textKey } from "./keys";
 import { common, normalise, plainOf, styleRange, type RunStyle, type TextRun } from "./richtext";
 import type { Field } from "./experiment";
 
@@ -106,6 +108,16 @@ export function DetailsSheet(p: Props) {
         if (rebuild) { setCarets((c) => ({ ...c, [f.key]: rebuild })); setVersions((v) => ({ ...v, [f.key]: (v[f.key] ?? 0) + 1 })); }
       }}
       onKeyDown={(e) => {
+        const command = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey ? textKey(e, false, true) : undefined;
+        if (command) {
+          e.preventDefault();
+          const keys: Record<string, () => void> = {
+            "caption.bold": () => toggle("bold"), "caption.italic": () => toggle("italic"), "caption.underline": () => toggle("underline"),
+            "caption.sub": () => script("sub"), "caption.super": () => script("super"), "caption.formula": formula,
+            "caption.plain": () => restyle((s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined, script: undefined })),
+          };
+          return keys[command]?.();
+        }
         if (e.key !== "Tab") return;
         e.preventDefault();
         const k = order[(order.indexOf(f.key) + (e.shiftKey ? order.length - 1 : 1)) % order.length], len = plainOf(values[k]).length;

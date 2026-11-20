@@ -12,13 +12,13 @@ import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
 import { FONTS, PAGES, PURPOSES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
 import {
-  HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
+  HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, cellRuns, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, symbolCharge, signOf, isChargeKind, reKind, DIGIT, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowEnd, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
-import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
-import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
+import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaOver, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
+import { labelStyle, normalise, plainOf, readTableRuns, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
@@ -382,7 +382,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const ownBond = (f: number, b: Bond) => (f === 1 && !b.line && !b.bold ? {} : { BondLength: fmt(B * f), LineWidth: fmt((b.line ?? line) * f), BoldWidth: fmt((b.bold ?? style.bold) * f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
   const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
-  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour, layout: g.layout, roles: g.roles, taken: g.taken, conc: g.conc, conditions: g.conditions, step: g.step, at: g.at, free: g.free, own: g.own, text: g.text }; };
+  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour, layout: g.layout, roles: g.roles, taken: g.taken, conc: g.conc, conditions: g.conditions, step: g.step, at: g.at, free: g.free, own: g.own, text: g.text, runs: g.runs }; };
 
   // Ids: Octet's own object ids where they are sound, everything else from one counter above them (spec 2).
   const own = [...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? []), ...(mol.groups ?? [])].map((x) => x.id);
@@ -565,7 +565,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     } else if (sh.kind === "table") {
       // The table's rules and cells, laid out as Octet lays them out (text measured with Arial's widths).
       // The text at its own size (or the document's) times the table's scale.
-      const own = sh.size ?? style.captionSize, size = own * f, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
+      const own = sh.size ?? style.captionSize, size = own * f, whole: RunStyle = { bold: sh.bold || undefined, italic: sh.italic || undefined, underline: sh.underline || undefined }, faced = face(whole);
       const t = tableLayout(sh, (s) => widthOf(s, own) / B, style.captionSize), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
       const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
       const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((k) => t.col(k)) : []), ...(lines.has("right") ? [t.x1] : [])];
@@ -575,9 +575,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         if (!text) return;
         const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + TABLE_PAD * f : align === "right" ? t.col(k + 1) - TABLE_PAD * f : t.col(k) + t.widths[k] / 2;
         const p = at([x, t.row(r) - t.heights[r] / 2]), q: P = [p[0], p[1] + 0.35 * size], just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
-        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face })));
+        // Each character in its own style (cellRuns, else the table's), formula counts as subscripts, as the page draws it.
+        const spans = formulaOver(cellRuns(sh.table, r, k) ?? [{ ...whole, text }]);
+        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, spans.map((x) => run(x.text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face: face(x) })).join("")));
       }));
-      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined, scale: ownScale(sh) }) }, kids.join("") + notes(sh.notes)), 0, box, sh.id);
+      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: faced || undefined, scale: ownScale(sh) }) }, kids.join("") + notes(sh.notes)), 0, box, sh.id);
     } else if (sh.kind === "gel" || sh.kind === "plasmid") {
       // A gel or plasmid map as the lines, bands, arrows and text ChemDraw shows, laid out as Octet draws it, with the
       // object itself in Octet's data (as a table).
@@ -1479,7 +1481,7 @@ export function readPlasmid(v: unknown): Plasmid | undefined {
   };
 }
 
-// A table from Octet's own data, if it is sound (the same limits as Octet's file format).
+// A table from Octet's own data, if it is sound (the same limits as Octet's file format), with its cells' styles.
 function readTable(v: unknown): Table | undefined {
   const t = v as Record<string, unknown>, list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
   if (!t || typeof t !== "object" || !Array.isArray(t.cells) || !t.cells.length || t.cells.length > 100) return undefined;
@@ -1487,8 +1489,9 @@ function readTable(v: unknown): Table | undefined {
   const size = (n: unknown) => isNum(n, 0.002, 5000);
   if (!list(t.widths, 20, size) || !list(t.heights, 100, size) || !list(t.lines, 7, (x) => ["top", "bottom", "left", "right", "header", "rows", "cols"].includes(x as string))
     || !list(t.align, 20, (x) => ["left", "centre", "right"].includes(x as string)) || (t.weight !== undefined && !isNum(t.weight, 0.001, 1000)) || (t.grid !== undefined && t.grid !== true)) return undefined;
+  const runs = readTableRuns(t.runs, t.cells as string[][]);
   return {
-    cells: t.cells as string[][], ...(t.grid ? { grid: true } : {}), ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
+    cells: t.cells as string[][], ...(runs ? { runs } : {}), ...(t.grid ? { grid: true } : {}), ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
     ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as Table["align"] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
   };
 }

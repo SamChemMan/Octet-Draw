@@ -6,6 +6,8 @@
 // a host with no window (decision 0021, scripts/headless), so the two lay grids out the same.
 import { isNumber, scaleOf, type Arrow, type Box, type Caption, type Grid, type GridRole, type Mol } from "./render.ts";
 import { formulaRuns, sheetSafe } from "./experiment.ts";
+import { formulaOver } from "./labels.ts";
+import { runsFor, type TextRun } from "./richtext.ts";
 import { coefficient, conditionItems, CONDITIONS, formatAmount, formulaWeight, inert, keyColumns, limitingOf, liquidNamed, liquidOf, reagentEquiv, reagentName, solve, type Field, type Solved } from "./stoich.ts";
 import type { Reaction, Step } from "./reaction.ts";
 import type { Part, RoleStep } from "./interpret.ts";
@@ -189,7 +191,9 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const rh = d.captionSize * d.perPt * 0.9 * 1.6 * f, top = Math.min(...cols.map((c) => c.low), ...under, made ? made.bottom - 0.5 * rh + 0.9 * f : Infinity) - 0.9 * f;
   // The row names end a little before the first column; the rules start at the longest name.
   const left = Math.min(...cols.map((c) => c.x)) - width / 2 - 0.3 * f, size = d.captionSize * 0.9 * f;
-  const nameOf = (row: GridRow) => g.text?.[row.id]?.["#"] ?? row.name, names = Math.max(...rows.map((row) => d.nameWidth(nameOf(row), size)));
+  // A name's width, in its characters' own styles where its cell has some (Grid.runs).
+  const wideAt = (t: string, row: string, k: string) => { const own = runsFor(g.runs?.[row]?.[k], t); return own ? own.reduce((w, r) => w + d.nameWidth(r.text, r.script ? 0.75 * size : size, !!r.bold), 0) : d.nameWidth(t, size); };
+  const nameOf = (row: GridRow) => g.text?.[row.id]?.["#"] ?? row.name, names = Math.max(...rows.map((row) => wideAt(nameOf(row), row.id, "#")));
   // Every cell: its component and row, its middle, top and width, for picking and typing in it. As rows (Grid.layout),
   // the reagents each take a row and the products a section of their own under them, each section with its title and
   // the names of its columns; the first column names each component by its compound number or its text.
@@ -204,12 +208,12 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
     // A product's row: what it is, its expected mass, the mass measured and the yield; its equivalents only when typed.
     const ownEquiv = cols.some((c) => c.product && c.typed.equiv !== undefined), fits = (row: (typeof rows)[number], product: boolean) => row.product !== !product && !(product && (row.id === "expectedMoles" || (row.id === "equiv" && !ownEquiv)));
     sections = ([[false, "Reagents"], [true, "Products"]] as const).map(([product, title]) => ({ product, title, fields: rows.filter((row) => fits(row, product)), comps: cols.filter((c) => c.product === product) })).filter((sec) => sec.comps.length && sec.fields.length);
-    const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wide(g.text?.name?.[c.key] ?? c.label ?? ""))])) + 0.4 * f;
+    const x0 = Math.min(...cols.map((c) => c.x)) - width / 2, nameW = Math.max(...sections.flatMap((sec) => [wide(sec.title, true), ...sec.comps.map((c) => wideAt(g.text?.name?.[c.key] ?? c.label ?? "", "name", c.key))])) + 0.4 * f;
     let y = top;
     texts = []; rules = [];
     for (const sec of sections) {
       let x = x0 + nameW;
-      const at = sec.fields.map((row) => { const w = Math.max(width, wide(nameOf(row)) + 0.4 * f); x += w; return [x - w / 2, w]; });
+      const at = sec.fields.map((row) => { const w = Math.max(width, wideAt(nameOf(row), row.id, "#") + 0.4 * f); x += w; return [x - w / 2, w]; });
       const s = sections.indexOf(sec);
       rules.push([x0, x, y]);
       rulings.push({ id: `${s}a`, a: x0, b: x, y });
@@ -244,7 +248,7 @@ function layGrid(m: Mol, d: GridDeps, g: Grid, r: Reaction, steps: RoleStep[], f
   const bottom = Math.min(rules ? rules[rules.length - 1]?.[2] ?? top : top - rows.length * rh, ...lines.map((l) => l.y - rh));
   return { arrow: g.arrow, all, cols, rows, solved, limiting, conc: g.conc, roles, taken, block, page, top, bottom, rh, left, width, start: left - names - 0.2 * f, f, colour: g.colour,
     hiding: !!(hidden.rows?.length || hidden.cols?.length || hidden.lines?.length || Object.keys(hidden.cells ?? {}).length), cells, texts, rules, sections, rulings,
-    text: g.text, own: g.own, gone: hidden.cells, goneLines: hidden.lines, free: g.free };
+    text: g.text, runs: g.runs, own: g.own, gone: hidden.cells, goneLines: hidden.lines, free: g.free };
 }
 
 export type GridView = NonNullable<ReturnType<typeof layGrid>>;
@@ -351,10 +355,16 @@ export function cellText(v: GridView, c: GridView["cols"][number], row: GridRow)
 }
 // A cell as shown: blank when hidden (Grid.hidden.cells), else the text typed over it (Grid.text), a row's name (a key
 // starting "#"), a component's name as rows (row "name"), a row of the user's own, the compound's number, or the value
-// worked out (cellText). formula: drawn as a formula (subscript counts); bold: drawn bold, as a typed value is.
+// worked out (cellText). formula: drawn as a formula (subscript counts); bold: drawn bold, as a typed value is. runs:
+// its characters' own styles (Grid.runs), while they join to the text shown; each character's whole style.
 export const NAME_ROW: GridRow = { id: "name", name: "" };
 export const rowOf = (v: Pick<GridView, "rows">, id: string): GridRow | undefined => v.rows.find((r) => r.id === id) ?? (id === "name" ? NAME_ROW : GRID_ROWS.find((r) => r.id === id));
-export function shownCell(v: GridView, key: string, row: GridRow): { text: string; typed?: boolean; taken?: true; bold?: true; formula?: true } {
+type Shown = { text: string; typed?: boolean; taken?: true; bold?: true; formula?: true; runs?: TextRun[] };
+export function shownCell(v: GridView, key: string, row: GridRow): Shown {
+  const out = cellShown(v, key, row), runs = v.runs && runsFor(v.runs[row.id]?.[key[0] === "#" ? "#" : key], out.text);
+  return runs ? { ...out, runs } : out;
+}
+function cellShown(v: GridView, key: string, row: GridRow): Shown {
   const head = key[0] === "#";
   if (v.gone?.[row.id]?.includes(head ? "#" : key)) return { text: "" };
   if (head) return { text: row.own ? row.name : v.text?.[row.id]?.["#"] ?? row.name };
@@ -374,14 +384,16 @@ export function staticTable(m: Mol, v: GridView, d: { size: number; perPt: numbe
   const pt = d.size * 0.9 * v.f, baseline = (top: number) => top - 0.5 * v.rh - 0.35 * pt * d.perPt;
   let id = d.id;
   const captions: Caption[] = [], lines: Arrow[] = [], tint = v.colour ? { colour: v.colour } : {};
-  const write = (text: string, x: number, y: number, align: Caption["align"], bold?: boolean, formula?: boolean) => {
-    if (text) captions.push({ id: id++, text, x, y: baseline(y), align, size: pt, ...(bold ? { bold: true } : {}), ...tint, ...(formula ? { runs: formulaRuns([{ text, ...(bold ? { bold: true } : {}) }]) } : {}) });
+  // own: the cell's own styles (Grid.runs), which are each character's whole style.
+  const write = (text: string, x: number, y: number, align: Caption["align"], bold?: boolean, formula?: boolean, own?: TextRun[]) => {
+    if (own) captions.push({ id: id++, text, x, y: baseline(y), align, size: pt, ...tint, runs: formula ? formulaOver(own) : own });
+    else if (text) captions.push({ id: id++, text, x, y: baseline(y), align, size: pt, ...(bold ? { bold: true } : {}), ...tint, ...(formula ? { runs: formulaRuns([{ text, ...(bold ? { bold: true } : {}) }]) } : {}) });
   };
   for (const l of v.rulings) if (!v.goneLines?.includes(l.id)) lines.push({ id: id++, kind: "line", from: [l.a, l.y], to: [l.b, l.y], ...tint, ...(v.f !== 1 ? { scale: v.f } : {}) });
   for (const t of v.texts ?? []) write(t.text, t.x, t.y, t.anchor === "start" ? "left" : "centre", t.bold);
   for (const c of v.cells) {
     const row = rowOf(v, c.row), s = row && shownCell(v, c.key, row), head = c.key === "#";
-    if (s) write(s.text, head ? v.left : c.row === "name" ? c.x - c.w / 2 : c.x, c.y, head ? "right" : c.row === "name" ? "left" : "centre", !!(s.typed || s.bold), !!s.formula);
+    if (s) write(s.text, head ? v.left : c.row === "name" ? c.x - c.w / 2 : c.x, c.y, head ? "right" : c.row === "name" ? "left" : "centre", !!(s.typed || s.bold), !!s.formula, s.runs);
   }
   for (const l of v.block?.lines ?? []) { write(l.name, v.block!.at, l.y, "left"); write(l.value, v.block!.valueAt, l.y, "left", false, true); }
   const g = m.grids?.find((x) => x.arrow === v.arrow);

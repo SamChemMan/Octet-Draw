@@ -1,7 +1,7 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
 import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, flipBond, rotateAtoms, setBondSpec, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
-import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
+import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, cellRuns, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
@@ -303,6 +303,29 @@ assert.ok(Math.abs(cy(row, 0, 1) - cy(row, 2, 3)) < 1e-9, "centres share one y")
   assert.ok(!fit.table!.heights && !fit.table!.widths && Math.abs(tableLayout(fit).h - 0.8) < 1e-9);
   const typed = { ...sh, ...setTableCell(sh, 1, 1, "THF") };
   assert.deepEqual({ ...typed, ...clearTable(typed) }.table!.cells, [["Entry", "", ""], ["1", "", ""], ["2", "", ""]]);
+  // A cell's text styles (Table.runs) go with its text: a row or column added or deleted moves them with it, a cell
+  // typed without styles loses them, and Clear contents clears them. A cell's styles are measured as they are drawn.
+  const thf = [{ text: "TH", bold: true as const }, { text: "F" }], k2 = [{ text: "K" }, { text: "2", script: "sub" as const }];
+  const styled = { ...sh, ...setTableCell({ ...sh, ...setTableCell(sh, 1, 1, "THF", undefined, undefined, thf) }, 2, 2, "K2", undefined, undefined, k2) };
+  assert.deepEqual(styled.table!.runs, [[null, null, null], [null, thf, null], [null, null, k2]]);
+  const at = (x: typeof sh, r: number, c: number) => [x.table!.cells[r][c], x.table!.runs?.[r]?.[c] ?? null];
+  const rowIn = { ...styled, ...spliceTable(styled, "row", 1, 0, 1) }, colIn = { ...styled, ...spliceTable(styled, "col", 0, 0, 2) };
+  assert.deepEqual([at(rowIn, 2, 1), at(rowIn, 3, 2), at(rowIn, 1, 1)], [["THF", thf], ["K2", k2], ["", null]]);
+  assert.deepEqual([at(colIn, 1, 3), at(colIn, 2, 4)], [["THF", thf], ["K2", k2]]);
+  const rowOut = { ...styled, ...spliceTable(styled, "row", 1, 1, 0) }, colOut = { ...styled, ...spliceTable(styled, "col", 1, 1, 0) };
+  assert.deepEqual([at(rowOut, 1, 2), rowOut.table!.runs!.length], [["K2", k2], 2]);
+  assert.deepEqual([at(colOut, 2, 1), colOut.table!.runs![1]], [["K2", k2], [null, null]]);
+  assert.deepEqual({ ...styled, ...resizeTable(styled, 2, 2) }.table!.runs, [[null, null], [null, thf]], "cut off with their cells");
+  assert.equal({ ...styled, ...clearTable(styled) }.table!.runs, undefined, "Clear contents clears them");
+  const retyped = { ...styled, ...setTableCell(styled, 1, 1, "THF") };
+  assert.deepEqual(retyped.table!.runs, [[null, null, null], [null, null, null], [null, null, k2]]);
+  assert.equal({ ...retyped, ...setTableCell(retyped, 2, 2, "K2") }.table!.runs, undefined, "no cell left with styles: no runs");
+  // The plain text kept is what counts: runs that no longer join to their cell's text (an older Octet or an AI app
+  // changed it alone) are not used.
+  assert.deepEqual([cellRuns(styled.table, 1, 1), cellRuns({ ...styled.table!, cells: styled.table!.cells.map((r, i) => (i === 1 ? ["1", "DMF", ""] : r)) }, 1, 1)], [thf, undefined]);
+  const measured: string[] = [];
+  tableLayout(styled, (text, runs) => { measured.push(`${text}${runs ? " styled" : ""}`); return 1; });
+  assert.deepEqual(measured.filter((x) => /TH|K2/.test(x)), ["THF styled", "K2 styled"]);
 }
 
 // Atom maps: a pair takes the next free number, a mapped atom lends its number, and a number is never on two pairs.

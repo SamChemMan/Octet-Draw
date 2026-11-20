@@ -152,6 +152,7 @@ type Props = {
   more?: boolean; // Settings > Pro > More formats: File > More Formats' copy commands are offered
   folded: string[]; // the titled sections folded to their title, by set
   onFold: (id: string, folded: boolean) => void;
+  cellOpen?: boolean; // a table cell is being typed in: the text style buttons keep it open
 };
 
 const ELEMENTS = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"];
@@ -768,7 +769,7 @@ function Fold({ id, title, className, folded, onFold, folds, children }: { id: s
   );
 }
 
-export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, more, folded, onFold }: Props) {
+export function Actions({ open, context, analysis, problems, fonts, hiddenWarnings, warned, messy, hint, onOpen, run, layout, onLayout, colour, colours, grouping, menus, sizes, scale, online, more, folded, onFold, cellOpen }: Props) {
   // An action being dragged to a new place: in the rows (index among rows) or the small buttons (index among them).
   const [carry, setCarry] = useState<{ command: string; x: number; y: number; to?: { rows: boolean; index: number } }>();
   const dragged = useRef(false);
@@ -916,8 +917,9 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
       onPointerEnter={(e) => { folds.y = e.clientY; }}
       onPointerMove={(e) => { folds.y = e.clientY; [...folds.held].forEach((f) => f()); }}
       onPointerLeave={() => { folds.y = null; setTimeout(() => { folds.settle.forEach((f) => f()); folds.release(); }, PEEK_LINGER); }}
-      // While text is being typed, the panel's buttons style it without taking the focus away from it.
-      onMouseDown={(e) => { if (context.kind === "caption" && context.mode === "typing" && !(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
+      // While text is being typed, the panel's buttons style it without taking the focus away from it. In a table cell
+      // only the text style buttons do: the rest of the panel closes the cell first, as a click elsewhere does.
+      onMouseDown={(e) => { if (((context.kind === "caption" && context.mode === "typing") || (cellOpen && e.target instanceof Element && e.target.closest(".label-style"))) && !(e.target instanceof HTMLInputElement)) e.preventDefault(); }}
     >
       <header>
         <h2>{title}</h2>

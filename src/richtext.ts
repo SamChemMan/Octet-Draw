@@ -170,3 +170,36 @@ export function wrap(runs: TextRun[], max: number, width: (text: string, style: 
   let at = 0;
   return { runs: runs.map((r) => { const t = r.text.split("").map((ch, k) => (breaks.has(at + k) ? "\n" : ch)).join(""); at += r.text.length; return { ...r, text: t }; }), soft };
 }
+
+// Text styles in table cells (a Table's, and the reagent table's text cells): bold, italic, underline and a script on
+// each character. A cell's runs give each character's whole style: a run without bold is not bold, whatever the table
+// is. They are kept beside the cell's plain text and count only while they join to it, so a writer that changes the
+// text alone (an older Octet, an AI app) leaves them out of use, and the cell draws plain.
+const CELL_KEYS = ["text", "bold", "italic", "underline", "script"];
+export function readCellRuns(v: unknown, text: string): TextRun[] | undefined {
+  if (!text || !Array.isArray(v) || !v.length || v.length > 2000) return undefined;
+  const ok = (r: Record<string, unknown>) => !!r && typeof r === "object" && !Array.isArray(r) && typeof r.text === "string"
+    && (r.bold === undefined || r.bold === true) && (r.italic === undefined || r.italic === true) && (r.underline === undefined || r.underline === true)
+    && (r.script === undefined || r.script === "sub" || r.script === "super") && Object.keys(r).every((k) => CELL_KEYS.includes(k));
+  if (!(v as Record<string, unknown>[]).every(ok)) return undefined;
+  const runs = normalise(v as TextRun[]);
+  return plainOf(runs) === text ? runs : undefined;
+}
+// A cell's runs while they join to its text.
+export const runsFor = (runs: TextRun[] | null | undefined, text: string) => (runs && text && plainOf(runs) === text ? runs : undefined);
+// The runs a cell keeps: none when every character has the cell's own look (base).
+export const ownRuns = (runs: TextRun[], base: RunStyle): TextRun[] | undefined => (plainOf(runs) && runs.some((r) => r.text && !sameStyle(styleOf(r), base)) ? normalise(runs) : undefined);
+// A Table's runs, the same shape as its cells (null for a cell without), if they are sound: at most 400 cells with
+// runs and 2000 runs in all. A cell's runs that are not sound, or do not join to its text, are left out.
+export function readTableRuns(v: unknown, cells: string[][]): (TextRun[] | null)[][] | undefined {
+  if (!Array.isArray(v) || v.length > cells.length) return undefined;
+  let n = 0, count = 0;
+  const out = cells.map((row, r) => row.map((text, c) => {
+    const x = Array.isArray(v[r]) && (v[r] as unknown[]).length <= 20 ? (v[r] as unknown[])[c] : undefined, runs = x ? readCellRuns(x, text) : undefined;
+    if (!runs || n >= 400 || count + runs.length > 2000) return null;
+    n++;
+    count += runs.length;
+    return runs;
+  }));
+  return n ? out : undefined;
+}

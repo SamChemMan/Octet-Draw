@@ -4218,7 +4218,8 @@ line.attach-hit[aria-checked="true"] {
   align-items: center;
 }
 
-/* The box a table cell is typed in: over the cell, text centred. */
+/* The box a table cell is typed in: over the cell, one line of rich text centred in it (a Table's column sets its own
+   alignment), its height the line's. */
 .cell-box {
   position: absolute;
   box-sizing: border-box;
@@ -4226,6 +4227,9 @@ line.attach-hit[aria-checked="true"] {
   padding: 0;
   border: none;
   border-radius: var(--radius-xs);
+  overflow: hidden;
+  white-space: pre;
+  color: var(--ink);
   text-align: center;
   caret-color: var(--brand-bright);
   background: color-mix(in oklab, var(--canvas) 85%, transparent);

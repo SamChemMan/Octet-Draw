@@ -23,6 +23,8 @@ type Props = {
   className?: string; // the box's look: a caption's (the default) or an atom label's
   label?: string; // its name for screen readers (Caption by default)
   onOffer?: (start: number, plain: string, runs: TextRun[]) => void; // a citation was pasted plain: its formatted runs
+  singleLine?: boolean; // one line (a table cell): every Return goes to onKeyDown, and a pasted line break is a space
+  base?: RunStyle; // the style of text typed outside the box's own spans (a cell's own look; none by default)
 };
 
 // Character offsets in the box, counting each span's text and each line break.
@@ -53,8 +55,8 @@ function pointAt(root: Node, index: number): [Node, number] {
   return [root, root.childNodes.length];
 }
 
-// The runs the box holds now: each text node in the style of the span it is in.
-function read(root: HTMLElement): TextRun[] {
+// The runs the box holds now: each text node in the style of the span it is in (base outside them).
+function read(root: HTMLElement, base: RunStyle = {}): TextRun[] {
   const out: TextRun[] = [];
   const walk = (n: Node, style: RunStyle) => {
     if (n.nodeType === Node.TEXT_NODE) { out.push({ ...style, text: n.textContent ?? "" }); return; }
@@ -67,7 +69,7 @@ function read(root: HTMLElement): TextRun[] {
       n.childNodes.forEach((c) => walk(c, s));
     }
   };
-  root.childNodes.forEach((c) => walk(c, {}));
+  root.childNodes.forEach((c) => walk(c, base));
   return normalise(out);
 }
 
@@ -124,20 +126,22 @@ export function RichBox(p: Props) {
       data-theme="light"
       role="textbox"
       aria-label={p.label ?? "Caption"}
-      aria-multiline
+      aria-multiline={!p.singleLine}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
       style={p.style}
       onInput={() => {
-        const el = box.current!, now = read(el);
-        if (!p.pending) return p.onRuns(now);
+        // One line: a line break that came in (a paste from the Edit menu) is a space, and the box is built again.
+        const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && plainOf(got).includes("\n");
+        const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/\n/g, " ") }))) : got;
+        if (!p.pending) return p.onRuns(now, flat ? p.api.current?.range() : undefined);
         // Characters typed after a style was set with nothing selected take that style; the box is built again.
         p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
       }}
       onPaste={(e) => {
         e.preventDefault();
-        const text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), start = p.api.current?.range()?.[0];
+        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/\n/g, " ") : lined, start = p.api.current?.range()?.[0];
         if (text.includes("\n")) insert(text);
         else if (text) document.execCommand("insertText", false, text);
         const runs = p.onOffer && start !== undefined ? offerFor(text, e.clipboardData.getData("text/html")) : undefined;
@@ -146,8 +150,10 @@ export function RichBox(p: Props) {
       onDrop={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         // A new line with Return (as ChemDraw's captions, unless its preference asks for Option-Return), and always with
-        // Option- or Shift-Return; the browser's own bold, italic and underline are not used (Octet's are).
-        if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
+        // Option- or Shift-Return; in one line, every Return is the box's owner's. The browser's own bold, italic and
+        // underline are not used (Octet's are).
+        if (e.key === "Enter" && p.singleLine) e.preventDefault();
+        else if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
         if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) e.preventDefault();
         p.onKeyDown(e);
       }}
