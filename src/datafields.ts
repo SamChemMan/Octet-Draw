@@ -6,12 +6,13 @@
 // cleaners and limits, a structure's fields, the dialog's rows, Select Linked Objects, the SD data reader and writer,
 // and the forms the files keep.
 import { addCaption, deleteGraphics, fragments } from "./edit.ts";
+import { MAX_TEXT } from "./richtext.ts";
 import type { Caption, DataField, Mol } from "./render.ts";
 
-// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to 10,000
-// characters; one over 2,000 cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000
-// fields and a drawing up to 10,000.
-export const MAX_NAME = 200, MAX_VALUE = 10_000, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
+// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to MAX_TEXT
+// (20,000) characters, as a text, so a shown value whose Show is turned off keeps what its text kept; one over 2,000
+// cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000 fields and a drawing up to 10,000.
+export const MAX_NAME = 200, MAX_VALUE = MAX_TEXT, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
 // A field from a file with no name.
 export const NO_NAME = "Data";
 // ChemDraw's attached data: a live property of type 23, its Name the field's name.

@@ -28,7 +28,7 @@ import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub, type DataField } from "./render.ts";
 import { ATTACHED, cleanName, cleanValue, longShown, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, SHOWN_OFF, withProperties } from "./datafields.ts";
-import { MAX_ATOMS, MAX_OBJECTS, withinEach, withinSize } from "./limits.ts";
+import { MAX_ATOMS, MAX_OBJECTS, withinEach, withinText } from "./limits.ts";
 import { kekulise, rings } from "./rings.ts";
 import { keptHolds, stereoMarks } from "./cip.ts";
 import { keepAngles, mapBranches, migrateCycles, readBranches, readSteps as readCycleSteps, type Cycle, type CycleText } from "./cycle.ts";
@@ -3028,6 +3028,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   // A group of one thing goes, and its annotations with it (longShown counts those of the groups it takes apart).
   const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0), gone = groupNotes(mol) - groupNotes(read);
   if (gone > 0) lose("annotation", gone);
-  // At most 64 MB, as Octet saves (limits.ts): the texts, notes and data fields past it are left out, counted.
-  return { mol: withinSize(each.mol, lose), style, lost };
+  // At most MAX_CHARACTERS of text, as the editor keeps (limits.ts): the notes, texts and data fields past it are left
+  // out, counted.
+  return { mol: withinText(each.mol, lose), style, lost };
 }

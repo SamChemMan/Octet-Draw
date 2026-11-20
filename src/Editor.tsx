@@ -23,7 +23,8 @@ import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { overLimit, parse, serialize } from "./file";
-import { allNotes, annotationsOf, isNote, NOTE, noteTargets, stampedWithin, withNote, withoutNotes, type Target } from "./annotate";
+import { allNotes, annotationsOf, isNote, NOTE, noteTargets, withNote, withoutNotes, type Target } from "./annotate";
+import { stampedWithin } from "./limits";
 import { Notes, type NoteField, type NoteRow } from "./Notes";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
@@ -151,7 +152,7 @@ import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
-import { cutNotice, failure, fileName, refusal, type NoticeKind } from "./notice";
+import { cutNotice, failure, fileName, reason, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { followArrows, MARK_KEY, tieable, tieAt, withTies } from "./arrowlink";
@@ -593,6 +594,10 @@ function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   keeper.queue = run.catch(() => {});
   return run;
 }
+// Save refuses a drawing larger than 64 MB (main.rs MAX_BYTES), and the recovery copy kept last stays (recovery.rs):
+// the notice says what to do (docs/plans/long-text.md).
+const TOO_LARGE = "This drawing is larger than 64 MB. Octet cannot save it. Delete part of it, or copy part of it to a new drawing and save that.";
+const saveFailed = (e: unknown) => (/^This drawing is larger than 64 MB\./.test(reason(e)) ? TOO_LARGE : failure("Octet cannot save this drawing.", e));
 // The copy, written now: the error boundary keeps the drawing as last drawn before the window can close.
 export function keepNow() {
   clearTimeout(keeper.timer);
@@ -1817,7 +1822,7 @@ export default function Editor() {
     }
     try {
       // The drawing says who saved it last (issue 100): the save's own step takes the name, so it is not left changed.
-      // Not past the drawing's notes limits (stampedWithin), so the file opens whole.
+      // Not past the drawing's limits (limits.ts stampedWithin), so the file opens whole.
       const out = stampedWithin(doc, systemName);
       // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
       const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...out, guides }, savedStyle(), cdxmlOptions())) : undefined;
@@ -1828,7 +1833,7 @@ export default function Editor() {
       if (path && path !== file.path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(failure("Octet cannot save this drawing.", e));
+      setNotice(saveFailed(e));
       return false;
     }
   }
@@ -1886,7 +1891,7 @@ export default function Editor() {
       if (path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(failure("Octet cannot save this drawing.", e));
+      setNotice(saveFailed(e));
       return false;
     }
   };
@@ -4916,9 +4921,12 @@ export default function Editor() {
     const marked = (m: Mol, id: number) => {
       const c = expPage ? m.captions?.find((x) => x.id === id) : undefined, next = c && markupCaption(c);
       if (!next) return;
-      // An edit like any other, so the Procedure box grows for it (growProcedure).
-      lastSet.current = { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) };
-      dispatch({ type: "set", mol: lastSet.current });
+      // An edit like any other, so the Procedure box grows for it (growProcedure). Its style runs count in the drawing's
+      // text (limits.ts): past it, the text stays as typed.
+      const out = { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) }, over = overLimit(out, m);
+      if (over) return setNotice(over, "info");
+      lastSet.current = out;
+      dispatch({ type: "set", mol: out });
     };
     if (w.id !== undefined) {
       const old = doc.captions?.find((c) => c.id === w.id);
@@ -4928,7 +4936,7 @@ export default function Editor() {
         // New text typed over a number Octet gave makes it the user's (numbering.ts renumber), and over live values
         // stops them following the structure (liveValues).
         const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined, ...(old.property?.attrs.rows ? { property: undefined } : {}), ...(old.measure ? { measure: undefined } : {}) } : {}) }));
-        if (!(expPage && markupCaption(old))) marked(m, w.id);
+        if (!refused.current && !(expPage && markupCaption(old))) marked(m, w.id);
       }
       return setPicked(new Set([w.id]));
     }
@@ -7270,8 +7278,8 @@ export default function Editor() {
       want.forEach((x) => riskAsked.current.add(`${x.key} ${x.inchi ?? ""}`));
       if (!same) {
         const next = withRiskCas(withSubstances(m, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s);
-        lastSet.current = next;
-        dispatch({ type: "amend", mol: next });
+        // Within the drawing's limits (limits.ts), as every edit.
+        if (!overLimit(next, m)) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
       }
       if (want.length) void riskOnline(true, want, true);
     }, 300);
@@ -7305,7 +7313,7 @@ export default function Editor() {
     }
     const s = sheetOf(style), next = withRiskCas(withHazards(now.current, found, s), cas, s);
     // Found for substances the reaction just got: in the edit's own undo step, when nothing has changed since.
-    if (next !== now.current && amend && lastSet.current === now.current) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
+    if (next !== now.current && amend && lastSet.current === now.current && !overLimit(next, now.current)) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
     else if (next !== now.current) set(next, true);
     if (hazards && failed && !Object.keys(found).length) setNotice(failedNotice(why), "info");
   }
@@ -7882,8 +7890,9 @@ export default function Editor() {
     const cas = casLive(doc);
     if (cas && !namesLoaded) return;
     const t = setTimeout(() => {
+      // Within the drawing's limits (limits.ts): a value that would take its text past them stays as it is.
       const next = liveValues(doc, liveOf(doc, cas));
-      if (next === doc) return;
+      if (next === doc || overLimit(next, doc)) return;
       if (added.current?.mol === doc) added.current = { ...added.current, mol: next };
       before.current = next;
       dispatch({ type: "amend", mol: next });

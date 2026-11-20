@@ -46,7 +46,7 @@ for (const [ids, data, why] of [
   [[s1], [{ name: "a<b", value: "y" }], /no < or >/],
   [[s1], [{ name: "", value: "y" }], /1 to 200 characters/],
   [[s1], [{ name: "x".repeat(201), value: "y" }], /200|long|too/i],
-  [[s1], [{ name: "x", value: "v".repeat(10_001) }], /10,000|long|too/i],
+  [[s1], [{ name: "x", value: "v".repeat(20_001) }], /20,000|long|too/i],
   [[s1], [{ name: "x", value: "v".repeat(2_001), show: true }], /too long to show/],
   [[s1], [{ name: "absent", remove: true }], /no data field absent/],
   [[s1], "not a list", /list|array|data/i],

@@ -2,7 +2,7 @@
 // the drawing (Mol.annotations), on a group (Group.annotations) and on a text, arrow, shape or catalytic cycle (their
 // notes). The note the user types has the keyword Note; one from a ChemDraw file may have any keyword. None is drawn,
 // and none goes into a picture or onto the clipboard for another app (withoutNotes).
-import { CHANGED_BY, FIELDS, PROPERTIES, stamped } from "./experiment.ts";
+import { CHANGED_BY, FIELDS, PROPERTIES } from "./experiment.ts";
 import { selectedGroups } from "./edit.ts";
 import type { Annotation, Mol } from "./render.ts";
 
@@ -47,7 +47,7 @@ export const noteOf = (m: Mol, t: Target, keyword = NOTE) => annotationsOf(m, t)
 // Whether a target is in the drawing.
 export const hasTarget = (m: Mol, t: Target) => t === "drawing" || !!m.groups?.some((g) => g.id === t) || items(m).some((x) => x.id === t);
 // Every annotation in the drawing: on the drawing, its groups and its objects.
-// One pass with no lists made: the editor counts them after each edit (file.ts overLimit).
+// One pass with no lists made.
 export function noteCount(m: Mol): number {
   let n = m.annotations?.length ?? 0;
   for (const g of m.groups ?? []) n += g.annotations?.length ?? 0;
@@ -145,13 +145,6 @@ export function capNotes(m: Mol, most = MAX_NOTES): Mol {
   for (const g of m.groups ?? []) take(g.id, g.annotations);
   for (const x of items(m)) take(x.id, x.notes);
   return withLists(m, lists);
-}
-
-// The drawing as this user saves it (experiment.ts stamped), when Last changed by keeps it within MAX_ANNOTATIONS on the
-// drawing and MAX_NOTES in all; otherwise as it is, so the file opens whole (no name is added).
-export function stampedWithin(m: Mol, name: string): Mol {
-  const s = stamped(m, name);
-  return s === m || ((s.annotations?.length ?? 0) <= MAX_ANNOTATIONS && noteCount(s) <= MAX_NOTES) ? s : m;
 }
 
 // The drawing with no notes, for a picture, another app's clipboard, a template or an object window: every annotation
