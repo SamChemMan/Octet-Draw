@@ -81,6 +81,33 @@ Sam put every built item in 1.1.3. The branch is rebased onto release-1.1.3 f06d
   leave as it lifts waits a frame, so its tap's release still has the point: the Sequence tool's structure lands where
   the finger tapped. chrome-touch.mjs checks both (18 pass; 8 fail on 3430216), and
   `OCTET_STRESS_URL=<url> node src/touch.check.ts` runs it.
+- Review of ba2bbfe3: in Chrome, a finger's tap left the hover mark on the atom it tapped or drew, so a key such as o
+  then changed that atom. The finger's leave waited a frame for the tap's release, which put the hover back, and it
+  read the drag from before that release. A finger's leave now clears the hover whatever drag it reads. Chromium's
+  dblclick for a finger's double tap can come before the second tap's release, and the release then picked the text
+  the double-click had opened for typing. A finger's dblclick now goes in after that release, as the mouse's comes
+  after its mouseup. chrome-touch.mjs checks both. With every tool, a finger's tap on an atom (and with Bond a tap on
+  the canvas and a drag) leaves no mark, and o then does what it does after a mouse that left the canvas. With Select,
+  a double tap on an atom, a bond, a text and an arrow does what the mouse's double-click does. Results are in the
+  table below.
+- Found on the way, not changed: the review's Atom label after a mouse double-click on an atom came from Return over
+  the atom still under the mouse (Return types the label of the atom under the pointer). With the mouse off the
+  canvas, Return on the structure the double-click picked puts the keyboard's hotspot on it, as it does after a
+  finger's double tap. Chromium sends the mouse no click or dblclick for a press that redraws what it landed on (a
+  picked arrow lifted for a move). So on Windows a mouse double-click on a reaction arrow picks the arrow, not its
+  reaction. A finger's double tap picks the reaction, as the double-click code does. The mouse is unchanged here and
+  needs an item of its own.
+
+Results of the ba2bbfe3 review, against release-1.1.3 e5af127:
+
+| Check | Result |
+| --- | --- |
+| C1 node src/touch.check.ts, and with `OCTET_STRESS_URL` | passes; Chrome passes 48 checks |
+| C2 `npm run look -- <url>/?editor touch` | 171 checks pass (123 WebKit, 48 Chrome), none fail. The finger's drag with Atom map still draws as the mouse's |
+| C2 Chrome on ba2bbfe3 | 35 pass, 13 fail: the double tap on a text, and a finger's tap that leaves its mark with 12 tools |
+| C3 mouse session in WebKit | the same drawing as e5af127 |
+| C3 Chrome, the mouse and the pen in 120 runs of 67 scenarios | the same as e5af127, but for a finger after a pen, which pans (the palm rule) |
+| C7 npm test | 224 of 224 check files pass |
 
 Results on f06d1b4 plus this branch:
 

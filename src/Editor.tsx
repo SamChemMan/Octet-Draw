@@ -11334,13 +11334,22 @@ export default function Editor() {
         // sends lostpointercapture after each pointerup, and to what a finger landed on when the canvas takes it over.
         onLostPointerCapture={(e) => { if (e.target === e.currentTarget && e.pointerId === owner.current && (gate.pen?.id === e.pointerId || gate.fingers.some((f) => f.id === e.pointerId))) follow(undefined, [...gate.reset(), { act: "cancel" }]); }}
         // A finger leaves the canvas as it lifts, before its tap's release goes in a frame later (follow): its leave waits
-        // that frame, so the release still has the point (a name field's structure lands where the finger tapped).
+        // that frame, so the release still has the point (a name field's structure lands where the finger tapped). A
+        // finger leaves no hover behind, whatever its press drew: the drag read here is the one from before the release.
         onPointerLeave={(e) => {
-          const leave = () => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if (!drag && !hovers.get().key) setHover({}); };
-          if (e.pointerType === "touch" && e.pointerId === owner.current) requestAnimationFrame(leave);
+          const finger = e.pointerType === "touch";
+          const leave = () => { pointer.current = undefined; pointers.set(undefined); setBrush(undefined); if ((finger || !drag) && !hovers.get().key) setHover({}); };
+          if (finger && e.pointerId === owner.current) requestAnimationFrame(leave);
           else leave();
         }}
         onDoubleClick={(e) => {
+          // A finger's double tap: Chromium sends its dblclick around the second tap's release, which goes in a frame
+          // after the lift (follow). It goes in once that release has, as the mouse's comes after its mouseup. (A
+          // finger has the press: reach is a finger's.)
+          if (owner.current !== undefined && reach.current === REACH.touch && e.isTrusted) {
+            const { clientX, clientY } = e;
+            return void requestAnimationFrame(() => svg.current?.dispatchEvent(new MouseEvent("dblclick", { clientX, clientY, bubbles: true, cancelable: true, detail: 2 })));
+          }
           // A double-click ends the Pen's curve.
           if (pen) return finishPen();
           // A double-click on a resize handle opens Scale…, and on the rotation handle Rotate…, as in ChemDraw.

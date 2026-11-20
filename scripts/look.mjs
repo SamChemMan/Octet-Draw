@@ -37,7 +37,7 @@ for (const page of pages) {
   if (one.timeout) result.timeout = page;
 }
 if (chrome) {
-  const run = spawnSync(process.execPath, [here("chrome-touch.mjs"), url], { encoding: "utf8", timeout: 300000 });
+  const run = spawnSync(process.execPath, [here("chrome-touch.mjs"), url], { encoding: "utf8", timeout: 600000 });
   let one;
   try { one = JSON.parse(run.stdout.trim().split("\n").pop()); } catch { console.error(`look: the Chrome checks did not finish.\n${run.stdout}${run.stderr}`); process.exit(1); }
   result.engine = [result.engine, one.engine].filter(Boolean).join(" and ");

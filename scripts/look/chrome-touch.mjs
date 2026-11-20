@@ -4,7 +4,8 @@
 // browser does around real ones: a finger's implicit pointer capture on what it lands on, which moves to the canvas
 // when its press goes in, the lostpointercapture after each pointerup, and the mouse events and click it sends after a
 // finger's tap. Each finger and pen sequence must draw what the same mouse sequence draws, a finger's tap that opens a
-// text field leaves the focus there, and lifting a finger whose hold opened the Actions menu chooses nothing. It prints
+// text field leaves the focus there, lifting a finger whose hold opened the Actions menu chooses nothing, a finger's
+// double tap does what the mouse's double-click does, and a finger leaves no hover behind on any tool. It prints
 // one line of JSON, as webkit.swift does. CHROME=path picks the browser. OCTET_STRESS_URL=<url> node
 // src/touch.check.ts runs it too.
 import { spawn } from "node:child_process";
@@ -164,6 +165,98 @@ try {
     const now = await settled(), shown = await run("return !!document.querySelector('.context-menu') && !document.querySelector('.name-field, [role=dialog]');");
     report(`finger: a long press ${name}, lifted over ${over || "no option"}, chooses nothing`, over && now === was && (await zoom()) === z && shown,
       !over ? "the finger does not lift over an option" : `the drawing ${now === was ? "is the same" : `became ${JSON.stringify(now)}`}, zoom ${z} to ${await zoom()}, ${shown ? "the menu open" : "the menu closed or a field opened"}`);
+  }
+
+  // The mouse leaves the canvas (for the palette), as a finger does when it lifts.
+  const leaveCanvas = async () => {
+    const [x, y] = await run("const r = document.querySelector('.palette').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];");
+    await call("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, pointerType: "mouse" });
+    await sleep(150);
+  };
+  // A real key with its letter, as typed.
+  const press = async (key) => {
+    const k = { key, code: `Key${key.toUpperCase()}`, windowsVirtualKeyCode: key.toUpperCase().charCodeAt(0) };
+    await call("Input.dispatchKeyEvent", { type: "keyDown", text: key, ...k });
+    await call("Input.dispatchKeyEvent", { type: "keyUp", ...k });
+    await sleep(150);
+  };
+  const actions = () => run("return [...document.querySelectorAll('.actions .action')].map((a) => a.getAttribute('aria-label') || a.textContent.trim()).join(', ');");
+
+  // A finger's double tap with Select does what the mouse's double-click does: on an atom and on a bond it picks the
+  // structure, on a text it types into it with nothing picked, and on an arrow it picks the arrow. Chromium sends a
+  // finger's dblclick around its second tap's release, which goes in a frame after the lift, and the release then
+  // picked the text being typed. The mouse's comes after its mouseup. Then N and Return go in, with the mouse off the
+  // canvas as the finger is: Return on a structure picked whole puts the keyboard's hotspot on it.
+  const doubleBy = (kind) => async (q) => {
+    if (kind === "finger") { await touch([q]); await sleep(80); await touch([q]); return; }
+    const at = (type, o = {}) => call("Input.dispatchMouseEvent", { type, x: q[0], y: q[1], pointerType: "mouse", ...o });
+    await at("mouseMoved");
+    await frame();
+    for (const clickCount of [1, 2]) { await at("mousePressed", { button: "left", buttons: 1, clickCount }); await frame(); await at("mouseReleased", { button: "left", buttons: 0, clickCount }); await sleep(80); }
+    await leaveCanvas();
+  };
+  const textAt = (text) => run(`const e = [...document.querySelectorAll('svg.canvas text')].find((t) => t.textContent.trim() === ${JSON.stringify(text)}); if (!e) throw new Error('no text ${text}'); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];`);
+  const DOUBLES = [
+    ["an atom", async () => { await fresh(); await byMouse([[600, 400]]); await settled(); await fresh(0, "", true); return [600, 400]; }],
+    // Butane's middle bond, in the middle of its box: away from the handles a picked structure shows.
+    ["a bond", async () => {
+      await fresh();
+      for (const q of [[600, 400], [621, 388], [641.5, 400]]) { await byMouse([q]); await settled(); }
+      await fresh(0, "", true);
+      return run(`const r = document.querySelector('[data-object]').getBoundingClientRect(), q = [r.left + r.width / 2, r.top + r.height / 2];
+        if (!/butane/.test(document.querySelector('[data-object]').getAttribute('aria-label')) || document.elementFromPoint(...q)?.tagName !== 'path') throw new Error('no butane with its middle bond in the middle');
+        return q;`);
+    }],
+    ["a text", async () => { await fresh(12); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
+    ["an arrow", async () => { await fresh(8); await byMouse(line([520, 400], [680, 400])); await settled(); await fresh(0, "", true); return [600, 400]; }],
+  ];
+  const doubled = {};
+  for (const kind of ["mouse", "finger"]) {
+    for (const [name, setup] of DOUBLES) {
+      const q = await setup();
+      await doubleBy(kind)(q);
+      await sleep(500);
+      const once = `${await settled(true)}\nactions: ${await actions()}\nfocus: ${await focused()}`;
+      await typeText("N");
+      await enter();
+      await sleep(300);
+      const now = `${once}\nthen N and Return:\n${await settled(true)}\nactions: ${await actions()}\nfocus: ${await focused()}`;
+      if (kind === "mouse") { doubled[name] = now; continue; }
+      report(`finger: a double tap on ${name} with Select does what the mouse's double-click does`, now === doubled[name], `got ${JSON.stringify(now)}, the mouse ${JSON.stringify(doubled[name])}`);
+    }
+  }
+
+  // A finger leaves no hover behind: it lifts off the screen. After its tap or its drag no mark of what is under it
+  // stays (.mark, the Eraser's ring), and a key does what it does with nothing under the pointer, as after a mouse that
+  // left the canvas: o (oxygen) for the atom under the pointer. With every tool, a tap on an atom of a bond drawn
+  // first; with Bond, a tap on the canvas and a drag from the atom too. A tap's release goes in a frame after the
+  // lift, and put the hover back. These come after the double taps: Mass spec analysis's panel hides the Actions panel
+  // they read.
+  const marks = () => run("return document.querySelectorAll('svg.canvas .mark, svg.canvas .brush').length;");
+  const tapAtom = [[600, 400]];
+  const HOVERS = [
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((slot) => [`slot ${slot}`, slot, "", tapAtom]),
+    ...["tlc", "gel", "plasmid", "table", "fragment", "synthesis", "retro", "map", "measure", "massspec"].map((key) => [key, 14, key, tapAtom]),
+    ["Bond, a tap on the canvas", 1, "", [[700, 300]]],
+    ["Bond, a drag from the atom", 1, "", line([600, 400], [660, 460])],
+  ];
+  for (const [name, slot, option, pts] of HOVERS) {
+    const got = {};
+    for (const [kind, act] of [["mouse", async (p) => { await byMouse(p); await leaveCanvas(); }], ["finger", touch]]) {
+      await fresh();
+      await byMouse([[600, 400]]);
+      await settled();
+      await fresh(slot, option, true);
+      const tool = await run("return document.querySelector('.palette .tool[aria-pressed=\"true\"]')?.getAttribute('aria-label');");
+      await act(pts);
+      await sleep(400);
+      const left = await marks();
+      await press("o");
+      got[kind] = { tool, left, now: `${await settled(true)}\nfocus: ${await focused()}` };
+    }
+    const f = got.finger, m = got.mouse;
+    report(`finger: ${f.tool} (${name}), ${pts.length > 1 ? "a drag" : "a tap"} leaves no hover, and o after it does what it does after a mouse that left`, f.left === 0 && f.now === m.now,
+      `${f.left} marks left; o then gave ${JSON.stringify(f.now)}, after the mouse ${JSON.stringify(m.now)}`);
   }
 
   for (const [kind, act] of [["mouse", byMouse], ["finger", touch], ["pen", mouse("pen")]]) {
