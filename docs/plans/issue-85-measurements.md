@@ -137,16 +137,17 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - Done: each path makes the same object in one undo step.
 
 **J5. Files and the clipboard**
-- `.oct` and Octet's clipboard (JSON): the caption with `measure: { atoms, at? }`. On read, an unsound `measure` is
+- `.oct` and Octet's clipboard (JSON): the caption with `measure: { ends, at? }`, each end an atom index or a free
+  point `[x, y]`. The old form `{ atoms, at? }` still opens (S45). On read, an unsound `measure` is
   left out and the caption stays as its text (`src/file.ts` `readCaptions`). The text, x and y are always written.
-- CDXML and CDX: the label as `t` with InterpretChemically no and Octet's data `measure: { atoms: node ids, at }`;
+- CDXML and CDX: the label as `t` with InterpretChemically no and Octet's data `measure: { ends: node ids or points, at }`;
   the dashed lines and the arc as Octet-only graphics (`Octet: {"d":1}`), which ChemDraw draws and Octet skips.
   Octet's own file reads back the measurement; a file ChemDraw has saved reads back as text and dashed lines.
 - Done: round trips in the checks, and the ChemDraw and Octet 1.1.2 checks below.
 
 **J6. MCP** (`src/mcp.ts`, small and local)
-- `text` takes `measure`: 2 to 4 atom ids in order (s3.2). It makes the measurement as the tool does, flat
-  structures cleaned up in 3D first, and says so.
+- `text` takes `measure`: 2 to 4 atom ids in order (s3.2). It makes the measurement as the tool does, from the
+  atoms as drawn (no clean-up). Free points through the MCP are for the 1.2 MCP session.
 - `read`: a measurement's text entry has `measure: { kind, atoms, value, unit }`.
 - `run_command measure`, with ids in order, as the menu.
 - `edit` (colour, size, font, bold, italic, underline), `delete` and `move` work on its t id as on any text.
@@ -251,7 +252,7 @@ Each is checked for a measurement:
 
 ## MCP
 
-- `text` `{ measure: ["s3.2", "s3.5"] }` → `t12`, its text, and "cleaned up s3 in 3D" when it was flat. `text` with
+- `text` `{ measure: ["s3.2", "s3.5"] }` → `t12` and its text, measured as drawn. `text` with
   `measure` takes the text style arguments too; `text` and `id` are refused with it.
 - `read` (full): `{ id: "t12", text: "2.54 Å", measure: { kind: "distance", atoms: ["s3.2", "s3.5"], value: 2.54,
   unit: "Å" } }`. The summary lists it under text with `measure: "distance"`.
@@ -376,8 +377,9 @@ Checks are in `src/measurement.check.ts` (new) unless named.
 
 What the build changed in this plan, and why:
 
-- `addMeasure` and `cleanedFor` are in `edit.ts`, not `measurement.ts`. They need `addCaption` (edit.ts), and
-  edit.ts needs `measurement.ts`; the two importing each other broke Vite's hot reload.
+- `addMeasure` is in `edit.ts`, not `measurement.ts` (`cleanedFor` went with the clean-up on
+  19 November). It needs `addCaption` (edit.ts), and edit.ts needs `measurement.ts`; the two importing each other
+  broke Vite's hot reload.
 - Label place (D4): the automatic place is the nearest one clear of bonds, atoms and the measurement labels placed
   before it (the first hundred), out along the measurement's frame: both sides of a line in turn, inside an angle
   first and then outside it. The first build put a 1,4 distance's label on the ring's far bonds.
@@ -385,8 +387,8 @@ What the build changed in this plan, and why:
   frame of 40 paclitaxels with 120 measurements went from 30 ms to 0.4 ms.
 - A file opens with each label where Octet saved it (`settleMeasures` with `kept`): only the values are worked out
   again, so a drawing opens as it was saved.
-- "Flat" (J4) is no depth and no depth shading. 3D Clean Up turns shading on, so a structure that is flat in 3D (anti
-  butane) is not cleaned up again at each new measurement.
+- (Up to 19 November) "Flat" was no depth and no depth shading, for the clean-up on measuring. Measuring no
+  longer cleans up (D2), so this no longer applies.
 - The arc is a solid line; the lines between atoms are dashed.
 - Structure > Measure's items are always on, as Add Multi-Centre Attachment's are (native menu items here have no
   enabled state). With the wrong number of atoms selected, a notice says how many to select.
