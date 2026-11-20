@@ -328,6 +328,9 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
   const pressed = useRef(false);
   const press = () => { pressed.current = true; };
   const lift = (e: React.MouseEvent) => { if ((e.nativeEvent as PointerEvent).pointerType === "touch" && !pressed.current) { e.preventDefault(); e.stopPropagation(); } };
+  // An option with more opens its own menu when the pointer moves onto it. A menu that opens under the mouse at rest
+  // opens no other: Chromium sends a pointerover to what appears under it, as a long press's menu can.
+  const over = (e: React.PointerEvent) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } };
   useEffect(() => {
     const away = (e: Event) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
     const gone = () => onClose();
@@ -367,7 +370,7 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
   return createPortal(
     <>
       <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()} onPointerDownCapture={press} onClickCapture={lift}
-        onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } }}>
+        onPointerMove={over}>
         <Menu label={label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => (i.more ? { ...i, checked: open?.key === i.key } : i)))} onChoose={choose}
           style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, rows(groups)))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
       </div>

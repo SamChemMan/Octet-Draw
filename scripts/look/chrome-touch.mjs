@@ -5,7 +5,9 @@
 // when its press goes in, the lostpointercapture after each pointerup, and the mouse events and click it sends after a
 // finger's tap. Each finger and pen sequence must draw what the same mouse sequence draws, a finger's tap that opens a
 // text field leaves the focus there, lifting a finger whose hold opened the Actions menu chooses nothing, a finger's
-// double tap does what the mouse's double-click does, and a finger leaves no hover behind on any tool. It prints
+// double tap does what the mouse's double-click does, and a finger leaves no hover behind on any tool. The mouse's
+// double-click on a handle or a reaction arrow does what a finger's double tap does, a long press opens one menu, two
+// fingers' pan keeps the zoom, and after a pen a finger's double tap, and a palm's, does nothing. It prints
 // one line of JSON, as webkit.swift does. CHROME=path picks the browser. OCTET_STRESS_URL=<url> node
 // src/touch.check.ts runs it too.
 import { spawn } from "node:child_process";
@@ -74,6 +76,9 @@ try {
   // What has the focus, by its name.
   const focused = () => run("return document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName;");
   const zoom = () => run("return /--zoom: ([-\\d.e]+)/.exec(document.querySelector('.canvas-access-layer')?.getAttribute('style') ?? '')?.[1];");
+  // The view: where the drawing's origin is on screen, and the zoom as the page has it (a string, to the bit).
+  const view = () => run(`const s = document.querySelector('.canvas-access-layer')?.getAttribute('style') ?? '', t = /translate\\(([-\\d.e]+)px, ([-\\d.e]+)px\\)/.exec(s);
+    return { x: Number(t?.[1]), y: Number(t?.[2]), zoom: /--zoom: ([-\\d.e]+)/.exec(s)?.[1] };`);
   // Real keys: text as typed, and Return.
   const typeText = async (text) => { await call("Input.insertText", { text }); await sleep(150); };
   const enter = async () => {
@@ -149,8 +154,11 @@ try {
   // A long press opens the Actions menu at the finger, and lifting the finger chooses nothing. The finger drifts 6 px
   // right and down while it is held (under the 10 px of a drag), so it lifts over an option, and Chromium sends its
   // click for the lift there. By the bottom of the window the menu moves up to fit, and Delete is under the finger.
+  // One menu opens: the mouse's click that drew the bond leaves it at rest 300 px right of and 200 px below the bond,
+  // and with a press at 800, 600 the menu opens under it, on Turn, flip and arrange (Chromium sends it a pointerover).
   // Bond in hand, a bond drawn at bond; the finger held at at.
-  const HOLDS = [["on an atom", [600, 400], [600, 400]], ["on an atom by the bottom", [600, 770], [600, 770]], ["on the canvas", [500, 300], [600, 400]], ["on the canvas by the bottom", [800, 750], [600, 400]]];
+  const HOLDS = [["on an atom", [600, 400], [600, 400]], ["on an atom by the bottom", [600, 770], [600, 770]], ["on the canvas", [500, 300], [600, 400]], ["on the canvas by the bottom", [800, 750], [600, 400]],
+    ["on the canvas, the menu under the mouse at rest", [800, 600], [600, 400]]];
   for (const [name, [x, y], bond] of HOLDS) {
     await fresh();
     await byMouse([bond]);
@@ -162,9 +170,27 @@ try {
     const over = await run(`return document.elementFromPoint(${x + 6}, ${y + 6})?.closest('.context-menu [data-item]')?.dataset.item ?? '';`);
     await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await sleep(500);
-    const now = await settled(), shown = await run("return !!document.querySelector('.context-menu') && !document.querySelector('.name-field, [role=dialog]');");
-    report(`finger: a long press ${name}, lifted over ${over || "no option"}, chooses nothing`, over && now === was && (await zoom()) === z && shown,
-      !over ? "the finger does not lift over an option" : `the drawing ${now === was ? "is the same" : `became ${JSON.stringify(now)}`}, zoom ${z} to ${await zoom()}, ${shown ? "the menu open" : "the menu closed or a field opened"}`);
+    const now = await settled(), shown = await run("return document.querySelectorAll('.context-menu').length === 1 && !document.querySelector('.name-field, [role=dialog]');");
+    report(`finger: a long press ${name}, lifted over ${over || "no option"}, chooses nothing and opens one menu`, over && now === was && (await zoom()) === z && shown,
+      !over ? "the finger does not lift over an option" : `the drawing ${now === was ? "is the same" : `became ${JSON.stringify(now)}`}, zoom ${z} to ${await zoom()}, ${shown ? "one menu open" : `${await run("return document.querySelectorAll('.context-menu').length;")} menus open, or a field opened`}`);
+  }
+
+  // Two fingers pan by (60, 40) in parallel. Chromium sends each finger's move in turn, so their distance changes and
+  // changes back at each step: the view moves by their move, and the zoom stays to the bit (steps added up rounding).
+  {
+    await fresh();
+    await byMouse([[600, 400]]);
+    const was = await settled(), v0 = await view(), a = line([550, 450], [610, 490], 10), b = line([750, 450], [810, 490], 10);
+    await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: a[0][0], y: a[0][1], id: 1 }] });
+    await sleep(30);
+    await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: a[0][0], y: a[0][1], id: 1 }, { x: b[0][0], y: b[0][1], id: 2 }] });
+    for (let k = 1; k < a.length; k++) { await frame(); await call("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: a[k][0], y: a[k][1], id: 1 }, { x: b[k][0], y: b[k][1], id: 2 }] }); }
+    await frame();
+    await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await sleep(400);
+    const v1 = await view(), now = await settled();
+    report("fingers: two fingers' pan moves the view by their move and keeps the zoom", now === was && v1.zoom === v0.zoom && Math.abs(v1.x - v0.x - 60) < 1e-6 && Math.abs(v1.y - v0.y - 40) < 1e-6,
+      `the drawing ${now === was ? "is the same" : "changed"}; moved ${v1.x - v0.x}, ${v1.y - v0.y}; zoom ${v0.zoom} to ${v1.zoom}`);
   }
 
   // The mouse leaves the canvas (for the palette), as a finger does when it lifts.
@@ -226,6 +252,36 @@ try {
     }
   }
 
+  // A double-click on a resize handle opens Scale…, on the rotation handle Rotate…, and on a reaction arrow picks the
+  // reaction, by the mouse as by a finger. Chromium sends the mouse no click there, so no dblclick, as its press
+  // redraws what it landed on: the canvas sends one after the second release. Select in hand.
+  const dialog = () => run("return document.querySelector('[role=dialog]')?.getAttribute('aria-label') ?? '';");
+  const centreOf = (sel, nth = 0) => run(`const e = document.querySelectorAll(${JSON.stringify(sel)})[${nth}]; if (!e) throw new Error('none ${sel}'); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];`);
+  const escape = async () => { for (const type of ["rawKeyDown", "keyUp"]) await call("Input.dispatchKeyEvent", { type, key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }); await sleep(200); };
+  const benzene = async () => {
+    await fresh(3); await byMouse([[600, 400]]); await settled(); await fresh(0, "", true);
+    await run("document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a', code: 'KeyA', metaKey: /Mac/.test(navigator.platform), ctrlKey: !/Mac/.test(navigator.platform) })); await new Promise((r) => setTimeout(r, 300));");
+  };
+  const HANDLES = [
+    ["a resize handle opens Scale…", (got) => got.dialog === "Scale", async () => { await benzene(); return centreOf(".frame-marks .resize-handle", 2); }],
+    ["the rotation handle opens Rotate…", (got) => got.dialog === "Rotate", async () => { await benzene(); return centreOf(".frame-marks .turn-handle circle"); }],
+    ["a reaction arrow picks the reaction", (got) => !got.dialog && /Clean up reaction/.test(got.actions), async () => {
+      await fresh(3); await byMouse([[450, 400]]); await settled(); await byMouse([[750, 400]]); await settled();
+      await fresh(8, "", true); await byMouse(line([540, 400], [660, 400])); await settled(); await fresh(0, "", true);
+      return [600, 400];
+    }],
+  ];
+  for (const [name, ok, setup] of HANDLES) {
+    for (const kind of ["mouse", "finger"]) {
+      const q = await setup();
+      await doubleBy(kind)(q);
+      await sleep(500);
+      const got = { dialog: await dialog(), actions: await actions() };
+      report(`${kind}: a double ${kind === "mouse" ? "click" : "tap"} on ${name}`, ok(got), `got ${JSON.stringify(got)}`);
+      await escape(); await escape();
+    }
+  }
+
   // A finger leaves no hover behind: it lifts off the screen. After its tap or its drag no mark of what is under it
   // stays (.mark, the Eraser's ring), and a key does what it does with nothing under the pointer, as after a mouse that
   // left the canvas: o (oxygen) for the atom under the pointer. With every tool, a tap on an atom of a bond drawn
@@ -271,6 +327,32 @@ try {
       (ok ? out.reached : out.missed).push(`Chrome, ${kind}: ${name}${ok ? "" : `: drew ${JSON.stringify(now || "nothing")}, the mouse ${JSON.stringify(was || "nothing")}`}`);
     }
   }
+  // After a pen a finger only moves the view (the palm rule), and its double tap does nothing either: on a text, an atom
+  // and a table cell with Select, Chromium still sends a dblclick. A palm's double tap while the pen is held on the
+  // canvas does nothing too. Before each, the mouse draws, so it rests off the canvas. What is picked is read from its
+  // marks: Mass spec analysis's panel (HOVERS) hides the Actions panel.
+  const PALMS = [
+    ["a text", async () => { await fresh(12); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
+    ["an atom", async () => { await fresh(); await byMouse([[600, 400]]); await settled(); await fresh(0, "", true); return [600, 400]; }],
+    ["a table cell", async () => { await fresh(14, "table"); await byMouse([[600, 400]]); await sleep(400); await typeText("ab"); await fresh(0, "", true); return textAt("ab"); }],
+  ];
+  const pen = (type, [x, y], o = {}) => call("Input.dispatchMouseEvent", { type, x, y, pointerType: "pen", ...o });
+  for (const held of [false, true]) {
+    for (const [name, setup] of PALMS) {
+      const q = await setup();
+      await leaveCanvas();
+      await sleep(400);
+      const state = async () => `${await settled(true)}\npicked: ${await run("return document.querySelectorAll('svg.canvas .selection-marks > *').length;")}\nfocus: ${await focused()}`;
+      const was = await state();
+      if (held) { await pen("mouseMoved", [300, 250]); await frame(); await pen("mousePressed", [300, 250], { button: "left", buttons: 1, clickCount: 1 }); await sleep(100); }
+      await touch([q]); await sleep(80); await touch([q]); await sleep(400);
+      const now = await state();
+      if (held) { await pen("mouseReleased", [300, 250], { button: "left", buttons: 0, clickCount: 1 }); await sleep(300); }
+      report(`${held ? "palm: a double tap while the pen is held" : "finger: after a pen, a double tap"} on ${name} with Select does nothing`, now === was, `before ${JSON.stringify(was)}, after ${JSON.stringify(now)}`);
+      await escape(); await escape();
+    }
+  }
+
   out.errors = await run("return __errs.slice(0, 10);");
   ws.close();
 } catch (e) {

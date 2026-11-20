@@ -45,7 +45,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
-import { Gate, gated, kindOf as pointerKind, REACH, reachIn, viewAfter, type Act, type In } from "./touch";
+import { Gate, gated, kindOf as pointerKind, pinchView, REACH, reachIn, viewAfter, type Act, type In, type PinchFrom } from "./touch";
 import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
@@ -10057,8 +10057,13 @@ export default function Editor() {
   const pressedFrom = useRef<{ selection: Set<number>; picked: Set<number> }>(undefined); // the selection before its press
   const eraserPress = useRef<{ id: number; x: number; y: number; up?: true }>(undefined); // the eraser end's press, a frame away
   const gateTimers = useRef<Record<string, number>>({});
+  // The last press on the canvas, if a finger's, and whether its press went to the editor (follow). Chromium sends a
+  // dblclick for a finger's double tap that only moved the view (after a pen) or was a palm's too: it does nothing.
+  const fingerDown = useRef<{ id: number; pressed: boolean }>(undefined);
+  const twice = useRef<"down" | "up">(undefined); // a second click's press on the canvas, then its release
   function onDown(e: React.PointerEvent<SVGSVGElement>) {
     if (passOn.current) return onPointerDown(e);
+    fingerDown.current = e.pointerType === "touch" ? { id: e.pointerId, pressed: false } : undefined;
     if (gated(e.pointerType)) {
       // A finger's press goes in when the gate says, often at the lift. Chromium sends its mousedown for a tap after
       // that, where it would take the focus from a field the tap opened. So a finger sends no mousedown, and its press
@@ -10153,6 +10158,7 @@ export default function Editor() {
         case "press": {
           if (!takePress(a.id, freed)) break;
           reach.current = REACH.touch;
+          if (fingerDown.current?.id === a.id) fingerDown.current.pressed = true;
           send("pointerdown", a.id, a.x, a.y, "touch");
           // The focus leaves the field it is in (a caption being typed closes), as the mouse's mousedown takes it
           // after its press has drawn: the canvas has nothing that takes the focus.
@@ -10175,11 +10181,18 @@ export default function Editor() {
           cancelPress();
           freed = true;
           break;
-        case "view":
+        case "view": {
           stopCamera();
-          if (a.by === 1) setView((v) => ({ ...v, x: v.x + a.dx, y: v.y + a.dy }));
-          else zoomAt(a.x, a.y, a.by, a.dx, a.dy);
+          // One finger's pan (after a pen) is a step. Two fingers' sums go from the view they started at (pinchView).
+          const { n } = a;
+          if (n === undefined) setView((v) => ({ ...v, x: v.x + a.dx, y: v.y + a.dy }));
+          else zoomWith((v) => {
+            const r = pinchView(pinchFrom.current, v, { ...a, n }, clampZoom);
+            pinchFrom.current = r.from;
+            return r.view.zoom === v.zoom ? { ...v, x: r.view.x, y: r.view.y } : { ...r.view, pinch: true };
+          });
           break;
+        }
         case "ring":
           setHolding((old) => ({ n: (old?.n ?? 0) + 1, x: a.x, y: a.y }));
           break;
@@ -10238,10 +10251,12 @@ export default function Editor() {
   // editor.css), so a zoom step does not lay out all the text again. When the zoom stops, the text is laid out for
   // the screen again and looks as it did before. The Mac's web view (WebKit) sends a trackpad pinch as gesture events
   // with the scale so far, not as Ctrl + scroll: they zoom the same way, and Ctrl + scroll waits while one goes on.
-  // Two fingers on a touch screen zoom by the same sum and the same limits, panning first (touch.ts viewAfter).
-  const pinchStop = useRef<number>(undefined);
-  const zoomAt = (x: number, y: number, by: number, dx = 0, dy = 0) => {
-    setView((v) => ({ ...viewAfter(v, { dx, dy, by, x, y }, clampZoom), pinch: true }));
+  // Two fingers on a touch screen zoom by the same sum and the same limits, panning first (touch.ts viewAfter), from the
+  // view they started at (pinchView).
+  const pinchStop = useRef<number>(undefined), pinchFrom = useRef<PinchFrom>(undefined);
+  const zoomAt = (x: number, y: number, by: number) => zoomWith((v) => ({ ...viewAfter(v, { dx: 0, dy: 0, by, x, y }, clampZoom), pinch: true }));
+  const zoomWith = (to: (v: View) => View) => {
+    setView(to);
     clearTimeout(pinchStop.current);
     pinchStop.current = window.setTimeout(() => setView((v) => (v.pinch ? { ...v, pinch: undefined } : v)), 150);
   };
@@ -11342,7 +11357,20 @@ export default function Editor() {
           if (finger && e.pointerId === owner.current) requestAnimationFrame(leave);
           else leave();
         }}
+        // Chromium sends no click, so no dblclick, for a press on an element the press redrew (a resize handle, the
+        // rotation handle, a picked arrow lifted for a move). The mouse's or the pen's second release on the canvas
+        // with no dblclick after it sends one, as WebKit's comes.
+        onMouseDown={(e) => { twice.current = e.detail === 2 && e.isTrusted ? "down" : undefined; }}
+        onMouseUp={(e) => {
+          if (twice.current !== "down" || e.detail !== 2) return;
+          twice.current = "up";
+          const { clientX, clientY } = e;
+          setTimeout(() => { if (twice.current === "up") svg.current?.dispatchEvent(new MouseEvent("dblclick", { clientX, clientY, bubbles: true, cancelable: true, detail: 2 })); });
+        }}
         onDoubleClick={(e) => {
+          twice.current = undefined;
+          // A finger's double tap whose press the gate kept from the editor (a finger after a pen, a palm) does nothing.
+          if (fingerDown.current && !fingerDown.current.pressed) return;
           // A finger's double tap: Chromium sends its dblclick around the second tap's release, which goes in a frame
           // after the lift (follow). It goes in once that release has, as the mouse's comes after its mouseup. (A
           // finger has the press: reach is a finger's.)

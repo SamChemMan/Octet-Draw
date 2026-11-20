@@ -30,7 +30,8 @@ export type Act =
   | { act: "press"; id: number; x: number; y: number; tap?: true } // a finger's press, where it landed (tap: it has lifted, so let go a frame later)
   | { act: "erase" } // the pen's eraser end: this stroke erases
   | { act: "cancel" } // the press under way stops, as Escape stops it
-  | { act: "view"; dx: number; dy: number; by: number; x: number; y: number } // pan by dx, dy, then zoom by `by` about x, y
+  // Pan by dx, dy, then zoom by `by` about x, y. n: two fingers' sums since their gesture n started (pinchView).
+  | { act: "view"; dx: number; dy: number; by: number; x: number; y: number; n?: number }
   | { act: "ring"; x: number; y: number }
   | { act: "unring" }
   | { act: "menu"; x: number; y: number }
@@ -58,6 +59,18 @@ export function viewAfter(v: { x: number; y: number; zoom: number }, a: { dx: nu
   return { zoom, x: a.x - (a.x - x0) * k, y: a.y - (a.y - y0) * k };
 }
 
+// Two fingers' view: their sums since their gesture started (a.n) go from the view then (from), so fingers that end as
+// far apart as they started leave the zoom as it was, to the bit. (Steps would add up rounding, as each finger moves
+// in turn.) Held at a zoom limit, it starts again from there, so the fingers' way back zooms at once.
+type View = { x: number; y: number; zoom: number };
+export type PinchFrom = { n: number; v: View; dx: number; dy: number; by: number };
+export function pinchView(from: PinchFrom | undefined, v: View, a: { dx: number; dy: number; by: number; x: number; y: number; n: number }, clamp: (z: number) => number): { view: View; from: PinchFrom } {
+  const f = from?.n === a.n ? from : { n: a.n, v: { x: v.x, y: v.y, zoom: v.zoom }, dx: 0, dy: 0, by: 1 };
+  const s = { dx: a.dx - f.dx, dy: a.dy - f.dy, by: a.by / f.by, x: a.x, y: a.y }, w = viewAfter(f.v, s, clamp);
+  const view = w.zoom === f.v.zoom ? { zoom: w.zoom, x: f.v.x + s.dx, y: f.v.y + s.dy } : w;
+  return { view, from: w.zoom === f.v.zoom * s.by ? f : { n: a.n, v: view, dx: a.dx, dy: a.dy, by: a.by } };
+}
+
 // A hit's reach in bond lengths: the mouse's own (base), or for a pen or a finger at least 6 px times its reach on
 // screen, never past cap, so an atom never covers the middle of its bonds. pxPerBond: a bond's length on screen.
 export function reachIn(base: number, cap: number, reach: number, pxPerBond: number): number {
@@ -75,6 +88,7 @@ type State = "idle" | "wait" | "press" | "view" | "pan" | "menu" | "dead";
 export class Gate {
   state: State = "idle";
   fingers: Finger[] = []; // the one or two fingers followed, in the order they landed
+  private from: [Pt, Pt] = [[0, 0], [0, 0]]; // where the two fingers were when they started to move the view
   others = new Set<number>(); // touches that do nothing until they lift (a palm, a third finger)
   penUsed = false; // a pen has been used in this window
   pen?: { id: number; x: number; y: number; far: boolean; tip: boolean }; // the pen's press under way
@@ -219,8 +233,9 @@ export class Gate {
       case "press":
       case "pan": {
         // A second finger: the two move the view. A press under way stops.
-        const was = this.state;
+        const was = this.state, [g] = this.fingers;
         this.fingers.push(f);
+        this.from = [[g.x, g.y], [f.x, f.y]];
         this.state = "view";
         this.n++;
         return [...out, ...(was === "wait" ? [{ act: "unring" } as Act] : was === "press" ? [{ act: "cancel" } as Act] : [])];
@@ -250,10 +265,11 @@ export class Gate {
         f.x = e.x; f.y = e.y;
         return e.x !== was[0] || e.y !== was[1] ? [{ act: "view", dx: e.x - was[0], dy: e.y - was[1], by: 1, x: e.x, y: e.y }] : [];
       case "view": {
-        const [a, b] = this.fingers, a0: Pt = [a.x, a.y], b0: Pt = [b.x, b.y];
+        // The sums since the two started, as pinchView takes them.
+        if (e.x === was[0] && e.y === was[1]) return [];
         f.x = e.x; f.y = e.y;
-        const v = pinch(a0, b0, [a.x, a.y], [b.x, b.y]);
-        return v ? [{ act: "view", ...v }] : [];
+        const [a, b] = this.fingers, v = pinch(...this.from, [a.x, a.y], [b.x, b.y]) ?? { dx: 0, dy: 0, by: 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        return [{ act: "view", ...v, n: this.n }];
       }
       default:
         f.x = e.x; f.y = e.y;

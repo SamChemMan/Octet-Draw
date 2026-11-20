@@ -96,7 +96,41 @@ Sam put every built item in 1.1.3. The branch is rebased onto release-1.1.3 f06d
   finger's double tap. Chromium sends the mouse no click or dblclick for a press that redraws what it landed on (a
   picked arrow lifted for a move). So on Windows a mouse double-click on a reaction arrow picks the arrow, not its
   reaction. A finger's double tap picks the reaction, as the double-click code does. The mouse is unchanged here and
-  needs an item of its own.
+  needs an item of its own. (Done in the review of 48511faf, below.)
+- Review of 48511faf, all four findings fixed:
+  - After a pen, a finger's double tap still edited the drawing (a text opened for typing, a structure was picked, a
+    table cell opened), though the finger only pans. A palm's double tap while the pen was held did the same. Chromium
+    sends a dblclick for those taps, and the check that delays a finger's dblclick read only whether a finger had the
+    press. Each press on the canvas now says whether it was a finger's, and the gate's press for that finger marks it
+    pressed. A dblclick after a finger's press the gate kept from the editor does nothing.
+  - In Chromium a mouse double-click on a resize handle or the rotation handle opened nothing, and on a reaction arrow
+    picked only the arrow. The same on release-1.1.3. Chromium sends no click, so no dblclick, when the press redraws
+    the element it landed on. The canvas now sends a dblclick after a second release (mousedown and mouseup with
+    detail 2 on the canvas) that has none after it. The mouse and the pen now open Scale… and Rotate… and pick the
+    reaction, as a finger's double tap does. In 69 double-click cases (23 places, mouse, finger and pen) only these
+    six change against 48511faf.
+  - A finger's long press could open a second menu (Turn, flip and arrange's own). Chromium sends a pointerover to an
+    element that appears under the mouse at rest, and the Actions menu opened its option's own menu on pointerover.
+    An option with more now opens its own menu on pointermove. A tap on it still opens it, and so do the mouse and the
+    pen moving onto it.
+  - A two-finger pan changed the zoom by rounding (1.25 to 1.2500000000000022). Chromium sends each finger's move in
+    turn, so the fingers' distance changes and changes back, and the zoom steps did not multiply back to 1. The gate
+    now sends two fingers' pan and zoom as sums since they started (n), and pinchView applies them to the view at that
+    start. Fingers that end as far apart as they started leave the zoom as it was. At a zoom limit it starts again
+    from there, so the way back zooms at once, as before. One finger's pan after a pen is still a step.
+
+Results of the 48511faf review:
+
+| Check | Result |
+| --- | --- |
+| C1 node src/touch.check.ts, and with `OCTET_STRESS_URL` | passes; Chrome passes 62 checks. The node checks add a two-finger pan sent one finger at a time (the zoom stays 1.25, the steps' sum is not), the way back from a zoom limit, and 2000 random gestures |
+| C2 `npm run look -- <url>/?editor touch` | 185 checks pass (123 WebKit, 62 Chrome), none fail |
+| C2 Chrome checks on 48511faf | 50 pass, 12 fail: two long presses that open a second menu, the two-finger pan's zoom, the mouse's double-click on a resize handle, the rotation handle and a reaction arrow, and six double taps after a pen or by a palm |
+| C3 mouse session in WebKit | the same drawing as 48511faf |
+| C3 Chrome, 69 double-clicks (23 places; mouse, finger and pen) | 63 the same as 48511faf. The six that change are the mouse's and the pen's on the two handles and the reaction arrow, which now do what the finger's does. One dblclick reaches the canvas for a double-click on an atom, a text, empty canvas and a resize handle |
+| C3 Chrome, an option with more in the Actions menu | opens its own menu when the mouse or the pen moves onto it and when a finger taps it, as on 48511faf |
+| C5 `npm run look` (the sweep, WebKit) | every control matches, 34 places. From an origin with no storage the sweep does not reach Home or Home's examples after the welcome page's Skip, on 48511faf too |
+| C7 npm test | 224 of 224 check files pass |
 
 Results of the ba2bbfe3 review, against release-1.1.3 e5af127:
 
@@ -393,3 +427,5 @@ Linux touch screen, if one is to hand: steps 4 to 7. Mac with a Wacom or Sidecar
   the screen.
 - When you point with a pen or a finger, it reaches atoms, bonds, text and handles from further away than the mouse.
 - When you use a tablet with its keyboard off, the tools and the options in menus are larger.
+- When you double-click a resize handle on Windows, Scale… opens. On the rotation handle, Rotate… opens, and on a
+  reaction arrow, the whole reaction is picked.

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { Gate, gated, kindOf, MENU_GAP_MS, PALM_MS, pinch, REACH, reachIn, SIDE_MS, SLOP, viewAfter, type Act, type In } from "./touch.ts";
+import { Gate, gated, kindOf, MENU_GAP_MS, PALM_MS, pinch, pinchView, REACH, reachIn, SIDE_MS, SLOP, viewAfter, type Act, type In, type PinchFrom } from "./touch.ts";
 import { atomAt, bondAt, markNear } from "./edit.ts";
 import { markIn, tieAt } from "./arrowlink.ts";
 
@@ -336,6 +336,68 @@ const H = 350;
   assert.equal(pinch([0, 0], [NaN, 0], [0, 0], [10, 0]), undefined);
   assert.equal(pinch([0, 0], [10, 0], [0, 0], [10, 0]), undefined, "nothing moved");
 }
+{
+  // Two fingers pan by (60, 40), each event moving one finger, as Chromium sends them. They end as far apart as they
+  // started: the zoom stays to the bit and the view moves by the pan exactly. Steps from each event's last places add
+  // up rounding (1.25 became 1.2500000000000022 in Chrome).
+  const clamp = (z: number) => Math.min(8, Math.max(0.25, z));
+  const g = new Gate(H), v0 = { x: 720, y: 406.5, zoom: 1.25 };
+  g.down(ev("touch", 71, 550, 450));
+  g.down(ev("touch", 72, 750, 450, { primary: false }));
+  let v = v0, from: PinchFrom | undefined, steps = v0;
+  const at: Record<number, P2> = { 71: [550, 450], 72: [750, 450] };
+  for (let k = 1; k <= 10; k++) {
+    for (const [id, x0] of [[72, 750], [71, 550]]) {
+      const was = { ...at }, now: P2 = [x0 + 6 * k, 450 + 4 * k];
+      at[id] = now;
+      const step = pinch(was[71], was[72], at[71], at[72]);
+      if (step) steps = viewAfter(steps, step, clamp);
+      for (const a of g.move(ev("touch", id, ...now, { primary: id === 71 }))) {
+        assert.ok(a.act === "view" && a.n !== undefined, "two fingers' sums");
+        if (a.act === "view" && a.n !== undefined) ({ view: v, from } = pinchView(from, v, { ...a, n: a.n }, clamp));
+      }
+    }
+  }
+  assert.deepEqual(v, { x: 780, y: 446.5, zoom: 1.25 }, "a two-finger pan keeps the zoom and moves by the pan");
+  assert.notEqual(steps.zoom, 1.25, "steps add up rounding");
+  // A new gesture starts from the view it finds.
+  const next = pinchView(from, { x: 0, y: 0, zoom: 2 }, { dx: 0, dy: 0, by: 1, x: 5, y: 5, n: from!.n + 1 }, clamp);
+  assert.deepEqual(next.view, { x: 0, y: 0, zoom: 2 });
+}
+{
+  // Past a zoom limit the fingers' way back zooms at once, as a step from the limit does; and the point under the
+  // fingers at the start stays under them in random gestures that stay within the limits.
+  const clamp = (z: number) => Math.min(8, Math.max(0.25, z));
+  let r = pinchView(undefined, { x: 0, y: 0, zoom: 6 }, { dx: 0, dy: 0, by: 2, x: 100, y: 100, n: 1 }, clamp);
+  assert.equal(r.view.zoom, 8);
+  r = pinchView(r.from, r.view, { dx: 0, dy: 0, by: 3, x: 100, y: 100, n: 1 }, clamp);
+  assert.equal(r.view.zoom, 8);
+  r = pinchView(r.from, r.view, { dx: 0, dy: 0, by: 1.5, x: 100, y: 100, n: 1 }, clamp);
+  assert.equal(r.view.zoom, 4, "half the spread back halves the zoom");
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let kept = 0;
+  for (let k = 0; k < 2000; k++) {
+    const v = { x: rnd() * 2000 - 1000, y: rnd() * 2000 - 1000, zoom: 0.5 + rnd() * 3 }, a0: P2 = [rnd() * 1400, rnd() * 900], b0: P2 = [rnd() * 1400, rnd() * 900];
+    const g = new Gate(H);
+    g.down(ev("touch", 1, ...a0));
+    g.down(ev("touch", 2, ...b0, { primary: false }));
+    let from: PinchFrom | undefined, w = v;
+    const at: [P2, P2] = [a0, b0];
+    for (let j = 0; j < 6; j++) {
+      const i = j % 2;
+      at[i] = [at[i][0] + rnd() * 40 - 20, at[i][1] + rnd() * 40 - 20];
+      for (const a of g.move(ev("touch", i + 1, ...at[i], { primary: i === 0 }))) if (a.act === "view" && a.n !== undefined) ({ view: w, from } = pinchView(from, w, { ...a, n: a.n }, clamp));
+    }
+    assert.ok(Number.isFinite(w.x + w.y + w.zoom) && w.zoom >= 0.25 && w.zoom <= 8);
+    const m0 = [(a0[0] + b0[0]) / 2, (a0[1] + b0[1]) / 2], m1 = [(at[0][0] + at[1][0]) / 2, (at[0][1] + at[1][1]) / 2], q = [(m0[0] - v.x) / v.zoom, (m0[1] - v.y) / v.zoom];
+    if (from?.v.x === v.x && from.v.y === v.y && from.v.zoom === v.zoom) {
+      kept++;
+      for (const i of [0, 1]) assert.ok(Math.abs(q[i] * w.zoom + [w.x, w.y][i] - m1[i]) < 1e-6, "the point stays under the fingers");
+    }
+  }
+  assert.ok(kept > 1000, `${kept} gestures within the limits`);
+}
 
 // ——— Coarse reach ———
 {
@@ -493,12 +555,25 @@ const H = 350;
   // A finger's double tap: Chromium's dblclick for it can come before the second tap's release. It goes in again once
   // the release has, as the mouse's comes after its mouseup.
   const dbl = editor.slice(editor.indexOf("onDoubleClick={(e) => {"));
-  assert.match(dbl, /^onDoubleClick=\{\(e\) => \{\n(\s*\/\/.*\n)*\s*if \(owner\.current !== undefined && reach\.current === REACH\.touch && e\.isTrusted\) \{\n\s*const \{ clientX, clientY \} = e;\n\s*return void requestAnimationFrame\(\(\) => svg\.current\?\.dispatchEvent\(new MouseEvent\("dblclick", \{ clientX, clientY, bubbles: true, cancelable: true, detail: 2 \}\)\)\);\n\s*\}/, "a finger's double-click goes in after its release");
+  assert.match(dbl, /^onDoubleClick=\{\(e\) => \{\n\s*twice\.current = undefined;\n(\s*\/\/.*\n)*\s*if \(fingerDown\.current && !fingerDown\.current\.pressed\) return;\n(\s*\/\/.*\n)*\s*if \(owner\.current !== undefined && reach\.current === REACH\.touch && e\.isTrusted\) \{\n\s*const \{ clientX, clientY \} = e;\n\s*return void requestAnimationFrame\(\(\) => svg\.current\?\.dispatchEvent\(new MouseEvent\("dblclick", \{ clientX, clientY, bubbles: true, cancelable: true, detail: 2 \}\)\)\);\n\s*\}/, "a finger's double-click goes in after its release");
+  // A finger's double tap whose press the gate kept from the editor (after a pen, or a palm's) does nothing: each press
+  // on the canvas says whether it was a finger's, and the gate's press for that finger marks it pressed.
+  assert.match(down, /if \(passOn\.current\) return onPointerDown\(e\);\n\s*fingerDown\.current = e\.pointerType === "touch" \? \{ id: e\.pointerId, pressed: false \} : undefined;/, "each press on the canvas says whether it is a finger's");
+  assert.match(editor, /reach\.current = REACH\.touch;\n\s*if \(fingerDown\.current\?\.id === a\.id\) fingerDown\.current\.pressed = true;\n\s*send\("pointerdown", a\.id/, "a finger's press marks it pressed");
+  // Chromium sends no dblclick for a second click on an element its press redrew (a resize handle): the canvas sends one
+  // after a second release with none, for the mouse and the pen.
+  assert.match(editor, /onMouseDown=\{\(e\) => \{ twice\.current = e\.detail === 2 && e\.isTrusted \? "down" : undefined; \}\}\n\s*onMouseUp=\{\(e\) => \{\n\s*if \(twice\.current !== "down" \|\| e\.detail !== 2\) return;\n\s*twice\.current = "up";\n\s*const \{ clientX, clientY \} = e;\n\s*setTimeout\(\(\) => \{ if \(twice\.current === "up"\) svg\.current\?\.dispatchEvent\(new MouseEvent\("dblclick", \{ clientX, clientY, bubbles: true, cancelable: true, detail: 2 \}\)\); \}\);\n\s*\}\}\n\s*onDoubleClick=/, "a second release with no dblclick sends one");
+  // Two fingers' sums go from the view they started at; one finger's pan is a step.
+  assert.match(editor, /if \(n === undefined\) setView\(\(v\) => \(\{ \.\.\.v, x: v\.x \+ a\.dx, y: v\.y \+ a\.dy \}\)\);\n\s*else zoomWith\(\(v\) => \{\n\s*const r = pinchView\(pinchFrom\.current, v, \{ \.\.\.a, n \}, clampZoom\);/, "two fingers go from the view they started at");
   // Lifting a finger whose hold opened a menu chooses nothing: every right-click menu (ContextMenu) leaves out a
   // finger's click with no press in the menu before it, on its options and on those of an option's own menu.
   const context = menu.slice(menu.indexOf("export function ContextMenu("));
   assert.match(context, /const lift = \(e: React\.MouseEvent\) => \{ if \(\(e\.nativeEvent as PointerEvent\)\.pointerType === "touch" && !pressed\.current\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); \} \};/);
   assert.equal(context.match(/className="context-menu" onKeyDown=\{\(e\) => keys\(e, (false|true)\)\} onContextMenu=\{\(e\) => e\.preventDefault\(\)\} onPointerDownCapture=\{press\} onClickCapture=\{lift\}/g)?.length, 2, "both of a right-click menu's lists");
+  // An option with more opens its own menu when the pointer moves onto it, never on a pointerover alone: a menu that
+  // opens under the mouse at rest (a long press's) gets one in Chromium.
+  assert.match(context, /onClickCapture=\{lift\}\n\s*onPointerMove=\{over\}>/);
+  assert.doesNotMatch(context, /onPointerOver/);
 }
 
 // ——— Real touch in Chrome (OCTET_STRESS_URL) ———
@@ -508,7 +583,7 @@ const H = 350;
 // OCTET_STRESS_URL=http://localhost:1420 node src/touch.check.ts. npm run look -- <url>/?editor touch runs it too.
 const stress = process.env.OCTET_STRESS_URL?.replace(/\/$/, "");
 if (stress) {
-  const run = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/look/chrome-touch.mjs", import.meta.url)), `${stress}/?editor`], { encoding: "utf8", timeout: 700_000 });
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/look/chrome-touch.mjs", import.meta.url)), `${stress}/?editor`], { encoding: "utf8", timeout: 900_000 });
   const out = JSON.parse(run.stdout.trim().split("\n").pop() ?? "{}") as { reached?: string[]; missed?: string[]; errors?: string[] };
   assert.ok(out.reached, `the Chrome checks did not finish:\n${run.stdout}${run.stderr}`);
   assert.deepEqual(out.missed, [], "the Chrome checks");

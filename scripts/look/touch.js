@@ -727,7 +727,7 @@ async function coarseSection() {
     check(`coarse ${theme}: the Actions menu is in the window`, !!menu && menu.bottom <= innerHeight - 8 + 0.5 && menu.top >= 8 - 0.5, JSON.stringify(menu));
     check(`a pinch on the Actions menu does not zoom the window (${theme})`, !!rows[0] && !pinchable(rows[0]));
     const more = document.querySelector('.context-menu .variant[aria-haspopup="menu"]');
-    more?.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    more?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
     await wait(500);
     const menus = [...document.querySelectorAll(".context-menu")], subRows = menus.length > 1 ? [...menus[1].querySelectorAll(".variant")].filter((v) => v.offsetHeight) : [], sub = px(menus[1]?.querySelector(".strip"));
     check(`coarse ${theme}: the Actions menu's sub-menu rows are 44 px and in the window`, !!more && subRows.length > 1 && subRows.every((v) => v.offsetHeight === 44) && !!sub && sub.bottom <= innerHeight - 8 + 0.5 && sub.top >= 8 - 0.5 && sub.right <= innerWidth,
