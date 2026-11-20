@@ -5,7 +5,7 @@ import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
+import { edited, plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
@@ -2638,7 +2638,8 @@ export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: 
     align?.splice(at, out, ...Array<"centre">(into).fill("centre"));
   }
   // A number's style stays with it when it is numbered again (one style, the first character's, for all of it).
-  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) { const was = runsFor(runs?.[i][0], r[0]); r[0] = String(++n); if (was) runs![i][0] = [{ ...styleOf(was[0]), text: r[0] }]; } }); }
+  // A number that stays the same keeps its runs as they are.
+  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) { const was = runsFor(runs?.[i][0], r[0]), next = String(++n); if (next !== r[0]) { r[0] = next; if (was) runs![i][0] = [{ ...styleOf(was[0]), text: next }]; } } }); }
   const next: Table = { ...table, cells, ...(runs ? { runs } : {}), ...(table.widths ? { widths } : {}), ...(table.heights ? { heights } : {}), ...(align ? { align } : {}) };
   const width = widths.reduce((a, b) => a + b, 0), height = heights.reduce((a, b) => a + b, 0);
   return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
@@ -2674,7 +2675,9 @@ export function clearTable(sh: Shape): Partial<Shape> {
   return { table: { ...table, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))), ...(runs?.some((r) => r[0]) ? { runs } : {}) } };
 }
 // A table with one cell's text set, with its runs (none: plain), its box grown to fit the text if it no longer does.
-export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: Measure, caption?: number, own?: TextRun[]): Partial<Shape> {
+// A cell holds at most 500 characters (file.ts readTable refuses more): the rest is cut off, with its styles.
+export function setTableCell(sh: Shape, r: number, c: number, typed: string, measure?: Measure, caption?: number, kept?: TextRun[]): Partial<Shape> {
+  const text = typed.length > 500 ? typed.slice(0, 500).replace(/[\ud800-\udbff]$/, "") : typed, own = kept && text !== typed ? edited(kept, text) : kept;
   const { runs: was, ...rest } = sh.table ?? { cells: [[""]] };
   const cells = rest.cells.map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
   const runs = was || own ? cells.map((row, i) => row.map((_, j) => (i === r && j === c ? own ?? null : was?.[i]?.[j] ?? null))) : undefined;

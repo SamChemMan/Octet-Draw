@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, arrangeShifts, partBox, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, flipBond, rotateAtoms, setBondSpec, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond, scriptLabels, setLabelRuns } from "./edit.ts";
 import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, cellRuns, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
+import { parse, serialize } from "./file.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
 
 const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
@@ -322,6 +323,15 @@ assert.ok(Math.abs(cy(row, 0, 1) - cy(row, 2, 3)) < 1e-9, "centres share one y")
   assert.deepEqual(at({ ...best, ...spliceTable(best, "row", 1, 0, 1) }, 3, 0), ["3", [{ text: "3", bold: true }]]);
   assert.deepEqual(at({ ...best, ...spliceTable(best, "row", 1, 1, 0) }, 1, 0), ["1", [{ text: "1", bold: true }]]);
   assert.deepEqual({ ...best, ...clearTable(best) }.table!.runs, [[null, null, null], [null, null, null], [two, null, null]]);
+  // A number that stays the same keeps its runs as they are (a row added under entry 12 leaves "1" bold, "2" plain).
+  const twelve = newTable(13, 2), mixed = [{ text: "1", bold: true as const }, { text: "2" }];
+  const big = { ...sh, table: { ...twelve, runs: twelve.cells.map((_, i) => [i === 12 ? mixed : null, null]) } };
+  assert.deepEqual(at({ ...big, ...spliceTable(big, "row", 13, 0, 1) }, 12, 0), ["12", mixed]);
+  // A cell holds at most 500 characters, as a file keeps them: more is cut off with its styles, and the file opens.
+  const long = { ...sh, ...setTableCell(sh, 0, 1, "x".repeat(501), undefined, undefined, [{ text: "x".repeat(501), bold: true }]) };
+  assert.deepEqual(at(long, 0, 1), ["x".repeat(500), [{ text: "x".repeat(500), bold: true }]]);
+  const [withLong] = addShape(EMPTY, { kind: "table", from: [0, 3], to: [6, 0], table: long.table });
+  assert.equal(parse(serialize(withLong)).shapes![0].table!.cells[0][1].length, 500);
   const retyped = { ...styled, ...setTableCell(styled, 1, 1, "THF") };
   assert.deepEqual(retyped.table!.runs, [[null, null, null], [null, null, null], [null, null, k2]]);
   assert.equal({ ...retyped, ...setTableCell(retyped, 2, 2, "K2") }.table!.runs, undefined, "no cell left with styles: no runs");

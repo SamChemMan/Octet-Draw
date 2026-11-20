@@ -2386,8 +2386,10 @@ type Edit = { ids: string[]; changes?: Change[]; runs?: RunIn[]; box?: number[];
 // A table as given (cells, lines, alignment, rule width), over the one a shape has.
 function tableOf(t: TableIn, was?: Table): Table {
   const cells = t.cells ? t.cells.map((row) => row.map((c) => clean(c, true))) : was?.cells ?? newTable(3, 3).cells, cols = Math.max(1, ...cells.map((r) => r.length));
-  // Cells given keep the styles of the cells they fall on only while the text is the same (richtext.ts runsFor).
-  return { ...(was ?? newTable(cells.length, cols)), ...(t.cells && was?.runs ? { runs: was.runs.slice(0, cells.length) } : {}), cells: cells.map((row) => [...row, ...Array.from({ length: cols - row.length }, () => "")]), ...(t.lines ? { lines: TABLE_LINES[t.lines], grid: undefined } : {}), ...(t.align ? { align: t.align } : {}), ...(t.weight ? { weight: t.weight } : {}) };
+  // Cells given keep the styles of the cells they fall on only while the text is the same (richtext.ts runsFor), and
+  // only while the rows stay as many: a row added or taken out moves the cells under it, and their styles go.
+  const { runs, ...rest } = was ?? newTable(cells.length, cols), keep = !t.cells || cells.length === was?.cells.length;
+  return { ...rest, ...(runs && keep ? { runs } : {}), cells: cells.map((row) => [...row, ...Array.from({ length: cols - row.length }, () => "")]), ...(t.lines ? { lines: TABLE_LINES[t.lines], grid: undefined } : {}), ...(t.align ? { align: t.align } : {}), ...(t.weight ? { weight: t.weight } : {}) };
 }
 // A TLC plate as given, over the one a shape has.
 function tlcOf(t: TlcIn, was?: Shape["tlc"]): Shape["tlc"] {

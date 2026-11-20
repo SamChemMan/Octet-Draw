@@ -51,7 +51,11 @@ Branch `item/cell-styles-113`, from release-1.1.3 (e5af1273). For 1.1.3.
   reagent table's panel gets a B, I and U group of its own (`styles` in its context) while a text cell is open.
 - Typing over a selection in WebKit wraps the new text in an element of its own (a `<b>`, or a span with a font
   weight) to keep the look of the first character it took. `read()` reads such an element by its tag and inline style
-  (`browserStyle`), so the cell keeps what the box shows.
+  (`browserStyle`), so the cell keeps what the box shows. It reads a span's own `data-style` the same way, with the
+  span's inline style over it: WebKit sometimes types into a copy of a styled span and sets a font weight on it to
+  keep the look of the text it replaced.
+- In one line, a line break at the end of the box is no text. WebKit leaves a bare `<br>` in a box emptied of all
+  its text, so a cleared cell keeps "" and a cell typed after it has no space at its end.
 - A style set with nothing selected waits for the end of an input method's composition before the box is built
   again.
 - Typing in a reagent table cell keeps the text on the open cell without drawing the editor again for each key, as
@@ -90,7 +94,10 @@ Runs sit beside the plain text, never inside it:
 ### Edits
 
 - `spliceTable`, `resizeTable`, `setTableCell` and `clearTable` move, cut and clear each cell's runs with its text.
-  An entry number numbered again keeps its style, and so does one Clear contents keeps.
+  An entry number numbered again keeps its style (the first character's, for all of it), and so does one Clear
+  contents keeps. A number that stays the same keeps its runs as they are.
+- `setTableCell` cuts a cell's text at 500 characters, with its runs, as `readTable` keeps them. A longer paste no
+  longer makes a file that will not open.
 - Clearing a reagent table cell, writing it, or deleting a row of your own (Delete on its name or the Delete row
   action) clears its runs.
 - Make static writes a styled cell's runs into its caption.
@@ -126,7 +133,8 @@ Runs sit beside the plain text, never inside it:
 ## Left for 1.2
 
 - AI apps (MCP) read and write cell text only. Reporting and setting cell styles there is for the 1.2 session. A
-  table given with fewer rows keeps the runs of the rows left, and a row of your own an AI app deletes takes its
+  table given with the same number of rows keeps each cell's runs while its text is the same. A table given with
+  more or fewer rows loses all its runs, since its rows may have moved. A row of your own an AI app deletes takes its
   runs with it.
 - An AI app setting Bold, Italic or Underline on a whole Table sets the table's flag only and leaves the cells' runs
   as they are, so a cell with runs keeps its own style. The Text menu takes that style off the runs (`even` in

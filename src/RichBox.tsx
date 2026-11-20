@@ -63,7 +63,9 @@ function read(root: HTMLElement, base: RunStyle = {}): TextRun[] {
     if (n instanceof HTMLBRElement) { if (!("end" in n.dataset)) out.push({ ...style, text: "\n" }); return; }
     if (n instanceof HTMLElement) {
       let s = style;
-      if (n.dataset.style) { try { s = JSON.parse(n.dataset.style) as RunStyle; } catch { s = style; } }
+      // A span's own style, with what the browser set on it over that (typing into a copy of a styled span, it keeps
+      // the look of the text it replaced): the text keeps the style it shows.
+      if (n.dataset.style) { try { s = browserStyle(n.tagName, n.style, JSON.parse(n.dataset.style) as RunStyle); } catch { s = style; } }
       else if (n.tagName !== "DIV") s = browserStyle(n.tagName, n.style, style);
       // A block the browser made for a new line starts on a line of its own.
       if (n.tagName === "DIV" && out.length && !plainOf(out).endsWith("\n")) out.push({ ...s, text: "\n" });
@@ -112,7 +114,9 @@ export function RichBox(p: Props) {
   const typed = () => {
     // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
     // again. A cell's text never holds one (a file with one is refused).
-    const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
+    // A line break at the end of one line is not text: the browser puts one in a box emptied of all its text.
+    const el = box.current!, all = read(el, p.base), got = p.singleLine && plainOf(all).endsWith("\n") ? edited(all, plainOf(all).slice(0, -1)) : all;
+    const flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
     const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
     // Kept here too: an owner may keep typed text without drawing again (a reagent table cell).
     if (!p.pending) { runs.current = now; return p.onRuns(now, flat ? p.api.current?.range() : undefined); }

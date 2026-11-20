@@ -7707,8 +7707,9 @@ export default function Editor() {
   glidingNow.current = gliding;
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
-  // While a caption or a Table cell is typed in, the panel reads the context as it draws (the caret moves: carets).
-  const panelContext = useMemo(() => (writing || cell ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, !!cell, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a caption, a Table cell or a reagent table cell is typed in, the panel reads the context as it draws (the
+  // caret moves: carets; a style applied to a reagent table cell builds its box again).
+  const panelContext = useMemo(() => (writing || cell || gridEdit ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, !!cell, !!gridEdit, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Notes panel (Notes.tsx, annotate.ts): the drawing's notes, then the selection's (one field for several targets),
   // then a row for each other object or group with a note. Worked out only while the panel is open.
   const noteName = (m: Mol, t: Target): string => {

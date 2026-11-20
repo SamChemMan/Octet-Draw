@@ -28,6 +28,8 @@ assert.match(box, /aria-multiline=\{!p\.singleLine\}/);
 // A tab or other control character pasted is a space too (a file whose cell holds one is refused as damaged).
 assert.ok(box.includes('text = p.singleLine ? lined.replace(/[\\u0000-\\u001f]/g, " ") : lined'));
 assert.ok(box.includes('flat = !!p.singleLine && /[\\u0000-\\u001f]/.test(plainOf(got))'));
+// A box emptied of its text holds a bare line break: in one line it is no text, so a cleared cell is "", not " ".
+assert.ok(box.includes('got = p.singleLine && plainOf(all).endsWith("\\n") ? edited(all, plainOf(all).slice(0, -1)) : all'));
 // The menu's and the keys' styles go to the open cell first; an amount cell takes none, and its font, size and colour
 // stay the whole table's.
 assert.match(editor, /const box = cell && cellOpen\.current \? "table" : gridEdit \? "grid" : undefined;\s*if \(box && \(toggles\[what\] \|\| what === "formula"\)\)/);
@@ -42,7 +44,9 @@ assert.equal(editor.match(/changeGrid\([^)]*\(h\) => dropOwn\(h, row(\.id)?\)\)/
 assert.ok(!/own: h\.own\?\.filter\(\(o\) => o\.id !== row\) \}/.test(editor));
 const mcp = read("mcp.ts");
 assert.match(mcp, /!grid\.own\?\.some\(\(o\) => o\.id === row\) \|\| own\.some\(\(o\) => o\.id === row\)/);
-assert.match(mcp, /\.\.\.\(t\.cells && was\?\.runs \? \{ runs: was\.runs\.slice\(0, cells\.length\) \} : \{\}\)/);
+// Cells an AI app gives keep their styles only while the rows stay as many (a row taken out would move styles to
+// the rows under it).
+assert.match(mcp, /keep = !t\.cells \|\| cells\.length === was\?\.cells\.length;\s*return \{ \.\.\.rest, \.\.\.\(runs && keep \? \{ runs \} : \{\}\),/);
 // Up or Shift-Return in the top row stays in the cell with its caret where it was (no new box, nothing selected).
 assert.match(editor, /if \(r === w\.r && c === w\.c\) \{ if \(value !== plainOf\(w\.runs\)\) setCell\(\{ \.\.\.cellOf\(cur, r, c, w\.version \+ 1\), caret: \[value\.length, value\.length\] \}\); \}\s*else if \(r >= 0\) setCell/);
 // An underlined table's empty cell shows the underline while typed in.
@@ -50,7 +54,8 @@ assert.match(editor, /textFace\(\{ \.\.\.sh, underline: sh\.underline && cell\.r
 // The panel's B, I and U show the open cell's style at the caret, and follow the caret.
 assert.match(editor, /const at: \{ bold\?: boolean; italic\?: boolean; underline\?: boolean \} = range \? cell!\.pending \?\? common\(cell!\.runs, range\[0\], range\[1\]\) : sh;/);
 assert.match(editor, /text: \{ \.\.\.tableFace\(first\), font:/);
-assert.match(editor, /const panelContext = useMemo\(\(\) => \(writing \|\| cell \? undefined :/);
+// A reagent table cell too: its B, I and U follow a style applied, and go when the cell closes (Escape).
+assert.match(editor, /const panelContext = useMemo\(\(\) => \(writing \|\| cell \|\| gridEdit \? undefined :[^\n]*\[doc, selection, picked, writing, !!cell, !!gridEdit,/);
 assert.ok(editor.indexOf("const [cell, setCell] = useState") < editor.indexOf("if (!writing && !cell) return;"), "cell is declared before the caret effect reads it");
 // The Actions panel's B, I and U keep the cell open (its other buttons close it first, as a click elsewhere does).
 assert.match(actions, /cellOpen && e\.target instanceof Element && e\.target\.closest\("\.label-style"\)/);
@@ -85,6 +90,8 @@ assert.deepEqual(browserStyle("SPAN", css({ fontWeight: "700", fontStyle: "itali
 assert.deepEqual(browserStyle("SPAN", css({ fontStyle: "normal", textDecoration: "none", verticalAlign: "baseline" }), { italic: true, underline: true, script: "super" }), {});
 assert.deepEqual(browserStyle("SPAN", css({}), { bold: true }), { bold: true }, "a span with no style of its own keeps the style around it");
 assert.match(box, /else if \(n\.tagName !== "DIV"\) s = browserStyle\(n\.tagName, n\.style, style\)/, "read() uses it for elements without data-style");
+// and over a span's own style: WebKit types into a copy of a styled span with its look kept inline (font-weight 400).
+assert.match(box, /s = browserStyle\(n\.tagName, n\.style, JSON\.parse\(n\.dataset\.style\) as RunStyle\)/, "read() uses it over data-style");
 // Plain on a whole Table takes the cells' scripts off too, as in a cell and on a caption.
 assert.match(editor, /const keys = what === "plain" \? \["bold", "italic", "underline", "script"\]/);
 // Typing in a reagent table cell does not draw the editor again for each key; a style applied does.
