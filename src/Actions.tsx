@@ -28,7 +28,7 @@ import { ColourPick, colourItems } from "./ColourPicker";
 import { colourOptions, PICK, type PinKind } from "./colours";
 import type { Swatch } from "./settings";
 import { Exit, reduced, timing } from "./motion";
-import { NumberField } from "./Fields";
+import { NumberField, Segmented } from "./Fields";
 import { JABLONSKI_KINDS, KIND_NAMES, radiative, type JablonskiKind } from "./charts";
 import { ARROW_KINDS, arrowKind, arrowPicks, curved, isBracket, isLine, ORBITAL_SHAPES, PHASES, TABLE_LINES, type ArrowPick, type ArrowSize, type CurveFill, type LineStyle, type TableLine, type ArrowKind, type Head, type HeadShape, type OrbitalShape, type Phase, type ShapeKind, FREE_SYMBOLS, type FreeSymbol } from "./render";
 import { BracketGlyph, ElementGlyph, OrbitalGlyph, orbitalName, shapeName, FillGlyph, LineGlyph } from "./elements";
@@ -123,7 +123,7 @@ export type Context = ({ annotate?: true }) & (
   // bond's own structure, when it is a whole molecule (ethane, H2O), for the structure's actions. opacity: the Opacity
   // slider's value, when the atom is in a structure in 3D with depth shading (a structure and a bond have one too).
   | { kind: "atom"; text?: LabelText; label: string; charge: number; circled?: boolean; terminal: boolean; carbon: boolean; centre: boolean; enhanced?: string; groups?: { and: number[]; or: number[] }; halo?: string; fill?: string; numbered?: boolean; repeat?: string; opacity?: number; invertible?: boolean; molecule?: Extract<Context, { kind: "structure" }> }
-  | { kind: "bond"; style: BondKind | undefined; double: boolean; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
+  | { kind: "bond"; style: BondKind | undefined; double: boolean; position?: "auto" | "left" | "centre" | "right"; flippable: boolean; halo?: string; fill?: string; ring?: boolean; opacity?: number; molecule?: Extract<Context, { kind: "structure" }> }
   | { kind: "spot"; style: "filled" | "hollow" | "shaded"; dashed: boolean; bold: boolean; doubled: boolean; w: number; h: number; tail: number; rf: boolean; pt: number; unit?: string } // unit: a gel's band, its sizes' unit
   | { kind: "part"; region: boolean }); // a plasmid map's region (or marker) picked on it
 
@@ -336,32 +336,38 @@ export type Item = { icon: React.ReactNode; name: string; command: string; accen
 // one, as ChemDraw's right-click Group menu); Search literature (Reaxys, PubChem and SciFinder, when Online search is
 // on); and File when it applies. The last small buttons in every panel have no title: what the view does (Select
 // all, Fit to window, Centre in window, Select structure), then Delete.
-const SETS = ["chart", "table", "plate", "cycle", "analysis", "more", "turn", "frame", "depth", "group", "search", "file", "delete"] as const;
+// Reordered 19 November 2026 (Sam asked for the panel's order to be audited): turns and flips first, as they come
+// straight after drawing; then what is shown on the structure; Copy (the clipboard and library); Analyse (predictions);
+// Search literature (the searches, then PubChem's hazards and suppliers); Query (Markush tools); 3D tools; Add frame.
+const SETS = ["chart", "table", "plate", "cycle", "position", "turn", "more", "copy", "analysis", "search", "query", "depth", "frame", "group", "file", "delete"] as const;
 type SetId = (typeof SETS)[number];
-const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "Display and copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", file: "File", delete: "Delete" };
+const SET_TITLES: Record<SetId, string> = { chart: "Chart", table: "Table", plate: "Plate", cycle: "Cycle", analysis: "Analyse", more: "More", copy: "Copy", turn: "Turn, flip and arrange", frame: "Add frame", depth: "3D tools", group: "Group", search: "Search literature", query: "Query", position: "Second line", file: "File", delete: "Delete" };
 // A structure's panels call Display and copy by what it acts on. A section with no turn or flip in it is Arrange, and
 // the last, untitled one is named for a screen reader by what it holds.
 const titleOf = (s: SetId, c: Context, list: readonly { command: string }[]) => {
-  if (s === "more" && (c.kind === "drawing" || c.kind === "structure" || c.kind === "atom" || c.kind === "bond" || c.kind === "reaction" || (c.kind === "selection" && c.atoms))) return "Molecule and copy";
+  if (s === "more" && (c.kind === "drawing" || c.kind === "structure" || c.kind === "atom" || c.kind === "bond" || c.kind === "reaction" || (c.kind === "selection" && c.atoms))) return "Display";
   if (s === "turn" && !list.some((i) => kindOf(i.command) === "turn" && i.command !== "scale_dialog")) return "Arrange";
   if (s === "delete" && list.some((i) => i.command !== "delete")) return list.some((i) => i.command === "delete") ? "View and delete" : "View";
   return SET_TITLES[s];
 };
 // Each set's icon, for its row when the sets show as menus.
 const SET_ICONS: Record<SetId, React.ReactNode> = { chart: <ChartPolar size={18} />, table: <Table size={18} />, plate: <TlcGlyph />, cycle: <ArrowsClockwise size={18} />, analysis: <Flask size={18} />, search: <MagnifyingGlass size={18} />, turn: <ArrowArcRight size={18} />, more: <Eye size={18} />,
-  depth: <CubeTransparent size={18} />, group: <BoundingBox size={18} />, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, delete: <Trash size={18} /> };
+  depth: <CubeTransparent size={18} />, group: <BoundingBox size={18} />, copy: <CopySimple size={18} />, query: <BracketsSquare size={18} />, position: <span className="glyph-text">C</span>, frame: <BracketGlyph v="brackets" />, file: <FileArrowDown size={18} />, delete: <Trash size={18} /> };
 // Each action's kind. Kinds make up the sets; a set of more than one kind keeps its kinds in this order (and shows
 // them apart in a menu).
-const SET_FOR: Record<string, SetId> = { chart: "chart", table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "turn", group: "group", frame: "frame", file: "file", view: "delete", turn: "turn", depth: "depth", marks: "more", other: "more", library: "more", delete: "delete" };
-const SET_KINDS: Partial<Record<SetId, string[]>> = { more: ["marks", "other", "library"], turn: ["turn", "arrange"], delete: ["view", "delete"] };
-const byKind = <T extends { command: string }>(s: SetId, list: readonly T[]): T[][] => SET_KINDS[s]?.map((k) => list.filter((i) => kindOf(i.command) === k)) ?? [[...list]];
+const SET_FOR: Record<string, SetId> = { chart: "chart", table: "table", plate: "plate", cycle: "cycle", analysis: "analysis", search: "search", arrange: "turn", group: "group", frame: "frame", file: "file", view: "delete", turn: "turn", depth: "depth", marks: "more", other: "more", library: "copy", query: "query", position: "position", delete: "delete" };
+const SET_KINDS: Partial<Record<SetId, string[]>> = { more: ["marks", "other"], turn: ["turn", "arrange"], delete: ["view", "delete"] };
+// The turns in one order wherever they are: the 15° turns, the flips, the 180° rotations, then Rotate… and Scale….
+const TURNS = ["rotate.cw15", "rotate.ccw15", "mirror_h", "mirror_v", "flip_h", "flip_v", "rotate_dialog", "scale_dialog"];
+const turnOrder = <T extends { command: string }>(list: T[]) => list.map((i, k) => [i, k] as const).sort(([a, j], [b, k]) => (TURNS.indexOf(a.command) + 1 || 99) - (TURNS.indexOf(b.command) + 1 || 99) || j - k).map(([i]) => i);
+const byKind = <T extends { command: string }>(s: SetId, list: readonly T[]): T[][] => SET_KINDS[s]?.map((k) => { const one = list.filter((i) => kindOf(i.command) === k); return k === "turn" ? turnOrder(one) : one; }) ?? [[...list]];
 const KIND_OF: Record<string, string> = {
   select_all: "view", zoom_fit: "view", centre_view: "view", import: "file", recognise_structures: "analysis", expand_generic_sdf: "file", select_structure: "view",
   "shape.row.before": "table", "shape.col.before": "table", "shape.row.delete": "table", "shape.col.delete": "table", "shape.fit": "table", "shape.clear": "table", "shape.dashed": "table",
   "shape.hide.origin": "plate", "shape.hide.front": "plate", "shape.hide.border": "plate", "shape.ticks": "plate", "shape.transparent": "plate", "cycle.reverse": "cycle", "cycle.remove": "cycle",
   "shape.hide.scale": "plate", "shape.hide.names": "plate", "shape.ladder": "plate",
-  structure_to_name: "analysis", properties: "analysis", show_stereo: "analysis", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
-  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "analysis",
+  "bond.auto": "position", "bond.left": "position", "bond.centre": "position", "bond.right": "position", structure_to_name: "analysis", properties: "analysis", show_stereo: "marks", add_multicentre: "query", add_variable: "query", define_rgroup: "query", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
+  search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", redraw_stereo: "depth", invert_here: "depth", to_fischer: "depth", to_wedges: "depth", measure_distance: "depth", measure_angle: "depth", measure_dihedral: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
@@ -413,7 +419,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   // that are not the default are in the Search menu, with keys.
   const searches = online ? [it(<SearchGlyph letter="R" />, "Search Reaxys", "search_reaxys", false, true), it(<SearchGlyph letter="P" />, "Search PubChem", "search_pubchem", false, true),
     it(<SearchGlyph letter="S" />, "Search SciFinder", "search_scifinder", false, true),
-    // PubChem's suppliers (in Search literature) and GHS hazards (in Analysis, beside Mass spec) for the structures, in the Properties panel (issue 114).
+    // PubChem's GHS hazards (the Properties panel's Hazards tab) and suppliers (their own window) for the structures,
+    // side by side in Search literature (Sam, 19 November 2026; issue 114).
     it(<Storefront size={18} />, "Find suppliers", "find_suppliers", false, true), it(<FirstAidKit size={18} />, "Find hazards", "find_hazards", false, true)] : [];
   // Every turn and flip, for any selection they act on (as ChemDraw's Object menu, for every kind of object).
   const turnings = [small(it(<ArrowArcRight size={18} />, "Turn 15° clockwise", "rotate.cw15")), small(it(<ArrowArcLeft size={18} />, "Turn 15° anticlockwise", "rotate.ccw15"))];
@@ -477,7 +484,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
         small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
-        ...turnings, ...copies, ...searches, keep, dict, nickname, monomer, small(it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties")), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
+        ...turnings, ...copies, ...searches, keep, dict, nickname, monomer, it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties"), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Turn depth shading off" : "Turn depth shading on", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")), small(it(<TriangleDashed size={18} />, "Convert to wedge drawing", "to_wedges")));
@@ -500,7 +507,9 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, ...(context.invertible ? [small(it(<ShuffleSimple size={18} />, "Invert configuration here", "invert_here"))] : []), del);
       break;
     case "bond":
-      if (context.double) items.push({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }, it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left"), it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre"), it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right"));
+      // A double bond's second line (ChemDraw's right-click Bond Position): in the panel, the Second line control under
+      // the bond styles (Sam, 19 November 2026); in the right-click menu, its own sub-menu.
+      if (context.double) items.push(small({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }), small(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left")), small(it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre")), small(it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right")));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
       items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, del);
       break;
@@ -682,8 +691,10 @@ export function arrangedActions(context: Context, messy: boolean, hiddenWarnings
     ["arrange_across", "Distribute horizontally", <ArrowsOutLineHorizontal size={18} />], ["arrange_down", "Distribute vertically", <ArrowsOutLineVertical size={18} />]] as const).map(([command, name, icon]) => ({ icon, name, command, small: true })));
   if (grouping?.group) items.push({ icon: <BoundingBox size={18} />, name: "Group", command: "group", small: true });
   if (grouping?.grouped) items.push({ icon: <SelectionSlash size={18} />, name: "Ungroup", command: "ungroup", small: true }, { icon: <Unite size={18} />, name: grouping.integral ? "Let parts be picked" : "Pick as one", command: "group_integral", small: true });
-  // The user's order first (actions it does not know keep their place after it), then their split into rows.
-  const mine = layout[context.kind];
+  // The user's order first (actions it does not know keep their place after it), then their split into rows. A double
+  // bond's second-line commands, rows in a layout saved before 1.1.3, leave it: the Second line control has them.
+  const saved = layout[context.kind], hidden = (c: string) => kindOf(c) === "position";
+  const mine = saved && { order: saved.order.filter((c) => !hidden(c)), rows: saved.rows - saved.order.slice(0, saved.rows).filter(hidden).length };
   const placeIn = (order: string[], c: string) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
   if (mine) items.sort((a, b) => placeIn(mine.order, a.command) - placeIn(mine.order, b.command));
   // By default the main actions come first as rows, and the ones marked small follow as small buttons, set by set.
@@ -869,7 +880,10 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
   // as chemistry (the editor gives none for others).
   const whole = context.kind === "drawing" || context.kind === "structure" || (context.kind === "caption" && context.mode === "picked") || ((context.kind === "atom" || context.kind === "bond") && !!context.molecule);
 
-  const { items, rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more);
+  // The second line's set shows as the Second line control under the bond styles, so not as small buttons too, nor in
+  // the order a drag saves.
+  const arrangement = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more), { rows } = arrangement;
+  const sets = arrangement.sets.filter(([s]) => s !== "position"), items = arrangement.items.filter((i) => setOf(i.command) !== "position");
   const chart = "chart" in context ? context.chart : undefined;
 
   // Drag any action to a new place: along the rows, along the small buttons, or from one to the other.
@@ -1017,6 +1031,14 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
               </button>
             ))}
           </div>
+          {context.double && (
+            <div className="scale-row bond-position">
+              <span className="tray-title">Second line</span>
+              <Segmented label="Second line" value={context.position ?? "auto"} onChange={(v) => run(`bond.${v}`)}
+                options={([["auto", "Auto", "Second line placed automatically"], ["left", "Left", "Second line on the left"], ["centre", "Centre", "Centre the double bond"], ["right", "Right", "Second line on the right"]] as const)
+                  .map(([v, shown, name]): ["auto" | "left" | "centre" | "right", string, string, boolean, string | undefined] => [v, shown, name, false, hint(`bond.${v}`)])} />
+            </div>
+          )}
           <div className="chips rings" role="group" aria-label="Fuse a ring">
             {(["benzene", "6", "5"] as const).map((ring) => {
               const command = ring === "benzene" ? "bond.benzene" : `bond.ring${ring}`;

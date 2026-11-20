@@ -69,9 +69,14 @@ await measure("the nickname list", !!(await until(() => document.querySelector("
 key({ key: "Escape" });
 await wait(600);
 
-// The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
-labelled("Show the Properties panel")?.click();
+// The Properties panel (a row in the Actions panel): its foot (Add to drawing, Copy report, With names and Decimals)
+// in one row, then its Hazards tab.
+(labelled("Show the Properties panel") ?? [...document.querySelectorAll(".action")].find((b) => b.textContent.includes("Show the Properties panel")))?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
+[...document.querySelectorAll(".properties .prop-tabs button")].find((b) => b.textContent.trim() === "Hazards")?.click();
+await measure("the Properties panel's Hazards tab", !!(await until(() => document.querySelector(".properties .prop-hazards"), 3000)));
+[...document.querySelectorAll(".properties .prop-tabs button")].find((b) => b.textContent.trim() === "Properties")?.click();
+await wait(300);
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
 await wait(600);
 

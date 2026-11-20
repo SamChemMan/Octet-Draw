@@ -42,7 +42,7 @@ const CRIPPEN = "Wildman–Crippen atom contributions (Wildman and Crippen, J. C
 const GHS = "GHS classification from PubChem (pubchem.ncbi.nlm.nih.gov), found by the structure's standard InChIKey: the first source PubChem shows for the compound.";
 
 // The rows, in ChemDraw's two windows' order: analysis and tPSA (calculated from the structure), then the predicted
-// physical properties, then the predicted medicinal chemist's; then the GHS hazards and the suppliers, once found. The
+// physical properties, then the predicted medicinal chemist's; then the GHS hazards, once found (the Hazards tab). The
 // CAS number (in neither window) goes after the formula.
 export const PROPERTY_ROWS: Row[][] = [
   [
@@ -79,9 +79,6 @@ export const PROPERTY_ROWS: Row[][] = [
     { key: "hazards", name: "Hazard statements", method: GHS, value: (_, __, ___, g) => (g === null ? "No GHS data in PubChem" : g?.hazards.join(", ") || undefined) },
     { key: "precautions", name: "Precautionary statements", method: GHS, value: (_, __, ___, g) => g?.precautions.join(", ") || undefined },
     { key: "ghs-source", name: "Source", method: GHS, value: (_, __, ___, g) => g?.source },
-    // Filled in by withSuppliers (suppliers.ts) once Find suppliers has run. It has no Add to drawing box: a supplier
-    // list goes out of date, so a drawing never holds one.
-    { key: "suppliers", name: "Suppliers", method: "Chemical vendors PubChem lists for the compound (pubchem.ncbi.nlm.nih.gov), found by the structure's standard InChIKey. PubChem gives no prices or pack sizes.", value: () => undefined },
     { key: "cid", name: "PubChem CID", method: "The compound's record in PubChem, found by the structure's standard InChIKey.", value: (_, __, ___, g) => g?.cid.toString() },
   ],
 ];
