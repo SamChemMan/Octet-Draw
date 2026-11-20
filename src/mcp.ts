@@ -2130,7 +2130,9 @@ async function tableByHand(host: Host, m: Mol, r: Reaction | undefined, grid: Gr
   for (const x of t.hide?.rows ?? []) { const row = rowId(x); if (!row) problems.push(`no row "${x}" to hide`); else if (own.some((o) => o.id === row)) own = own.filter((o) => o.id !== row); else if (!hidden.rows.includes(row)) hidden.rows.push(row); }
   for (const x of t.hide?.cells ?? []) { const row = rowId(x.row), k = await column(x.of); if (!row) problems.push(`no row "${x.row}"`); else if (k && !hidden.cells[row]?.includes(k)) (hidden.cells[row] ??= []).push(k); }
   for (const x of t.hide?.lines ?? []) { if (/^(?:top|bottom|\d[abc])$/.test(x)) { if (!hidden.lines.includes(x)) hidden.lines.push(x); } else problems.push(`no line "${x}" (top and bottom; as rows 0a, 0b, 0c for the first section, 1a to 1c for the next)`); }
-  return { own: own.length ? own : undefined, text: Object.keys(text).length ? text : undefined, hidden: { ...(hidden.rows.length ? { rows: hidden.rows } : {}), ...(grid.hidden?.cols ? { cols: grid.hidden.cols } : {}), ...(Object.keys(hidden.cells).length ? { cells: hidden.cells } : {}), ...(hidden.lines.length ? { lines: hidden.lines } : {}) },
+  // A row of the user's own deleted takes its styles (Grid.runs) with it.
+  const runs = grid.runs && Object.fromEntries(Object.entries(grid.runs).filter(([row]) => !grid.own?.some((o) => o.id === row) || own.some((o) => o.id === row)));
+  return { own: own.length ? own : undefined, text: Object.keys(text).length ? text : undefined, ...(grid.runs ? { runs: Object.keys(runs!).length ? runs : undefined } : {}), hidden: { ...(hidden.rows.length ? { rows: hidden.rows } : {}), ...(grid.hidden?.cols ? { cols: grid.hidden.cols } : {}), ...(Object.keys(hidden.cells).length ? { cells: hidden.cells } : {}), ...(hidden.lines.length ? { lines: hidden.lines } : {}) },
     ...(t.attach ? { at: undefined, free: undefined } : {}) };
 }
 async function keyOf(host: Host, m: Mol, r: Reaction | undefined, of: string): Promise<string | undefined> {
@@ -2384,7 +2386,10 @@ type Edit = { ids: string[]; changes?: Change[]; runs?: RunIn[]; box?: number[];
 // A table as given (cells, lines, alignment, rule width), over the one a shape has.
 function tableOf(t: TableIn, was?: Table): Table {
   const cells = t.cells ? t.cells.map((row) => row.map((c) => clean(c, true))) : was?.cells ?? newTable(3, 3).cells, cols = Math.max(1, ...cells.map((r) => r.length));
-  return { ...(was ?? newTable(cells.length, cols)), cells: cells.map((row) => [...row, ...Array.from({ length: cols - row.length }, () => "")]), ...(t.lines ? { lines: TABLE_LINES[t.lines], grid: undefined } : {}), ...(t.align ? { align: t.align } : {}), ...(t.weight ? { weight: t.weight } : {}) };
+  // Cells given keep the styles of the cells they fall on only while the text is the same (richtext.ts runsFor), and
+  // only while the rows stay as many: a row added or taken out moves the cells under it, and their styles go.
+  const { runs, ...rest } = was ?? newTable(cells.length, cols), keep = !t.cells || cells.length === was?.cells.length;
+  return { ...rest, ...(runs && keep ? { runs } : {}), cells: cells.map((row) => [...row, ...Array.from({ length: cols - row.length }, () => "")]), ...(t.lines ? { lines: TABLE_LINES[t.lines], grid: undefined } : {}), ...(t.align ? { align: t.align } : {}), ...(t.weight ? { weight: t.weight } : {}) };
 }
 // A TLC plate as given, over the one a shape has.
 function tlcOf(t: TlcIn, was?: Shape["tlc"]): Shape["tlc"] {

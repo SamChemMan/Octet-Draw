@@ -5,7 +5,7 @@ import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
+import { edited, plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
@@ -2609,7 +2609,9 @@ export function restyleSpot(x: Spot, what: string, on = true): Spot {
   return out;
 }
 
-// Tables. A new one has an Entry column numbered down its rows, under a header row.
+// Tables. A new one has an Entry column numbered down its rows, under a header row. measure: a cell's text width
+// (render.ts tableLayout).
+type Measure = (text: string, runs?: TextRun[]) => number;
 export const newTable = (rows: number, cols: number): Table =>
   ({ cells: Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => (c === 0 ? (r === 0 ? "Entry" : String(r)) : ""))) });
 // True when the first column counts 1, 2, 3 down the rows under the header (the entry numbers a new table has).
@@ -2617,27 +2619,33 @@ const counts = (cells: string[][]) => cells.length > 1 && cells.slice(1).every((
 // A table with rows or columns taken out and added at a place (at least one of each stays; at most 100 rows and 20
 // columns), and its box to match: the other rows keep their heights and the other columns their widths, and a new
 // column is as wide as the average one. Entry numbers in the first column are numbered again.
-export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: number, add: number, measure?: Measure, caption?: number): Partial<Shape> {
   const t = tableLayout(sh, measure, caption), table: Table = sh.table ?? { cells: [[""]] }, numbered = counts(table.cells);
   const cells = table.cells.map((r) => Array.from({ length: t.cols }, (_, c) => r[c] ?? ""));
+  // Each cell's runs go with its text.
+  const runs = table.runs && table.cells.map((_, i) => Array.from({ length: t.cols }, (_, c) => table.runs![i]?.[c] ?? null));
   const widths = [...t.widths], heights = [...t.heights], align = table.align ? Array.from({ length: t.cols }, (_, c) => table.align![c] ?? "centre") : undefined;
   if (axis === "row") {
     const out = Math.min(remove, t.rows - 1), into = Math.max(0, Math.min(add, 100 - t.rows + out));
     cells.splice(at, out, ...Array.from({ length: into }, () => Array<string>(t.cols).fill("")));
+    runs?.splice(at, out, ...Array.from({ length: into }, () => Array<TextRun[] | null>(t.cols).fill(null)));
     heights.splice(at, out, ...Array<number>(into).fill(t.h));
   } else {
     const out = Math.min(remove, t.cols - 1), into = Math.max(0, Math.min(add, 20 - t.cols + out)), average = widths.reduce((a, b) => a + b, 0) / t.cols;
     for (const r of cells) r.splice(at, out, ...Array<string>(into).fill(""));
+    for (const r of runs ?? []) r.splice(at, out, ...Array<null>(into).fill(null));
     widths.splice(at, out, ...Array<number>(into).fill(average));
     align?.splice(at, out, ...Array<"centre">(into).fill("centre"));
   }
-  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) r[0] = String(++n); }); }
-  const next: Table = { ...table, cells, ...(table.widths ? { widths } : {}), ...(table.heights ? { heights } : {}), ...(align ? { align } : {}) };
+  // A number's style stays with it when it is numbered again (one style, the first character's, for all of it).
+  // A number that stays the same keeps its runs as they are.
+  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) { const was = runsFor(runs?.[i][0], r[0]), next = String(++n); if (next !== r[0]) { r[0] = next; if (was) runs![i][0] = [{ ...styleOf(was[0]), text: next }]; } } }); }
+  const next: Table = { ...table, cells, ...(runs ? { runs } : {}), ...(table.widths ? { widths } : {}), ...(table.heights ? { heights } : {}), ...(align ? { align } : {}) };
   const width = widths.reduce((a, b) => a + b, 0), height = heights.reduce((a, b) => a + b, 0);
   return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
 }
 // A table with rows and columns added or taken off the end (at least one of each).
-export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+export function resizeTable(sh: Shape, rows: number, cols: number, measure?: Measure, caption?: number): Partial<Shape> {
   const R = Math.max(1, Math.min(100, rows)), C = Math.max(1, Math.min(20, cols)), now = tableLayout(sh, measure, caption);
   const tall = { ...sh, ...spliceTable(sh, "row", Math.min(R, now.rows), Math.max(0, now.rows - R), Math.max(0, R - now.rows), measure, caption) };
   const both = { ...tall, ...spliceTable(tall, "col", Math.min(C, now.cols), Math.max(0, now.cols - C), Math.max(0, C - now.cols), measure, caption) };
@@ -2645,7 +2653,7 @@ export function resizeTable(sh: Shape, rows: number, cols: number, measure?: (te
 }
 // A table with its columns' widths or rows' heights set (each is kept from then on, as after dragging a border), and
 // its box to match. x0 and y1 move its left and top edges. The limits follow the table's scale.
-export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number[]; x0?: number; y1?: number }, measure?: Measure, caption?: number): Partial<Shape> {
   const old = tableLayout(sh, measure, caption), x0 = size.x0 ?? old.x0, y1 = size.y1 ?? old.y1, f = old.f;
   const table: Table = {
     ...sh.table!, ...(size.widths ? { widths: size.widths.map((w) => Math.max(0.2 * f, Math.min(50 * f, w))) } : {}),
@@ -2655,20 +2663,27 @@ export function sizeTable(sh: Shape, size: { widths?: number[]; heights?: number
   return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
 }
 // Size To Fit Contents: each column as wide as its text and each row the least height.
-export function fitTable(sh: Shape, measure?: (text: string) => number, caption?: number): Partial<Shape> {
+export function fitTable(sh: Shape, measure?: Measure, caption?: number): Partial<Shape> {
   const { widths: _w, heights: _h, ...table } = sh.table!, t = tableLayout({ ...sh, table }, measure, caption);
   return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh, caption)], table };
 }
-// Clear Contents: every cell empty, except the entry numbers and their header when the first column counts.
+// Clear Contents: every cell empty, except the entry numbers and their header when the first column counts. The
+// styles go with the text, and the ones kept keep theirs.
 export function clearTable(sh: Shape): Partial<Shape> {
-  const cells = sh.table?.cells ?? [[""]], keep = counts(cells);
-  return { table: { ...sh.table!, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
+  const { runs: was, ...table } = sh.table ?? { cells: [[""]] }, cells = table.cells, keep = counts(cells);
+  const runs = keep && was ? cells.map((_, r) => cells[r].map((_x, c) => (c === 0 ? was[r]?.[0] ?? null : null))) : undefined;
+  return { table: { ...table, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))), ...(runs?.some((r) => r[0]) ? { runs } : {}) } };
 }
-// A table with one cell's text set, its box grown to fit the text if it no longer does.
-export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: (text: string) => number, caption?: number): Partial<Shape> {
-  const cells = (sh.table?.cells ?? [[""]]).map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
-  const t = tableLayout({ ...sh, table: { ...sh.table, cells } }, measure, caption);
-  return { from: [t.x0, t.y1], to: [t.x1, t.y0], table: { ...sh.table, cells } };
+// A table with one cell's text set, with its runs (none: plain), its box grown to fit the text if it no longer does.
+// A cell holds at most 500 characters (file.ts readTable refuses more): the rest is cut off, with its styles.
+export function setTableCell(sh: Shape, r: number, c: number, typed: string, measure?: Measure, caption?: number, kept?: TextRun[]): Partial<Shape> {
+  const text = typed.length > 500 ? typed.slice(0, 500).replace(/[\ud800-\udbff]$/, "") : typed, own = kept && text !== typed ? edited(kept, text) : kept;
+  const { runs: was, ...rest } = sh.table ?? { cells: [[""]] };
+  const cells = rest.cells.map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
+  const runs = was || own ? cells.map((row, i) => row.map((_, j) => (i === r && j === c ? own ?? null : was?.[i]?.[j] ?? null))) : undefined;
+  const table: Table = { ...rest, cells, ...(runs?.some((row) => row.some(Boolean)) ? { runs } : {}) };
+  const t = tableLayout({ ...sh, table }, measure, caption);
+  return { from: [t.x0, t.y1], to: [t.x1, t.y0], table };
 }
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
   ({ ...m, captions: m.captions?.map((c) => (c.id === id ? { ...c, ...change } : c)) });

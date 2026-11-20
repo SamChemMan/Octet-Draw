@@ -146,6 +146,12 @@ for (const [key, command] of [["b", "caption.bold"], ["I", "caption.italic"], ["
 assert.equal(textKey({ key: "f", shiftKey: false }, false), "caption.formula");
 assert.equal(textKey({ key: "f", shiftKey: false }, true), undefined);
 assert.deepEqual([textKey({ key: "N", shiftKey: true }, true), textKey({ key: "n", shiftKey: true }, false), textKey({ key: "c", shiftKey: false }, false)], ["name_to_structure", "name_to_structure", undefined]);
+// A table cell (a Table's, or a reagent table's text cell) takes a caption's keys: Bold, Italic, Underline, Plain,
+// Subscript, Superscript and Formula. ⇧⌘N does nothing there; the keys a cell moves with are not text keys.
+for (const [key, command] of [["b", "caption.bold"], ["i", "caption.italic"], ["u", "caption.underline"], ["t", "caption.plain"], ["f", "caption.formula"], ["-", "caption.sub"], ["=", "caption.super"]]) {
+  assert.equal(textKey({ key, shiftKey: false }, false, true), command, key);
+}
+assert.deepEqual(["n", "Tab", "Enter", "ArrowUp", "Escape"].map((key) => textKey({ key, shiftKey: key === "n" }, false, true)), [undefined, undefined, undefined, undefined, undefined]);
 assert.equal(textEntry({ tagName: "BUTTON" }), false);
 assert.equal(textEntry(null), false);
 // Home's tiles: the New row (six narrow tiles) over the recent drawings (four wide tiles to a row, ten in all, so the

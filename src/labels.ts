@@ -4,6 +4,7 @@
 // (OMe becomes MeO, CO2Et becomes EtO2C), as ChemDraw does in its ACS 1996 output.
 
 import { condensedLabel, condensedRoot } from "./condensed.ts";
+import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { builtInNickname, NICKNAME_MOST, onNicknamesChange, ownNickname } from "./nicknames.ts";
 
 const SYMBOLS = (
@@ -588,3 +589,12 @@ export function formulaRuns(text: string): Run[] {
 // writer writes it, with formulaTextRuns, so the file shows what the page shows.
 export const formulaCaption = (c: { on?: unknown; cycle?: { side: string } }) => !!c.on || (!!c.cycle && c.cycle.side !== "name");
 export const formulaTextRuns = (text: string): { text: string; script?: "sub" }[] => formulaRuns(text).map((r) => (r.sub ? { text: r.text, script: "sub" } : { text: r.text }));
+// A table cell's runs as drawn and written: the counts of its formulas as subscripts (formulaRuns, over all its text),
+// on each character without a script of its own. So K2CO3 stays K₂CO₃ with part of it bold.
+export function formulaOver(runs: TextRun[]): TextRun[] {
+  const subs: boolean[] = [];
+  for (const r of formulaRuns(plainOf(runs))) for (let k = 0; k < r.text.length; k++) subs.push(!!r.sub);
+  if (!subs.includes(true)) return runs;
+  let at = 0;
+  return normalise(runs.flatMap((r) => r.text.split("").map((ch): TextRun => (subs[at++] && !r.script ? { ...r, text: ch, script: "sub" } : { ...r, text: ch }))));
+}

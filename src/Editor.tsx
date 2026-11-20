@@ -13,7 +13,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
+import { chemicalText, formulaCaption, formulaOver, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
 import { BUILT_IN, ownNickname, ownNicknames, setOwnNicknames, withNickname, withoutNickname } from "./nicknames";
 import { redrawStereo, nicknameGroup, analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
@@ -91,7 +91,7 @@ import { createPortal, flushSync } from "react-dom";
 import { chemfig, type Scheme, type SchemeItem } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
+import { CONDITIONS, parseAmount, reagentFormula, ROLES, takesRuns, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
 import { FIELDS as DETAILS, PROPERTIES, detailsOf, stamped, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
@@ -109,7 +109,7 @@ import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, cellRuns, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, nameToSmiles, namesStarting, ownName, ownNamesFile, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -135,9 +135,9 @@ import { invertAt, invertible, fischerable, INVERT_SELECT, toFischer, toWedges }
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, hasContent, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, setTemplateAnchor, ownId, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
-import { CharMap, inMap } from "./CharMap";
+import { CharMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, edited, labelStyle, lines as richLines, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, edited, labelStyle, lines as richLines, normalise, ownRuns, plainOf, runsOf, shareColour, sliceRuns, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
@@ -561,6 +561,29 @@ const formula = (text: string, size: number) => formulaRuns(text).map((r, k, all
 ));
 const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boolean, family?: string) =>
   formulaRuns(text).reduce((w, r) => w + textWidth(r.text, r.sub ? 0.75 * size : size, bold, italic, family), 0);
+// A table cell's runs as drawn (each character's whole style, formula counts lowered): their width.
+const runsWidth = (runs: TextRun[], size: number, family?: string) =>
+  formulaOver(runs).reduce((w, r) => w + textWidth(r.text, r.script ? 0.75 * size : size, r.bold, r.italic, family), 0);
+// Formula (⌘F, as ChemDraw's): the counts in characters start to end become subscripts.
+const formulaRange = (runs: TextRun[], s: number, e: number) => {
+  let out = runs, at = s;
+  for (const r of formulaRuns(plainOf(runs).slice(s, e))) { if (r.sub) out = styleRange(out, at, at + r.text.length, (st) => ({ ...st, script: "sub" })); at += r.text.length; }
+  return out;
+};
+// A text box over a table cell: its text, in runs as typed, and the box's state (RichBox): version, caret and pending.
+type CellBox = { value: string; runs: TextRun[]; version: number; caret?: [number, number]; pending?: RunStyle };
+// A text style on the characters selected in a cell box (with nothing selected, on the next ones typed; Formula, on all
+// of it), as on a caption's.
+function styleBox<T extends CellBox>(w: T, range: [number, number] | undefined, patch: ((s: RunStyle, all: RunStyle) => RunStyle) | "formula"): T {
+  const n = w.value.length, [s, e] = range ?? [n, n];
+  if (patch === "formula") return { ...w, runs: s < e ? formulaRange(w.runs, s, e) : formulaRange(w.runs, 0, n), version: w.version + 1, caret: [s, e] };
+  const all = common(w.runs, s, e);
+  if (s === e) return { ...w, pending: patch({ ...(w.pending ?? all) }, w.pending ?? all), version: w.version + 1, caret: [s, e] };
+  return { ...w, runs: styleRange(w.runs, s, e, (st) => patch(st, all)), version: w.version + 1, caret: [s, e] };
+}
+// How a run looks in a cell box: each character's whole style, so the box's own bold does not show through.
+const cellLook = (r: RunStyle): React.CSSProperties => ({ fontWeight: r.bold ? "bold" : "normal", fontStyle: r.italic ? "italic" : "normal", textDecoration: r.underline ? "underline" : "",
+  verticalAlign: r.script === "sub" ? "sub" : r.script === "super" ? "super" : "", fontSize: r.script ? "75%" : "" });
 // A caption's text on the canvas. It draws again only when its layout or look changes, so typing in one caption
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
@@ -1084,23 +1107,23 @@ export default function Editor() {
   // The caret moving in the box changes what the Actions panel shows as on (Bold, Subscript and so on): only the panel
   // draws again.
   const [carets] = useState(() => store(0));
-  useEffect(() => {
-    if (!writing) return;
-    const tick = () => carets.set(carets.get() + 1);
-    document.addEventListener("selectionchange", tick);
-    return () => document.removeEventListener("selectionchange", tick);
-  }, [!!writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The curve the Pen is drawing (its points so far), and where the pointer is, for the segment to it.
   const [pen, setPen] = useState<CurvePoint[]>();
   const [penAt, setPenAt] = useState<P>();
-  // The table cell being typed in: its table, row and column, and the text so far.
-  const [cell, setCell] = useState<{ id: number; r: number; c: number; value: string }>();
+  // The table cell being typed in: its table, row and column, and the text so far, in runs (CellBox).
+  const [cell, setCell] = useState<{ id: number; r: number; c: number } & CellBox>();
+  // The caret moving in a caption box or a Table cell box (carets, above).
+  useEffect(() => {
+    if (!writing && !cell) return;
+    const tick = () => carets.set(carets.get() + 1);
+    document.addEventListener("selectionchange", tick);
+    return () => document.removeEventListener("selectionchange", tick);
+  }, [!!writing || !!cell]); // eslint-disable-line react-hooks/exhaustive-deps
   // The table cell last typed in: the row and column the table actions add, delete and align at.
   const [lastCell, setLastCell] = useState<{ id: number; r: number; c: number }>();
   useEffect(() => { if (cell) setLastCell({ id: cell.id, r: cell.r, c: cell.c }); }, [cell?.id, cell?.r, cell?.c]); // eslint-disable-line react-hooks/exhaustive-deps
   const cellOpen = useRef(false);
-  const cellInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { cellInput.current?.select(); }, [cell?.id, cell?.r, cell?.c]);
+  const cellApi = useRef<RichApi>(undefined);
   useEffect(() => { drawCursors().then(setCursors); }, []);
   // A drag on the canvas keeps its cursor wherever the pointer goes until it ends: the closed hand for a handle, the
   // arrows for a resize or a table's edge, else the cursor the canvas showed at the press, as the rotation arrow for a
@@ -3448,9 +3471,9 @@ export default function Editor() {
   const pageRan = useRef<{ id: string; at: number }>(undefined);
   // ChemDraw's text keys in a label or caption box. The box takes them first (in the app too: the web view gets the
   // keystroke before the Text menu does), and marks them in pageRan. A label takes only the Text menu's styles.
-  const textKeys = (e: React.KeyboardEvent, label: boolean) => {
+  const textKeys = (e: React.KeyboardEvent, label: boolean, cell = false) => {
     if (!(TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey)) return;
-    const command = textKey(e, label);
+    const command = textKey(e, label, cell);
     if (!command || (label && !command.startsWith("caption."))) return;
     e.preventDefault();
     if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
@@ -4423,7 +4446,15 @@ export default function Editor() {
     return updateShape(doc, part.map, { plasmid: { ...pl, regions: each(pl.regions, part.region), markers: each(pl.markers, part.marker) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
-  const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
+  const cellWidth = (sh: Shape) => (text: string, runs?: TextRun[]) => (runs ? runsWidth(runs, (sh.size ?? style.captionSize) * pt, fontStack(sh.font ?? style.captionFont))
+    : formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont))) / L;
+  // A Table's own text style, which a cell's characters have unless they have runs of their own (render.ts Table.runs).
+  const cellBase = (sh: Shape): RunStyle => ({ ...(sh.bold ? { bold: true } : {}), ...(sh.italic ? { italic: true } : {}), ...(sh.underline ? { underline: true } : {}) });
+  // The box for a Table cell, its text all selected.
+  const cellOf = (sh: Shape, r: number, c: number, version: number) => {
+    const value = sh.table?.cells[r]?.[c] ?? "";
+    return { id: sh.id, r, c, value, runs: cellRuns(sh.table, r, c) ?? [{ ...cellBase(sh), text: value }], version, caret: [0, value.length] as [number, number] };
+  };
   const tableAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => {
     if (sh.kind !== "table") return false;
     const t = tableLayout(sh, cellWidth(sh), style.captionSize);
@@ -4448,7 +4479,7 @@ export default function Editor() {
     const c = Math.max(0, Array.from({ length: t.cols }, (_, i) => i).filter((i) => t.col(i) <= p[0]).pop() ?? 0);
     const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
     cellOpen.current = true;
-    setCell({ id: sh.id, r, c, value: sh.table?.cells[r]?.[c] ?? "" });
+    setCell(cellOf(sh, r, c, (cell?.version ?? 0) + 1));
     reselect(new Set(), new Set([sh.id]));
   };
   // Ends the Pen's curve (closed when it came back to its first point) and adds it, if it has two points or more.
@@ -4471,12 +4502,18 @@ export default function Editor() {
     const sh = doc.shapes?.find((x) => x.id === w.id);
     if (!sh?.table) { cellOpen.current = false; return setCell(undefined); }
     let cur = sh, m = doc;
-    const value = expandEscapes(w.value, keptText(sh.table.cells[w.r]?.[w.c])); // \delta is δ (escapes.ts)
-    if (value !== (sh.table.cells[w.r]?.[w.c] ?? "")) { cur = { ...cur, ...setTableCell(cur, w.r, w.c, value, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
+    // \delta is δ (escapes.ts). Each character keeps its style; runs only where one differs from the table's own.
+    const typed = expandRuns(w.runs, keptText(sh.table.cells[w.r]?.[w.c])), value = plainOf(typed), own = ownRuns(typed, cellBase(sh));
+    if (value !== (sh.table.cells[w.r]?.[w.c] ?? "") || JSON.stringify(own) !== JSON.stringify(cellRuns(sh.table, w.r, w.c))) {
+      cur = { ...cur, ...setTableCell(cur, w.r, w.c, value, cellWidth(cur), style.captionSize, own) };
+      m = updateShape(m, sh.id, cur);
+    }
     if (to) {
       const [r, c] = to, rows = cur.table!.cells.length;
       if (r >= rows) { cur = { ...cur, ...resizeTable(cur, rows + 1, cur.table!.cells[0].length, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
-      if (r >= 0) setCell({ id: sh.id, r, c, value: cur.table!.cells[r]?.[c] ?? "" });
+      // The same cell (up from the top row) stays as it is, its caret where it was, unless its text was expanded.
+      if (r === w.r && c === w.c) { if (value !== plainOf(w.runs)) setCell({ ...cellOf(cur, r, c, w.version + 1), caret: [value.length, value.length] }); }
+      else if (r >= 0) setCell(cellOf(cur, r, c, w.version + 1));
     } else { cellOpen.current = false; setCell(undefined); }
     if (m !== doc) set(m, true);
   }
@@ -4906,12 +4943,7 @@ export default function Editor() {
   }
   // Formula (⌘F, as ChemDraw's): the counts in the selected text (or the whole caption) become subscripts.
   function formulaText() {
-    const apply = (runs: TextRun[], s: number, e: number) => {
-      const text = plainOf(runs).slice(s, e);
-      let out = runs, at = s;
-      for (const r of formulaRuns(text)) { if (r.sub) out = styleRange(out, at, at + r.text.length, (st) => ({ ...st, script: "sub" })); at += r.text.length; }
-      return out;
-    };
+    const apply = formulaRange;
     if (writing) {
       const runs = writing.runs ?? [{ text: writing.value }], range = richApi.current?.range(), [s, e] = range && range[0] !== range[1] ? range : [0, writing.value.length];
       return setWriting({ ...writing, runs: apply(runs, s, e), version: (writing.version ?? 0) + 1, caret: range ?? [s, e] });
@@ -7274,8 +7306,10 @@ export default function Editor() {
     }
     return undefined;
   };
-  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; value: string }>();
-  type GridCell = Omit<NonNullable<typeof gridEdit>, "value">;
+  // opened: the text the box opened with, which keeps its LaTeX names as they are (escapes.ts keptText).
+  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; opened: string } & CellBox>();
+  const gridApi = useRef<RichApi>(undefined);
+  type GridCell = Omit<NonNullable<typeof gridEdit>, keyof CellBox | "opened">;
   // A cell takes an amount unless it is Formula, MW, a name, or Limiting? (which a click or Return sets). A product's
   // Expected moles and Yield take one too, and set what gives them (its Expected mass, its Measured mass).
   const gridCol = (gc: { arrow: number; key: string }) => gridViews.find((x) => x.arrow === gc.arrow)?.cols.find((x) => x.key === gc.key);
@@ -7283,6 +7317,26 @@ export default function Editor() {
   // Every other cell but Limiting? and Role takes text typed over it, as text (Grid.text): a name, the formula, the MW (a
   // number there is the MW used), a value worked out, a row of the user's own.
   const gridWrites = (gc: GridCell) => !gridTypes(gc) && ((gc.row !== "limiting" && gc.row !== "role") || gc.key[0] === "#");
+  // The text cells take text styles on their characters (stoich.ts takesRuns). Typed over a value, text is bold, as a
+  // typed value is; a row's name and a row of the user's own are not (gridview.ts shownCell).
+  // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too (its
+  // caption), so the scheme and the table say the same: the caption it goes to.
+  const gridNumber = (w: GridCell, text: string) => {
+    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
+    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
+    return cap && text && isNumber({ ...cap, text }) ? cap : undefined;
+  };
+  // A compound number takes none (it is the caption's text), so the keys do nothing while the cell holds one.
+  const gridStyles = (gc: GridCell, text?: string) => gridWrites(gc) && takesRuns(gc.row, gc.key) && !(text !== undefined && gridNumber(gc, oneLine(text).trim()));
+  const gridBase = (gc: GridCell): RunStyle => (gridTypes(gc) || gc.key[0] === "#" || doc.grids?.find((g) => g.arrow === gc.arrow)?.own?.some((o) => o.id === gc.row) ? {} : { bold: true });
+  // Grid.runs with a cell's styles set, or taken off (none).
+  const gridRuns = (g: Grid, row: string, k: string, own?: TextRun[]): Partial<Grid> => {
+    const { [k]: _, ...rest } = g.runs?.[row] ?? {}, cells = own ? { ...rest, [k]: own } : rest, { [row]: _r, ...rows } = g.runs ?? {};
+    const next = Object.keys(cells).length ? { ...rows, [row]: cells } : rows;
+    return { runs: Object.keys(next).length ? next : undefined };
+  };
+  // A row of the user's own deleted, with its styles.
+  const dropOwn = (g: Grid, row: string): Partial<Grid> => { const { [row]: _, ...runs } = g.runs ?? {}; return { own: g.own?.filter((o) => o.id !== row), runs: Object.keys(runs).length ? runs : undefined }; };
   // Limiting? sets the limiting reactant (a column with the Reactant role); Role goes to the next role: Reactant, Catalyst,
   // Solvent.
   const gridToggle = (gc: GridCell) => {
@@ -7297,28 +7351,29 @@ export default function Editor() {
     const v = gridViews.find((x) => x.arrow === gc.arrow), row = v && gridRowOf(v, gc.row);
     if (!v || !row) return;
     setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
-    const t = shownCell(v, gc.key, row);
-    setGridEdit({ ...gc, value: start ?? (gridTypes(gc) ? (t.typed ? t.text : "") : t.text) });
+    const t = shownCell(v, gc.key, row), value = start ?? (gridTypes(gc) ? (t.typed ? t.text : "") : t.text), base = gridBase(gc);
+    // Its characters in their own styles, else in the cell's look once typed (bold over a value).
+    setGridEdit({ ...gc, value, opened: value, runs: (start === undefined && gridStyles(gc) && t.runs) || [{ ...base, text: value }], version: 1 });
   };
   // Text typed over a cell that is not an amount (gridWrites): a row's name (its own row's name), a value in a row of
   // the user's own, or text over the value worked out. Empty takes it off, and the value worked out shows again.
-  const writeGridCell = (w: GridCell, typed: string) => {
-    const text = oneLine(typed).trim();
-    // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too, so the
-    // scheme and the table say the same.
-    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
-    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
-    if (cap && text && isNumber({ ...cap, text })) {
-      const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest } }; });
+  const writeGridCell = (w: GridCell, typed: string, runs?: TextRun[]) => {
+    const text = oneLine(typed).trim(), k = w.key[0] === "#" ? "#" : w.key;
+    // Its characters' styles where they differ from the cell's look (none for a cell that takes none).
+    // Trimmed at both ends, the characters keep their own styles (edited() would see a change at each end and lose them).
+    const at = runs ? plainOf(runs).indexOf(text) : -1, kept = runs && (at >= 0 ? sliceRuns(runs, at, at + text.length) : edited(runs, text));
+    const own = kept && gridStyles(w, text) && text ? ownRuns(kept, gridBase(w)) : undefined, cap = gridNumber(w, text);
+    if (cap) {
+      const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest }, ...gridRuns(g, w.row, w.key) }; });
       return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
     }
     changeGrid(w.arrow, (g) => {
-      const own = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#";
-      if (own && head) return { own: g.own!.map((o) => (o === own ? { ...o, name: text } : o)) };
-      if (own) { const { [w.key]: _, ...rest } = own.values ?? {}; return { own: g.own!.map((o) => (o === own ? { ...o, values: text ? { ...rest, [w.key]: text } : rest } : o)) }; }
-      const k = head ? "#" : w.key, { [k]: _, ...rest } = g.text?.[w.row] ?? {}, cells = text ? { ...rest, [k]: text } : rest;
+      const mine = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#", styles = gridRuns(g, w.row, k, own);
+      if (mine && head) return { own: g.own!.map((o) => (o === mine ? { ...o, name: text } : o)), ...styles };
+      if (mine) { const { [w.key]: _, ...rest } = mine.values ?? {}; return { own: g.own!.map((o) => (o === mine ? { ...o, values: text ? { ...rest, [w.key]: text } : rest } : o)), ...styles }; }
+      const { [k]: _, ...rest } = g.text?.[w.row] ?? {}, cells = text ? { ...rest, [k]: text } : rest;
       const { [w.row]: _r, ...rows } = g.text ?? {};
-      return { text: Object.keys(cells).length ? { ...rows, [w.row]: cells } : rows };
+      return { text: Object.keys(cells).length ? { ...rows, [w.row]: cells } : rows, ...styles };
     });
   };
   // A cell shown again once something is typed in it (Grid.hidden.cells).
@@ -7341,7 +7396,7 @@ export default function Editor() {
     const next = gridStep(v.cells, gc, "down"), stay = () => setGridPick(next && next !== gc ? { arrow: v.arrow, key: next.key, row: next.row } : undefined);
     if (pick.key[0] === "#") {
       stay();
-      if (row.own) return changeGrid(v.arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row.id) }));
+      if (row.own) return changeGrid(v.arrow, (h) => dropOwn(h, row.id));
       return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, rows: [...(h.hidden?.rows ?? []), row.id] } }));
     }
     if (pick.row === "name" && !g.text?.name?.[pick.key]) { stay(); return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, cols: [...(h.hidden?.cols ?? []), pick.key] } })); }
@@ -7403,11 +7458,11 @@ export default function Editor() {
   // limiting reactant. A product's Expected mass is the mass wanted, kept as its mass (issue 136). One value sets the
   // scale: the mass wanted clears the reactants' amounts and another product's mass wanted, and a reactant's amount
   // clears it.
-  function commitGridCell(typed: string, cell: GridCell | undefined = gridEdit) {
-    const w = cell, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
+  function commitGridCell(typed: string, cell: GridCell | undefined = gridEdit, runs?: TextRun[]) {
+    const w = cell, kept = keptText(gridEdit?.opened), text = expandEscapes(typed, kept); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
-    if (!gridTypes(w)) return gridWrites(w) ? writeGridCell(w, text) : undefined;
+    if (!gridTypes(w)) return gridWrites(w) ? writeGridCell(w, text, runs && expandRuns(runs, kept)) : undefined;
     // A hidden cell typed in shows again, in the same step.
     const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => changeGridNow(arrow, (g, v) => { const r = change(g, v); return Object.keys(r).length ? { ...unhide(g, w), ...r } : r; });
     const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
@@ -7541,6 +7596,13 @@ export default function Editor() {
       const cellAlign = lastCell?.id === sh.id ? aligns[lastCell.c] : aligns.every((a) => a === aligns[0]) ? aligns[0] : undefined;
       return { lines: linesOf(sh.table), cellAlign, weight: ((sh.table ? sh.table.weight : sh.width) ?? style.line) * scaleOf(sh), cell: lastCell?.id === sh.id };
     };
+    // Bold, Italic and Underline as on: the open cell's at its caret (the next characters typed) or its selection, else
+    // the table's.
+    const tableFace = (sh: Shape) => {
+      const range = cell && cellOpen.current && cell.id === sh.id ? cellApi.current?.range() ?? [cell.value.length, cell.value.length] : undefined;
+      const at: { bold?: boolean; italic?: boolean; underline?: boolean } = range ? cell!.pending ?? common(cell!.runs, range[0], range[1]) : sh;
+      return { bold: !!at.bold, italic: !!at.italic, underline: !!at.underline };
+    };
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
@@ -7549,7 +7611,7 @@ export default function Editor() {
         kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), charges: chargesOf(doc, [], picked), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
-        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
+        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { ...tableFace(first), font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
     // Arrows picked on their own.
@@ -7586,8 +7648,10 @@ export default function Editor() {
     const wholeTable = picked.size === 1 && !selection.size ? tableOf([...picked][0]) : undefined, wholeGrid = wholeTable !== undefined ? gridViews.find((v) => v.arrow === wholeTable) : undefined;
     if (wholeGrid) return { kind: "grid", table: true, product: false, limiting: false, hidden: wholeGrid.hiding, rows: !!wholeGrid.texts, empty: emptyRows(wholeGrid).length > 0, free: !!wholeGrid.free, ...gridSteps(wholeGrid.arrow) };
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow) };
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
+    // A text cell being typed in: its Bold, Italic and Underline buttons, pressed when all of it has that style.
+    const cellStyles = gridEdit && gridStyles(gridEdit, gridEdit.value) ? { styles: common(gridEdit.runs, 0, gridEdit.value.length) } : {};
+    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow), ...cellStyles };
+    if (pickedGrid && pickedCol) return { kind: "grid", ...cellStyles, product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     const risk = expPage && !riskGroup(doc);
@@ -7646,7 +7710,9 @@ export default function Editor() {
   glidingNow.current = gliding;
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a caption, a Table cell or a reagent table cell is typed in, the panel reads the context as it draws (the
+  // caret moves: carets; a style applied to a reagent table cell builds its box again).
+  const panelContext = useMemo(() => (writing || cell || gridEdit ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, !!cell, !!gridEdit, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Notes panel (Notes.tsx, annotate.ts): the drawing's notes, then the selection's (one field for several targets),
   // then a row for each other object or group with a note. Worked out only while the panel is open.
   const noteName = (m: Mol, t: Target): string => {
@@ -9162,7 +9228,7 @@ export default function Editor() {
         newRow.current = { arrow, row: id, rows: !!v.texts };
         return changeGrid(arrow, (h) => ({ own: [...(h.own ?? []), { id, name: "", after }] }));
       }
-      if (what === "row.delete") return changeGrid(arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row) }));
+      if (what === "row.delete") return changeGrid(arrow, (h) => dropOwn(h, row));
       // Attach to reaction: back under its reaction, following it again.
       if (what === "attach") return changeGrid(arrow, () => ({ at: undefined, free: undefined }));
       // Make static: the table as plain text and lines in a group, in one step (⌘Z brings the table back).
@@ -9513,6 +9579,16 @@ export default function Editor() {
         if (what === "size" && Number(arg) > 0) return setEditing({ ...editing, size: Number(arg) });
         return;
       }
+      // The cell being typed in (a Table's, or a reagent table's text cell): the same styles and Formula on its
+      // characters, and Plain takes the script off too. An amount cell takes none. A font, size or colour goes on the
+      // whole table, below.
+      const box = cell && cellOpen.current ? "table" : gridEdit ? "grid" : undefined;
+      if (box && (toggles[what] || what === "formula")) {
+        const patch = what === "formula" ? "formula" as const : what === "plain" ? (st: RunStyle): RunStyle => ({ ...st, bold: undefined, italic: undefined, underline: undefined, script: undefined }) : toggles[what]!;
+        if (box === "table") return setCell(styleBox(cell!, cellApi.current?.range(), patch));
+        if (gridStyles(gridEdit!, gridEdit!.value)) setGridEdit(styleBox(gridEdit!, gridApi.current?.range(), patch));
+        return;
+      }
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw. Subscript and
       // Superscript put all of each label in that script.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
@@ -9544,7 +9620,17 @@ export default function Editor() {
           : what === "font" ? { font: arg === style.captionFont ? undefined : arg }
           : what === "size" ? { size: Number(arg) === (isPlate(x) ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
-        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...change(x) } : x)) }, true);
+        // Bold, Italic, Underline or Plain on a whole Table goes on every character of its cells too, so no cell keeps
+        // that style of its own (Table.runs). Plain takes the scripts off too, as it does in a cell and on a caption.
+        const keys = what === "plain" ? ["bold", "italic", "underline", "script"] : [what];
+        const even = (x: Shape): Shape => {
+          if (!x.table?.runs || !["bold", "italic", "underline", "plain"].includes(what)) return x;
+          const base = cellBase(x), on = Object.fromEntries(keys.filter((k) => base[k as keyof RunStyle]).map((k) => [k, true]));
+          const runs = x.table.runs.map((row, r) => row.map((_, c) => { const now = cellRuns(x.table, r, c); return (now && ownRuns(without(now, keys).map((run) => ({ ...run, ...on })), base)) ?? null; }));
+          const { runs: _, ...table } = x.table;
+          return { ...x, table: runs.some((row) => row.some(Boolean)) ? { ...table, runs } : table };
+        };
+        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? even({ ...x, ...change(x) }) : x)) }, true);
       }
       // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
       const patches: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
@@ -9930,7 +10016,7 @@ export default function Editor() {
         set(mol);
         setPicked(new Set([id]));
         // A new table opens its second header cell for typing (the first says Entry).
-        if (sh.kind === "table") { cellOpen.current = true; setCell({ id, r: 0, c: 1, value: "" }); }
+        if (sh.kind === "table") { cellOpen.current = true; setCell(cellOf({ ...sh, id } as Shape, 0, 1, (cell?.version ?? 0) + 1)); }
         return;
       }
       case "handle":
@@ -10870,10 +10956,17 @@ export default function Editor() {
       <g key={`table${sh.id}`} className="table">
         {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
         {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
-        {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
-          <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD * t.f : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD * t.f : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
-            textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={textFace(sh, size)}>{formula(text, size)}</text>
-        ) : null))}
+        {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => {
+          if (!text || (cell?.id === sh.id && cell.r === r && cell.c === c)) return null;
+          // A cell with styles of its own: each character in its whole style, the table's style left out (Table.runs).
+          const own = sh.table!.runs && cellRuns(sh.table, r, c);
+          return (
+            <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD * t.f : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD * t.f : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
+              textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={own ? textFace({ ...sh, bold: undefined, italic: undefined, underline: undefined }, size) : textFace(sh, size)}>
+              {own ? richSpans(formulaOver(own), size, pt, darkPaper) : formula(text, size)}
+            </text>
+          );
+        }))}
       </g>
     );
   };
@@ -10938,6 +11031,9 @@ export default function Editor() {
     });
   }, [gridViews, drag, carried]); // eslint-disable-line react-hooks/exhaustive-deps
   const gridKey = drawnGrids.length ? drawnGrids : undefined;
+  // The reagent table cell being typed in, which is left out of the drawing (its box is over it). Typing in it does not
+  // draw the drawing again.
+  const gridEditing = gridEdit && `${gridEdit.arrow}|${gridEdit.row}|${gridEdit.key}`;
   // The line under an amount measured out (a cell's text, centred on x, its baseline at y; px).
   const takenLine = (x: number, y: number, text: string, size: number, bold: boolean, f: number) => {
     const w = formulaWidth(text, size, bold, false, fontStack(style.captionFont)) / 2;
@@ -11017,11 +11113,14 @@ export default function Editor() {
         // name as rows from the left, the rest centred. The lines not taken out (Grid.hidden.lines).
         const cellInk = (cell: GridView["cells"][number]) => {
           const row = gridRowOf(v, cell.row), t = row && shownCell(v, cell.key, row);
-          if (!t?.text || (gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row)) return null;
+          if (!t?.text || gridEditing === `${v.arrow}|${cell.row}|${cell.key}`) return null;
           const head = cell.key === "#", x = head ? v.left * L : cell.row === "name" ? (cell.x - cell.w / 2) * L : cell.x * L, at = baseline(cell.y);
+          // A cell with styles of its own: each character in its whole style (Grid.runs).
           return (
             <Fragment key={`${cell.row}|${cell.key}`}>
-              <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={x} y={at} textAnchor={head ? "end" : cell.row === "name" ? "start" : "middle"} fontWeight={t.typed || t.bold ? 700 : 400} className={t.taken && "taken"}>{t.formula ? formula(t.text, size) : t.text}</text>
+              <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={x} y={at} textAnchor={head ? "end" : cell.row === "name" ? "start" : "middle"} fontWeight={t.runs ? 400 : t.typed || t.bold ? 700 : 400} className={t.taken && "taken"}>
+                {t.runs ? richSpans(t.formula ? formulaOver(t.runs) : t.runs, size, pt, darkPaper) : t.formula ? formula(t.text, size) : t.text}
+              </text>
               {t.taken && takenLine(x, at, t.text, size, !!t.typed, v.f)}
             </Fragment>
           );
@@ -11047,7 +11146,7 @@ export default function Editor() {
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? (m.muted ? "var(--ink-muted)" : "var(--ink)")} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.prefix && <tspan style={{ fontStyle: "normal" }}>{m.prefix}</tspan>}{m.text}</text>)}
       {problemMarks()}
     </>
-  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, stereoNamed, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEditing, style, stereo, stereoNamed, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
   const marks = (
     <>
@@ -11529,26 +11628,33 @@ export default function Editor() {
         // The stoichiometry cell box, over the cell; Enter keeps it, Escape leaves it as it was.
         const v = gridViews.find((x) => x.arrow === gridEdit.arrow);
         if (!v) return null;
-        const z = view.zoom, w = gridEdit.w * L * z, h = v.rh * L * z;
+        const z = view.zoom, w = gridEdit.w * L * z, h = v.rh * L * z, base = gridBase(gridEdit);
         return (
-          <input
-            className="cell-box" aria-label="Amount" autoFocus spellCheck={false} defaultValue={gridEdit.value}
-            style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h, font: `${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}` }}
+          <RichBox
+            className="cell-box" label={gridTypes(gridEdit) ? "Amount" : "Cell text"} singleLine base={base}
+            runs={gridEdit.runs} version={gridEdit.version} caret={gridEdit.caret} pending={gridEdit.pending} api={gridApi} look={cellLook}
             // Caret at the end, as a spreadsheet opens a cell (and after the key that started it).
-            onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+            style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h,
+              font: `${base.bold ? "bold " : ""}${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}`, lineHeight: `${h}px` }}
+            // Typing alone changes nothing drawn (the box shows it), so it is kept on the open cell without drawing the
+            // editor again for each key, as the plain box before it was. A style applied builds the box again.
+            onRuns={(runs, rebuild) => {
+              if (!rebuild) { gridEdit.runs = runs; gridEdit.value = plainOf(runs); return; }
+              setGridEdit((x) => x && { ...x, runs, value: plainOf(runs), version: x.version + 1, caret: rebuild, pending: undefined });
+            }}
             // Return and Tab keep it and move on (Shift back), as do the up and down arrows (as in a Table); left and right
-            // stay in the text. Escape leaves it as it was, the cell still picked.
+            // stay in the text. Escape leaves it as it was, the cell still picked. ChemDraw's text keys style a text cell.
             onKeyDown={(e) => {
               const dir = e.key === "Enter" ? (e.shiftKey ? "up" : "down") : e.key === "Tab" ? (e.shiftKey ? "back" : "next") : e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : undefined;
               if (dir) {
                 e.preventDefault();
                 const n = gridStep(v.cells, gridEdit, dir)!;
-                commitGridCell(e.currentTarget.value);
+                commitGridCell(gridEdit.value, gridEdit, gridEdit.runs);
                 setGridPick({ arrow: v.arrow, key: n.key, row: n.row });
-              }
-              if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); }
+              } else if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); }
+              else textKeys(e, false, true);
             }}
-            onBlur={(e) => { if (!inMap(e.relatedTarget)) commitGridCell(e.currentTarget.value); }}
+            onBlur={() => commitGridCell(gridEdit.value, gridEdit, gridEdit.runs)}
           />
         );
       }}</Live>}
@@ -11559,21 +11665,29 @@ export default function Editor() {
         const sh = doc.shapes?.find((x) => x.id === cell.id);
         if (!sh?.table) return null;
         const t = tableLayout(sh, cellWidth(sh), style.captionSize), z = view.zoom, size = (sh.size ?? style.captionSize) * pt * t.f * z, cols = t.cols;
-        const width = Math.max(t.widths[cell.c], (cellWidth(sh)(cell.value) + 2 * TABLE_PAD) * t.f) * L * z, align = sh.table.align?.[cell.c] ?? "centre";
+        const width = Math.max(t.widths[cell.c], (cellWidth(sh)(cell.value, cell.runs) + 2 * TABLE_PAD) * t.f) * L * z, align = sh.table.align?.[cell.c] ?? "centre", height = t.heights[cell.r] * L * z;
+        // The box opens with the cell's text selected. Its characters show in their whole styles (cellLook); text typed
+        // outside them takes the table's own (base).
         return (
-          <input
-            ref={cellInput}
+          <RichBox
             className="cell-box"
-            aria-label={`Row ${cell.r + 1}, column ${cell.c + 1}`}
-            autoFocus
-            spellCheck={false}
-            value={cell.value}
+            label={`Row ${cell.r + 1}, column ${cell.c + 1}`}
+            singleLine
+            base={cellBase(sh)}
+            runs={cell.runs}
+            version={cell.version}
+            caret={cell.caret}
+            pending={cell.pending}
+            api={cellApi}
+            look={cellLook}
             style={{
               left: view.x + ((t.col(cell.c) + t.widths[cell.c] / 2) * L * z) - width / 2, top: view.y - t.row(cell.r) * L * z,
-              width, height: t.heights[cell.r] * L * z, ...textFace(sh, size), color: sh.colour ?? style.colour,
+              // The box is underlined only when every character is (a span cannot take off its box's underline), so
+              // text typed into an empty cell of an underlined table shows it.
+              width, height, ...textFace({ ...sh, underline: sh.underline && cell.runs.every((x) => !x.text || x.underline) ? true : undefined }, size), lineHeight: `${height}px`, color: sh.colour ?? style.colour,
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * t.f * L * z}px`,
             }}
-            onChange={(e) => setCell({ ...cell, value: e.target.value })}
+            onRuns={(runs, rebuild) => setCell((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: w.version + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
               const i = cell.r * cols + cell.c;
               if (e.key === "Tab") {
@@ -11586,8 +11700,10 @@ export default function Editor() {
               if ((e.key === "Enter" && !e.shiftKey) || e.key === "ArrowDown") { e.preventDefault(); return cell.r + 1 < t.rows ? commitCell([cell.r + 1, cell.c]) : commitCell(); }
               if (e.key === "ArrowUp" || e.key === "Enter") { e.preventDefault(); return commitCell([Math.max(0, cell.r - 1), cell.c]); }
               if (e.key === "Escape") { e.preventDefault(); return commitCell(); }
+              // ChemDraw's text keys, as in a caption.
+              textKeys(e, false, true);
             }}
-            onBlur={(e) => { if (!inMap(e.relatedTarget)) commitCell(); }}
+            onBlur={() => commitCell()}
           />
         );
       }}</Live>}
@@ -12066,6 +12182,7 @@ export default function Editor() {
             sizes={sizeList}
             scale={selectionScale()}
             run={runAction}
+            cellOpen={!!cell || !!gridEdit}
           />
         );
       }}</Live>

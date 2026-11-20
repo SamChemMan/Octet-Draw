@@ -2,7 +2,8 @@
 // detail's name and value in the page's two columns, at the page's sizes. Each value is rich text, styled with the
 // same controls as text on the canvas (bold, italic, underline, subscript, superscript, formula, font, size, colour,
 // the character map). A style goes on the text selected in a value, or on the whole value with only a caret in it.
-// Return saves, Tab goes to the next value. Nothing changes the drawing until Save.
+// Return saves, Tab goes to the next value. ChemDraw's text keys (⌘B, ⌘I, ⌘U, ⌘T, ⌘−, ⌘= and ⌘F) style a value as
+// the controls do: the Text menu does not reach a dialog. Nothing changes the drawing until Save.
 import { useEffect, useRef, useState } from "react";
 import { TextB, TextItalic, TextSubscript, TextSuperscript, TextUnderline } from "@phosphor-icons/react";
 import { Dialog } from "./Dialog";
@@ -13,6 +14,7 @@ import { COLOURS, fontStack } from "./docstyle";
 import type { Swatch } from "./settings";
 import type { PinKind } from "./colours";
 import { formulaRuns } from "./labels";
+import { MAC, textKey } from "./keys";
 import { common, normalise, plainOf, styleRange, type RunStyle, type TextRun } from "./richtext";
 import type { Field } from "./experiment";
 
@@ -50,9 +52,13 @@ export function DetailsSheet(p: Props) {
   // The first value open: the one clicked on the page, else the title.
   useEffect(() => { const k = p.focus ?? p.fields[0]?.key; if (k) setVersions((v) => ({ ...v, [k]: (v[k] ?? 0) + 1 })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const at = last.current, runs = at ? values[at.key] : undefined, n = runs ? plainOf(runs).length : 0;
-  const [a, b] = at && at.range[0] < at.range[1] ? at.range : [0, n];
-  const now: RunStyle = runs && n ? common(runs, a, b) : {};
+  // The value and the characters picked, read when needed: a key can come before the redraw that follows the selection.
+  const picked = () => {
+    const at = last.current, runs = at ? values[at.key] : undefined, n = runs ? plainOf(runs).length : 0;
+    const [a, b] = at && at.range[0] < at.range[1] ? at.range : [0, n];
+    return { at, runs, n, a, b, now: (runs && n ? common(runs, a, b) : {}) as RunStyle };
+  };
+  const { at, now } = picked();
   const baseSize = (k: Field) => (k === "title" ? p.titleSize : p.size);
   const put = (k: Field, next: TextRun[], caret: [number, number]) => {
     setValues((v) => ({ ...v, [k]: normalise(next) }));
@@ -61,13 +67,15 @@ export function DetailsSheet(p: Props) {
   };
   // A style on the selection, or on the whole value with only a caret in it.
   const restyle = (patch: (s: RunStyle) => RunStyle) => {
+    const { at, runs, n, a, b } = picked();
     if (!at || !runs || !n) return;
     put(at.key, styleRange(runs, a, b, patch), at.range);
   };
-  const toggle = (k: "bold" | "italic" | "underline") => restyle((s) => ({ ...s, [k]: now[k] ? undefined : true }));
-  const script = (v: "sub" | "super") => restyle((s) => ({ ...s, script: now.script === v ? undefined : v }));
+  const toggle = (k: "bold" | "italic" | "underline") => { const { now } = picked(); restyle((s) => ({ ...s, [k]: now[k] ? undefined : true })); };
+  const script = (v: "sub" | "super") => { const { now } = picked(); restyle((s) => ({ ...s, script: now.script === v ? undefined : v })); };
   // Formula: in the text chosen, each count after an element or a bracket becomes a subscript (H2O, Ca(OH)2).
   const formula = () => {
+    const { at, runs, n, a, b } = picked();
     if (!at || !runs || !n) return;
     let out = styleRange(runs, a, b, (s) => ({ ...s, script: undefined })), i = a;
     for (const r of formulaRuns(plainOf(runs).slice(a, b))) { if (r.sub) out = styleRange(out, i, i + r.text.length, (s) => ({ ...s, script: "sub" })); i += r.text.length; }
@@ -106,6 +114,18 @@ export function DetailsSheet(p: Props) {
         if (rebuild) { setCarets((c) => ({ ...c, [f.key]: rebuild })); setVersions((v) => ({ ...v, [f.key]: (v[f.key] ?? 0) + 1 })); }
       }}
       onKeyDown={(e) => {
+        const command = (MAC ? e.metaKey : e.ctrlKey) && !e.altKey ? textKey(e, false, true) : undefined;
+        if (command) {
+          e.preventDefault();
+          const r = apiOf(f.key).current?.range();
+          if (r) last.current = { key: f.key, range: r };
+          const keys: Record<string, () => void> = {
+            "caption.bold": () => toggle("bold"), "caption.italic": () => toggle("italic"), "caption.underline": () => toggle("underline"),
+            "caption.sub": () => script("sub"), "caption.super": () => script("super"), "caption.formula": formula,
+            "caption.plain": () => restyle((s) => ({ ...s, bold: undefined, italic: undefined, underline: undefined, script: undefined })),
+          };
+          return keys[command]?.();
+        }
         if (e.key !== "Tab") return;
         e.preventDefault();
         const k = order[(order.indexOf(f.key) + (e.shiftKey ? order.length - 1 : 1)) % order.length], len = plainOf(values[k]).length;
