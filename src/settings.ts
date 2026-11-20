@@ -47,7 +47,8 @@ export type Settings = {
   aiShown: boolean; // Octet has connected itself to the AI apps on this computer once, and said so (aiapps.rs)
   aiApps: string[]; // the AI apps Octet connected to (aiapps.rs ids), less those the user turned off; Octet connects them again when it opens
   mcpChosen: boolean; // the user set mcp with the switch: before 13 November 2026 a saved false was only the old default
-  wordClick: boolean; // the Mac: a double-click on a structure in Word opens it in Octet (Settings > General); off unless the user turns it on
+  wordClick: boolean; // the Mac: a double-click on a structure in Word opens it in Octet (Settings > General); on unless the user turns it off
+  wordChosen: boolean; // the user set wordClick with the switch: before 20 November 2026 a saved false was only the old default
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
   warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
   checkCopy: boolean; // ChemDraw's "Check Structure When Copying to Clipboard or Exporting"
@@ -83,6 +84,8 @@ export type Settings = {
   propertyRows: string[]; // the rows Add to drawing writes under a structure
   decimals?: number; // Properties > Decimals: places for the exact mass, molecular weight and m/z (0 to 8); unset is 4, 2 and 2
   propertyNames?: false; // Properties > Names off: Add to drawing writes the values without their names (issue 77)
+  favouriteSuppliers?: string[]; // the Suppliers window's starred suppliers, by name (letter case and spaces aside), shown first
+  propertiesTab?: "hazards"; // the Properties panel's tab; unset: Properties
   nmrMhz: number; nmrSolvent: string; nmrSolventPeaks: boolean; nmrDetails: boolean; // the predicted spectrum's frequency (¹H, MHz), solvent, and whether its peaks show
   nmrLabels: LabelTurn; // the Spectrum panel's Labels: peak labels across, turned (read bottom to top) or Auto (turned when crowded)
   nmrDecouple?: Partial<Record<"1H" | "13C" | "19F" | "31P", boolean>>; // Decouple ¹H set for a nucleus (¹⁹F, ³¹P); unset: the nucleus's default (nmr.ts NUCLEI)
@@ -115,7 +118,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", pen: "pen", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", pen: "pen", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: true, wordChosen: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -182,6 +185,8 @@ export function loadSettings(): Settings {
       interpretation: saved.interpretation === true,
       decimals: Number.isInteger(saved.decimals) && saved.decimals >= 0 && saved.decimals <= 8 ? saved.decimals : undefined,
       propertyNames: saved.propertyNames === false ? false : undefined,
+      favouriteSuppliers: Array.isArray(saved.favouriteSuppliers) ? list<string>(saved.favouriteSuppliers, (k) => typeof k === "string" && k.length <= 120).slice(0, 200) : undefined,
+      propertiesTab: saved.propertiesTab === "hazards" ? "hazards" : undefined,
       propertyRows: Array.isArray(saved.propertyRows) ? list<string>(saved.propertyRows, (k) => typeof k === "string" && k.length < 20).slice(0, 30) : DEFAULTS.propertyRows,
       elementColours: Object.fromEntries(Object.entries(typeof saved.elementColours === "object" && saved.elementColours ? saved.elementColours : {}).filter(([k, v]) => /^[A-Z][a-z]?$/.test(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))) as Record<string, string>,
       colourPins: Object.fromEntries(Object.entries(typeof saved.colourPins === "object" && saved.colourPins ? saved.colourPins : {}).filter(([k, v]) => k in PIN_PRESETS && Array.isArray(v))
@@ -206,7 +211,7 @@ export function loadSettings(): Settings {
       // Off only when the user turned it off: a beta saved the old default (off) with every setting.
       mcp: saved.mcpChosen === true ? saved.mcp !== false : true, mcpChosen: saved.mcpChosen === true,
       aiShown: saved.aiShown === true, aiApps: list<string>(saved.aiApps, (k) => typeof k === "string"),
-      wordClick: saved.wordClick === true,
+      wordClick: saved.wordChosen === true ? saved.wordClick !== false : true, wordChosen: saved.wordChosen === true,
       lastSeen: typeof saved.lastSeen === "number" && Number.isFinite(saved.lastSeen) ? saved.lastSeen : 0,
     };
   } catch {

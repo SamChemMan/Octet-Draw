@@ -744,6 +744,8 @@ rect.mark {
 .problem-hide:focus-visible,
 .more-problems:focus-visible,
 .segmented button:focus-visible,
+.supplier-open:focus-visible,
+.supplier-star:focus-visible,
 .swatch:focus-visible,
 .switch:focus-visible,
 .text-button:focus-visible,
@@ -1914,6 +1916,15 @@ kbd {
 .scale-row .tray-title {
   padding: 0 var(--space-2);
 }
+/* A double bond's Second line: its title over the four positions, which fill the panel's width. */
+.scale-row.bond-position {
+  display: grid;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+.bond-position .segmented {
+  margin-left: var(--space-2);
+}
 /* The colour section: its title, the swatches and the highlight buttons, with a hairline under it before the rows. */
 .colour-block {
   display: grid;
@@ -2212,6 +2223,11 @@ kbd {
   top: 0;
   z-index: 1;
   background: var(--surface-raised);
+}
+/* A menu's segmented control (the Arrow menu's sizes) runs the menu's width. */
+.menu-segments .segmented {
+  display: grid;
+  width: 100%;
 }
 .list-find {
   width: 100%;
@@ -2693,6 +2709,8 @@ div.facts {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--canvas);
+  position: relative;
+  isolation: isolate;
 }
 .segmented button {
   display: grid;
@@ -2718,6 +2736,33 @@ div.facts {
 }
 .segmented button:active {
   transform: scale(var(--press));
+}
+/* The on segment's fill (Segmented in Fields.tsx): it slides to the new choice over the segments, as the toolbar's
+   indicator slides between tools. It shows once it is in place, so it never slides in from the corner. With reduced
+   motion it is not drawn, and the on segment's own fill fades in. */
+.seg-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: var(--radius-xs);
+  background: var(--brand-mist);
+  opacity: 0;
+  pointer-events: none;
+}
+.seg-thumb[data-on] {
+  opacity: 1;
+  transition: transform var(--motion) var(--ease-out);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .segmented:has(> .seg-thumb[data-on]) > button[aria-checked="true"] {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb {
+    display: none;
+  }
 }
 /* Orientation: two small pages. */
 .page-glyph {
@@ -4872,17 +4917,34 @@ line.attach-hit[aria-checked="true"] {
 .spectrum header button {
   cursor: default;
 }
+/* The Properties tab: Composition, Structure and Predicted side by side, Predicted twice as wide with its rows in two
+   columns; they wrap under each other as the panel narrows. */
 .prop-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--space-1) var(--space-4);
   overflow-y: auto;
   min-height: 0;
 }
 .prop-group {
+  flex: 1 1 280px;
+  min-width: 0;
   padding-top: var(--space-1);
   border-top: 1px solid var(--hairline);
+}
+.prop-group.structure {
+  flex: 1 1 200px;
+}
+.prop-group.predicted {
+  flex: 2 1 480px;
+}
+.prop-group.predicted .prop-rows {
+  columns: 2 220px;
+  column-gap: var(--space-4);
+}
+.prop-rows .prop-row {
+  break-inside: avoid;
 }
 .prop-heading {
   margin: 0;
@@ -4898,14 +4960,22 @@ line.attach-hit[aria-checked="true"] {
   padding: 0 var(--space-1);
   min-height: 26px;
 }
-.prop-row.long {
+/* A Hazards row: its name over its value. */
+.prop-row.stack {
   grid-template-columns: 16px 1fr;
+  align-items: start;
+  padding-block: var(--space-1);
 }
-.prop-row.long .prop-value,
-.prop-row.long .prop-links {
+.prop-row.stack .prop-check {
+  margin-top: 2px;
+}
+.prop-row.stack .prop-value,
+.prop-row.stack .prop-links {
   grid-column: 2;
-  text-align: left;
+  justify-self: start;
   justify-content: flex-start;
+  margin-left: calc(-1 * var(--space-1));
+  text-align: left;
 }
 .prop-name {
   font: 13px/18px var(--font-sans);
@@ -4922,7 +4992,7 @@ line.attach-hit[aria-checked="true"] {
   font: 13px/18px var(--font-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   cursor: copy;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -4967,6 +5037,65 @@ line.attach-hit[aria-checked="true"] {
 }
 .prop-lines + .prop-lines {
   margin-top: var(--space-1);
+}
+/* The Hazards tab: its rows, then Find hazards (or what stops it), then the source in the quiet ink. */
+.prop-hazards {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  overflow-y: auto;
+  min-height: 0;
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-1);
+}
+.prop-hazard-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0 var(--space-4);
+}
+.prop-hazard-rows .hazard-hazards,
+.prop-hazard-rows .hazard-precautions {
+  grid-column: span 2;
+}
+.hazard-ghs .ghs {
+  width: 40px;
+  height: 40px;
+}
+.prop-signal {
+  font-weight: 600;
+  color: var(--error);
+}
+.prop-signal + .prop-signal::before {
+  content: "; ";
+  color: var(--ink);
+  font-weight: 400;
+}
+.prop-piece {
+  white-space: nowrap;
+}
+/* Precautionary codes wrap between codes, never inside one (P410+P403). */
+.prop-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+}
+.prop-codes > span {
+  white-space: nowrap;
+}
+.prop-empty {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  color: var(--ink-muted);
+  font: 13px/18px var(--font-sans);
+}
+.prop-source {
+  margin: 0;
+  padding: 0 var(--space-1);
+  color: var(--ink-muted);
+  font: 11px/16px var(--font-sans);
 }
 /* A PubChem CID: a link to the compound's page, one for each structure. */
 .prop-links {
@@ -5039,9 +5168,192 @@ line.attach-hit[aria-checked="true"] {
   height: var(--size-control);
   box-sizing: border-box;
 }
+.prop-add.primary:not(:disabled) {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
+}
 @media (hover: hover) and (pointer: fine) {
   .prop-add:hover:not(:disabled) {
     background: var(--surface-sunken);
+  }
+  .prop-add.primary:hover:not(:disabled) {
+    border-color: var(--brand-hover);
+    background: var(--brand-hover);
+  }
+}
+/* The Suppliers window (SupplierWindow.tsx): a title with the structure list, the search field, then the suppliers,
+   each a row that opens its page, with a star at its end. The search field, the rows' highlights and the buttons
+   below share the dialog's insets; a row's text sits as far in as the search field's. The list ends on a hairline
+   above the buttons. While PubChem answers, Octet's mark draws itself in the middle, as the AI card draws it. */
+.suppliers {
+  display: grid;
+  justify-self: stretch;
+  gap: var(--space-3);
+}
+.suppliers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--size-control);
+}
+.suppliers-wait {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-5);
+  color: var(--ink-muted);
+}
+.suppliers-mark {
+  position: relative;
+  width: 112px;
+  height: 112px;
+}
+.suppliers-scale {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: scale(0.75);
+}
+.suppliers-none {
+  margin: 0;
+  padding: var(--space-4) 0;
+  color: var(--ink-muted);
+  text-align: center;
+}
+div.suppliers-none {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+}
+div.suppliers-none p {
+  margin: 0;
+}
+.suppliers-list {
+  display: grid;
+  align-content: start;
+  max-height: min(400px, 52vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--hairline);
+  list-style: none;
+}
+/* The list's end: the rows fade out above the hairline, and the last row clears it when scrolled to the end. */
+.suppliers-list::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  height: var(--space-4);
+  background: linear-gradient(color-mix(in oklab, var(--surface-raised) 0%, transparent), var(--surface-raised));
+  pointer-events: none;
+}
+.supplier {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  animation: supplier-in var(--motion) var(--ease-out) both;
+  animation-delay: calc(var(--i) * 22ms);
+}
+@keyframes supplier-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.supplier-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.supplier-text {
+  display: grid;
+  min-width: 0;
+}
+.supplier-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.supplier-more {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.supplier-more > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.supplier-dot {
+  margin-right: var(--space-1);
+}
+.supplier-out {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.supplier-star {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--size-control);
+  height: var(--size-control);
+  margin-right: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-faint);
+  transition: color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+.supplier-star.on {
+  background: var(--brand-mist);
+  color: var(--link);
+}
+.supplier-star:active {
+  transform: scale(var(--press-small));
+}
+.supplier-open:focus-visible .supplier-out {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .supplier:hover {
+    background: var(--surface-sunken);
+  }
+  .supplier:hover .supplier-out {
+    opacity: 1;
+  }
+  .supplier-star:hover {
+    color: var(--ink);
+  }
+  .supplier-star.on:hover {
+    color: var(--brand-hover);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .supplier {
+    animation: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {

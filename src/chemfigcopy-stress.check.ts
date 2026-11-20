@@ -705,7 +705,7 @@ rec("ST18 U2 keyboard only: palette copies readable code", first && first.starts
   svg.dispatchEvent(new A.w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.bottom - 30, button: 2 }));
   await wait(700);
   const items = [...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean);
-  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Molecule and copy");
+  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy");
   sub?.click();
   await wait(700);
   items.push("|", ...[...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean));
@@ -754,12 +754,16 @@ const two = lastClip(A);
   const notices = A.d.querySelectorAll(".notice:not(.leaving)").length;
   rec("ST16 U7 (S18) 50 copies in about a second: all the same, one notice, no error", A.w.__clip.length === 50 && A.w.__clip.every((c) => c === two) && notices <= 1 && A.w.__errors.length === 0, JSON.stringify({ n: A.w.__clip.length, same: A.w.__clip.every((c) => c === two), ms: Math.round(ms), notices, errors: A.w.__errors.slice(0, 3) }));
 }
-// U8: a reaction with an arrow and text: the notice names what the code leaves out.
+// U8: a pasted reaction: since 7e2285da (19 November 2026, issue 59) the code has its arrow, as a scheme's \arrow
+// or, for a lone reaction arrow, a \chemmove line, so the notice does not name the arrows (it names only what the code
+// leaves out: chemfig.check.ts has those).
 {
   await paste(A, "CCO>>CC=O");
   await wait(800);
+  A.w.__clip.length = 0;
   await palette(A, "Copy as LaTeX", "Copy as LaTeX (chemfig)"); await wait(300);
-  rec("ST1 U8 the notice names the arrows", /^Copied\. The code does not have the arrows/.test(notice(A)), notice(A));
+  const code = lastClip(A) ?? "";
+  rec("ST1 U8 a reaction's arrow is in the code, and the notice does not name it", (/\\schemestart[\s\S]*\\arrow/.test(code) || /\\chemmove\{\s*\\draw\[-/.test(code)) && /^Copied\./.test(notice(A)) && !/arrows/.test(notice(A)), JSON.stringify({ notice: notice(A), code: code.slice(-200) }));
 }
 // U9: a second window; Compact set in Settings in window A; window B copies compact code.
 const Bw = await openWindow("B");
@@ -799,12 +803,14 @@ const Bw = await openWindow("B");
   const svg = A.d.querySelector(".editor svg"), r = svg.getBoundingClientRect();
   svg.dispatchEvent(new A.w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.bottom - 30, button: 2 }));
   await wait(600);
-  [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Molecule and copy")?.click();
+  const copySet = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy");
+  copySet?.click();
   await wait(700);
+  const opened = [...A.d.querySelectorAll(".context-menu button")].some((b) => b.textContent.trim() === "Copy as SMILES");
   const item = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as LaTeX (chemfig)");
   const sln = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as SLN");
   key(A, { key: "Escape", code: "Escape" }); await wait(300); key(A, { key: "Escape", code: "Escape" }); await wait(300);
-  rec("ST18 U11 (S27) More formats off: not in the palette, the panel or the right-click menu", typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ palette: p, button: !!button, menu: !!item, sln: !!sln }));
+  rec("ST18 U11 (S27) More formats off: not in the palette, the panel or the right-click menu", !!copySet && opened && typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ copySet: !!copySet, opened, palette: p, button: !!button, menu: !!item, sln: !!sln }));
   setSettings({ moreFormats: true, chemfigCompact: false });
   await wait(800);
 }

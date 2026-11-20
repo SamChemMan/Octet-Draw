@@ -1,16 +1,16 @@
-// Run: node src/suppliers.check.ts. Fails loudly if Find suppliers (issue 114) lets a bad answer through, shows the
-// wrong row, asks a key twice, goes on after Stop, gives a notice for each structure, runs with Online search off, or
-// loses a way in (the Search menu, the Actions panel, the palette, the Properties panel). No network: the answer
-// here is made up in the shape Rust gives (src-tauri/src/pubchem.rs, Suppliers), and Rust's own tests read a made-up
-// PubChem answer.
+// Run: node src/suppliers.check.ts. Fails loudly if Find suppliers (issue 114) lets a bad answer through, orders or
+// searches the Suppliers window wrongly, loses a favourite, asks a key twice, goes on after Stop, gives a notice for
+// each structure, runs with Online search off, or loses a way in (the Search menu, the Actions panel, the palette). No
+// network: the answer here is made up in the shape Rust gives (src-tauri/src/pubchem.rs, Suppliers), and Rust's own
+// tests read a made-up PubChem answer.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import type { Structure } from "./chem.ts";
-import { propertyReport, propertyValues } from "./proprows.ts";
-import { askEach, failedNotice, NO_KEY, offNotice, SLOW, STOPPED, suppliersOf, suppliersText, UNREACHED_NOTICE, wanted, withSuppliers, type Suppliers } from "./suppliers.ts";
+import { PROPERTY_ROWS } from "./proprows.ts";
+import { askEach, failedNotice, lookupText, NO_KEY, OFF, offNotice, shownSuppliers, SLOW, starred, STOPPED, supplierKey, suppliersOf, UNREACHED_NOTICE, wanted, type Suppliers } from "./suppliers.ts";
 
 // The answer from Rust, checked again: good entries kept, others dropped, a wrong shape refused.
-const aspirin: Suppliers = { cid: 2244, suppliers: [{ name: "abcr GmbH", url: "https://abcr.example.com/5" }, { name: "Sigma-Aldrich", url: "https://www.sigmaaldrich.com/p/20" }] };
+const aspirin: Suppliers = { cid: 2244, suppliers: [{ name: "abcr GmbH", url: "https://abcr.example.com/5", codes: ["AB123"], products: 1 },
+  { name: "Sigma-Aldrich", url: "https://www.sigmaaldrich.com/p/20", codes: ["A5376", "01478"], products: 4 }, { name: "TCI", url: "https://www.tcichemicals.com/p", codes: [], products: 1 }] };
 assert.deepEqual(suppliersOf(aspirin), aspirin);
 assert.equal(suppliersOf(null), null, "no compound for the key");
 for (const bad of [undefined, 5, "x", [], {}, { cid: "2244", suppliers: [] }, { cid: -1, suppliers: [] }, { cid: 1.5, suppliers: [] }, { cid: 2244, suppliers: {} }, { cid: 2244 }])
@@ -18,43 +18,40 @@ for (const bad of [undefined, 5, "x", [], {}, { cid: "2244", suppliers: [] }, { 
 const odd = suppliersOf({ cid: 7, suppliers: [null, 5, { name: 3, url: "https://a.example.com" }, { name: "Evil", url: "javascript:alert(1)" }, { name: "Plain", url: "http://a.example.com" },
   { name: "   ", url: "https://a.example.com" }, { name: "<img src=x onerror=alert(1)>", url: "https://b.example.com/" }, { name: "x".repeat(500), url: "https://c.example.com/" }] });
 assert.deepEqual(odd?.suppliers.map((s) => s.name.length), [28, 120], "only https links; names kept as text, 120 characters at most");
+assert.deepEqual(odd?.suppliers.map((s) => [s.codes, s.products]), [[[], 1], [[], 1]], "no codes or count from Rust: none, and one product");
+const codes = suppliersOf({ cid: 7, suppliers: [{ name: "A", url: "https://a.example.com", codes: ["X1", 5, " ", "y".repeat(80), "Z", "W"], products: -3 }] })?.suppliers[0];
+assert.deepEqual(codes?.codes, ["X1", "y".repeat(40), "Z"], "codes kept as text: three at most, 40 characters each");
+assert.equal(codes?.products, 1);
+// Partial (no source table): kept as such, so the next press asks again; anything but true is not partial.
+assert.equal(suppliersOf({ cid: 3, suppliers: [], partial: true })?.partial, true);
+assert.equal(suppliersOf({ cid: 3, suppliers: [], partial: "yes" })?.partial, undefined);
+// The window says why there is no answer, each in its own words; anything else is no network.
+for (const e of [NO_KEY, SLOW, STOPPED, OFF]) assert.equal(lookupText(e), e);
+assert.equal(lookupText("error sending request"), UNREACHED_NOTICE);
 assert.equal(suppliersOf({ cid: 1, suppliers: Array.from({ length: 2000 }, (_, k) => ({ name: `S${k}`, url: `https://e.example.com/${k}` })) })?.suppliers.length, 1000);
 
-// The row's text.
-assert.equal(suppliersText(undefined), undefined, "not asked: no value");
-assert.equal(suppliersText("busy"), "Searching PubChem");
-assert.equal(suppliersText(null), "No suppliers in PubChem");
-assert.equal(suppliersText({ cid: 5, suppliers: [] }), "No suppliers in PubChem");
-assert.equal(suppliersText({ cid: 5, suppliers: [aspirin.suppliers[0]] }), "1 supplier");
-assert.equal(suppliersText(aspirin), "2 suppliers");
-
-// The panel's rows: no Suppliers row before Find suppliers; after it, the row before PubChem CID, the CID from the
-// suppliers lookup where Find hazards gave none, and the report with the row and its method.
-const s: Structure = { formula: "C9H8O4", weight: 180.1574, exact: 180.0423, composition: "C 60.00; H 4.48; O 35.53" };
-const plain = propertyValues([s, s], undefined, undefined, []);
-assert.equal(withSuppliers(plain, []), plain, "nothing looked up: the same values");
-assert.equal(withSuppliers(plain, [undefined, undefined]), plain);
-const rows = (v: ReturnType<typeof propertyValues>) => Object.fromEntries(v.flat().map((r) => [r.key, r.values]));
-const one = withSuppliers(plain, [aspirin, "busy"]);
-assert.deepEqual(rows(one).suppliers, ["2 suppliers", "Searching PubChem"]);
-assert.deepEqual(rows(one).cid, ["2244", undefined]);
-assert.deepEqual(one.flat().slice(-2).map((r) => r.key), ["suppliers", "cid"], "Suppliers, then PubChem CID, last");
-const ethanol = { cid: 702, pictograms: ["GHS02"], signal: "Danger", hazards: ["H225"], precautions: [] };
-const both = withSuppliers(propertyValues([s, s], undefined, undefined, [ethanol, undefined]), [null, { cid: 9, suppliers: [] }]);
-assert.deepEqual(rows(both).cid, ["702", "9"], "a CID from Find hazards stays; the other comes from Find suppliers");
-assert.deepEqual(rows(both).suppliers, ["No suppliers in PubChem", "No suppliers in PubChem"]);
-assert.deepEqual(rows(both).signal, ["Danger", undefined], "the hazards rows stay");
-const report = propertyReport(one).split("\n");
-assert.ok(report.includes("Suppliers\t2 suppliers") && report.some((l) => l.startsWith("Suppliers: Chemical vendors PubChem lists")));
-// 12 structures, worked out 2000 times (the panel's values on every change): well within a frame each.
-const twelve = propertyValues(Array(12).fill(s), undefined, undefined, []), found = Array(12).fill(aspirin);
+// The window's list: favourites first, then A to Z as Rust gave them; the search matches every word in the name or a
+// catalogue number, letter case aside.
+const names = (fav: string[], q = "") => shownSuppliers(aspirin.suppliers, fav, q).map((s) => s.name);
+assert.deepEqual(names([]), ["abcr GmbH", "Sigma-Aldrich", "TCI"]);
+assert.deepEqual(names([supplierKey("TCI")]), ["TCI", "abcr GmbH", "Sigma-Aldrich"], "a favourite goes first");
+assert.deepEqual(names([], "sigma"), ["Sigma-Aldrich"]);
+assert.deepEqual(names([], "a5376"), ["Sigma-Aldrich"], "by catalogue number");
+assert.deepEqual(names([], "abcr gmbh"), ["abcr GmbH"]);
+assert.deepEqual(names([], "zzz"), []);
+assert.deepEqual(shownSuppliers([...aspirin.suppliers, { name: "Fluorochem", url: "https://f.example.com", codes: [], products: 1, country: "United Kingdom" }], [], "united king").map((s) => s.name), ["Fluorochem"], "by country");
+assert.equal(supplierKey(" Sigma - Aldrich "), supplierKey("sigma-aldrich"), "favourites by name, letter case and spaces aside");
+assert.deepEqual(starred([], "TCI", true), ["tci"]);
+assert.deepEqual(starred(["tci", "abcrgmbh"], "TCI", false), ["abcrgmbh"]);
+assert.deepEqual(starred(["tci"], "TCI", true), ["tci"], "starred once");
+// No Suppliers row in the Properties panel any more: suppliers have their own window.
+assert.ok(!PROPERTY_ROWS.flat().some((r) => r.key === "suppliers"));
+// 1000 suppliers searched 200 times (each key typed): well within a frame each.
+const many = Array.from({ length: 1000 }, (_, k) => ({ name: `Supplier ${k}`, url: `https://e.example.com/${k}`, codes: [`C${k}`], products: 1 }));
 let t = performance.now();
-for (let k = 0; k < 2000; k++) withSuppliers(twelve, found);
-t = (performance.now() - t) / 2000;
-assert.ok(t < 0.5, `withSuppliers ${t.toFixed(3)} ms`);
-t = performance.now();
-for (let k = 0; k < 2000; k++) withSuppliers(twelve, []);
-assert.ok((performance.now() - t) / 2000 < 0.05, "no lookup: almost nothing");
+for (let k = 0; k < 200; k++) shownSuppliers(many, ["supplier5"], "supp 9");
+t = (performance.now() - t) / 200;
+assert.ok(t < 2, `shownSuppliers ${t.toFixed(3)} ms`);
 
 // The lookup: each key once, none found before, one at a time; Stop ends it; the first failure ends it with one
 // error; Stop's own error is no failure.
@@ -90,18 +87,36 @@ assert.ok(searchesAt > 0 && editor.indexOf('find_suppliers: () => findFor("suppl
 assert.match(editor, /function findFor\(kind: Lookup\) \{\s+if \(!TAURI\)[^\n]*\n\s+if \(!settings\.onlineSearch\) return setNotice\(offNotice\(kind\), "info", \{ label: "Open Settings"/);
 assert.match(editor, /search_patents: \["Search Google Patents", "", <SearchGlyph letter="G" \/>\],\n\s+find_suppliers: \["Find suppliers", "", <Storefront size=\{18\} \/>\], find_hazards: \["Find hazards", "", <FirstAidKit size=\{18\} \/>\],/);
 assert.match(actions, /const searches = online \? \[[\s\S]*?"find_suppliers", false, true\), it\(<FirstAidKit size=\{18\} \/>, "Find hazards", "find_hazards", false, true\)\] : \[\];/);
-assert.match(actions, /find_suppliers: "search", find_hazards: "analysis"/);
-// The Properties panel: both buttons only with Online search on, each Stop while it runs; the Suppliers row with no
-// Add to drawing box; each count a Pick with its field; names as text.
-assert.match(panel, /\{online && <button className="prop-add" onClick=\{onSuppliers\}[^\n]*busy\.suppliers \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><Storefront size=\{16\} aria-hidden \/> Find suppliers<\/>/);
-assert.match(panel, /busy\.hazards \? <><Stop size=\{16\} aria-hidden \/> Stop<\/> : <><FirstAidKit/);
-assert.match(panel, /\{row\.key === "suppliers" \? <span aria-hidden \/> : \(/);
-assert.match(panel, /<Pick key=\{k\} label=\{v\} value="" className="prop-link" find="Find a supplier"/);
-assert.match(editor, /onSupplier=\{\(url\) => void invoke\("open_link", \{ name: `supplier:\$\{url\}` \}\)/);
+assert.match(actions, /find_suppliers: "search", find_hazards: "search"/);
+// The Suppliers window: opened by Find suppliers (not the Properties panel), the mark while PubChem answers, links
+// through open_link's supplier: path only, favourites in Settings, and closing it stops the lookup.
+const win = read("SupplierWindow.tsx");
+assert.match(win, /<Dialog title="Suppliers" plain wide/);
+assert.match(win, /className="mcp-mol" onAnimationIteration=\{\(\) => setTurn\(turn \+ 1\)\}><MarkParts \/>/);
+assert.match(win, /onClick=\{\(\) => onOpen\(s\.url\)\}/);
+assert.match(editor, /onOpen=\{\(url\) => void invoke\("open_link", \{ name: `supplier:\$\{url\}` \}\)/);
 assert.match(editor, /onVendors=\{\(cid\) => void invoke\("open_link", \{ name: `pubchem-vendors:\$\{cid\}` \}\)/);
+assert.match(editor, /favouriteSuppliers: starred\(s\.favouriteSuppliers \?\? \[\], name, on\)/);
+assert.match(editor, /if \(!supplierView && busy\.suppliers\) stopLookup\("suppliers"\);/);
+assert.match(editor, /if \(kind === "suppliers"\) return busy\.suppliers \? undefined : findSuppliers\(\);/);
+assert.doesNotMatch(panel, /onSupplier|Storefront|<Pick/, "the Properties panel has no suppliers");
+// A structure with no key says so; each key keeps why it failed; a partial answer is asked for again.
+assert.match(editor, /const found: Found = !key \? \{ error: NO_KEY \}/);
+assert.match(editor, /\(e: unknown\) => \{ supplierErrors\.current\.set\(key, String\(e\)\); return String\(e\); \}/);
+assert.match(editor, /want = wanted\(keys, kind === "suppliers" \? supplierKept : ghsFound\.current\)/);
+assert.match(win, /<p>\{lookupText\(error\)\}<\/p>\s+\{error !== NO_KEY && <button className="prop-add" onClick=\{onRetry\}>Try again<\/button>\}/);
+// The Hazards tab: a structure with no key counts as looked; precautionary codes keep "; " between structures; no
+// structures, the usual message.
+assert.match(editor, /return keyed\(s, k\) && \(key === undefined \|\| ghsFound\.current\.has\(key\)\)/);
+assert.match(panel, /k < row\.values\.length - 1 \? ";" : ""/);
+assert.match(panel, /<p className="prop-empty">Draw a structure first\.<\/p>/);
+// The Second line: its keys in its tips; its commands leave the order a drag saves and a layout saved before 1.1.3.
+assert.match(actions, /\[v, shown, name, false, hint\(`bond\.\$\{v\}`\)\]/);
+assert.match(actions, /items = arrangement\.items\.filter\(\(i\) => setOf\(i\.command\) !== "position"\)/);
+assert.match(actions, /order: saved\.order\.filter\(\(c\) => !hidden\(c\)\), rows: saved\.rows - saved\.order\.slice\(0, saved\.rows\)\.filter\(hidden\)\.length/);
 // One call each; asked only on a press (findSuppliers, through lookUp); Stop asks Rust to end the request.
 assert.equal(editor.split('"pubchem_suppliers"').length, 2, "one call");
-assert.match(editor, /function findSuppliers\(\) \{\s+if \(!properties \|\| !TAURI\) return;\s+if \(busy\.suppliers\) return stopLookup\("suppliers"\);/);
+assert.match(editor, /function findSuppliers\(\) \{\s+if \(!TAURI\) return;\s+const found = structuresIn\(selection\);/);
 assert.match(editor, /stopping\.current\[kind\] = invoke\("pubchem_stop", \{ kind \}\)/);
 // A Stop just pressed reaches Rust before the next run asks; an old request does not clear the next run's row.
 assert.match(editor, /await stopping\.current\[kind\];/);
@@ -116,7 +131,7 @@ assert.match(read("../src-tauri/src/pubchem.rs"), new RegExp(`pub const SLOW: &s
 assert.match(editor, /const e = await askHazards\(key, "risk"\);[\s\S]{0,120}else if \(e !== STOPPED\) \{ failed\+\+;/);
 assert.match(read("../src-tauri/src/pubchem.rs"), /Stop::new\(window\.label\(\), if by == "risk" \{ "risk" \} else \{ "hazards" \}\)/);
 assert.match(editor, /settings\.onlineSearch && ghsKeys\?\.structures\[k\] === s/);
-for (const [name, text] of [["Properties.tsx", panel], ["suppliers.ts", mine], ["Menu.tsx", menu]] as const) assert.doesNotMatch(text, /innerHTML|dangerouslySetInnerHTML|eval\(/, name);
+for (const [name, text] of [["Properties.tsx", panel], ["SupplierWindow.tsx", win], ["suppliers.ts", mine], ["Menu.tsx", menu]] as const) assert.doesNotMatch(text, /innerHTML|dangerouslySetInnerHTML|eval\(/, name);
 // Pick's field over its own options: only past 12, all groups but the last, which stays below (Open in PubChem). The
 // list keeps its height as the field narrows it, and the field takes the focus however the list opened.
 assert.match(menu, /const own = p\.find && p\.groups\.slice\(0, -1\)\.flat\(\)\.length > 12 \? p\.groups\.slice\(0, -1\)\.flat\(\) : undefined/);
