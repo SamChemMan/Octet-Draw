@@ -4291,6 +4291,15 @@ line.attach-hit[aria-checked="true"] {
   stroke-width: 1.4px;
   vector-effect: non-scaling-stroke;
 }
+/* Measuring: a free end is a dot, and the line on to the pointer is dotted. */
+.measuring .end {
+  fill: var(--brand-bright);
+  stroke: none;
+}
+.measuring .live {
+  stroke-width: 2px;
+  stroke-linecap: round;
+}
 /* The amount measured out in a stoichiometry grid: red text with a red line under it. */
 .stoich text.taken {
   fill: var(--error);

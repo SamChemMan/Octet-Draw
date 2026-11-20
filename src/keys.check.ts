@@ -101,6 +101,21 @@ assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), undefined);
 registerMenu([["grid", "Show Grid", "View", "CmdOrCtrl+'"], ["rulers", "Show Rulers", "View", "CmdOrCtrl+;"], ["crosshair", "Show Crosshair", "View", "Alt+CmdOrCtrl+X"]]);
 assert.deepEqual(["menu.grid", "menu.rulers", "menu.crosshair"].map((id) => keymap({})[id]), [["mod+'"], ["mod+;"], ["mod+alt+x"]]);
 assert.equal(actionFor(keymap({}), "mod+;", "none"), "menu.rulers");
+// A View or Window command leaves a measurement in progress; another menu command takes it away (Editor's menu listener),
+// but Undo and Redo: the menu's Undo takes off its last end, and its Redo does nothing (Editor's undo).
+import { showsOnly } from "./keys.ts";
+registerMenu([["zoom_in", "Magnify", "View", "CmdOrCtrl+Shift+="], ["grid", "Show Grid", "View", "CmdOrCtrl+'"], ["minimise", "Minimise", "Window", "CmdOrCtrl+M"], ["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["undo", "Undo", "Edit", "CmdOrCtrl+Z"]]);
+assert.deepEqual(["zoom_in", "grid", "minimise", "clean_up", "undo", "nothing"].map(showsOnly), [true, true, true, false, false, false]);
+assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /useListen<string>\("menu", \(e\) => \{[^]*?if \(!showsOnly\(e\.payload\) && e\.payload !== "undo" && e\.payload !== "redo"\) setMeasuring\(undefined\);/);
+// The menu's Undo and Redo run the editor's undo (commands.current.undo and redo), which a curve or a measurement in
+// progress takes first: Undo takes off its last point, Redo does nothing, and the history stays as it is.
+assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /const undo = \(redo = false\) => \{[^}]*?if \(pen \|\| measuring\) \{ if \(!redo\) takeBack\(\); return; \}/);
+// Taking a point back changes nothing in the drawing, so takeBack tells the screen reader itself.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), body = editor.slice(editor.indexOf("const takeBack = () => {"), editor.indexOf("const undo = (redo = false)"));
+  for (const said of ["Removed the last end.", "Stopped the measurement.", "Removed the last point.", "Stopped the curve."]) assert.ok(body.includes(`say(`) && body.includes(said), `takeBack says "${said}"`);
+}
+assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /undo: \(\) => \(typing\(\) \? void document\.execCommand\("undo"\) : undo\(\)\),\s+redo: \(\) => \(typing\(\) \? void document\.execCommand\("redo"\) : pen \|\| measuring \|\| h\.at < h\.stack\.length - 1 \? undo\(true\) : repeatLast\(\)\),/);
 // Feedback's keys: 1, 2 and 3 with ⌘ held, all within 400 ms, in any order. No key-up is needed.
 {
   const p = new Map<string, number>();
@@ -273,17 +288,17 @@ console.log("keys.check: circled charges on a key ok");
 
 // Every tool can be given a key (PR #58). The tools are read from their own union, so a tool added later needs an action.
 {
-  const { DEFAULT_KEYS, RING_TOOLS, optionCommand } = await import("./keys.ts");
+  const { DEFAULT_KEYS, MEASURE_TOOLS, PEN_TOOLS, RING_TOOLS, optionCommand } = await import("./keys.ts");
   const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   const ids = tools.match(/^export type Tool = (.+);$/m)![1].split("|").map((t) => t.trim().replace(/"/g, ""));
   assert.ok(ids.length > 20 && ids.includes("gel") && ids.includes("sequence"), `read the tools: ${ids.join(" ")}`);
   assert.deepEqual(ids.filter((id) => !ACTIONS.some((a) => a.id === `tool.${id}` && a.place === "any" && a.group === "Tools")), [], "every tool has a tool.<id> action");
   assert.deepEqual(ids.filter((id) => !(`tool.${id}` in DEFAULT_KEYS)), [], "every tool has a DEFAULT_KEYS entry");
   // No new default key: ChemDraw 22.2 has none for these.
-  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
+  const added = ["sequence", "cycle", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure", "measureLength", "measureAngle", "measureDihedral"];
   assert.deepEqual(added.flatMap((id) => DEFAULT_KEYS[`tool.${id}`]), []);
   assert.deepEqual(added.map((id) => ACTIONS.find((a) => a.id === `tool.${id}`)!.name), ["Sequence tool", "Catalytic cycle tool", "Gel tool", "Plasmid map tool", "Table tool",
-    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool"]);
+    "Mass fragmentation tool", "Mass spec analysis tool", "Synthesis tool", "Retrosynthesis tool", "Atom map tool", "Measure tool", "Measure length tool", "Measure angle tool", "Measure dihedral tool"]);
   // A key the user sets picks the tool, over nothing and over an atom with no action for it; it clashes with a tool
   // that has it; Reset to ChemDraw keys (no changes) takes it off.
   const mine = keymap({ "tool.gel": ["shift+v"], "tool.sequence": ["g"] });
@@ -298,8 +313,12 @@ console.log("keys.check: circled charges on a key ok");
     ["tool.benzene", "tool.cyclopentadiene", "tool.cyclohexane", "tool.cyclopentane"]);
   assert.deepEqual([optionCommand("ring", "3"), optionCommand("ring", "chair1"), optionCommand("bond", "single"), optionCommand("more", "gel")], [undefined, undefined, undefined, "tool.gel"]);
   assert.deepEqual([keymap()[optionCommand("ring", "benzene")!], keymap()[optionCommand("ring", "cyclopentadiene")!]], [["j"], ["shift+j"]]);
+  // The Measure slot's variants (Length, Angle, Dihedral) each have a command, with no default key (no ChemDraw key moves).
+  assert.deepEqual(["distance", "angle", "dihedral"].map((k) => optionCommand("measure", k)), ["tool.measureLength", "tool.measureAngle", "tool.measureDihedral"]);
+  assert.deepEqual(Object.values(MEASURE_TOOLS), ["distance", "angle", "dihedral"]);
+  assert.match(tools, /t\.id === "measure" \? optionKey\("measure", p\.variants\.measure\)/, "the Measure slot names its variant's key");
   assert.ok(Object.values(RING_TOOLS).every((k) => new RegExp(`^  "?${k}"?: \\{ name:`, "m").test(tools)), "each ring command picks a ring in RINGS");
-  assert.match(tools, /data-key=\{p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key");
+  assert.match(tools, /data-key=\{t\.id === "pen" \? optionKey\("pen", p\.variants\.pen\) : p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key, and the Pen slot its option's");
   assert.match(tools, /hint: optionKey\("more", id\)/, "the More tools menu names each tool's key");
   assert.match(tools, /arrived: arrived === kind, hint: optionKey\(tool, kind\)/, "a strip's options name their keys");
   assert.match(tools, /aria-label=\{nameOf\(tool, kind\)\}\s+data-key=\{optionKey\(tool, kind\)\}/, "a pinned option names its key");
@@ -308,7 +327,25 @@ console.log("keys.check: circled charges on a key ok");
   assert.match(settings, /Taken from \$\{taken\.map\(\(t\) => ACTIONS\.find\(\(a\) => a\.id === t\)!\.name\.replace\(\/\^\[A-Z\]\(\?=\[a-z\]\)\/, \(c\) => c\.toLowerCase\(\)\)\)/);
   assert.deepEqual(["TLC plate tool", "Gel tool", "Set atom to Me"].map((n) => n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())), ["TLC plate tool", "gel tool", "set atom to Me"]);
   assert.match(settings, /onClick=\{\(\) => \{ p\.onKeys\(\{\}\); setNote\(undefined\); \}\}/);
-  // A specialist tool's key leaves it in its slot, as its menu does.
-  assert.match(editor, /slot = ring \? "ring" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings/);
+  // A specialist tool's key leaves it in its slot, as its menu does; a Pen key picks its option in the Pen slot, and a
+  // Measure variant's key the variant.
+  assert.match(editor, /slot = ring \? "ring" : penOption \? "pen" : measure \? "measure" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings\(\(s\) => \(\{ \.\.\.s, variants: \{ \.\.\.s\.variants, \[slot\]: ring \?\? penOption \?\? measure \?\? arg \} \}\)\);\s+return setTool\(ring \? "ring" : penOption \? "pen" : measure \? "measure" : \(arg as Tool\)\);/);
+  // The Pen tool (Sam, 19 November 2026): tool.pen picks the Pen and tool.editcurve Edit curve, with no key by default
+  // (ChemDraw 22.2's hotkeys give its Pen tools none; only 17.1's guide gave the Pen l). Settings lists them as the
+  // other tools ("Pen tool"), and the Pen strip, its slot and a pinned Pen option name their keys.
+  const { PENS } = await import("./kinds.ts");
+  assert.deepEqual(["tool.pen", "tool.editcurve"].map((id) => [ACTIONS.find((a) => a.id === id)?.name, ACTIONS.find((a) => a.id === id)?.group, DEFAULT_KEYS[id]]), [["Pen tool", "Tools", []], ["Edit curve tool", "Tools", []]]);
+  assert.deepEqual([optionCommand("pen", "pen"), optionCommand("pen", "pen-edit"), optionCommand("pen", "box-plain"), optionCommand("shape", "pen")], ["tool.pen", "tool.editcurve", undefined, undefined]);
+  assert.deepEqual(Object.values(PEN_TOOLS).sort(), Object.keys(PENS).sort(), "each Pen option has its command");
+  const mine2 = keymap({ "tool.editcurve": ["shift+v"] });
+  assert.equal(actionFor(mine2, "shift+v", "none"), "tool.editcurve");
+  assert.deepEqual(clashes(keymap({ "tool.pen": ["g"] }), "tool.pen", "g"), ["tool.tlc"]);
+  // No ChemDraw key moved: DEFAULT_KEYS but the two Pen commands, the three Measure variants' (and the menu's, which
+  // registerMenu above put in) is as Octet 1.1.3 began (release-1.1.3 e5af1273). The digest is sha256 of its entries
+  // sorted by id, as JSON, cut to 16 hex digits.
+  const { createHash } = await import("node:crypto");
+  const rest = Object.entries(DEFAULT_KEYS).filter(([id]) => !["tool.pen", "tool.editcurve", "tool.measureLength", "tool.measureAngle", "tool.measureDihedral"].includes(id) && !id.startsWith("menu.")).sort(([a], [b]) => (a < b ? -1 : 1));
+  assert.equal(createHash("sha256").update(JSON.stringify(rest)).digest("hex").slice(0, 16), "b8569d18f3cb9344", "a default key changed: every other default is ChemDraw's");
+  assert.equal(rest.length, 142);
 }
 console.log("keys.check: every tool can be given a key, and the Ring slot names its ring's ok");

@@ -413,6 +413,8 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const expandIt = [it(<SquaresFour size={18} />, "Expand generic structure", "expand_generic"),
     small({ ...it(<Database size={18} />, "Expand generic structure to SDF…", "expand_generic_sdf"), short: "Expand to SDF…" })];
   const del = small(it(<Trash size={18} />, "Delete", "delete")); // the last small button in every panel
+  // Structure > Measure > Length on 2 selected atoms: a structure's 2 atoms, or a bond's (its 2 atoms are what is selected).
+  const length = small(it(<DistanceGlyph size={18} />, "Measure length", "measure_distance"));
   // Rotate 180° keeps stereochemistry (arrows round), Flip mirrors it (mirror glyphs).
   const flips = [it(<ArrowsLeftRight size={18} />, "Rotate 180° horizontal", "flip_h", false, true), it(<ArrowsDownUp size={18} />, "Rotate 180° vertical", "flip_v", false, true)];
   const mirrors = [it(<FlipHorizontal size={18} />, "Flip horizontal", "mirror_h", false, true), it(<FlipVertical size={18} />, "Flip vertical", "mirror_v", false, true)];
@@ -491,7 +493,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       // definition round the selected structures.
       if (context.atoms > 1) items.push(small(it(<MultiAttachmentGlyph />, "Add multi-centre attachment", "add_multicentre")), small(it(<VariableAttachmentGlyph />, "Add variable attachment", "add_variable")));
       // A measurement of 2, 3 or 4 selected atoms (Structure > Measure).
-      if (context.atoms === 2) items.push(small(it(<DistanceGlyph size={18} />, "Measure distance", "measure_distance")));
+      if (context.atoms === 2) items.push(length);
       if (context.atoms === 3) items.push(small(it(<AngleGlyph size={18} />, "Measure angle", "measure_angle")));
       if (context.atoms === 4) items.push(small(it(<DihedralGlyph size={18} />, "Measure dihedral", "measure_dihedral")));
       items.push(small(it(<BracketsSquare size={18} />, "Make an R-group definition", "define_rgroup")));
@@ -508,7 +510,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       // the bond styles (Sam, 19 November 2026); in the right-click menu, its own sub-menu.
       if (context.double) items.push(small({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }), small(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left")), small(it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre")), small(it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right")));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, length, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;

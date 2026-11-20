@@ -58,12 +58,16 @@ export const ACTIONS: Action[] = [
   any("tool.ring", "Ring tool", "Tools"), any("tool.benzene", "Benzene tool", "Tools"), any("tool.cyclopentadiene", "Cyclopentadiene tool", "Tools"),
   any("tool.cyclohexane", "Cyclohexane tool", "Tools"), any("tool.cyclopentane", "Cyclopentane tool", "Tools"), any("tool.erase", "Eraser tool", "Tools"), any("tool.text", "Text tool", "Tools"), any("tool.arrow", "Arrow tool", "Tools"),
   any("tool.template", "Template tool", "Tools"), any("tool.symbol", "Symbols tool", "Tools"), any("tool.shape", "Shape tool", "Tools"),
-  any("tool.bracket", "Bracket tool", "Tools"), any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
+  any("tool.bracket", "Bracket tool", "Tools"), any("tool.pen", "Pen tool", "Tools"), any("tool.editcurve", "Edit curve tool", "Tools"),
+  // The toolbar's section after Bracket (tools.tsx SECTION): Pen and Edit curve, then Measure and its variants.
+  any("tool.measure", "Measure tool", "Tools"),
+  any("tool.measureLength", "Measure length tool", "Tools"), any("tool.measureAngle", "Measure angle tool", "Tools"), any("tool.measureDihedral", "Measure dihedral tool", "Tools"),
+  any("tool.tlc", "TLC plate tool", "Tools"), any("tool.orbital", "Orbital tool", "Tools"),
   // No key by default (keys.check holds every tool to having an action, so any can be given one).
   any("tool.sequence", "Sequence tool", "Tools"), any("tool.cycle", "Catalytic cycle tool", "Tools"), any("tool.gel", "Gel tool", "Tools"),
   any("tool.plasmid", "Plasmid map tool", "Tools"), any("tool.table", "Table tool", "Tools"), any("tool.fragment", "Mass fragmentation tool", "Tools"),
   any("tool.massspec", "Mass spec analysis tool", "Tools"), any("tool.synthesis", "Synthesis tool", "Tools"), any("tool.retro", "Retrosynthesis tool", "Tools"),
-  any("tool.map", "Atom map tool", "Tools"), any("tool.measure", "Measure tool", "Tools"),
+  any("tool.map", "Atom map tool", "Tools"),
   { id: "select.here", name: "Select the atom or bond under the pointer", group: "Selection", place: "item" },
   any("eraser.smaller", "Make the eraser smaller", "Tools"), any("eraser.bigger", "Make the eraser bigger", "Tools"),
   any("nudge.left", "Move the selection left 1 pt, or the highlight one step left", "Selection"), any("nudge.right", "Move the selection right 1 pt, or the highlight one step right", "Selection"),
@@ -125,7 +129,8 @@ export const DEFAULT_KEYS: Record<string, string[]> = {
   "tool.select": ["space"], "tool.bond": ["x"], "tool.chain": ["shift+x"], "tool.ring": [], "tool.benzene": ["j"],
   "tool.cyclopentadiene": ["shift+j"], "tool.cyclohexane": [], "tool.cyclopentane": [], "tool.erase": [], "tool.text": ["t"], "tool.arrow": ["e"], "tool.template": [], "tool.symbol": ["shift+e"], "tool.shape": [],
   "tool.bracket": ["shift+t"], "tool.tlc": ["g"], "tool.orbital": ["shift+g"],
-  "tool.sequence": [], "tool.cycle": [], "tool.gel": [], "tool.plasmid": [], "tool.table": [], "tool.fragment": [], "tool.massspec": [], "tool.synthesis": [], "tool.retro": [], "tool.map": [], "tool.measure": [],
+  "tool.sequence": [], "tool.cycle": [], "tool.gel": [], "tool.plasmid": [], "tool.table": [], "tool.fragment": [], "tool.massspec": [], "tool.synthesis": [], "tool.retro": [], "tool.map": [], "tool.measure": [], "tool.pen": [], "tool.editcurve": [],
+  "tool.measureLength": [], "tool.measureAngle": [], "tool.measureDihedral": [],
   "eraser.smaller": ["["], "eraser.bigger": ["]"],
   "nudge.left": ["arrowleft"], "nudge.right": ["arrowright"], "nudge.up": ["arrowup"], "nudge.down": ["arrowdown"],
   "nudge.left10": ["shift+arrowleft"], "nudge.right10": ["shift+arrowright"], "nudge.up10": ["shift+arrowup"], "nudge.down10": ["shift+arrowdown"],
@@ -221,6 +226,9 @@ export function menuRuns(id: string, over: { home: boolean; modal: boolean; typi
   if (over.modal || over.calling) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_") || id.startsWith("example_");
 }
+// Whether a menu command changes only what is shown (the View and Window menus: zoom, the grid, the panels, the windows),
+// so a measurement in progress stays (Editor's menu listener).
+export const showsOnly = (id: string) => /^(View|Window)( ›|$)/.test(ACTIONS.find((a) => a.id === `menu.${id}`)?.group ?? "");
 // The menu commands that open a dialog: their names end in "…", as the Mac's menus have it (Octet with no window
 // refuses them, for no one is there to finish one).
 export const DIALOGS = new Set<string>();
@@ -256,12 +264,17 @@ export function actionFor(map: Keymap, key: string, place: "atom" | "bond" | "ca
 
 // The ring each ring command picks (J picks benzene). Ring kinds are RINGS' keys in tools.tsx.
 export const RING_TOOLS: Record<string, string> = { benzene: "benzene", cyclopentadiene: "cyclopentadiene", cyclohexane: "6", cyclopentane: "5" };
-// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel) or a ring's
-// (tool.benzene), so the Ring slot, its menu and a pinned ring can name the key.
+// The Pen tool's option each Pen command picks: tool.pen the Pen, tool.editcurve Edit curve (PENS in kinds.ts).
+export const PEN_TOOLS: Record<string, string> = { pen: "pen", editcurve: "pen-edit" };
+// The Measure tool's variant each of its commands picks (measurement.ts MeasureKind).
+export const MEASURE_TOOLS: Record<string, string> = { measureLength: "distance", measureAngle: "angle", measureDihedral: "dihedral" };
+// The command that reaches a toolbar option, where it has its own: a specialist tool's (tool.gel), a ring's
+// (tool.benzene), a Pen option's (tool.editcurve) or a Measure variant's (tool.measureAngle), so the slot, its menu and
+// a pinned option can name the key.
 export function optionCommand(tool: string, kind: string): string | undefined {
   if (tool === "more") return `tool.${kind}`;
-  const ring = tool === "ring" ? Object.keys(RING_TOOLS).find((c) => RING_TOOLS[c] === kind) : undefined;
-  return ring && `tool.${ring}`;
+  const own = tool === "ring" ? RING_TOOLS : tool === "pen" ? PEN_TOOLS : tool === "measure" ? MEASURE_TOOLS : undefined, command = own && Object.keys(own).find((c) => own[c] === kind);
+  return command && `tool.${command}`;
 }
 
 // Other actions that already use this key in the same place.

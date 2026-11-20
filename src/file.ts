@@ -6,7 +6,7 @@ import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { capNotes, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD } from "./annotate.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
-import { settleMeasures, soundMeasure } from "./measurement.ts";
+import { readMeasure, settleMeasures } from "./measurement.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
 import { ALL_ARROW_KINDS, FREE_SYMBOLS, readSign, HBOND, isBracket, isChargeKind, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize, type FreeSymbol } from "./render.ts";
@@ -80,7 +80,7 @@ export function serialize(input: Mol): string {
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
-    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { atoms: c.measure.atoms, ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { ends: c.measure.ends.map((e) => (typeof e === "number" ? e : e.map(round))), ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side, ...(c.on.gap !== undefined ? { gap: c.on.gap } : {}) } } : {}),
     ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side, ...(c.cycle.branch !== undefined ? { branch: c.cycle.branch } : {}), ...(c.cycle.at !== undefined ? { at: c.cycle.at } : {}), ...(c.cycle.reach !== undefined ? { reach: c.cycle.reach } : {}), ...(c.cycle.off ? { off: c.cycle.off } : {}) } } : {}),
@@ -462,7 +462,9 @@ function readCaptions(raw: unknown, out: Mol) {
     if (c.auto === true) caption.auto = true;
     if (typeof c.field === "string" && /^[a-z][a-z0-9:]{0,39}$/.test(c.field)) caption.field = c.field;
     // A measurement (measurement.ts); one that is not sound is its text alone.
-    if (soundMeasure(c.measure, out.atoms.length)) caption.measure = { atoms: [...c.measure.atoms], ...(c.measure.at ? { at: [c.measure.at[0], c.measure.at[1]] } : {}) };
+    // The form the 1.2 beta and 1.1.3 dev builds wrote ({ atoms }) reads too (readMeasure).
+    const measure = readMeasure(c.measure, out.atoms.length);
+    if (measure) caption.measure = measure;
     const role = readPart(c.role);
     if (role) caption.role = role;
     Object.assign(caption, notesIn(c.notes));

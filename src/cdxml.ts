@@ -24,7 +24,7 @@ import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
 import { fragments, groupParents, markDirections, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import type { StereoText } from "./stereonames.ts";
-import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
+import { atomEnds, isAtom, labelled, measureInk, readMeasure, remapCaption, settleMeasures } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub, type DataField } from "./render.ts";
 import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, withProperties } from "./datafields.ts";
@@ -426,7 +426,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
   }
   for (const c of mol.captions ?? []) {
-    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(c.measure.atoms[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(atomEnds(c.measure)[0] ?? -1) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
     if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
@@ -1174,7 +1174,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   for (const c of mol.captions ?? []) {
     if (!c.measure) continue;
     zOrder = c.order;
-    const ink = measureInk(mol, c.measure.atoms, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
+    const ink = measureInk(mol, c.measure.ends, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
     for (const [from, to] of ink.lines) arrowOut({ id: -1, kind: "line", style: "dashed", from, to, ...(c.colour ? { colour: c.colour } : {}) }, true, undefined, c.id);
     if (ink.arc) {
       const { centre: o, r, start, sweep } = ink.arc, end = start + sweep, from: P = [o[0] + r * Math.cos(start), o[1] + r * Math.sin(start)], to: P = [o[0] + r * Math.cos(end), o[1] + r * Math.sin(end)];
@@ -1253,7 +1253,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false || datumOf.has(c.id) ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined, gap: c.on?.gap,
-        measure: c.measure && { atoms: c.measure.atoms.map((i) => nodeId.get(i)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
+        measure: c.measure && { ends: c.measure.ends.map((e) => (isAtom(e) ? nodeId.get(e) : e)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("") + notes(c.notes)), 2, box, c.id);
     if (c.property && !live) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
@@ -2913,12 +2913,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const under = atomsOf(nodes);
     if (under.length) c.under = under;
   }
-  // Octet's measurements: their atoms by node id, in order. One that names a node that is not an atom, or is not sound
-  // (soundMeasure), is plain text.
+  // Octet's measurements: their ends in order, an atom by its node id and a free point as drawing units, or (as the 1.2
+  // beta and 1.1.3 dev builds wrote them) atoms only. One that names a node that is not an atom, or is not sound
+  // (readMeasure), is plain text.
   for (const { c, m: x } of measures) {
-    const atoms = Array.isArray(x.atoms) ? x.atoms.slice(0, 5).map((n) => atomOf.get(Number.isInteger(n) ? (n as number) : -1) ?? -1) : [];
-    const measure = { atoms, ...(x.at !== undefined ? { at: x.at } : {}) };
-    if (soundMeasure(measure, mol.atoms.length)) c.measure = { atoms, ...(measure.at ? { at: [...measure.at] as [number, number] } : {}) };
+    const list = x.ends ?? x.atoms, ends = Array.isArray(list) ? list.slice(0, 5).map((n) => (Array.isArray(n) ? n : atomOf.get(Number.isInteger(n) ? (n as number) : -1) ?? -1)) : undefined;
+    const measure = readMeasure({ ends, at: x.at }, mol.atoms.length);
+    if (measure) c.measure = measure;
   }
   // Octet's live values: their rows and decimals, for their atoms.
   for (const { c, live } of lives) {
@@ -2989,7 +2990,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (tied) arrows.splice(0, arrows.length, ...tied);
     for (const c of cycles) { c.nodes = c.nodes.map((n) => n.map(ix)); if (c.sides) c.sides = c.sides.map((s) => ({ ...s, atoms: s.atoms.map(ix) })); Object.assign(c, mapBranches(c, ix)); }
     for (const c of captions) if (c.property) c.property.atoms = c.property.atoms.map(ix);
-    for (const c of captions) if (c.measure) c.measure.atoms = c.measure.atoms.map(ix);
+    for (const c of captions) if (c.measure) c.measure.ends = c.measure.ends.map((e) => (isAtom(e) ? ix(e) : e));
   }
   // Each object's notes, from the element it was read from (a cycle's from its first arc).
   for (const x of [...captions, ...arrows, ...shapes]) { const n = notesOf(madeFrom.get(x.id)); if (n) x.notes = n; }
