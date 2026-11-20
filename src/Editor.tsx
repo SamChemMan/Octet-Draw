@@ -49,9 +49,10 @@ import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, acti
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
+import { SuppliersWindow } from "./SupplierWindow";
 import { calculated as calc, liveValues, nameValues, namesShown, placeValues, propertyRuns, propertyValues, PROPERTY_ROWS, withCas, withNames, type PropertyValues } from "./proprows";
 import { ghsOf, type Ghs } from "./ghs";
-import { askEach, failedNotice, NO_KEY, OFF, offNotice, STOPPED, suppliersOf, UNREACHED_NOTICE, wanted, withSuppliers, type Found, type Lookup, type Suppliers } from "./suppliers";
+import { askEach, failedNotice, NO_KEY, OFF, offNotice, starred, STOPPED, suppliersOf, UNREACHED_NOTICE, wanted, type Found, type Lookup, type Suppliers } from "./suppliers";
 import { SpectrumPanel, PEAK_COLOURS } from "./Spectrum";
 import { MassSpecPanel, type MsAdd } from "./MassSpec";
 import { chemRuns, msFigure } from "./msanalysis";
@@ -7628,7 +7629,7 @@ export default function Editor() {
     const bi = ids.length === 2 ? doc.bonds.findIndex((b) => selection.has(b.atoms[0]) && selection.has(b.atoms[1])) : -1;
     if (bi >= 0) {
       const b = doc.bonds[bi], style = bondKindOf(b);
-      return { kind: "bond", style, double: b.type === 2, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), opacity: opacityOf(doc, selection), molecule };
+      return { kind: "bond", style, double: b.type === 2, position: b.type === 2 ? b.position ?? "auto" : undefined, flippable: !!b.stereo || b.display === "dative" || b.display === "hollow", halo: b.halo, fill: fillOf(doc, selection), ring: drawnRings(doc).some((r) => r.includes(b.atoms[0]) && r.includes(b.atoms[1])), opacity: opacityOf(doc, selection), molecule };
     }
     return molecule ?? structureOf();
   };
@@ -7743,27 +7744,41 @@ export default function Editor() {
   // Find suppliers (issue 114): PubChem's suppliers for each key, kept while the window is open (null: PubChem has no
   // compound for it), asked only on a press, as Find hazards. busy: the lookups running now (their buttons read Stop);
   // askingKey: the key being asked for suppliers; runs: each kind's run, which Stop moves on so the rest are not asked.
-  const suppliersFound = useRef(new Map<string, Suppliers | null>());
+  // supplierView: the Suppliers window, while it is open: each structure it was opened for (its formula and key) and
+  // the one it shows.
+  const suppliersFound = useRef(new Map<string, Suppliers | null>()), supplierErrors = useRef(new Map<string, string>());
+  // The keys whose suppliers came without the source table (partial): shown, and asked again on the next press.
+  const supplierKept = { has: (key: string) => suppliersFound.current.has(key) && !(suppliersFound.current.get(key)?.partial) };
+  const [supplierView, setSupplierView] = useState<{ labels: string[]; keys: (string | undefined)[]; at: number }>();
   const [busy, setBusy] = useState<Partial<Record<Lookup, boolean>>>({}), [askingKey, setAskingKey] = useState<string>();
   const runs = useRef<Record<Lookup, number>>({ suppliers: 0, hazards: 0 }), pendingFind = useRef<Lookup>(undefined);
-  const lastProperties = useRef<{ atoms: number[][]; structures: Structure[]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[]; suppliers: Found[] }>(undefined);
+  const lastProperties = useRef<{ atoms: number[][]; structures: Structure[]; values: PropertyValues; base: Mol; parts: (number[] | undefined)[]; looked: boolean }>(undefined);
+  // The structures in this selection (or the drawing, or what is picked), at most 12: each one's atoms in chem (a
+  // caption that counts as chemistry is an atom after the drawing's), its structure, and the part of base it is.
+  const structuresIn = (sel: Set<number>) => {
+    const own = sel.size ? undefined : pickedChem(picked);
+    const ids = sel.size ? [...sel].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : own ? [...own].sort((a, b) => a - b) : chem.mol.atoms.map((_, i) => i);
+    const base = sel.size ? subset(doc, sel) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
+    if (!found) return undefined;
+    const kept = groups.map((g, k) => ({ g, atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
+    return { base, kept, shown: kept.map((x) => x.s!), atoms: kept.map((x) => x.atoms) };
+  };
   const properties = useMemo(() => {
     if (!loaded || !settings.properties) return undefined;
     if (!propertySelection) return lastProperties.current;
-    // ids: each value's atoms in chem (a caption that counts as chemistry is an atom after the drawing's).
-    const own = propertySelection.size ? undefined : pickedChem(picked);
-    const ids = propertySelection.size ? [...propertySelection].filter((i) => i < doc.atoms.length).sort((a, b) => a - b) : own ? [...own].sort((a, b) => a - b) : chem.mol.atoms.map((_, i) => i);
-    const base = propertySelection.size ? subset(doc, propertySelection) : own ? subset(chem.mol, own) : chem.mol, groups = fragments(base), found = structures(base, groups);
+    const found = structuresIn(propertySelection);
     if (!found) return undefined;
-    const kept = groups.map((g, k) => ({ g, atoms: g.map((i) => ids[i]), s: found[k] })).filter((x) => x.s).slice(0, 12);
-    const shown = kept.map((x) => x.s!), atoms = kept.map((x) => x.atoms);
+    const { base, kept, shown, atoms } = found;
     // Each structure's key while it keeps the content and atoms it was worked out for, and what the lookups found for it.
     const keyOf = (s: Structure, k: number) => (settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join() ? ghsKeys.keys[k] : undefined);
     const ghs = shown.map((s, k) => ghsFound.current.get(keyOf(s, k) ?? ""));
-    const suppliers: Found[] = shown.map((s, k) => { const key = keyOf(s, k); return !key ? undefined : key === askingKey ? "busy" : suppliersFound.current.get(key); });
+    // looked: Find hazards has an answer for every structure (the Hazards tab then offers it no more). A structure
+    // with no key (an R group, a query atom) has its answer: PubChem cannot look it up.
+    const keyed = (s: Structure, k: number) => settings.onlineSearch && ghsKeys?.structures[k] === s && ghsKeys.atoms[k] === atoms[k].join();
+    const looked = shown.every((s, k) => { const key = keyOf(s, k); return keyed(s, k) && (key === undefined || ghsFound.current.has(key)); });
     // base and each structure's atoms in it, for the CAS row (a polymer has no CAS number).
-    return { atoms, structures: shown, values: withSuppliers(propertyValues(shown, calc, settings.decimals, ghs), suppliers), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)), suppliers };
-  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys, askingKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { atoms, structures: shown, values: propertyValues(shown, calc, settings.decimals, ghs), base, parts: kept.map((x) => (x.s!.repeat ? undefined : x.g)), looked };
+  }, [loaded, settings.properties, settings.decimals, doc, chem, propertySelection, picked, settings.onlineSearch, ghsKeys]); // eslint-disable-line react-hooks/exhaustive-deps
   lastProperties.current = properties;
   // The CAS row: each structure's number by its InChIKey, from the dictionary once the names engine has loaded it. It
   // is looked up after the panel has drawn, 8 ms at a time with the window free between (and not while a glide runs),
@@ -7846,23 +7861,28 @@ export default function Editor() {
     ghsAsking.current = asked.then(() => undefined);
     return asked;
   };
+  // Find suppliers: the Suppliers window for the structures in the selection (or the drawing), and the lookup for
+  // their keys. Each structure keeps what was found for it while Octet is open, so the window opens on it at once.
   function findSuppliers() {
-    if (!properties || !TAURI) return;
-    if (busy.suppliers) return stopLookup("suppliers");
-    const found = keysOf(properties);
-    setGhsKeys(found);
-    void lookUp("suppliers", found.keys);
+    if (!TAURI) return;
+    const found = structuresIn(selection);
+    if (!found?.shown.length) return setNotice("Select a structure to search.", "info");
+    const { keys } = keysOf({ structures: found.shown, atoms: found.atoms });
+    if (!keys.some(Boolean)) return setNotice(NO_KEY, "info");
+    setSupplierView({ labels: found.shown.map((s) => s.formula.replace(/\d/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[Number(d)])), keys, at: 0 });
+    void lookUp("suppliers", keys);
   }
   // PubChem's suppliers for an InChIKey (Rust reads PubChem's answer and checks the links). Its error, if any.
   // A request Stop has moved past leaves the row to the run after it.
   const askSuppliers = (key: string) => {
     const run = runs.current.suppliers;
     setAskingKey(key);
+    supplierErrors.current.delete(key);
     return invoke<unknown>("pubchem_suppliers", { key }).then((x) => {
       const f = suppliersOf(x);
-      if (f === undefined) return UNREACHED_NOTICE;
+      if (f === undefined) { supplierErrors.current.set(key, UNREACHED_NOTICE); return UNREACHED_NOTICE; }
       suppliersFound.current.set(key, f);
-    }, (e: unknown) => String(e)).finally(() => { if (runs.current.suppliers === run) setAskingKey((k) => (k === key ? undefined : k)); });
+    }, (e: unknown) => { supplierErrors.current.set(key, String(e)); return String(e); }).finally(() => { if (runs.current.suppliers === run) setAskingKey((k) => (k === key ? undefined : k)); });
   };
   // A lookup for the keys the panel shows: each key once a window, one at a time. Stop moves the run on and ends the
   // request in flight. Online search off: a notice with Open Settings. No network: a notice, and nothing is kept, so
@@ -7870,13 +7890,15 @@ export default function Editor() {
   // No structure with a key (an R group, a query atom, a polymer): a notice. Every key found before: their rows show.
   async function lookUp(kind: Lookup, keys: (string | undefined)[]) {
     if (!keys.some(Boolean)) return setNotice(NO_KEY, "info");
-    const run = ++runs.current[kind], live = () => runs.current[kind] === run, want = wanted(keys, kind === "suppliers" ? suppliersFound.current : ghsFound.current);
+    const run = ++runs.current[kind], live = () => runs.current[kind] === run, want = wanted(keys, kind === "suppliers" ? supplierKept : ghsFound.current);
     if (!want.length) return;
     setBusy((b) => ({ ...b, [kind]: true }));
     // A Stop just pressed reaches Rust first, so it cannot end this run's requests.
     await stopping.current[kind];
     const failed = live() ? await askEach(want, kind === "suppliers" ? askSuppliers : (key) => askHazards(key), live) : undefined;
     if (!live()) return;
+    // The keys a failure left unasked have the same answer as the one that failed.
+    if (failed && kind === "suppliers") for (const k of want) if (!supplierKept.has(k) && !supplierErrors.current.has(k)) supplierErrors.current.set(k, failed);
     setBusy((b) => ({ ...b, [kind]: false }));
     if (failed === OFF) setNotice(offNotice(kind), "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     else if (failed) setNotice(failedNotice(failed), "info");
@@ -7894,14 +7916,16 @@ export default function Editor() {
     if (!TAURI) return setNotice("Search runs in the Octet app.", "info");
     if (!settings.onlineSearch) return setNotice(offNotice(kind), "info", { label: "Open Settings", run: () => setSettingsOpen("files") });
     if (!doc.atoms.length) return setNotice("Draw a structure first.", "info");
+    if (kind === "suppliers") return busy.suppliers ? undefined : findSuppliers();
     if (busy[kind]) return;
+    if (settings.propertiesTab !== "hazards") setSettings((s) => ({ ...s, propertiesTab: "hazards" }));
     if (!settings.properties || !properties) {
       pendingFind.current = kind;
       if (!settings.properties) setSettings((s) => ({ ...s, properties: true }));
       return;
     }
     if (!properties.structures.length) return setNotice("Select a structure to search.", "info");
-    if (kind === "suppliers") findSuppliers(); else findHazards();
+    findHazards();
   }
   useEffect(() => {
     const kind = pendingFind.current;
@@ -7909,12 +7933,13 @@ export default function Editor() {
     pendingFind.current = undefined;
     findFor(kind);
   }, [properties]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The panel closing stops its lookups.
+  // The panel closing stops its lookup, and the Suppliers window closing stops its own.
   useEffect(() => {
-    if (settings.properties) return;
-    if (busy.suppliers) stopLookup("suppliers");
-    if (busy.hazards) stopLookup("hazards");
+    if (!settings.properties && busy.hazards) stopLookup("hazards");
   }, [settings.properties]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!supplierView && busy.suppliers) stopLookup("suppliers");
+  }, [supplierView]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!ghsKeys || !properties || !settings.onlineSearch) return;
     const t = setTimeout(() => setGhsKeys(keysOf(properties)), 300);
@@ -11985,16 +12010,34 @@ export default function Editor() {
           onDecimals={(decimals) => setSettings((s) => ({ ...s, decimals }))}
           names={settings.propertyNames !== false}
           onNames={(on) => setSettings((s) => ({ ...s, propertyNames: on ? undefined : false }))}
-          online={settings.onlineSearch}
+          tab={settings.propertiesTab ?? "properties"}
+          onTab={(tab) => setSettings((s) => ({ ...s, propertiesTab: tab === "hazards" ? "hazards" : undefined }))}
+          online={settings.onlineSearch && TAURI}
+          finding={!!busy.hazards}
+          looked={properties.looked}
           onHazards={findHazards}
-          suppliers={properties.suppliers}
-          busy={busy}
-          onSuppliers={findSuppliers}
-          onSupplier={(url) => void invoke("open_link", { name: `supplier:${url}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
-          onVendors={(cid) => void invoke("open_link", { name: `pubchem-vendors:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
+          onSettings={() => setSettingsOpen("files")}
           onOpen={(cid) => void invoke("open_link", { name: `pubchem:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
         />
       )}</Live>}</Exit>
+      <Exit>{supplierView && (
+        <SuppliersWindow
+          targets={supplierView.labels.map((label, k) => {
+            const key = supplierView.keys[k];
+            const error = key && supplierErrors.current.get(key);
+            const found: Found = !key ? { error: NO_KEY } : key === askingKey ? "busy" : error && !busy.suppliers ? { error } : suppliersFound.current.has(key) ? suppliersFound.current.get(key) : busy.suppliers ? "busy" : undefined;
+            return { label, found };
+          })}
+          at={supplierView.at}
+          onAt={(at) => setSupplierView((v) => v && { ...v, at })}
+          favourites={settings.favouriteSuppliers ?? []}
+          onStar={(name, on) => setSettings((s) => ({ ...s, favouriteSuppliers: starred(s.favouriteSuppliers ?? [], name, on) }))}
+          onOpen={(url) => void invoke("open_link", { name: `supplier:${url}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
+          onVendors={(cid) => void invoke("open_link", { name: `pubchem-vendors:${cid}` }).catch((e) => setNotice(failure("Octet cannot open the link.", e)))}
+          onRetry={() => void lookUp("suppliers", supplierView.keys)}
+          onClose={() => setSupplierView(undefined)}
+        />
+      )}</Exit>
       <Exit>{noteView && <Notes fields={noteView.fields} rows={noteView.rows} onNote={notePanel.note} onRow={notePanel.row} onClose={notePanel.close} onTyped={setNoteTyped} focus={noteFocus} />}</Exit>
       <Live store={carets}>{() => {
         const context = panelContext ?? contextOf();

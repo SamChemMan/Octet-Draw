@@ -58,7 +58,8 @@ const predicted = PROPERTY_ROWS.flat().filter((r) => r.predicted).map((r) => r.k
 assert.deepEqual(predicted, ["tb", "tm", "tc", "pc", "vc", "hf", "gf", "henry", "logp", "mr", "logs", "pka"]);
 assert.ok(PROPERTY_ROWS.every((g) => g.every((r) => r.predicted) || g.every((r) => !r.predicted)), "each group is all predicted or none");
 const panel = readFileSync(new URL("Properties.tsx", import.meta.url), "utf8");
-assert.match(panel, /g\.every\(\(r\) => r\.predicted\) && <h3 className="prop-heading">Predicted<\/h3>/);
+assert.match(panel, /const predicted = values\.flat\(\)\.filter\(\(r\) => r\.predicted\);[\s\S]{0,300}\["Predicted", predicted\]/);
+assert.match(panel, /<h3 className="prop-heading">\{heading\}<\/h3>/);
 assert.match(panel, /onCopy\(`\$\{rowLabel\(row\)\}: /);
 assert.equal(plainOf(propertyRuns(standard, ["formula", "logp"], 0)), "Formula: C9H8O4\nlogP (predicted): 1.31");
 assert.ok(lines.includes("Structure 1") && lines.includes("Structure 2"));

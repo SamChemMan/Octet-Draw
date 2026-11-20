@@ -71,12 +71,14 @@ assert.equal(editor.split('"pubchem_hazards"').length, 2, "one call");
 assert.match(editor, /function findHazards\(\) \{[^}]*?TAURI\) return;[\s\S]{0,300}void lookUp\("hazards", found\.keys\);/);
 assert.match(editor, /const askHazards = \(key: string, by: "hazards" \| "risk" = "hazards"\) => \{[\s\S]{0,200}"pubchem_hazards", \{ key, by \}/);
 assert.match(editor, /onHazards=\{findHazards\}/);
-assert.match(panel, /\{online && <button className="prop-add" onClick=\{onHazards\}/);
-assert.match(editor, /online=\{settings\.onlineSearch\}\s+onHazards/);
+// The Hazards tab offers Find hazards only with Online search on (else Open Settings), and only until every
+// structure has an answer.
+assert.match(panel, /\{!online \? \([\s\S]{0,200}onClick=\{onSettings\}>Open Settings<\/button>[\s\S]{0,120}\) : \(finding \|\| !looked\) && \([\s\S]{0,300}onClick=\{onHazards\}/);
+assert.match(editor, /online=\{settings\.onlineSearch && TAURI\}\s+finding=\{!!busy\.hazards\}\s+looked=\{properties\.looked\}\s+onHazards=\{findHazards\}/);
 assert.match(editor, /settings\.onlineSearch && ghsKeys\?\.structures\[k\] === s/);
 // A live caption (Add to drawing) keeps the hazards found for its structure when its values are worked out again.
 assert.match(editor, /propertyValues\(found, calc, places, key \? \[ghsFound\.current\.get\(key\)\] : \[\]\)/);
 // The panel draws each structure's pictograms and statements from its own value, so a semicolon in a statement does
 // not split it as if it were the next structure's.
-assert.match(panel, /row\.key === "ghs" \? row\.values\.map[\s\S]*row\.key === "hazards" \? row\.values\.map/);
+assert.match(panel, /if \(row\.key === "ghs"\) return row\.values\.map[\s\S]*if \(row\.key === "hazards"\) return row\.values\.map/);
 console.log("ghs.check: ok");

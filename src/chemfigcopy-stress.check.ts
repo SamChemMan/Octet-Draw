@@ -705,7 +705,7 @@ rec("ST18 U2 keyboard only: palette copies readable code", first && first.starts
   svg.dispatchEvent(new A.w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.bottom - 30, button: 2 }));
   await wait(700);
   const items = [...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean);
-  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Molecule and copy");
+  const sub = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy");
   sub?.click();
   await wait(700);
   items.push("|", ...[...A.d.querySelectorAll('[role="menu"] button, .menu button')].map((b) => b.textContent.trim()).filter(Boolean));
@@ -799,12 +799,14 @@ const Bw = await openWindow("B");
   const svg = A.d.querySelector(".editor svg"), r = svg.getBoundingClientRect();
   svg.dispatchEvent(new A.w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.bottom - 30, button: 2 }));
   await wait(600);
-  [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Molecule and copy")?.click();
+  const copySet = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy");
+  copySet?.click();
   await wait(700);
+  const opened = [...A.d.querySelectorAll(".context-menu button")].some((b) => b.textContent.trim() === "Copy as SMILES");
   const item = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as LaTeX (chemfig)");
   const sln = [...A.d.querySelectorAll(".context-menu button")].find((b) => b.textContent.trim() === "Copy as SLN");
   key(A, { key: "Escape", code: "Escape" }); await wait(300); key(A, { key: "Escape", code: "Escape" }); await wait(300);
-  rec("ST18 U11 (S27) More formats off: not in the palette, the panel or the right-click menu", typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ palette: p, button: !!button, menu: !!item, sln: !!sln }));
+  rec("ST18 U11 (S27) More formats off: not in the palette, the panel or the right-click menu", !!copySet && opened && typeof p === "object" && !p.found && !button && !item && !sln, JSON.stringify({ copySet: !!copySet, opened, palette: p, button: !!button, menu: !!item, sln: !!sln }));
   setSettings({ moreFormats: true, chemfigCompact: false });
   await wait(800);
 }

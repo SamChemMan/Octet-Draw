@@ -87,7 +87,7 @@ export function TextField({ value, label, onChange, onTyped, lines, max = lines 
 // first). Left and Right move along it. An option marked off is dimmed and skipped. The on segment's fill slides to
 // the new choice, as the toolbar's indicator does between tools; with reduced motion the fill fades instead.
 export function Segmented<T extends string>({ label, value, options, onChange, className }: {
-  label: string; value: T; options: [T, React.ReactNode, string?, boolean?][]; onChange: (v: T) => void; className?: string;
+  label: string; value: T; options: [T, React.ReactNode, string?, boolean?, string?][]; onChange: (v: T) => void; className?: string; // the fifth: the option's key, shown in its tip
 }) {
   const box = useRef<HTMLSpanElement>(null), thumb = useRef<HTMLSpanElement>(null), at = options.findIndex(([v]) => v === value);
   // The fill takes the on segment's place and size, measured as laid out (so it follows a menu dragged wider and a
@@ -117,8 +117,8 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
         onChange(next);
         (e.currentTarget.children[options.findIndex(([v]) => v === next)] as HTMLElement | undefined)?.focus();
       }}>
-      {options.map(([v, shown, name, off], k) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} data-tip={name} disabled={off}
+      {options.map(([v, shown, name, off, keyHint], k) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} data-tip={name} data-key={keyHint} disabled={off}
           tabIndex={value === v || (k === 0 && !options.some(([o]) => o === value)) ? 0 : -1} onClick={() => onChange(v)}>{shown}</button>
       ))}
       <span ref={thumb} className="seg-thumb" aria-hidden />
