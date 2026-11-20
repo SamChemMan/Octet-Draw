@@ -132,16 +132,17 @@ export function RichBox(p: Props) {
       spellCheck={false}
       style={p.style}
       onInput={() => {
-        // One line: a line break that came in (a paste from the Edit menu) is a space, and the box is built again.
-        const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && plainOf(got).includes("\n");
-        const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/\n/g, " ") }))) : got;
+        // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
+        // again. A cell's text never holds one (a file with one is refused).
+        const el = box.current!, got = read(el, p.base), flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
+        const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
         if (!p.pending) return p.onRuns(now, flat ? p.api.current?.range() : undefined);
         // Characters typed after a style was set with nothing selected take that style; the box is built again.
         p.onRuns(edited(runs.current, plainOf(now), p.pending), p.api.current?.range());
       }}
       onPaste={(e) => {
         e.preventDefault();
-        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/\n/g, " ") : lined, start = p.api.current?.range()?.[0];
+        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/[\u0000-\u001f]/g, " ") : lined, start = p.api.current?.range()?.[0];
         if (text.includes("\n")) insert(text);
         else if (text) document.execCommand("insertText", false, text);
         const runs = p.onOffer && start !== undefined ? offerFor(text, e.clipboardData.getData("text/html")) : undefined;

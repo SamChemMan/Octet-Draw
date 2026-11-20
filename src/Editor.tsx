@@ -1106,17 +1106,18 @@ export default function Editor() {
   // The caret moving in the box changes what the Actions panel shows as on (Bold, Subscript and so on): only the panel
   // draws again.
   const [carets] = useState(() => store(0));
-  useEffect(() => {
-    if (!writing) return;
-    const tick = () => carets.set(carets.get() + 1);
-    document.addEventListener("selectionchange", tick);
-    return () => document.removeEventListener("selectionchange", tick);
-  }, [!!writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The curve the Pen is drawing (its points so far), and where the pointer is, for the segment to it.
   const [pen, setPen] = useState<CurvePoint[]>();
   const [penAt, setPenAt] = useState<P>();
   // The table cell being typed in: its table, row and column, and the text so far, in runs (CellBox).
   const [cell, setCell] = useState<{ id: number; r: number; c: number } & CellBox>();
+  // The caret moving in a caption box or a Table cell box (carets, above).
+  useEffect(() => {
+    if (!writing && !cell) return;
+    const tick = () => carets.set(carets.get() + 1);
+    document.addEventListener("selectionchange", tick);
+    return () => document.removeEventListener("selectionchange", tick);
+  }, [!!writing || !!cell]); // eslint-disable-line react-hooks/exhaustive-deps
   // The table cell last typed in: the row and column the table actions add, delete and align at.
   const [lastCell, setLastCell] = useState<{ id: number; r: number; c: number }>();
   useEffect(() => { if (cell) setLastCell({ id: cell.id, r: cell.r, c: cell.c }); }, [cell?.id, cell?.r, cell?.c]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4509,7 +4510,9 @@ export default function Editor() {
     if (to) {
       const [r, c] = to, rows = cur.table!.cells.length;
       if (r >= rows) { cur = { ...cur, ...resizeTable(cur, rows + 1, cur.table!.cells[0].length, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
-      if (r >= 0) setCell(cellOf(cur, r, c, w.version + 1));
+      // The same cell (up from the top row) stays as it is, its caret where it was, unless its text was expanded.
+      if (r === w.r && c === w.c) { if (value !== plainOf(w.runs)) setCell({ ...cellOf(cur, r, c, w.version + 1), caret: [value.length, value.length] }); }
+      else if (r >= 0) setCell(cellOf(cur, r, c, w.version + 1));
     } else { cellOpen.current = false; setCell(undefined); }
     if (m !== doc) set(m, true);
   }
@@ -7315,7 +7318,15 @@ export default function Editor() {
   const gridWrites = (gc: GridCell) => !gridTypes(gc) && ((gc.row !== "limiting" && gc.row !== "role") || gc.key[0] === "#");
   // The text cells take text styles on their characters (stoich.ts takesRuns). Typed over a value, text is bold, as a
   // typed value is; a row's name and a row of the user's own are not (gridview.ts shownCell).
-  const gridStyles = (gc: GridCell) => gridWrites(gc) && takesRuns(gc.row, gc.key);
+  // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too (its
+  // caption), so the scheme and the table say the same: the caption it goes to.
+  const gridNumber = (w: GridCell, text: string) => {
+    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
+    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
+    return cap && text && isNumber({ ...cap, text }) ? cap : undefined;
+  };
+  // A compound number takes none (it is the caption's text), so the keys do nothing while the cell holds one.
+  const gridStyles = (gc: GridCell, text?: string) => gridWrites(gc) && takesRuns(gc.row, gc.key) && !(text !== undefined && gridNumber(gc, oneLine(text).trim()));
   const gridBase = (gc: GridCell): RunStyle => (gridTypes(gc) || gc.key[0] === "#" || doc.grids?.find((g) => g.arrow === gc.arrow)?.own?.some((o) => o.id === gc.row) ? {} : { bold: true });
   // Grid.runs with a cell's styles set, or taken off (none).
   const gridRuns = (g: Grid, row: string, k: string, own?: TextRun[]): Partial<Grid> => {
@@ -7323,6 +7334,8 @@ export default function Editor() {
     const next = Object.keys(cells).length ? { ...rows, [row]: cells } : rows;
     return { runs: Object.keys(next).length ? next : undefined };
   };
+  // A row of the user's own deleted, with its styles.
+  const dropOwn = (g: Grid, row: string): Partial<Grid> => { const { [row]: _, ...runs } = g.runs ?? {}; return { own: g.own?.filter((o) => o.id !== row), runs: Object.keys(runs).length ? runs : undefined }; };
   // Limiting? sets the limiting reactant (a column with the Reactant role); Role goes to the next role: Reactant, Catalyst,
   // Solvent.
   const gridToggle = (gc: GridCell) => {
@@ -7346,12 +7359,8 @@ export default function Editor() {
   const writeGridCell = (w: GridCell, typed: string, runs?: TextRun[]) => {
     const text = oneLine(typed).trim(), k = w.key[0] === "#" ? "#" : w.key;
     // Its characters' styles where they differ from the cell's look (none for a cell that takes none).
-    const own = runs && gridStyles(w) && text ? ownRuns(edited(runs, text), gridBase(w)) : undefined;
-    // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too, so the
-    // scheme and the table say the same.
-    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
-    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
-    if (cap && text && isNumber({ ...cap, text })) {
+    const own = runs && gridStyles(w, text) && text ? ownRuns(edited(runs, text), gridBase(w)) : undefined, cap = gridNumber(w, text);
+    if (cap) {
       const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest }, ...gridRuns(g, w.row, w.key) }; });
       return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
     }
@@ -7384,7 +7393,7 @@ export default function Editor() {
     const next = gridStep(v.cells, gc, "down"), stay = () => setGridPick(next && next !== gc ? { arrow: v.arrow, key: next.key, row: next.row } : undefined);
     if (pick.key[0] === "#") {
       stay();
-      if (row.own) return changeGrid(v.arrow, (h) => { const { [row.id]: _, ...runs } = h.runs ?? {}; return { own: h.own?.filter((o) => o.id !== row.id), runs: Object.keys(runs).length ? runs : undefined }; });
+      if (row.own) return changeGrid(v.arrow, (h) => dropOwn(h, row.id));
       return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, rows: [...(h.hidden?.rows ?? []), row.id] } }));
     }
     if (pick.row === "name" && !g.text?.name?.[pick.key]) { stay(); return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, cols: [...(h.hidden?.cols ?? []), pick.key] } })); }
@@ -7584,6 +7593,13 @@ export default function Editor() {
       const cellAlign = lastCell?.id === sh.id ? aligns[lastCell.c] : aligns.every((a) => a === aligns[0]) ? aligns[0] : undefined;
       return { lines: linesOf(sh.table), cellAlign, weight: ((sh.table ? sh.table.weight : sh.width) ?? style.line) * scaleOf(sh), cell: lastCell?.id === sh.id };
     };
+    // Bold, Italic and Underline as on: the open cell's at its caret (the next characters typed) or its selection, else
+    // the table's.
+    const tableFace = (sh: Shape) => {
+      const range = cell && cellOpen.current && cell.id === sh.id ? cellApi.current?.range() ?? [cell.value.length, cell.value.length] : undefined;
+      const at: { bold?: boolean; italic?: boolean; underline?: boolean } = range ? cell!.pending ?? common(cell!.runs, range[0], range[1]) : sh;
+      return { bold: !!at.bold, italic: !!at.italic, underline: !!at.underline };
+    };
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
@@ -7592,7 +7608,7 @@ export default function Editor() {
         kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), charges: chargesOf(doc, [], picked), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
-        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
+        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { ...tableFace(first), font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
     // Arrows picked on their own.
@@ -7689,7 +7705,8 @@ export default function Editor() {
   glidingNow.current = gliding;
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a caption or a Table cell is typed in, the panel reads the context as it draws (the caret moves: carets).
+  const panelContext = useMemo(() => (writing || cell ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, !!cell, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Notes panel (Notes.tsx, annotate.ts): the drawing's notes, then the selection's (one field for several targets),
   // then a row for each other object or group with a note. Worked out only while the panel is open.
   const noteName = (m: Mol, t: Target): string => {
@@ -9181,7 +9198,7 @@ export default function Editor() {
         newRow.current = { arrow, row: id, rows: !!v.texts };
         return changeGrid(arrow, (h) => ({ own: [...(h.own ?? []), { id, name: "", after }] }));
       }
-      if (what === "row.delete") return changeGrid(arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row) }));
+      if (what === "row.delete") return changeGrid(arrow, (h) => dropOwn(h, row));
       // Attach to reaction: back under its reaction, following it again.
       if (what === "attach") return changeGrid(arrow, () => ({ at: undefined, free: undefined }));
       // Make static: the table as plain text and lines in a group, in one step (⌘Z brings the table back).
@@ -9539,7 +9556,7 @@ export default function Editor() {
       if (box && (toggles[what] || what === "formula")) {
         const patch = what === "formula" ? "formula" as const : what === "plain" ? (st: RunStyle): RunStyle => ({ ...st, bold: undefined, italic: undefined, underline: undefined, script: undefined }) : toggles[what]!;
         if (box === "table") return setCell(styleBox(cell!, cellApi.current?.range(), patch));
-        if (gridStyles(gridEdit!)) setGridEdit(styleBox(gridEdit!, gridApi.current?.range(), patch));
+        if (gridStyles(gridEdit!, gridEdit!.value)) setGridEdit(styleBox(gridEdit!, gridApi.current?.range(), patch));
         return;
       }
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw. Subscript and
@@ -11630,7 +11647,9 @@ export default function Editor() {
             look={cellLook}
             style={{
               left: view.x + ((t.col(cell.c) + t.widths[cell.c] / 2) * L * z) - width / 2, top: view.y - t.row(cell.r) * L * z,
-              width, height, ...textFace({ ...sh, underline: undefined }, size), lineHeight: `${height}px`, color: sh.colour ?? style.colour,
+              // The box is underlined only when every character is (a span cannot take off its box's underline), so
+              // text typed into an empty cell of an underlined table shows it.
+              width, height, ...textFace({ ...sh, underline: sh.underline && cell.runs.every((x) => !x.text || x.underline) ? true : undefined }, size), lineHeight: `${height}px`, color: sh.colour ?? style.colour,
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * t.f * L * z}px`,
             }}
             onRuns={(runs, rebuild) => setCell((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: w.version + 1, caret: rebuild, pending: undefined } : {}) })}

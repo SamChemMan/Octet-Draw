@@ -190,9 +190,10 @@ export const runsFor = (runs: TextRun[] | null | undefined, text: string) => (ru
 // The runs a cell keeps: none when every character has the cell's own look (base).
 export const ownRuns = (runs: TextRun[], base: RunStyle): TextRun[] | undefined => (plainOf(runs) && runs.some((r) => r.text && !sameStyle(styleOf(r), base)) ? normalise(runs) : undefined);
 // A Table's runs, the same shape as its cells (null for a cell without), if they are sound: at most 400 cells with
-// runs and 2000 runs in all. A cell's runs that are not sound, or do not join to its text, are left out.
+// runs and 2000 runs in all. A cell's runs that are not sound, or do not join to its text, are left out, and so are
+// rows past the cells' (an AI app that gave fewer rows).
 export function readTableRuns(v: unknown, cells: string[][]): (TextRun[] | null)[][] | undefined {
-  if (!Array.isArray(v) || v.length > cells.length) return undefined;
+  if (!Array.isArray(v)) return undefined;
   let n = 0, count = 0;
   const out = cells.map((row, r) => row.map((text, c) => {
     const x = Array.isArray(v[r]) && (v[r] as unknown[]).length <= 20 ? (v[r] as unknown[])[c] : undefined, runs = x ? readCellRuns(x, text) : undefined;

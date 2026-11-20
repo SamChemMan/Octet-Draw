@@ -13,7 +13,9 @@ Branch `item/cell-styles-113`, from release-1.1.3 (e5af1273). For 1.1.3.
   too, and the cell stays open.
 - With nothing selected, the style goes on the next characters typed.
 - Font, size and colour stay on the whole Table or the whole reagent table, as before.
-- The reagent table's text cells are a row's name, Formula, MW, a compound's number or name, and the rows of your own.
+- The reagent table's text cells are a row's name, Formula, MW, a compound's name, text typed over its number, and
+  the rows of your own. A compound number typed there is the compound's number caption in the drawing, so it takes
+  no styles of its own: the text keys do nothing while the cell holds one.
   Amount cells (Mass, Moles, Equiv, Volume and the other amounts) stay plain: their text is written again from their
   number each time the table is drawn. The text keys do nothing there.
 - In the reagent table, text typed over a value is bold, as before. ⌘B on some of its characters takes the bold off
@@ -21,7 +23,9 @@ Branch `item/cell-styles-113`, from release-1.1.3 (e5af1273). For 1.1.3.
 - A cell shows its styles on the page, in every export and after a save. Formula counts are still lowered where a
   character has no script of its own, so K₂CO₃ stays K₂CO₃ with part of it bold.
 - Tab, Return, Shift-Return, the arrow keys and Escape do what they did. Return never makes a new line in a cell. A
-  line break pasted into a cell becomes a space.
+  line break or tab pasted into a cell becomes a space. Up or Shift-Return in a Table's top row keeps the caret where
+  it is.
+- While a Table cell is open, the Actions panel's B, I and U show the style at the caret or of the selection.
 - Bold, Italic, Underline or Plain on a whole Table goes on every character of its cells too, so no cell keeps that
   style of its own.
 - Each cell typed in is one undo step, as before. Styling while typing is not a step of its own.
@@ -74,7 +78,9 @@ Runs sit beside the plain text, never inside it:
 ### Edits
 
 - `spliceTable`, `resizeTable`, `setTableCell` and `clearTable` move, cut and clear each cell's runs with its text.
-- Clearing a reagent table cell, writing it, or deleting a row of your own clears its runs.
+  An entry number numbered again keeps its style, and so does one Clear contents keeps.
+- Clearing a reagent table cell, writing it, or deleting a row of your own (Delete on its name or the Delete row
+  action) clears its runs.
 - Make static writes a styled cell's runs into its caption.
 
 ### Drawing and speed
@@ -98,7 +104,16 @@ Runs sit beside the plain text, never inside it:
 - `cellstyles.check.ts`: how the boxes, the menu, the Actions panel and the Experiment details sheet are wired.
 - `tablespeed.check.ts`: no slower than before.
 
+## Known approximation
+
+- The CDXML and CDX export lays a Table out with Arial's plain widths (`arial.ts` has no bold widths). A column with
+  bold text, a bold run or the whole table bold, is a little narrower there than on the page when the table has no
+  widths of its own, so its rules and left or right aligned text can sit slightly apart from the page. This was so
+  for a bold Table before this change.
+
 ## Left for 1.2
 
-- AI apps (MCP) read and write cell text only. Reporting and setting cell styles there is for the 1.2 session.
+- AI apps (MCP) read and write cell text only. Reporting and setting cell styles there is for the 1.2 session. A
+  table given with fewer rows keeps the runs of the rows left, and a row of your own an AI app deletes takes its
+  runs with it.
 - release-1.2-mcp needs the same reader changes before 1.2 ships, or 1.2 drops 1.1.3's cell styles when it saves.

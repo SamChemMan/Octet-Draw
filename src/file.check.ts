@@ -271,8 +271,10 @@ for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
     const t = open([[null, bad]]);
     assert.deepEqual([t.cells, t.runs], [cells, undefined], JSON.stringify(bad).slice(0, 60));
   }
-  // Not a list of rows, or more rows than the table has: no runs, the cells kept.
+  // Not a list of rows: no runs, the cells kept.
   for (const bad of [{}, "x", [[null], [null], [null], [null]]]) assert.deepEqual(open(bad).runs, undefined);
+  // More rows of runs than cells (an AI app gave a row fewer): the rows that have cells keep theirs.
+  assert.deepEqual(open([...runs, [null, [{ text: "Base", bold: true }]]]).runs, runs.map((r, i) => (i === 2 ? [null, null] : r)));
   // At most 2000 runs in all: the cells past it are left plain.
   const many = Array.from({ length: 100 }, () => ["ab".repeat(15)]), each = Array.from({ length: 15 }, () => [{ text: "a", bold: true as const }, { text: "b" }]).flat();
   const big = parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, shapes: [{ kind: "table", x1: 0, y1: 3, x2: 6, y2: 0, table: { cells: many, runs: many.map(() => [each]) } }] })).shapes![0].table!;

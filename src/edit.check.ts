@@ -317,6 +317,11 @@ assert.ok(Math.abs(cy(row, 0, 1) - cy(row, 2, 3)) < 1e-9, "centres share one y")
   assert.deepEqual([at(colOut, 2, 1), colOut.table!.runs![1]], [["K2", k2], [null, null]]);
   assert.deepEqual({ ...styled, ...resizeTable(styled, 2, 2) }.table!.runs, [[null, null], [null, thf]], "cut off with their cells");
   assert.equal({ ...styled, ...clearTable(styled) }.table!.runs, undefined, "Clear contents clears them");
+  // An entry number numbered again keeps its style (a bold best entry), and Clear contents keeps the ones it keeps.
+  const best = { ...styled, ...setTableCell(styled, 2, 0, "2", undefined, undefined, [{ text: "2", bold: true }]) }, two = [{ text: "2", bold: true as const }];
+  assert.deepEqual(at({ ...best, ...spliceTable(best, "row", 1, 0, 1) }, 3, 0), ["3", [{ text: "3", bold: true }]]);
+  assert.deepEqual(at({ ...best, ...spliceTable(best, "row", 1, 1, 0) }, 1, 0), ["1", [{ text: "1", bold: true }]]);
+  assert.deepEqual({ ...best, ...clearTable(best) }.table!.runs, [[null, null, null], [null, null, null], [two, null, null]]);
   const retyped = { ...styled, ...setTableCell(styled, 1, 1, "THF") };
   assert.deepEqual(retyped.table!.runs, [[null, null, null], [null, null, null], [null, null, k2]]);
   assert.equal({ ...retyped, ...setTableCell(retyped, 2, 2, "K2") }.table!.runs, undefined, "no cell left with styles: no runs");

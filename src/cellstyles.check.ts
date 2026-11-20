@@ -25,12 +25,33 @@ assert.match(editor, /if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); retur
 // One line: every Return is the cell's, never a new line; a pasted line break is a space; screen readers hear one line.
 assert.match(box, /if \(e\.key === "Enter" && p\.singleLine\) e\.preventDefault\(\);\s*else if \(e\.key === "Enter" && \(e\.shiftKey \|\| e\.altKey \|\| p\.returnNewLine\)\)/);
 assert.match(box, /aria-multiline=\{!p\.singleLine\}/);
-assert.match(box, /text = p\.singleLine \? lined\.replace\(\/\\n\/g, " "\) : lined/);
+// A tab or other control character pasted is a space too (a file whose cell holds one is refused as damaged).
+assert.ok(box.includes('text = p.singleLine ? lined.replace(/[\\u0000-\\u001f]/g, " ") : lined'));
+assert.ok(box.includes('flat = !!p.singleLine && /[\\u0000-\\u001f]/.test(plainOf(got))'));
 // The menu's and the keys' styles go to the open cell first; an amount cell takes none, and its font, size and colour
 // stay the whole table's.
 assert.match(editor, /const box = cell && cellOpen\.current \? "table" : gridEdit \? "grid" : undefined;\s*if \(box && \(toggles\[what\] \|\| what === "formula"\)\)/);
-assert.match(editor, /if \(gridStyles\(gridEdit!\)\) setGridEdit\(styleBox\(gridEdit!, gridApi\.current\?\.range\(\), patch\)\);\s*return;/);
+assert.match(editor, /if \(gridStyles\(gridEdit!, gridEdit!\.value\)\) setGridEdit\(styleBox\(gridEdit!, gridApi\.current\?\.range\(\), patch\)\);\s*return;/);
 assert.ok(editor.indexOf("const box = cell && cellOpen.current") < editor.indexOf("const texts = !writing && !selection.size"), "before the whole table's styles");
+// A compound number goes to its caption and keeps no styles, so the keys do nothing while the cell holds one.
+assert.match(editor, /const gridStyles = \(gc: GridCell, text\?: string\) => gridWrites\(gc\) && takesRuns\(gc\.row, gc\.key\) && !\(text !== undefined && gridNumber\(gc, oneLine\(text\)\.trim\(\)\)\);/);
+assert.match(editor, /const own = runs && gridStyles\(w, text\) && text \? ownRuns\(edited\(runs, text\), gridBase\(w\)\) : undefined, cap = gridNumber\(w, text\);/);
+// A row of your own deleted takes its styles with it, both ways (Delete on its name, the Delete row action), and so
+// does one an AI app deletes.
+assert.equal(editor.match(/changeGrid\([^)]*\(h\) => dropOwn\(h, row(\.id)?\)\)/g)?.length, 2);
+assert.ok(!/own: h\.own\?\.filter\(\(o\) => o\.id !== row\) \}/.test(editor));
+const mcp = read("mcp.ts");
+assert.match(mcp, /!grid\.own\?\.some\(\(o\) => o\.id === row\) \|\| own\.some\(\(o\) => o\.id === row\)/);
+assert.match(mcp, /\.\.\.\(t\.cells && was\?\.runs \? \{ runs: was\.runs\.slice\(0, cells\.length\) \} : \{\}\)/);
+// Up or Shift-Return in the top row stays in the cell with its caret where it was (no new box, nothing selected).
+assert.match(editor, /if \(r === w\.r && c === w\.c\) \{ if \(value !== plainOf\(w\.runs\)\) setCell\(\{ \.\.\.cellOf\(cur, r, c, w\.version \+ 1\), caret: \[value\.length, value\.length\] \}\); \}\s*else if \(r >= 0\) setCell/);
+// An underlined table's empty cell shows the underline while typed in.
+assert.match(editor, /textFace\(\{ \.\.\.sh, underline: sh\.underline && cell\.runs\.every\(\(x\) => !x\.text \|\| x\.underline\) \? true : undefined \}, size\)/);
+// The panel's B, I and U show the open cell's style at the caret, and follow the caret.
+assert.match(editor, /const at: \{ bold\?: boolean; italic\?: boolean; underline\?: boolean \} = range \? cell!\.pending \?\? common\(cell!\.runs, range\[0\], range\[1\]\) : sh;/);
+assert.match(editor, /text: \{ \.\.\.tableFace\(first\), font:/);
+assert.match(editor, /const panelContext = useMemo\(\(\) => \(writing \|\| cell \? undefined :/);
+assert.ok(editor.indexOf("const [cell, setCell] = useState") < editor.indexOf("if (!writing && !cell) return;"), "cell is declared before the caret effect reads it");
 // The Actions panel's B, I and U keep the cell open (its other buttons close it first, as a click elsewhere does).
 assert.match(actions, /cellOpen && e\.target instanceof Element && e\.target\.closest\("\.label-style"\)/);
 assert.match(editor, /cellOpen=\{!!cell \|\| !!gridEdit\}/);

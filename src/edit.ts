@@ -5,7 +5,7 @@ import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { plainOf, styled, whole, without, type TextRun } from "./richtext.ts";
+import { plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
@@ -2637,7 +2637,8 @@ export function spliceTable(sh: Shape, axis: "row" | "col", at: number, remove: 
     widths.splice(at, out, ...Array<number>(into).fill(average));
     align?.splice(at, out, ...Array<"centre">(into).fill("centre"));
   }
-  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) r[0] = String(++n); }); }
+  // A number's style stays with it when it is numbered again (one style, the first character's, for all of it).
+  if (numbered) { let n = 0; cells.forEach((r, i) => { if (i && (r[0] === "" || /^\d+$/.test(r[0]))) { const was = runsFor(runs?.[i][0], r[0]); r[0] = String(++n); if (was) runs![i][0] = [{ ...styleOf(was[0]), text: r[0] }]; } }); }
   const next: Table = { ...table, cells, ...(runs ? { runs } : {}), ...(table.widths ? { widths } : {}), ...(table.heights ? { heights } : {}), ...(align ? { align } : {}) };
   const width = widths.reduce((a, b) => a + b, 0), height = heights.reduce((a, b) => a + b, 0);
   return { from: [t.x0, t.y1], to: [t.x0 + width, t.y1 - height], table: next };
@@ -2666,10 +2667,11 @@ export function fitTable(sh: Shape, measure?: Measure, caption?: number): Partia
   return { from: [t.x0, t.y1], to: [t.x0 + t.natural.reduce((a, b) => a + b, 0), t.y1 - t.rows * tableRow(sh, caption)], table };
 }
 // Clear Contents: every cell empty, except the entry numbers and their header when the first column counts. The
-// styles go with the text.
+// styles go with the text, and the ones kept keep theirs.
 export function clearTable(sh: Shape): Partial<Shape> {
-  const { runs: _, ...table } = sh.table ?? { cells: [[""]] }, cells = table.cells, keep = counts(cells);
-  return { table: { ...table, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))) } };
+  const { runs: was, ...table } = sh.table ?? { cells: [[""]] }, cells = table.cells, keep = counts(cells);
+  const runs = keep && was ? cells.map((_, r) => cells[r].map((_x, c) => (c === 0 ? was[r]?.[0] ?? null : null))) : undefined;
+  return { table: { ...table, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))), ...(runs?.some((r) => r[0]) ? { runs } : {}) } };
 }
 // A table with one cell's text set, with its runs (none: plain), its box grown to fit the text if it no longer does.
 export function setTableCell(sh: Shape, r: number, c: number, text: string, measure?: Measure, caption?: number, own?: TextRun[]): Partial<Shape> {
