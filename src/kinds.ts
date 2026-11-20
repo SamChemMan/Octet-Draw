@@ -44,7 +44,8 @@ export const PENS: Record<string, string> = { pen: "Pen", "pen-edit": "Edit curv
 export const isPen = (v: unknown): v is string => typeof v === "string" && Object.keys(PENS).includes(v);
 // Settings saved by 1.1.2 and before, when both were options of the Shape tool: a Shape choice of either is the Pen
 // tool's choice, and the Shape tool takes its default again (variants). A shortcut pinned to either is the Pen tool's
-// (pin).
+// (pin), and so is the command palette's recent use of either, which has the same id (pins: each once, so a list that
+// had both the old and the new id has it once).
 export function movePens(saved: unknown): Record<string, unknown> {
   const v = typeof saved === "object" && saved !== null ? (saved as Record<string, unknown>) : {};
   if (!isPen(v.shape)) return v;
@@ -52,3 +53,4 @@ export function movePens(saved: unknown): Record<string, unknown> {
   return { ...rest, pen: shape };
 }
 export const movePin = (key: string) => (/^shape:pen(-edit)?$/.test(key) ? `pen:${key.slice(6)}` : key);
+export const movePins = (keys: string[]) => [...new Set(keys.map(movePin))];

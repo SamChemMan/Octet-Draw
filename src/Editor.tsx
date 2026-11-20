@@ -967,8 +967,9 @@ export default function Editor() {
       const cols = Math.max(2, Math.min(12, Math.round(Math.abs(to[0] - from[0]) / 2.2))), rows = Math.max(2, Math.min(40, Math.round(Math.abs(to[1] - from[1]) / 0.9)));
       return { kind: "table", from: [Math.min(from[0], to[0]), Math.max(from[1], to[1])], to: [Math.max(from[0], to[0]), Math.min(from[1], to[1])], table: newTable(rows, cols) };
     }
-    const spec = tool === "bracket" ? bracketPick : shapePick;
-    if (!("shape" in spec)) return undefined;
+    // Edit curve (the Pen tool) has the Shape tool's drag but draws nothing.
+    const spec = tool === "bracket" ? bracketPick : tool === "shape" ? shapePick : undefined;
+    if (!spec || !("shape" in spec)) return undefined;
     const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}), ...("bold" in spec && spec.bold ? { bold: true as const } : {}) };
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
     // An R-group definition takes the next R number (one a label uses with no definition yet, first).
@@ -5933,9 +5934,10 @@ export default function Editor() {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms), plot = lonePlot(doc, atoms, items);
       return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), text: textAlone(), working: doc, ...(plot ? { plot: plot.id } : {}) });
     }
-    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
+    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end. A
+    // hold gives Select, as with every tool.
     editPress.current = editCurve ? pickedCurve()?.id : undefined;
-    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) return setDrag({ kind: "click", at: p, start: screen, target: t });
+    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     if (tool !== "erase" && onTurnHandle(p)) {
       const centre = turnCentre();
       return setDrag({ kind: "turn", centre, middles: captionMiddles(), start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
@@ -6046,7 +6048,8 @@ export default function Editor() {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
     }
-    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
+    // Edit curve (the Pen tool's) keeps the Shape tool's drag it had up to 1.1.2: a click is a click, a drag draws nothing.
+    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table" || tool === "pen") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
     // Measure: a press on an atom starts the drag through the atoms to measure; anywhere else it does nothing.
     if (tool === "measure") return t.atom !== undefined ? setDrag({ kind: "measure", atoms: [t.atom], start: screen }) : undefined;

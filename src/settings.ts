@@ -24,7 +24,7 @@ import { readLayout, type HomeLayout } from "./homeLayout";
 import { CURSOR_INKS, type CursorInk } from "./cursor";
 import { readSelectColour, SELECT_DEFAULT } from "./selectcolour";
 import { OWN_MOST, PIN_MOST, PIN_PRESETS, type PinKind } from "./colours";
-import { movePens, movePin } from "./kinds";
+import { movePens, movePins } from "./kinds";
 
 const inRange = (n: unknown, lo: number, hi: number) => typeof n === "number" && n >= lo && n <= hi;
 
@@ -125,10 +125,10 @@ export function loadSettings(): Settings {
     const list = <T,>(v: unknown, ok: (x: unknown) => boolean) => (Array.isArray(v) ? (v.filter(ok) as T[]) : []);
     return {
       // The Cycle tool's Reagent in and Product out (Octet 1.0.29) are its Catalytic cycle now: side arrows pull out of it.
-      // Pen and Edit curve (Shape tool options up to 1.1.2) are the Pen tool's (movePens, movePin).
+      // Pen and Edit curve (Shape tool options up to 1.1.2) are the Pen tool's (movePens, movePins).
       ...DEFAULTS, ...saved, variants: { ...DEFAULTS.variants, ...movePens(saved.variants), ...(["in", "out"].includes(saved.variants?.cycle) ? { cycle: "circle" } : {}) },
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
-      pinned: list<string>(saved.pinned, (k) => typeof k === "string").map(movePin),
+      pinned: movePins(list<string>(saved.pinned, (k) => typeof k === "string")),
       // Once: the user's own templates, all in the Ring strip before its pin (1.1.3), stay there.
       anchors: Object.fromEntries(Object.entries(saved.anchors && typeof saved.anchors === "object" ? saved.anchors : {}).filter(([k, a]) => /^(lib|name):./.test(k) && k.length <= 300
         && !!a && typeof a === "object" && [(a as { atom?: unknown }).atom, (a as { bond?: unknown }).bond].some((n) => Number.isInteger(n) && (n as number) >= 0)).slice(0, 500)),

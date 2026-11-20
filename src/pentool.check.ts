@@ -12,11 +12,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isPen, movePens, movePin, PENS } from "./kinds.ts";
+import { isPen, movePens, movePin, movePins, PENS } from "./kinds.ts";
 import { ACTIONS, actionFor, keymap, optionCommand } from "./keys.ts";
 
 const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
-const tools = read("tools.tsx"), editor = read("Editor.tsx"), elements = read("elements.tsx"), settings = read("settings.ts");
+const tools = read("tools.tsx"), editor = read("Editor.tsx"), elements = read("elements.tsx"), settings = read("settings.ts"), commands = read("CommandPalette.tsx");
 
 // The settings Octet 1.1.2 saves for a user who drew with Shape > Edit curve last, pinned Pen, Edit curve, an oval and
 // an equilibrium arrow, gave the Shape tool and the Eraser keys, and widened the Shape menu. Made by 1.1.2's own
@@ -55,6 +55,18 @@ const SAVED_112 = `{"snap":true,"snapGrid":false,"guides":{"grid":false,"rulers"
   assert.match(editor, /\.\.\.variants\("pen", "pen", Object\.entries\(PENS\)\.map\(\(\[k, n\]\) => \[k, n, <PenGlyph v=\{k\} \/>\]\), "Tools", /);
   assert.deepEqual(["tool.pen", "tool.editcurve"].map((id) => ACTIONS.find((a) => a.id === id)?.name), ["Pen tool", "Edit curve tool"]);
   assert.deepEqual(Object.keys(PENS).map((k) => optionCommand("pen", k)), ["tool.pen", "tool.editcurve"]);
+  // Settings > Keyboard shortcuts lists the actions in their order: Pen tool and Edit curve tool come after Bracket
+  // tool, as the toolbar has them.
+  const at = (id: string) => ACTIONS.findIndex((a) => a.id === id);
+  assert.deepEqual([at("tool.pen"), at("tool.editcurve")], [at("tool.bracket") + 1, at("tool.bracket") + 2], "Pen tool and Edit curve tool after Bracket tool");
+  assert.match(read("SettingsWindow.tsx"), /\.\.\.ACTIONS\.map\(\(a\) => d\("keys", a\.group, a\.name, /, "Settings lists the actions in order");
+  // Edit curve, as under the Shape tool (release-1.1.3 e5af1273): pressed on an atom or bond it has the Shape tool's
+  // drag, so a click adds a point and a drag adds none and draws nothing.
+  assert.match(editor, /tool === "plasmid" \|\| tool === "table" \|\| tool === "pen"\) return setDrag\(\{ kind: "shape", from: p, start: screen, target: t \}\);/);
+  assert.match(editor, /const spec = tool === "bracket" \? bracketPick : tool === "shape" \? shapePick : undefined;\n\s+if \(!spec \|\| !\("shape" in spec\)\) return undefined;/, "the drag draws no shape");
+  // Edit curve with a curve picked: a press off the curve is a click (a point at the curve's end) and starts the hold,
+  // so held still, Select takes over, as with every tool.
+  assert.match(editor, /if \(editCurve && editPress\.current !== undefined && t\.arrow === undefined && t\.caption === undefined && t\.atom === undefined\) \{ setDrag\(\{ kind: "click", at: p, start: screen, target: t \}\); return startHold\(p, t, screen\); \}/);
 }
 
 // --- Settings from 1.1.2 ----------------------------------------------------------------------------------------------
@@ -66,12 +78,16 @@ const SAVED_112 = `{"snap":true,"snapGrid":false,"guides":{"grid":false,"rulers"
   const line = /variants: (\{ \.\.\.DEFAULTS\.variants, \.\.\.movePens\(saved\.variants\), [^\n]+\}),\n/.exec(settings);
   assert.ok(line, "loadSettings moves Pen and Edit curve over");
   const variantsOf = (s: Record<string, unknown>) => new Function("DEFAULTS", "saved", "movePens", `return ${line![1]};`)({ variants: defaults }, s, movePens);
-  assert.match(settings, /pinned: list<string>\(saved\.pinned, \(k\) => typeof k === "string"\)\.map\(movePin\),/, "and the pins");
+  assert.match(settings, /pinned: movePins\(list<string>\(saved\.pinned, \(k\) => typeof k === "string"\)\),/, "and the pins");
   const v = variantsOf(saved);
   assert.equal(v.shape, "box-plain", "the Shape tool takes its default");
   assert.equal(v.pen, "pen-edit", "the Pen tool has the option last used");
   for (const k of ["select", "bond", "ring", "arrow", "bracket", "more"]) assert.equal(v[k], saved.variants[k], k);
-  assert.deepEqual(saved.pinned.map(movePin), ["arrow:equilibrium", "pen:pen", "pen:pen-edit", "shape:oval-plain"], "the pins to Pen and Edit curve are the Pen tool's; others stay");
+  assert.deepEqual(movePins(saved.pinned), ["arrow:equilibrium", "pen:pen", "pen:pen-edit", "shape:oval-plain"], "the pins to Pen and Edit curve are the Pen tool's; others stay");
+  // Pen pinned in 1.1.3 and Shape > Pen pinned in 1.1.2 (opened in between): one shortcut, where the first was.
+  assert.deepEqual(movePins(["pen:pen", "arrow:equilibrium", "shape:pen", "shape:pen-edit", "pen:pen-edit"]), ["pen:pen", "arrow:equilibrium", "pen:pen-edit"], "each pin once");
+  // The command palette's recent commands use the same ids (shape:pen in 1.1.2, pen:pen now), and move the same way.
+  assert.match(commands, /const recent = \(\): string\[\] => \{ try \{ const v = JSON\.parse\(localStorage\.getItem\(RECENT\) \?\? "\[\]"\); return Array\.isArray\(v\) \? movePins\(v\.filter\(\(x\) => typeof x === "string"\)\) : \[\]; \}/, "recent commands from 1.1.2");
   // Keys: 1.1.2 had no command for Pen or Edit curve (its keys.ts), so no saved key names them. The keys saved carry
   // over as they are, and the Pen commands have none.
   const keys = keymap(saved.keys);
@@ -112,7 +128,7 @@ else {
       try { out = JSON.parse(run.stdout.trim().split("\n").pop()!); } catch { throw new Error(`${how}: the WebKit run did not finish: ${run.stdout.slice(-400)}${run.stderr.slice(-400)}`); }
       for (const c of out.cases) console.log(`  ${c.ok ? "ok" : "FAILED"} ${how}: ${c.id} ${c.title}${c.note ? ` (${c.note})` : ""}`);
       assert.deepEqual(out.cases.filter((c) => !c.ok).map((c) => c.id), [], `${how}: cases that failed`);
-      assert.ok(out.cases.length >= (height < 700 ? 2 : 8), `${how}: ${out.cases.length} cases ran`);
+      assert.ok(out.cases.length >= (height < 700 ? 2 : 12), `${how}: ${out.cases.length} cases ran`);
       assert.deepEqual(out.errors, [], `${how}: errors on the page`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -316,6 +332,77 @@ async function penStress(short: boolean, dark: boolean) {
     const e = await open("Edit curve"), edit = inHand() === "Edit curve";
     const p = await open("Pen"), pen = inHand() === "Pen";
     result("T8", "The command palette has Pen and Edit curve with the tools", edit && pen, `"Edit curve" → ${inHand() && edit ? "Edit curve" : "no"} (${e.slice(0, 40)}), "Pen" → ${pen} (${p.slice(0, 40)})`);
+  });
+
+  // A bond and a curve of three points, away from the other curves: the bond's first atom is where its click was, and
+  // the curve stays picked after Return.
+  const P = [cx - 320, cy - 220], Q = [[cx - 200, cy - 260], [cx - 140, cy - 300], [cx - 80, cy - 260]];
+  const points = (id: string) => doc().arrows.find((a: any) => a.id === id).curve.points.length;
+  const squares = () => document.querySelectorAll(".pen-points rect").length;
+  const editing = async () => {
+    pin("pen:pen-edit")!.click();
+    await until(() => pin("pen:pen-edit")!.getAttribute("aria-pressed") === "true", 3000);
+    if (!squares()) await click(Q[0]);
+    return !!(await until(() => squares() > 0, 2000));
+  };
+  let curve = "";
+
+  await step("T9", "Edit curve with a curve picked: a drag from an atom adds no point and draws nothing (as under Shape); a click there adds one", async () => {
+    await press({ key: "x", code: "KeyX" });
+    const atoms0 = doc().atoms.length;
+    await click(P);
+    const bond = doc().atoms.length === atoms0 + 2;
+    pin("pen:pen")!.click();
+    await until(() => pin("pen:pen")!.getAttribute("aria-pressed") === "true", 3000);
+    for (const q of Q) await click(q);
+    await press({ key: "Enter", code: "Enter" });
+    curve = curves().at(-1).id;
+    const shapes0 = (doc().shapes ?? []).length, picked = await editing(), n0 = points(curve);
+    await drag(P, [P[0] - 60, P[1] + 60]);
+    const none = points(curve) === n0 && (doc().shapes ?? []).length === shapes0 && doc().atoms.length === atoms0 + 2;
+    const again = await editing();
+    await click(P);
+    const one = points(curve) === n0 + 1;
+    result("T9", "Edit curve with a curve picked: a drag from an atom adds no point and draws nothing (as under Shape); a click there adds one",
+      bond && n0 === 3 && picked && again && none && one, `bond drawn ${bond}, curve picked ${picked} ${again}, points ${n0} → after the drag ${none ? "the same" : "changed"} → after the click ${points(curve)}`);
+  });
+
+  await step("T10", "Edit curve with a curve picked: a still press on empty canvas gives Select; let go, it adds no point and Edit curve is back", async () => {
+    const picked = await editing(), n0 = points(curve), q = [cx + 300, cy + 250];
+    ev("pointermove", q, { buttons: 0 }); await wait(40); ev("pointerdown", q);
+    const held = !!(await until(() => inHand() === "Select", 3000));
+    ev("pointerup", q);
+    const back = !!(await until(() => inHand() === "Edit curve", 3000));
+    await wait(300);
+    result("T10", "Edit curve with a curve picked: a still press on empty canvas gives Select; let go, it adds no point and Edit curve is back",
+      picked && held && back && points(curve) === n0, `curve picked ${picked}, Select while held ${held}, Edit curve after ${back}, points ${n0} → ${points(curve)}`);
+  });
+
+  await step("T11", "The command palette's recent commands from 1.1.2 (Shape > Edit curve, Shape > Pen) are Edit curve and Pen, each once", async () => {
+    localStorage.setItem("octet.recent", JSON.stringify(["shape:pen-edit", "pen:pen-edit", "shape:pen", "tool:text"]));
+    key({ key: "a", code: "KeyA", metaKey: true, shiftKey: true });
+    const find = await until(() => document.querySelector<HTMLInputElement>(".command-palette input"), 3000);
+    await wait(300);
+    const recent = [...document.querySelectorAll(".command-list .command")].filter((r) => r.querySelector(".command-group")?.textContent === "Recent").map((r) => r.querySelector(".command-name")?.textContent);
+    find?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }));
+    await until(() => !document.querySelector(".command-palette"), 2000);
+    result("T11", "The command palette's recent commands from 1.1.2 (Shape > Edit curve, Shape > Pen) are Edit curve and Pen, each once",
+      recent.join(", ") === "Edit curve, Pen, Text", `Recent: ${recent.join(", ")}`);
+  });
+
+  await step("T12", "Settings > Keyboard shortcuts lists Pen tool and Edit curve tool after Bracket tool", async () => {
+    (document.querySelector(".actions-reopen") as HTMLElement | null)?.click();
+    await wait(400);
+    (document.querySelector(".actions-settings") as HTMLElement | null)?.click();
+    const keys = await until(() => [...document.querySelectorAll<HTMLElement>(".settings-window .module")].find((m) => m.textContent?.trim() === "Keyboard shortcuts"), 3000);
+    keys?.click();
+    await wait(600);
+    const names = (document.querySelector<HTMLElement>(".settings-window")?.innerText ?? "").split("\n").map((l) => l.trim()).filter((l) => /^[A-Z][A-Za-z ]* tool$/.test(l));
+    const b = names.indexOf("Bracket tool");
+    (document.querySelector(".settings-window .actions-close") as HTMLElement | null)?.click();
+    await wait(500);
+    result("T12", "Settings > Keyboard shortcuts lists Pen tool and Edit curve tool after Bracket tool",
+      b >= 0 && names[b + 1] === "Pen tool" && names[b + 2] === "Edit curve tool", names.slice(Math.max(0, b - 1), b + 4).join(", ") || `${names.length} tools listed`);
   });
 
   out.errors = ((window as any).__errors ?? []).slice(0, 10);
