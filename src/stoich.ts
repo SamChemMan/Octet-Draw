@@ -11,7 +11,7 @@
 
 import type { Grid, GridConditions, GridOwnRow, GridRole } from "./render.ts";
 import { oneLine } from "./experiment.ts";
-import { MAX_TEXT } from "./richtext.ts";
+import { MAX_TEXT, readCellRuns } from "./richtext.ts";
 import ABBREVIATIONS from "./abbreviations.json" with { type: "json" };
 import { LIQUIDS, type Liquid } from "./liquids.ts";
 
@@ -331,13 +331,28 @@ function readOwn(x: unknown): GridOwnRow[] | undefined {
   }
   return out.length ? out : undefined;
 }
-function readCells<T>(x: unknown, read: (v: unknown) => T | undefined): Record<string, Record<string, T>> | undefined {
+function readCells<T>(x: unknown, read: (v: unknown) => T | undefined, most = 400): Record<string, Record<string, T>> | undefined {
   if (!x || typeof x !== "object" || Array.isArray(x)) return undefined;
   let n = 0;
   const out: Record<string, Record<string, T>> = {};
   for (const [row, cells] of Object.entries(x)) {
     if (!(CELL_ROWS.includes(row) || OWN.test(row)) || !cells || typeof cells !== "object" || Array.isArray(cells)) continue;
-    for (const [k, v] of Object.entries(cells)) { const got = read(v); if (cellKey(k) && got !== undefined && n++ < 400) (out[row] ??= {})[k] = got; }
+    for (const [k, v] of Object.entries(cells)) { const got = read(v); if (cellKey(k) && got !== undefined && n++ < most) (out[row] ??= {})[k] = got; }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+// Text styles (render.ts Grid.runs) go only on the text cells: a row's name, Formula, MW, a compound's number or name,
+// and the rows of the user's own. An amount cell's text is written again from its number each time it is drawn.
+const RUN_ROWS = ["formula", "mw", "number", "name"];
+export const takesRuns = (row: string, key: string) => key[0] === "#" || RUN_ROWS.includes(row) || OWN.test(row);
+// The text styles that are sound, each on a text cell and joining to the text kept there. The text bounds them: 400
+// cells typed over (readCells) and 20 rows of the user's own with up to 61 cells each.
+function readGridRuns(x: unknown, text: Grid["text"], own: GridOwnRow[] | undefined): Grid["runs"] {
+  const kept = (row: string, k: string) => { const o = own?.find((r) => r.id === row); return (o ? (k === "#" ? o.name : o.values?.[k]) : text?.[row]?.[k]) ?? ""; };
+  const raw = readCells(x, (v) => (Array.isArray(v) ? v : undefined), 2000), out: NonNullable<Grid["runs"]> = {};
+  for (const [row, cells] of Object.entries(raw ?? {})) for (const [k, v] of Object.entries(cells)) {
+    const runs = takesRuns(row, k) ? readCellRuns(v, kept(row, k)) : undefined;
+    if (runs) (out[row] ??= {})[k] = runs;
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -355,7 +370,7 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   if (g.limiting !== undefined && !(typeof g.limiting === "string" && KEY.test(g.limiting) && g.limiting.startsWith("r"))) return undefined;
   const h = g.hidden as { rows?: unknown; cols?: unknown; cells?: unknown; lines?: unknown } | undefined;
   const rows = Array.isArray(h?.rows) ? (h!.rows as unknown[]).filter((x): x is string => typeof x === "string" && (GRID_ROW_IDS.includes(x) || x === "number")).slice(0, 20) : [];
-  const own = readOwn(g.own), text = readCells(g.text, (v) => (typeof v === "string" && oneLine(v) ? oneLine(v) : undefined));
+  const own = readOwn(g.own), text = readCells(g.text, (v) => (typeof v === "string" && oneLine(v) ? oneLine(v) : undefined)), runs = readGridRuns(g.runs, text, own);
   const cells = readCells(h?.cells && !Array.isArray(h.cells) ? Object.fromEntries(Object.entries(h.cells as Record<string, unknown>).map(([r, ks]) => [r, Array.isArray(ks) ? Object.fromEntries(ks.map((k) => [k, true])) : undefined])) : undefined, (v) => (v === true ? true : undefined));
   const lines = Array.isArray(h?.lines) ? [...new Set((h!.lines as unknown[]).filter((x): x is string => typeof x === "string" && LINE.test(x)))].slice(0, 40) : [];
   const gone = { ...(cells ? { cells: Object.fromEntries(Object.entries(cells).map(([r, ks]) => [r, Object.keys(ks)])) } : {}), ...(lines.length ? { lines } : {}) };
@@ -366,7 +381,7 @@ export function readGrid(raw: unknown, arrow: number): Grid | undefined {
   const at = Array.isArray(g.at) && g.at.length === 2 && g.at.every((x) => typeof x === "number" && Number.isFinite(x) && Math.abs(x) < 1e4) ? [g.at[0], g.at[1]] as [number, number] : undefined;
   return { arrow, typed: typed as Grid["typed"], ...(g.limiting ? { limiting: g.limiting as string } : {}), ...(rows.length || cols.length || Object.keys(gone).length ? { hidden: { ...(rows.length ? { rows } : {}), ...(cols.length ? { cols } : {}), ...gone } } : {}), ...(colour ? { colour } : {}), ...(g.layout === "rows" ? { layout: "rows" as const } : {}),
     ...(roles ? { roles } : {}), ...(taken && Object.keys(taken).length ? { taken } : {}), ...(conc ? { conc } : {}), ...(conditions ? { conditions } : {}), ...(g.step === true ? { step: true as const } : {}), ...(at ? { at } : {}),
-    ...(g.free === true ? { free: true as const } : {}), ...(own ? { own } : {}), ...(text ? { text } : {}) };
+    ...(g.free === true ? { free: true as const } : {}), ...(own ? { own } : {}), ...(text ? { text } : {}), ...(runs ? { runs } : {}) };
 }
 
 // Each grid column's key (its side and what it is: "r:C7H8O", 'r:"NaBH4"', and "#2" on the next one the same) and what

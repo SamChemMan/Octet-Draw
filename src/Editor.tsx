@@ -13,7 +13,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "./listen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { chemicalText, formulaCaption, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
+import { chemicalText, formulaCaption, formulaOver, formulaRuns, labelSmiles, GROUPS, nicknameProblem } from "./labels";
 import { BUILT_IN, MOST_OWN_NICKNAMES, ownNickname, ownNicknames, setOwnNicknames, withNickname, withoutNickname } from "./nicknames";
 import { redrawStereo, nicknameGroup, analyse, analyseCompound, keptInchi, keptSmiles, chiralFlagOnly, structures, expandWithOrigins, stereoFacts, stereoLabels, smilesWeight, toMolfile, toReaction, toSdf, toInchiKey, drawnInchiKey, type RxnStep, type Structure, cipOf, cleanUp, MOST_CLEAN, MOST_NAMED, expandLabels, fragmentMasses, mapReaction, importStructure, isOwnFormat, onRestart, toInchi, measurer, parseStructure, ready, chainsDrawnOut, STYLE, textExtent, textWidth, toCml, toSmiles } from "./chem";
 import { fromCt, toCt, toSln } from "./textformats";
@@ -31,13 +31,13 @@ import {
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, moveSign, setSign, signKind, setSignKind, dropCharge, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
-  type TemplateAnchor, labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, cleanedFor, nextGroup, wholeMolecule, withAtom,
+  type TemplateAnchor, labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, measuredBy, followsAtoms, carriedMeasure, nextGroup, wholeMolecule, withAtom,
   groupTooBig, MAX_CELL, MAX_CURVE, MAX_LABEL,
 } from "./edit";
 import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { keepHands } from "./cip";
-import { arcPoints, kindOf as measureKind, measureInk, measureName, measureText, measureValue, passAtom, settleMeasures, structuresOf } from "./measurement";
+import { arcPoints, atomEnds, endAt, endsFor, isAtom, measureInk, measureName, measureText, measureValue, placeEnd, settleMeasures, type MeasureKind } from "./measurement";
 import { model3mf } from "./model3mf";
 import { elnArchive, elnRecords } from "./eln";
 import { arrowTrace, distToPath, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
@@ -47,7 +47,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
-import { ACTIONS, ARRANGE, DIALOGS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, ARRANGE, DIALOGS, MEASURE_TOOLS, MENU_READ, PEN_TOOLS, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, showsOnly, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -93,7 +93,7 @@ import { createPortal, flushSync } from "react-dom";
 import { chemfig, type Scheme, type SchemeItem } from "./chemfig";
 import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints, pasteRefused, pictureAs, PICTURES, readClipboard, standaloneSvg, inkOfText, UI, type ExportFormat, type ExportRequest } from "./export";
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
-import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
+import { CONDITIONS, parseAmount, reagentFormula, ROLES, takesRuns, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
 import { FIELDS as DETAILS, MAX_VALUE, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
@@ -106,12 +106,13 @@ import { scholarText, SEARCHES, searchNow, searchQuery, type Site } from "./sear
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
 import { addBranch, addSide, addStop, angleAbout, MAX_STEPS, attachBeside, branchFor, branchHeads, branchOf, breakAt, centreText, clearAt, cycleAtoms, dragEnd, dragMeet, dropOnCycle, followArcs, isSide, labelEnd, layoutCycles, orderAround, pullBranch, removeEnd, removeStop, resizeCycle, setBranch, setEnd, setEnds, setStep, sideChoices, sideFor, spreadCycle, stepAt, stepFor, structureMeet, swapBranch, textOn, withEnd, type Cycle, type CycleBranch, type CycleLayout, type CycleText } from "./cycle";
 import { ART_SETS, LIBRARY, libraryItem, type LibraryItem } from "./library";
-import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
+import { isPen, PENS } from "./kinds";
+import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, PenGlyph, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
   ArrowGlyph, arrowName, arrowVariant, BondGlyph, BONDS, ChainGlyph, CYCLES, ELLIPSES, HOLD_MS, AngleGlyph, DihedralGlyph, DistanceGlyph, JablonskiGlyph, MassSpecGlyph, MultiAttachmentGlyph, Palette, pickHead, RingGlyph, RINGS, SELECTS, SEQUENCES, SPECIAL, SideGlyph, STRAIGHT, SymbolGlyph, SYMBOLS, TemplateGlyph, VariableAttachmentGlyph,
   type ArrowPick, type BondKind, type RingKind, type SelectKind, type Tool,
 } from "./tools";
-import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
+import { arrowPath, arrowShapes, LIPID_HEAD, membraneHeads, bendPoint, blockOutline, curved, ellipseArrow, headBarb, headSize, sizeOf, sizedHead, turnPx, scaleOf, stereoSpot, fitArrows, HIGHLIGHT, SHADE, inShape, inDrawn, shapeBounds, turns, tlcLayout, spotPath, isPlate, gelScale, namesTurn, bandRf, bandSize, sizeText, gelRange, plasmidLayout, tableLayout, cellRuns, linesOf, TABLE_LINES, TABLE_PAD, curveBox, headsOf, takesHeads, shapesHeads, headMenu, HEAD_SHAPES, isBracket, isLine, isOrbital, orbitalLine, markAt, straightArrow, shapeInk, SWEEPS, sweepBend, sweepOf, isNumber, labelTurn, placeCaptions, render, renderParts, type Arrow, type ArrowEnd, type ArrowKind, type Atom, type Bond, type Box, type Drawing, apartShapes, type PartCache, type Caption, type CurvePoint, type End, type Head, type HeadShape, type CurveFill, type Mol, type Placed, type Shape, type ShapeKind, type Spot, type Tlc, type Region, type Marker, type TableLine, type CellAlign, polymerLabelsAt, type AtomQuery, type BracketUsage, type Polymer, type Grid, type GridConditions, ASCENT, DESCENT, GAP_ARROW_PT, placedAt, FREE_SYMBOLS, freeSymbol, resizeSymbol, symbolSize, partialText, reKind, symbolCharge, symbolNumber, type FreeSymbol, dashes, bracketPath, routeOf } from "./render";
 import { cursorColour, dragCursor, drawCursors, type Cursors } from "./cursor";
 import { CURSORS, handlePoint, isCorner, percentOf, resizeBy, sideAt, SIDES, type Box as RBox, type Side } from "./resize";
 import { abbreviationOf, cleanOwnName, loadNames, namesLoaded as opsinLoaded, mergeOwnNames, MOST_OWN_NAMES, nameToSmiles, namesStarting, ownName, ownNamesFile, OWN_SMILES_LENGTH, readOwnNamesFile, renameOwnName, setOwnNames, suggestName, knownName, looksLikeSmiles, withOwnName, withoutOwnName, type OwnName } from "./names";
@@ -138,9 +139,9 @@ import { invertAt, invertible, fischerable, INVERT_SELECT, toFischer, toWedges }
 import { fold, Pills, type Pill, type Sizing } from "./PanelControls";
 import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, FULL_SETS, hasContent, MOST_SETS, kindName, loadTemplates, moveTemplate, MY_SET, namedKind, newTemplate, openPalette, placeTemplate, removeSet, removeTemplate, renameSet, ringed, renameTemplate, setName, setTemplateAnchor, ownId, templateKind, templateToEnd, templateToStart, updateTemplate } from "./templates";
 import { expandEscapes, expandRuns, keptText } from "./escapes";
-import { CharMap, inMap } from "./CharMap";
+import { CharMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, cutRuns, edited, labelStyle, lines as richLines, MAX_TEXT, normalise, plainOf, runsOf, shareColour, styleRange, styled, trimLines, typedIn, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, cutRuns, edited, labelStyle, lines as richLines, MAX_TEXT, normalise, ownRuns, plainOf, runsOf, shareColour, sliceRuns, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
@@ -326,9 +327,9 @@ type Drag =
   | { kind: "tilt"; base: Mol; ids: Set<number>; centre: [number, number, number]; start: [number, number]; hinge?: [number, number]; working: Mol }
   // Mapping one atom to another with the Atom map tool: from the atom pressed to the pointer.
   | { kind: "map"; atom: number; start: [number, number]; to?: P }
-  // Measuring with the Measure tool: the atoms passed so far (2 a distance, 3 an angle, 4 a dihedral) and the pointer.
-  // clean: the drawing with their structures cleaned up in 3D (measurement.ts cleanedFor), for the value shown.
-  | { kind: "measure"; atoms: number[]; start: [number, number]; to?: P; clean?: { key: string; mol: Mol } }
+  // A press with the Measure tool: where it went down (at), and where the pointer is once it has moved 4 px (to). Let
+  // go, it places the next end there (measuring).
+  | { kind: "measure"; at: P; start: [number, number]; to?: P }
   // Turning the selection by its rotation handle: about its centre, from the angle the drag started at.
   | { kind: "turn"; centre: P; middles: Map<number, P>; start: number; degrees: number; working: Mol }
   // Moving the centre the selection turns about (Option-drag on the centre mark). Not moved, it is an Option-click.
@@ -566,6 +567,29 @@ const formula = (text: string, size: number) => formulaRuns(text).map((r, k, all
 ));
 const formulaWidth = (text: string, size: number, bold?: boolean, italic?: boolean, family?: string) =>
   formulaRuns(text).reduce((w, r) => w + textWidth(r.text, r.sub ? 0.75 * size : size, bold, italic, family), 0);
+// A table cell's runs as drawn (each character's whole style, formula counts lowered): their width.
+const runsWidth = (runs: TextRun[], size: number, family?: string) =>
+  formulaOver(runs).reduce((w, r) => w + textWidth(r.text, r.script ? 0.75 * size : size, r.bold, r.italic, family), 0);
+// Formula (⌘F, as ChemDraw's): the counts in characters start to end become subscripts.
+const formulaRange = (runs: TextRun[], s: number, e: number) => {
+  let out = runs, at = s;
+  for (const r of formulaRuns(plainOf(runs).slice(s, e))) { if (r.sub) out = styleRange(out, at, at + r.text.length, (st) => ({ ...st, script: "sub" })); at += r.text.length; }
+  return out;
+};
+// A text box over a table cell: its text, in runs as typed, and the box's state (RichBox): version, caret and pending.
+type CellBox = { value: string; runs: TextRun[]; version: number; caret?: [number, number]; pending?: RunStyle };
+// A text style on the characters selected in a cell box (with nothing selected, on the next ones typed; Formula, on all
+// of it), as on a caption's.
+function styleBox<T extends CellBox>(w: T, range: [number, number] | undefined, patch: ((s: RunStyle, all: RunStyle) => RunStyle) | "formula"): T {
+  const n = w.value.length, [s, e] = range ?? [n, n];
+  if (patch === "formula") return { ...w, runs: s < e ? formulaRange(w.runs, s, e) : formulaRange(w.runs, 0, n), version: w.version + 1, caret: [s, e] };
+  const all = common(w.runs, s, e);
+  if (s === e) return { ...w, pending: patch({ ...(w.pending ?? all) }, w.pending ?? all), version: w.version + 1, caret: [s, e] };
+  return { ...w, runs: styleRange(w.runs, s, e, (st) => patch(st, all)), version: w.version + 1, caret: [s, e] };
+}
+// How a run looks in a cell box: each character's whole style, so the box's own bold does not show through.
+const cellLook = (r: RunStyle): React.CSSProperties => ({ fontWeight: r.bold ? "bold" : "normal", fontStyle: r.italic ? "italic" : "normal", textDecoration: r.underline ? "underline" : "",
+  verticalAlign: r.script === "sub" ? "sub" : r.script === "super" ? "super" : "", fontSize: r.script ? "75%" : "" });
 // A caption's text on the canvas. It draws again only when its layout or look changes, so typing in one caption
 // passes over all the others. reagent: its counts print as subscripts (reaction conditions, a cycle's reagents).
 const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size === b.size && a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
@@ -1001,13 +1025,15 @@ export default function Editor() {
     const { [kind]: _, ...rest } = s.anchors;
     return { ...s, anchors: a ? { ...rest, [kind]: a } : rest };
   });
-  // The Shape and Bracket tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
+  // The Shape, Bracket and Pen tools' choices. A line or arc from the Shape tool is drawn like an arrow, with no head.
   const shapeChoice = shapeSpec(settings.variants.shape) ? settings.variants.shape : "box-plain";
+  const penChoice = isPen(settings.variants.pen) ? settings.variants.pen : "pen";
   const bracketChoice = bracketSpec(settings.variants.bracket) ? settings.variants.bracket : "brackets";
   const cycleChoice = settings.variants.cycle && CYCLES[settings.variants.cycle] ? settings.variants.cycle : "circle";
   const sequenceChoice = SEQUENCES[settings.variants.sequence] ? settings.variants.sequence : "peptide";
+  const measureChoice: MeasureKind = settings.variants.measure === "angle" || settings.variants.measure === "dihedral" ? settings.variants.measure : "distance";
   const shapePick = shapeSpec(shapeChoice)!, bracketPick = bracketSpec(bracketChoice)!;
-  const editCurve = tool === "shape" && "edit" in shapePick; // Edit curve in hand
+  const penDraw = tool === "pen" && penChoice === "pen", editCurve = tool === "pen" && penChoice === "pen-edit"; // the Pen, or Edit curve, in hand
   const orbitalChoice = orbitalSpec(settings.variants.orbital) ? settings.variants.orbital : "p-shaded";
   // A clicked orbital's tip: s orbitals a third of a bond across, lobes most of a bond long, pointing up, or for a
   // single lobe or hybrid on an atom, out into the atom's widest gap.
@@ -1028,8 +1054,9 @@ export default function Editor() {
       const cols = Math.max(2, Math.min(12, Math.round(Math.abs(to[0] - from[0]) / 2.2))), rows = Math.max(2, Math.min(40, Math.round(Math.abs(to[1] - from[1]) / 0.9)));
       return { kind: "table", from: [Math.min(from[0], to[0]), Math.max(from[1], to[1])], to: [Math.max(from[0], to[0]), Math.min(from[1], to[1])], table: newTable(rows, cols) };
     }
-    const spec = tool === "bracket" ? bracketPick : shapePick;
-    if (!("shape" in spec)) return undefined;
+    // Edit curve (the Pen tool) has the Shape tool's drag but draws nothing.
+    const spec = tool === "bracket" ? bracketPick : tool === "shape" ? shapePick : undefined;
+    if (!spec || !("shape" in spec)) return undefined;
     const style = { ...("dashed" in spec && spec.dashed ? { dashed: true } : {}), ...("fill" in spec && spec.fill ? { fill: spec.fill } : {}), ...("shadow" in spec && spec.shadow ? { shadow: true } : {}), ...("side" in spec && spec.side ? { side: spec.side } : {}), ...("bold" in spec && spec.bold ? { bold: true as const } : {}) };
     if ("circle" in spec && spec.circle) { const r = Math.hypot(to[0] - from[0], to[1] - from[1]); return { kind: "oval", from: [from[0] - r, from[1] - r], to: [from[0] + r, from[1] + r], ...style }; }
     // An R-group definition takes the next R number (one a label uses with no definition yet, first).
@@ -1148,23 +1175,29 @@ export default function Editor() {
   // The caret moving in the box changes what the Actions panel shows as on (Bold, Subscript and so on): only the panel
   // draws again.
   const [carets] = useState(() => store(0));
-  useEffect(() => {
-    if (!writing) return;
-    const tick = () => carets.set(carets.get() + 1);
-    document.addEventListener("selectionchange", tick);
-    return () => document.removeEventListener("selectionchange", tick);
-  }, [!!writing]); // eslint-disable-line react-hooks/exhaustive-deps
   // The curve the Pen is drawing (its points so far), and where the pointer is, for the segment to it.
   const [pen, setPen] = useState<CurvePoint[]>();
   const [penAt, setPenAt] = useState<P>();
-  // The table cell being typed in: its table, row and column, and the text so far.
-  const [cell, setCell] = useState<{ id: number; r: number; c: number; value: string }>();
+  // The measurement the Measure tool is placing: its ends so far (atoms and free points), and where the pointer is, for
+  // the dotted line to it (a store: a pointer move draws the line and its value again, not the editor). Nothing is in
+  // the drawing or its history until the last end.
+  const [measuring, setMeasuring] = useState<End[]>();
+  const [measureTos] = useState(() => store<P | undefined>(undefined));
+  const setMeasureTo = measureTos.set;
+  // The table cell being typed in: its table, row and column, and the text so far, in runs (CellBox).
+  const [cell, setCell] = useState<{ id: number; r: number; c: number } & CellBox>();
+  // The caret moving in a caption box or a Table cell box (carets, above).
+  useEffect(() => {
+    if (!writing && !cell) return;
+    const tick = () => carets.set(carets.get() + 1);
+    document.addEventListener("selectionchange", tick);
+    return () => document.removeEventListener("selectionchange", tick);
+  }, [!!writing || !!cell]); // eslint-disable-line react-hooks/exhaustive-deps
   // The table cell last typed in: the row and column the table actions add, delete and align at.
   const [lastCell, setLastCell] = useState<{ id: number; r: number; c: number }>();
   useEffect(() => { if (cell) setLastCell({ id: cell.id, r: cell.r, c: cell.c }); }, [cell?.id, cell?.r, cell?.c]); // eslint-disable-line react-hooks/exhaustive-deps
   const cellOpen = useRef(false);
-  const cellInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { cellInput.current?.select(); }, [cell?.id, cell?.r, cell?.c]);
+  const cellApi = useRef<RichApi>(undefined);
   useEffect(() => { drawCursors().then(setCursors); }, []);
   // A drag on the canvas keeps its cursor wherever the pointer goes until it ends: the closed hand for a handle, the
   // arrows for a resize or a table's edge, else the cursor the canvas showed at the press, as the rotation arrow for a
@@ -1320,7 +1353,22 @@ export default function Editor() {
     if (from !== undefined && !noMotion()) setSettle({ doc, from });
     else if (settle) setSettle(undefined); // so a redo to the same drawing does not settle again
   }, [doc]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Drawing with the Pen or measuring: Delete, Backspace and Undo take off the last point placed. With no point left,
+  // the curve or the measurement ends. Nothing in the drawing changes, so the screen reader is told here.
+  const takeBack = () => {
+    if (measuring) {
+      say(measuring.length > 1 ? "Removed the last end." : "Stopped the measurement.");
+      return setMeasuring(measuring.length > 1 ? measuring.slice(0, -1) : undefined);
+    }
+    if (pen && pen.length > 1) { say("Removed the last point."); return setPen(pen.slice(0, -1)); }
+    if (pen) say("Stopped the curve.");
+    setPen(undefined);
+    setPenAt(undefined);
+  };
   const undo = (redo = false) => {
+    // A curve or a measurement in progress: Undo takes off its last point and Redo does nothing. None of it is in the
+    // history yet, so the history stays as it is.
+    if (pen || measuring) { if (!redo) takeBack(); return; }
     // The last close of a panel, while the drawing is as it was then: Undo brings the panel back, Redo closes it again.
     const c = closedPanel.current;
     if (c && c.mol === h.stack[h.at] && c.at === h.at && !!c.undone === redo) {
@@ -3014,7 +3062,7 @@ export default function Editor() {
     paste: () => clipCommand("paste"),
     // While a label or caption is being typed, the Edit menu works on its text.
     undo: () => (typing() ? void document.execCommand("undo") : undo()),
-    redo: () => (typing() ? void document.execCommand("redo") : h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
+    redo: () => (typing() ? void document.execCommand("redo") : pen || measuring || h.at < h.stack.length - 1 ? undo(true) : repeatLast()),
     select_all: () => {
       if (homeOpen.current && !typing()) return homeSelectAll.current?.();
       if (typing()) {
@@ -3139,12 +3187,12 @@ export default function Editor() {
       sayAfter("Drew the structure flat, with wedges.");
       set(r.mol, true);
     },
-    // Structure > Measure (issue 85, where ChemDraw has Add 3D Property): the distance between 2 selected atoms, the
+    // Structure > Measure (issue 85, where ChemDraw has Add 3D Property): the length between 2 selected atoms, the
     // angle at 3, the dihedral across 4.
     ...Object.fromEntries((["distance", "angle", "dihedral"] as const).map((kind, k) => [`measure_${kind}`, () => {
       const atoms = [...selection].filter((i) => i < doc.atoms.length);
-      if (atoms.length !== k + 2) return setNotice(`Select ${k + 2} atoms to measure ${kind === "angle" ? "an angle" : `a ${kind}`}.`, "info");
-      measureAtoms(atoms, "chain");
+      if (atoms.length !== k + 2) return setNotice(`Select ${k + 2} atoms to measure ${kind === "angle" ? "an angle" : kind === "distance" ? "a length" : `a ${kind}`}.`, "info");
+      measureEnds(atoms, "chain");
     }])),
     // Align (⇧⌥⌘ L, C, R, T, M, B) and Distribute (⇧⌥⌘ H, V), as ChemDraw's Object menu: every selected structure,
     // group and object is one thing; they line up on the one highest on the page, or space out evenly between the
@@ -3174,7 +3222,7 @@ export default function Editor() {
     // Repeat (Edit menu, and ⌘Y when there is nothing to redo), as ChemDraw's.
     repeat: () => repeatLast(),
     // The whole structure of the selected atom or bond (ChemDraw's Molecule > Select), as Space over it selects it.
-    select_structure: () => choose(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked),
+    select_structure: () => choose(...withMeasures(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked)),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -3571,9 +3619,9 @@ export default function Editor() {
   const pageRan = useRef<{ id: string; at: number }>(undefined);
   // ChemDraw's text keys in a label or caption box. The box takes them first (in the app too: the web view gets the
   // keystroke before the Text menu does), and marks them in pageRan. A label takes only the Text menu's styles.
-  const textKeys = (e: React.KeyboardEvent, label: boolean) => {
+  const textKeys = (e: React.KeyboardEvent, label: boolean, cell = false) => {
     if (!(TAURI ? (MAC ? e.metaKey : e.ctrlKey) : e.metaKey || e.ctrlKey)) return;
-    const command = textKey(e, label);
+    const command = textKey(e, label, cell);
     if (!command || (label && !command.startsWith("caption."))) return;
     e.preventDefault();
     if (TAURI) pageRan.current = { id: command.startsWith("caption.") ? `text_${command.slice(8)}` : command, at: performance.now() };
@@ -3586,6 +3634,9 @@ export default function Editor() {
     if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
     // (Undo, Redo, Select All, Cut, Copy and Paste work on the note's own text.)
     const go = () => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.(); };
+    // A measurement in progress goes, but for a command that changes only what is shown (Magnify, Show Grid), and Undo
+    // and Redo, which act on it themselves.
+    if (!showsOnly(e.payload) && e.payload !== "undo" && e.payload !== "redo") setMeasuring(undefined);
     if (["undo", "redo", "select_all", "cut", "copy", "paste"].includes(e.payload)) go(); else afterNote(go);
   });
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
@@ -4547,7 +4598,15 @@ export default function Editor() {
     return updateShape(doc, part.map, { plasmid: { ...pl, regions: each(pl.regions, part.region), markers: each(pl.markers, part.marker) } });
   };
   // Tables: a cell's text width (drawing units), the table a point is on, and opening a cell to type in.
-  const cellWidth = (sh: Shape) => (text: string) => formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont)) / L;
+  const cellWidth = (sh: Shape) => (text: string, runs?: TextRun[]) => (runs ? runsWidth(runs, (sh.size ?? style.captionSize) * pt, fontStack(sh.font ?? style.captionFont))
+    : formulaWidth(text, (sh.size ?? style.captionSize) * pt, sh.bold, sh.italic, fontStack(sh.font ?? style.captionFont))) / L;
+  // A Table's own text style, which a cell's characters have unless they have runs of their own (render.ts Table.runs).
+  const cellBase = (sh: Shape): RunStyle => ({ ...(sh.bold ? { bold: true } : {}), ...(sh.italic ? { italic: true } : {}), ...(sh.underline ? { underline: true } : {}) });
+  // The box for a Table cell, its text all selected.
+  const cellOf = (sh: Shape, r: number, c: number, version: number) => {
+    const value = sh.table?.cells[r]?.[c] ?? "";
+    return { id: sh.id, r, c, value, runs: cellRuns(sh.table, r, c) ?? [{ ...cellBase(sh), text: value }], version, caret: [0, value.length] as [number, number] };
+  };
   const tableAt = (p: P) => [...(shown.shapes ?? [])].reverse().find((sh) => {
     if (sh.kind !== "table") return false;
     const t = tableLayout(sh, cellWidth(sh), style.captionSize);
@@ -4573,7 +4632,7 @@ export default function Editor() {
     const c = Math.max(0, Array.from({ length: t.cols }, (_, i) => i).filter((i) => t.col(i) <= p[0]).pop() ?? 0);
     const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
     cellOpen.current = true;
-    setCell({ id: sh.id, r, c, value: sh.table?.cells[r]?.[c] ?? "" });
+    setCell(cellOf(sh, r, c, (cell?.version ?? 0) + 1));
     reselect(new Set(), new Set([sh.id]));
   };
   // Ends the Pen's curve (closed when it came back to its first point) and adds it, if it has two points or more.
@@ -4588,7 +4647,7 @@ export default function Editor() {
     if (!refused.current) setPicked(new Set([id]));
   }
   // Putting the Pen down ends its curve.
-  useEffect(() => { if (pen && !(tool === "shape" && "pen" in shapePick)) finishPen(); }, [tool, shapeChoice]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (pen && !penDraw) finishPen(); }, [penDraw]); // eslint-disable-line react-hooks/exhaustive-deps
   // Saves the cell being typed, then moves to another cell (adding a row past the last one) or closes.
   function commitCell(to?: [number, number]) {
     const w = cell;
@@ -4596,13 +4655,21 @@ export default function Editor() {
     const sh = doc.shapes?.find((x) => x.id === w.id);
     if (!sh?.table) { cellOpen.current = false; return setCell(undefined); }
     let cur = sh, m = doc;
-    const value = expandEscapes(w.value, keptText(sh.table.cells[w.r]?.[w.c])); // \delta is δ (escapes.ts)
-    if (value !== (sh.table.cells[w.r]?.[w.c] ?? "")) { cur = { ...cur, ...setTableCell(cur, w.r, w.c, value, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
+    // \delta is δ (escapes.ts). Each character keeps its style; runs only where one differs from the table's own.
+    const typed = expandRuns(w.runs, keptText(sh.table.cells[w.r]?.[w.c])), value = plainOf(typed), own = ownRuns(typed, cellBase(sh));
+    if (value !== (sh.table.cells[w.r]?.[w.c] ?? "") || JSON.stringify(own) !== JSON.stringify(cellRuns(sh.table, w.r, w.c))) {
+      cur = { ...cur, ...setTableCell(cur, w.r, w.c, value, cellWidth(cur), style.captionSize, own) };
+      m = updateShape(m, sh.id, cur);
+    }
     if (to && to[0] >= cur.table!.cells.length) { cur = { ...cur, ...resizeTable(cur, cur.table!.cells.length + 1, cur.table!.cells[0].length, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
-    // A cell set refuses (past a count a file holds: overLimit) stays open with its text as typed, and set says why.
-    if (m !== doc) { set(m, true); if (refused.current) return void requestAnimationFrame(() => cellInput.current?.focus()); }
+    // A cell set refuses (past a count a file holds: overLimit) stays open with its text as typed and takes the focus
+    // back (its box is built again), and set says why.
+    if (m !== doc) { set(m, true); if (refused.current) { const at = plainOf(w.runs).length; return setCell({ ...w, version: w.version + 1, caret: [at, at], pending: undefined }); } }
     if (!to) { cellOpen.current = false; return setCell(undefined); }
-    if (to[0] >= 0) setCell({ id: sh.id, r: to[0], c: to[1], value: cur.table!.cells[to[0]]?.[to[1]] ?? "" });
+    // The same cell (up from the top row) stays as it is, its caret where it was, unless its text was expanded.
+    const [r, c] = to;
+    if (r === w.r && c === w.c) { if (value !== plainOf(w.runs)) setCell({ ...cellOf(cur, r, c, w.version + 1), caret: [value.length, value.length] }); }
+    else if (r >= 0) setCell(cellOf(cur, r, c, w.version + 1));
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
   // Where a measurement's lines stop short of an atom (bond lengths): clear of its label, or a little way off a bare
@@ -4613,25 +4680,40 @@ export default function Editor() {
     const r = 4 / L / views.get().zoom, seg = (a: P, b: P) => { const d: P = [b[0] - a[0], b[1] - a[1]], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1] || 1))); return Math.hypot(p[0] - a[0] - t * d[0], p[1] - a[1] - t * d[1]); };
     for (const c of [...(doc.captions ?? [])].reverse()) {
       if (!c.measure) continue;
-      const ink = measureInk(doc, c.measure.atoms, measureTrim), pts = ink.arc ? arcPoints(ink.arc) : [];
+      const ink = measureInk(doc, c.measure.ends, measureTrim), pts = ink.arc ? arcPoints(ink.arc) : [];
       if (ink.lines.some(([a, b]) => seg(a, b) <= r) || pts.some((q, k) => k > 0 && seg(pts[k - 1], q) <= r)) return c.id;
     }
     return undefined;
   };
-  // The structures (by their first atom) some atoms are in, as a key.
-  const structureKeys = (atoms: number[]) => structuresOf(doc, atoms).map((g) => g[0]).sort((p, q) => p - q).join(" ");
-  // Makes a measurement of these atoms (measurement.ts addMeasure): the Measure tool's, in the order passed, and the
-  // menu's, the Actions panel's and the palette's, along their bonds. A structure drawn flat is cleaned up in 3D first,
-  // in the same step, and glides there. The new measurement (or the same one there already) is picked.
-  const measureAtoms = (atoms: number[], order: "pick" | "chain") => {
-    const r = addMeasure(doc, atoms, order);
+  // Makes a measurement of these ends (measurement.ts addMeasure): the Measure tool's, in the order clicked, and the
+  // menu's, the Actions panel's and the palette's, along their bonds. The drawing is measured as it is: nothing in it
+  // changes. The new measurement (or the same one there already) is picked, in one undo step.
+  const measureEnds = (ends: End[], order: "pick" | "chain") => {
+    const r = addMeasure(doc, ends, order);
     if (typeof r === "string") return setNotice(r);
-    if (r.tooBig) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
-    if (r.made) { if (r.cleaned.length) glideTo(r.mol); else set(r.mol, true); }
+    if (r.made) set(r.mol, true);
     if (r.made && refused.current) return;
     setSelection(new Set());
     setPicked(new Set([r.id]));
   };
+  // The atom under the point a pointer move gave the Measure tool, found by the move's own hit test, so the line that
+  // follows the pointer tests for it no more.
+  const measureHit = useRef<{ at: P; atom?: number; doc: Mol }>(undefined);
+  // The Measure tool: the ends after one more at p, on the atom there or a free point (measurement.ts placeEnd), and a
+  // click (or a press let go 4 px away) placing them. The last end makes the measurement; the tool stays in hand.
+  const nextEnd = (ends: End[], p: P) => { const h = measureHit.current, on = h && h.at === p && h.doc === doc ? h.atom : hitAt(p).atom; return placeEnd(ends, measureChoice, on, p, 4 / L / views.get().zoom); };
+  // Snap to Grid: the point off an atom or bond on the grid, as a press there starts (onPointerDown), so the value shown
+  // before a click is the value it makes. free: ⌘ (Ctrl) held, which leaves the grid.
+  const measureAim = (p: P, free: boolean, t?: Hover) => { if (!snapGrid) return p; const h = t ?? hit(p); return h.atom === undefined && h.bond === undefined ? toGrid(p, free) : p; };
+  function placeMeasure(points: P[]) {
+    const was = measuring ?? [], ends = points.reduce(nextEnd, was);
+    if (ends === was) return;
+    if (ends.length < endsFor(measureChoice)) return setMeasuring(ends);
+    setMeasuring(undefined);
+    measureEnds(ends, "pick");
+  }
+  // Changing tool or variant takes the measurement in progress away.
+  useEffect(() => { setMeasuring(undefined); }, [tool, measureChoice]);
   const captionAt = (p: P) => {
     const at: P = [p[0] * L, -p[1] * L], pad = 3 / views.get().zoom;
     // A turned caption: the point turned back about its pivot, against its own box.
@@ -4859,7 +4941,7 @@ export default function Editor() {
   // and the captions attached to it (under it). For frames, aligning, snapping and the group frame.
   // Part of a structure gives only its own atoms and the bonds between them (inkOfAtoms).
   const withCaptions = (atoms: Iterable<number>): Box | undefined => {
-    const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i)) || c.measure?.atoms.every((i) => set.has(i))).map((c) => c.id));
+    const set = new Set(atoms), under = new Set((shown.captions ?? []).filter((c) => c.under?.some((i) => set.has(i)) || (c.measure && measuredBy(c.measure, set))).map((c) => c.id));
     return union([...[inkOfAtoms(shown, drawing.ink, drawing.label, set, L, drawing.electrons)].filter((b): b is Box => !!b), ...placed.filter((c) => under.has(c.id)).map((c) => c.box)]);
   };
   // Atoms and objects as drawn (px, y down): the atoms with their labels and the text under them, and the text, arrows,
@@ -5063,12 +5145,7 @@ export default function Editor() {
   }
   // Formula (⌘F, as ChemDraw's): the counts in the selected text (or the whole caption) become subscripts.
   function formulaText() {
-    const apply = (runs: TextRun[], s: number, e: number) => {
-      const text = plainOf(runs).slice(s, e);
-      let out = runs, at = s;
-      for (const r of formulaRuns(text)) { if (r.sub) out = styleRange(out, at, at + r.text.length, (st) => ({ ...st, script: "sub" })); at += r.text.length; }
-      return out;
-    };
+    const apply = formulaRange;
     if (writing) {
       const runs = writing.runs ?? [{ text: writing.value }], range = richApi.current?.range(), [s, e] = range && range[0] !== range[1] ? range : [0, writing.value.length];
       return setWriting({ ...writing, runs: apply(runs, s, e), version: (writing.version ?? 0) + 1, caret: range ?? [s, e] });
@@ -5137,6 +5214,8 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
+        // A measurement moved with all its atoms (or with none) takes its free ends along; its label alone leaves them.
+        if (c.measure) return { ...c, x: from[0] + d[0], y: from[1] + d[1], measure: carriedMeasure(c.measure, atoms, d) };
         // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged. A
         // step's name goes along its step the same way; an intermediate written as text stays one.
         if (isSide(c.cycle)) return { ...c, x: from[0] + d[0], y: from[1] + d[1] };
@@ -5382,12 +5461,14 @@ export default function Editor() {
       ?? cycles.find((c) => (id !== undefined ? c.id === id : c.nodes.some((n) => n.some((i) => atoms.includes(i)))));
     const add = (atoms: number[], items: number[], b: Box | undefined) => {
       if (!b) return;
-      const home = homeOf(atoms, items[0]), mine = home && out.find((o) => o.home === home);
+      const home = homeOf(atoms, atoms.length ? undefined : items[0]), mine = home && out.find((o) => o.home === home);
       if (mine) { mine.atoms.push(...atoms); mine.items.push(...items); mine.box = [Math.min(mine.box[0], b[0]), Math.min(mine.box[1], b[1]), Math.max(mine.box[2], b[2]), Math.max(mine.box[3], b[3])]; }
       else out.push({ atoms: [...atoms], items: [...items], box: b, home });
     };
     // A structure selected only in part lines up by that part and moves whole (partBox), as ChemDraw.
-    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const part = partBox(doc, g, selection), b = part ? undefined : withCaptions(g); add(g, [], part ?? (b && box(b))); }
+    // A picked measurement from it to an empty point goes with it whole (carriedMeasure).
+    const carried = (g: number[]) => { const s = new Set(g); return (doc.captions ?? []).filter((c) => picked.has(c.id) && c.measure && !followsAtoms(c.measure, s) && measuredBy(c.measure, s)).map((c) => c.id); };
+    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const part = partBox(doc, g, selection), b = part ? undefined : withCaptions(g); add(g, carried(g), part ?? (b && box(b))); }
     for (const c of cycles) { const b = drawnBox([], new Set([c.id])); add([], [c.id], b && box(b)); }
     for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle && !cap.measure) add([], [c.id], box(c.box)); }
     for (const a of doc.arrows ?? []) if (picked.has(a.id)) {
@@ -5486,7 +5567,7 @@ export default function Editor() {
   // does not count: a structure with its number under it flips in place.
   const selectionMiddle = (): P => {
     const { atoms, items } = chosen(), objects = new Set(items);
-    for (const c of doc.captions ?? []) if (c.under || c.on || c.cycle || c.measure) objects.delete(c.id);
+    for (const c of doc.captions ?? []) if (c.under || c.on || c.cycle || (c.measure && atomEnds(c.measure).length)) objects.delete(c.id);
     const b = union([...[...atoms].filter((i) => i < doc.atoms.length).map((i): Box => { const [x, y] = pos(doc, i); return [x * L, -y * L, x * L, -y * L]; }), ...[drawnBox([], objects)].filter((x): x is Box => !!x)]);
     return b ? [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L] : [0, 0];
   };
@@ -5535,7 +5616,7 @@ export default function Editor() {
     let out = moveAtoms(m, new Set(t.atoms), d);
     out = {
       ...out,
-      captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+      captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1], ...(c.measure ? { measure: carriedMeasure(c.measure, new Set(t.atoms), d) } : {}) } : c)),
       arrows: out.arrows?.map((a) => (ids.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
       shapes: out.shapes?.map((x) => (ids.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
       cycles: out.cycles?.map((c) => (ids.has(c.id) ? { ...c, centre: by(c.centre) } : c)),
@@ -5577,8 +5658,9 @@ export default function Editor() {
     const cycleIds = new Set((base.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
     for (const caption of base.captions ?? []) {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
-      // A cycle's text follows it, but for an intermediate written as text, which moves as a structure would.
-      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.measure && caption.measure.atoms.every((i) => atoms.has(i))) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
+      // A cycle's text follows it, but for an intermediate written as text, which moves as a structure would. A
+      // measurement with a free end moves whole (moveAll), its label too.
+      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.measure && followsAtoms(caption.measure, atoms)) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
       // (A reagent's text is at its arrow's start, a product's at its end.)
       const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
@@ -5604,7 +5686,7 @@ export default function Editor() {
     const textOf = new Map((doc.captions ?? []).map((c) => [c.id, c]));
     const moves = (id: number) => {
       const c = textOf.get(id);
-      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.measure && c.measure.atoms.every((i) => atoms0.has(i))) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
+      return picks0.has(id) || !!(c && ((c.under?.length && c.under.every((i) => atoms0.has(i))) || (c.measure && measuredBy(c.measure, atoms0)) || (c.on && picks0.has(c.on.arrow)) || (c.cycle && picks0.has(c.cycle.cycle))));
     };
     const things = [...arrows.filter((a) => !isOrbital(a)), ...(doc.shapes ?? [])], span = (v: GridView) => tableSpan(v) as Box;
     const movingBox = union([...(atoms0.size ? [ink(atoms0)] : []), ...placed.filter((c) => c.id !== DRAFT && moves(c.id)).map((c) => up(c.box)), ...things.filter((a) => picks0.has(a.id)).map(ends), ...gridViews.filter((v) => picks0.has(TABLE(v.arrow))).map(span)].filter((b): b is Box => !!b));
@@ -5795,6 +5877,9 @@ export default function Editor() {
     startArea(p, t, base, picks);
   }
 
+  // Whole structures picked (Space, Select Structure) with their measurements, as ⌘A picks them: a measurement from
+  // them to an empty point then moves whole with them (carriedMeasure).
+  const withMeasures = (atoms: number[], items: Iterable<number>): [number[], number[]] => { const s = new Set(atoms); return [atoms, [...items, ...(doc.captions ?? []).filter((c) => c.measure && measuredBy(c.measure, s)).map((c) => c.id)]]; };
   // Selects atoms and objects, with the whole of any integral group they touch: one cannot be split (as in ChemDraw,
   // where selecting any part of it selects all of it).
   // keep: the same things chosen again keep the sets as they are (a box or lasso moved without taking in more), so
@@ -5861,7 +5946,7 @@ export default function Editor() {
   // A cycle's side arrows' handles (where each meets the arc and its ends): every one's while the Cycle tool is over the
   // cycle, or when the cycle is picked on its own; the picked side arrow's alone, or the one whose text is picked.
   const branchHandles = (): CycleLayout["branches"] => {
-    if (writing || tool === "erase") return [];
+    if (writing || tool === "erase" || tool === "measure") return [];
     const over = tool === "cycle" ? overs.get().cycle : undefined, alone = picked.size === 1 && !selection.size ? [...picked][0] : undefined, one = loneCycle();
     const t = alone === undefined ? undefined : shown.captions?.find((x) => x.id === alone)?.cycle, sb = t && isSide(t) ? branchOf(shown, t) : undefined;
     const mine = (b: CycleLayout["branches"][number]) => (sb ? b.cycle === sb.c.id && b.branch === sb.b.id : b.cycle === one && stepPick?.cycle !== one && (branchPick?.cycle !== one || b.branch === branchPick.branch));
@@ -5870,15 +5955,17 @@ export default function Editor() {
   // A cycle's step handles (lead, trail and bow): every drawn step's while the Cycle tool is over the cycle, or when the
   // cycle is picked on its own; the picked step's alone.
   const stepHandles = (): { c: Cycle; steps: number[] } | undefined => {
-    if (writing || tool === "erase") return undefined;
+    if (writing || tool === "erase" || tool === "measure") return undefined;
     const one = doc.cycles?.find((x) => x.id === loneCycle()), id = tool === "cycle" ? overs.get().cycle ?? one?.id : one?.id, c = doc.cycles?.find((x) => x.id === id);
     if (!c) return undefined;
     const pick = c === one && stepPick?.cycle === c.id ? stepPick.step : undefined;
     if (c === one && branchPick?.cycle === c.id && overs.get().cycle !== c.id) return undefined;
     return { c, steps: cycleLayout.spans.filter((s) => s.cycle === c.id && s.to > s.from && !c.steps?.[s.step]?.hidden && (pick === undefined || s.step === pick)).map((s) => s.step) };
   };
-  // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
+  // The handle of the one picked arrow under a point: its ends, and the middle of a curved one. With Measure in hand
+  // there are none: every press goes to the measurement.
   const handleAt = (p: P): { id: number; which: Corner; step?: number; branch?: number } | undefined => {
+    if (tool === "measure") return undefined;
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     for (const b of branchHandles()) for (const which of ["meet", "end:in", "end:out"] as const) { const q = which === "meet" ? b.T : b[which === "end:in" ? "in" : "out"]; if (q && near(q)) return { id: b.cycle, which, branch: b.branch }; }
@@ -5943,8 +6030,10 @@ export default function Editor() {
     return f && [(f.box[0] - pad) / L, -(f.box[3] + pad) / L, (f.box[2] + pad) / L, -(f.box[1] - pad) / L];
   };
   const frameSides = (b: RBox, zoom: number) => SIDES.filter((h) => selectionFrame?.handles && (isCorner(h) || (!selectionFrame.corners && ((h === "n" || h === "s" ? b[2] - b[0] : b[3] - b[1]) * L * zoom >= 30))));
+  // With Measure in hand the frame and its handles take no press (and do not show): every press goes to the
+  // measurement, as handleAt has it.
   const resizeAt = (p: P): Side | undefined => {
-    const zoom = views.get().zoom, b = tool !== "erase" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
+    const zoom = views.get().zoom, b = tool !== "erase" && tool !== "measure" ? frameBox(zoom) : undefined, f = selectionFrame?.box;
     return b && sideAt(b, frameSides(b, zoom), p, 6 / (L * zoom), f && [f[0] / L, -f[3] / L, f[2] / L, -f[1] / L]);
   };
   // The rotation handle, as in ChemDraw: just off the frame's top right corner (px).
@@ -5952,10 +6041,10 @@ export default function Editor() {
     const b = frameBox(zoom);
     return b && selectionFrame!.turns ? [b[2] * L + 14 / zoom, -b[3] * L - 14 / zoom] : undefined;
   };
-  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
+  const onTurnHandle = (p: P) => { const zoom = views.get().zoom, h = tool !== "measure" && turnHandle(zoom); return !!h && Math.hypot(p[0] * L - h[0], -p[1] * L - h[1]) * zoom < 11; };
   // The centre mark: where the selection turns about, worked out once for each selection and drawing.
   const centreMark = useMemo(() => (selectionFrame?.turns ? turnCentre() : undefined), [selectionFrame, pivot, doc]); // eslint-disable-line react-hooks/exhaustive-deps
-  const onCentreMark = (p: P) => !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
+  const onCentreMark = (p: P) => tool !== "measure" && !!centreMark && Math.hypot(p[0] - centreMark[0], p[1] - centreMark[1]) * L * views.get().zoom < 8;
 
   // What a pick for a template set takes from what is under the pointer: the whole structure (with its captions, as
   // selecting it would), or the object, with the rest of any integral group it is in.
@@ -5986,6 +6075,7 @@ export default function Editor() {
   // a second click picks it); on a side arrow, the side arrow.
   function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
     e.preventDefault();
+    setMeasuring(undefined);
     if (noMenu.current || drag || writing) { noMenu.current = false; return; }
     // On a warning's red mark, its atom, bond or brackets, as ChemDraw's right-click on the red box.
     const p = toDoc(e.clientX, e.clientY), under = hit(p), mark = Object.values(under).every((v) => v === undefined) ? problemAt(shown, found, p) : undefined;
@@ -6091,9 +6181,10 @@ export default function Editor() {
       const frame = frameBox(views.get().zoom)!, { atoms, items, whole } = chosen(), median = medianBond(doc, atoms), plot = lonePlot(doc, atoms, items);
       return setDrag({ kind: "resize", side, frame, atoms, items, middles: captionMiddles(), stops: [1, ...(median ? [1 / median] : [])], size: [1, 1], anchor: pivot ?? handlePoint(frame, side), whole, labels: scalesText(), lines: scalesText(), text: textAlone(), working: doc, ...(plot ? { plot: plot.id } : {}) });
     }
-    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end.
+    // Edit curve keeps its curve picked: a click on the curve adds a point there, a click away adds one at its end. A
+    // hold gives Select, as with every tool.
     editPress.current = editCurve ? pickedCurve()?.id : undefined;
-    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) return setDrag({ kind: "click", at: p, start: screen, target: t });
+    if (editCurve && editPress.current !== undefined && t.arrow === undefined && t.caption === undefined && t.atom === undefined) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     if (tool !== "erase" && onTurnHandle(p)) {
       const centre = turnCentre();
       return setDrag({ kind: "turn", centre, middles: captionMiddles(), start: Math.atan2(p[1] - centre[1], p[0] - centre[0]), degrees: 0, working: doc });
@@ -6119,7 +6210,7 @@ export default function Editor() {
       return pressSelect(p, t, e.shiftKey || bare, screen, copy);
     }
     // The Pen: each press places a point (drag for a smooth one); pressing the first point again closes the curve.
-    if (tool === "shape" && "pen" in shapePick) {
+    if (penDraw) {
       if (pen && pen.length >= 2 && Math.hypot(p[0] - pen[0].at[0], p[1] - pen[0].at[1]) * L * views.get().zoom < 8) return finishPen(true);
       setDrag({ kind: "pen", at: p, start: screen });
       return startHold(p, t, screen);
@@ -6134,8 +6225,8 @@ export default function Editor() {
     }
     if (tool === "table" && tableAt(p)) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     // With something selected, a press on it (or inside it) grabs it, whatever tool is in hand. So does a press
-    // on a caption, except with the Text tool, which edits it.
-    if (tool !== "erase" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
+    // on a caption, except with the Text tool, which edits it, and Measure, which measures to any point.
+    if (tool !== "erase" && tool !== "measure" && selection.size && onSelection(doc, selection, p)) return startMove(p, screen, t);
     // The Cycle tool moves a structure (whole) or text as Select does, so it can go on to a cycle or off it. Side arrow:
     // a click (no drag) on a free structure or text beside a step makes it that step's reagent or product (click).
     if (tool === "cycle" && t.caption !== undefined) return pressCaption(p, t, false, screen);
@@ -6146,7 +6237,7 @@ export default function Editor() {
     }
     if (tool === "cycle" && t.branch !== undefined) return pressBranch(p, t, screen);
     if (tool === "cycle") { setDrag({ kind: "cycle", from: p, start: screen, target: t, shift: e.shiftKey }); return startHold(p, t, screen); }
-    if (tool !== "erase" && tool !== "text" && t.cycle !== undefined) return pressCycle(p, t, screen);
+    if (tool !== "erase" && tool !== "text" && tool !== "measure" && t.cycle !== undefined) return pressCycle(p, t, screen);
     // A tool that works on an atom (bond, chain, ring, template, symbol), pressed on a caption that counts as chemistry
     // (Bi, Rh, OMe) or stands in for a group (Nu, E, LG), makes it that atom and goes on from it, as one undo step.
     // ChemDraw joins bonds to a caption it reads chemically (Interpret Chemically).
@@ -6164,7 +6255,7 @@ export default function Editor() {
     // ring runs through them (elsewhere a press on the ring moves the map). A hold gives Select.
     const map = tool === "plasmid" && t.caption === undefined ? plasmidAt(p) : undefined, part = map && plasmidPart(map, p);
     if (map && (t.arrow === undefined || (t.arrow === map.id && (part?.region ?? part?.marker) !== undefined))) { pickPart(map, p); setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
-    if (tool !== "erase" && tool !== "text" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
+    if (tool !== "erase" && tool !== "text" && tool !== "measure" && !lineEnd && (t.caption !== undefined || t.arrow !== undefined)) return pressCaption(p, t, e.shiftKey, screen);
     // A gel's lane names take a double-click, not a new gel.
     if (tool === "gel" && laneNameAt(p)) { setDrag({ kind: "click", at: p, start: screen, target: t }); return startHold(p, t, screen); }
     // With the TLC or Gel tool, a spot or a line on a plate drags, and a click adds a spot. A hold gives Select.
@@ -6185,10 +6276,11 @@ export default function Editor() {
       return set(updateShape(doc, sh.id, deleteLane(sh, laneOf(sh, p))));
     }
     // Pressing away from the selection with a drawing tool clears it. On empty canvas that is all the press does, so
-    // the next press draws (Sam, 19 October 2026; ChemDraw also draws). A hold still gives Select.
+    // the next press draws (Sam, 19 October 2026; ChemDraw also draws). A hold still gives Select. Measure picks each
+    // measurement it makes, so its next press goes on to place an end: it changes nothing in the drawing.
     if (selection.size || picked.size) {
       reselect(new Set(), new Set());
-      if (t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined) return startHold(p, t, screen);
+      if (tool !== "measure" && t.atom === undefined && t.bond === undefined && t.caption === undefined && t.arrow === undefined && t.cycle === undefined) return startHold(p, t, screen);
     }
     // A bond tool's Shift-drag moves the atom (or bond) pressed, as ChemDraw's does. Dropped on a neighbour, the atom
     // joins it, so a ring loses an atom (Reducing Ring Size).
@@ -6204,10 +6296,11 @@ export default function Editor() {
       const make: Make = { kind: shapePick.line, ...(shapePick.sweep ? { bend: sweepBend(shapePick.sweep) } : {}), ...(shapePick.style ? { style: shapePick.style } : {}) };
       return setDrag({ kind: "arrow", from: p, start: screen, target: t, make });
     }
-    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table") return setDrag({ kind: "shape", from: p, start: screen, target: t });
+    // Edit curve (the Pen tool's) keeps the Shape tool's drag it had up to 1.1.2: a click is a click, a drag draws nothing.
+    if (tool === "shape" || tool === "bracket" || tool === "tlc" || tool === "gel" || tool === "plasmid" || tool === "table" || tool === "pen") return setDrag({ kind: "shape", from: p, start: screen, target: t });
     if (tool === "map" && t.atom !== undefined) return setDrag({ kind: "map", atom: t.atom, start: screen });
-    // Measure: a press on an atom starts the drag through the atoms to measure; anywhere else it does nothing.
-    if (tool === "measure") return t.atom !== undefined ? setDrag({ kind: "measure", atoms: [t.atom], start: screen }) : undefined;
+    // Measure: a press places the next end when it is let go (placeMeasure).
+    if (tool === "measure") return setDrag({ kind: "measure", at: p, start: screen });
     // Mass spec analysis: a press on an end of a fragmentation line makes that line longer (ChemDraw's).
     const end = tool === "massspec" ? cutEndAt(doc.arrows ?? [], p, 8 / L / views.get().zoom) : undefined;
     if (end) return setDrag({ kind: "arrow", from: end.line[end.end], start: screen, target: t, make: { kind: "cut" }, longer: { id: end.line.id, end: end.end } });
@@ -6265,6 +6358,11 @@ export default function Editor() {
     if (pen && !drag) setPenAt(p);
     if (!drag) {
       const t = hit(p), h = tool === "cycle" || picked.size ? handleAt(p) : undefined;
+      if (measuring) {
+        const at = measureAim(p, e.metaKey, t);
+        measureHit.current = { at, atom: at === p ? t.atom : hitAt(at).atom, doc };
+        setMeasureTo(at);
+      }
       // A cycle's handle under the pointer: actions go on its step.
       const hs = h?.step ?? (h?.branch !== undefined ? doc.cycles?.find((c) => c.id === h.id)?.branches?.find((b) => b.id === h.branch)?.step : undefined);
       if (h && hs !== undefined && (cycleStep?.cycle !== h.id || cycleStep.step !== hs)) setCycleStep({ cycle: h.id, step: hs });
@@ -6340,17 +6438,11 @@ export default function Editor() {
       case "map":
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         return setDrag({ ...drag, to: p });
-      case "measure": {
-        // The atoms passed, in order (measurement.ts passAtom).
+      case "measure":
+        // Moved 4 px or more, the press places its end where it is let go.
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
-        const list = drag.atoms, atoms = passAtom(list, hitAt(p).atom);
-        if (atoms === list) return setDrag({ ...drag, to: p });
-        // The value shown is the one the measurement will have: from the structures cleaned up in 3D where they are flat.
-        const key = atoms.length > 1 ? structureKeys(atoms) : "";
-        const clean = !key ? undefined : drag.clean?.key === key ? drag.clean : { key, mol: cleanedFor(doc, atoms).mol };
-        return setDrag({ ...drag, atoms, to: p, clean });
-      }
+        return setDrag({ ...drag, to: measureAim(p, e.metaKey) });
       case "ring": {
         // The ring's first bond follows the pointer, as the bond tool's does (on to an atom there, if any). A chair
         // faces the drag, across the page or up and down. From a bond, the pointer picks the ring's side (and a
@@ -6761,7 +6853,7 @@ export default function Editor() {
       let under = Object.values(hover).some((v) => v !== undefined) || !pointer.current ? hover : hit(pointer.current);
       if (!Object.values(under).some((v) => v !== undefined) && added.current?.mol === doc) under = added.current.at;
       const one = under.atom ?? (under.bond !== undefined ? doc.bonds[under.bond].atoms[0] : undefined);
-      if (one !== undefined) choose(fragments(doc).find((g) => g.includes(one)) ?? [one], []);
+      if (one !== undefined) choose(...withMeasures(fragments(doc).find((g) => g.includes(one)) ?? [one], []));
       else if (under.caption !== undefined || under.arrow !== undefined || under.cycle !== undefined) choose([], [(under.caption ?? under.arrow ?? under.cycle)!]);
       return;
     }
@@ -6812,10 +6904,11 @@ export default function Editor() {
       if (ring) return fuse(addRing(doc, ring.n, ring.aromatic, { bond }));
     }
     if (kind === "tool") {
-      // A ring key picks its ring; a specialist tool's key leaves it in its slot, as its menu does.
-      const ring = RING_TOOLS[arg], slot = ring ? "ring" : SPECIAL.includes(arg as Tool) ? "more" : undefined;
-      if (slot) setSettings((s) => ({ ...s, variants: { ...s.variants, [slot]: ring ?? arg } }));
-      return setTool(ring ? "ring" : (arg as Tool));
+      // A ring key picks its ring, a Pen key its option and a Measure variant's key its variant; a specialist tool's key
+      // leaves it in its slot, as its menu does.
+      const ring = RING_TOOLS[arg], penOption = PEN_TOOLS[arg], measure = MEASURE_TOOLS[arg], slot = ring ? "ring" : penOption ? "pen" : measure ? "measure" : SPECIAL.includes(arg as Tool) ? "more" : undefined;
+      if (slot) setSettings((s) => ({ ...s, variants: { ...s.variants, [slot]: ring ?? penOption ?? measure ?? arg } }));
+      return setTool(ring ? "ring" : penOption ? "pen" : measure ? "measure" : (arg as Tool));
     }
     if (kind === "eraser") return setSettings((s) => ({ ...s, eraser: Math.min(2, Math.max(0.05, s.eraser * (arg === "bigger" ? 1.25 : 0.8))) }));
     // With nothing selected, the arrow keys walk the hotspot atom to bond to atom; Shift jumps about three bonds.
@@ -6853,6 +6946,9 @@ export default function Editor() {
       if (alone && stepPick && picked.has(stepPick.cycle)) return set(hideArc(stepPick.cycle, stepPick.step), true);
       if (signPick !== undefined && !selection.size && !picked.size && doc.atoms[signPick]?.charge) { setSignPick(undefined); return set(dropCharge(doc, signPick)); }
       if (selection.size || picked.size) return set(deleteChosen(doc, selection, picked, undefined, drawnAt, drawnAlign));
+      // Measure only measures: with nothing chosen, Delete takes nothing from under the pointer (one Delete more than the
+      // ends placed changes nothing).
+      if (tool === "measure") return;
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
       const integral = atom !== undefined && groupsOf(doc, new Set([atom]), new Set()).some((g) => g.integral);
@@ -7434,8 +7530,10 @@ export default function Editor() {
     }
     return undefined;
   };
-  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; value: string }>();
-  type GridCell = Omit<NonNullable<typeof gridEdit>, "value">;
+  // opened: the text the box opened with, which keeps its LaTeX names as they are (escapes.ts keptText).
+  const [gridEdit, setGridEdit] = useState<{ arrow: number; key: string; row: string; x: number; y: number; w: number; product: boolean; opened: string } & CellBox>();
+  const gridApi = useRef<RichApi>(undefined);
+  type GridCell = Omit<NonNullable<typeof gridEdit>, keyof CellBox | "opened">;
   // A cell takes an amount unless it is Formula, MW, a name, or Limiting? (which a click or Return sets). A product's
   // Expected moles and Yield take one too, and set what gives them (its Expected mass, its Measured mass).
   const gridCol = (gc: { arrow: number; key: string }) => gridViews.find((x) => x.arrow === gc.arrow)?.cols.find((x) => x.key === gc.key);
@@ -7443,6 +7541,26 @@ export default function Editor() {
   // Every other cell but Limiting? and Role takes text typed over it, as text (Grid.text): a name, the formula, the MW (a
   // number there is the MW used), a value worked out, a row of the user's own.
   const gridWrites = (gc: GridCell) => !gridTypes(gc) && ((gc.row !== "limiting" && gc.row !== "role") || gc.key[0] === "#");
+  // The text cells take text styles on their characters (stoich.ts takesRuns). Typed over a value, text is bold, as a
+  // typed value is; a row's name and a row of the user's own are not (gridview.ts shownCell).
+  // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too (its
+  // caption), so the scheme and the table say the same: the caption it goes to.
+  const gridNumber = (w: GridCell, text: string) => {
+    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
+    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
+    return cap && text && isNumber({ ...cap, text }) ? cap : undefined;
+  };
+  // A compound number takes none (it is the caption's text), so the keys do nothing while the cell holds one.
+  const gridStyles = (gc: GridCell, text?: string) => gridWrites(gc) && takesRuns(gc.row, gc.key) && !(text !== undefined && gridNumber(gc, oneLine(text).trim()));
+  const gridBase = (gc: GridCell): RunStyle => (gridTypes(gc) || gc.key[0] === "#" || doc.grids?.find((g) => g.arrow === gc.arrow)?.own?.some((o) => o.id === gc.row) ? {} : { bold: true });
+  // Grid.runs with a cell's styles set, or taken off (none).
+  const gridRuns = (g: Grid, row: string, k: string, own?: TextRun[]): Partial<Grid> => {
+    const { [k]: _, ...rest } = g.runs?.[row] ?? {}, cells = own ? { ...rest, [k]: own } : rest, { [row]: _r, ...rows } = g.runs ?? {};
+    const next = Object.keys(cells).length ? { ...rows, [row]: cells } : rows;
+    return { runs: Object.keys(next).length ? next : undefined };
+  };
+  // A row of the user's own deleted, with its styles.
+  const dropOwn = (g: Grid, row: string): Partial<Grid> => { const { [row]: _, ...runs } = g.runs ?? {}; return { own: g.own?.filter((o) => o.id !== row), runs: Object.keys(runs).length ? runs : undefined }; };
   // Limiting? sets the limiting reactant (a column with the Reactant role); Role goes to the next role: Reactant, Catalyst,
   // Solvent.
   const gridToggle = (gc: GridCell) => {
@@ -7457,33 +7575,34 @@ export default function Editor() {
     const v = gridViews.find((x) => x.arrow === gc.arrow), row = v && gridRowOf(v, gc.row);
     if (!v || !row) return;
     setGridPick({ arrow: gc.arrow, key: gc.key, row: gc.row });
-    const t = shownCell(v, gc.key, row);
-    setGridEdit({ ...gc, value: start ?? (gridTypes(gc) ? (t.typed ? t.text : "") : t.text) });
+    const t = shownCell(v, gc.key, row), value = start ?? (gridTypes(gc) ? (t.typed ? t.text : "") : t.text), base = gridBase(gc);
+    // Its characters in their own styles, else in the cell's look once typed (bold over a value).
+    setGridEdit({ ...gc, value, opened: value, runs: (start === undefined && gridStyles(gc) && t.runs) || [{ ...base, text: value }], version: 1 });
   };
   // Text typed over a cell that is not an amount (gridWrites): a row's name (its own row's name), a value in a row of
   // the user's own, or text over the value worked out. Empty takes it off, and the value worked out shows again.
-  const writeGridCell = (w: GridCell, typed: string) => {
+  const writeGridCell = (w: GridCell, typed: string, runs?: TextRun[]) => {
     // A cell's text is one line of MAX_VALUE characters, as the table keeps it: more is cut, with a notice.
-    const text = oneLine(typed).trim();
+    const text = oneLine(typed).trim(), k = w.key[0] === "#" ? "#" : w.key;
     if (typed.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().length > MAX_VALUE) setNotice(cutNotice("A table cell", MAX_VALUE));
-    // A compound number typed in the Compound row (or as its name) is the compound's number in the drawing too, so the
-    // scheme and the table say the same.
-    const col = (w.row === "number" || w.row === "name") && w.key[0] !== "#" ? gridCol(w) : undefined;
-    const cap = col?.atoms && doc.captions?.find((c) => isNumber(c) && c.under?.some((i) => col.atoms!.includes(i)));
-    if (cap && text && isNumber({ ...cap, text })) {
-      const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest } }; });
+    // Its characters' styles where they differ from the cell's look (none for a cell that takes none).
+    // Trimmed at both ends, the characters keep their own styles (edited() would see a change at each end and lose them).
+    const at = runs ? plainOf(runs).indexOf(text) : -1, kept = runs && (at >= 0 ? sliceRuns(runs, at, at + text.length) : edited(runs, text));
+    const own = kept && gridStyles(w, text) && text ? ownRuns(kept, gridBase(w)) : undefined, cap = gridNumber(w, text);
+    if (cap) {
+      const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest }, ...gridRuns(g, w.row, w.key) }; });
       return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
     }
     // A table keeps up to 400 texts typed over its cells (stoich.ts readCells): one more is not made.
     const was = doc.grids?.find((g) => g.arrow === w.arrow), typedOver = Object.values(was?.text ?? {}).reduce((n, r) => n + Object.keys(r).length, 0);
     if (text && !was?.own?.some((o) => o.id === w.row) && was?.text?.[w.row]?.[w.key[0] === "#" ? "#" : w.key] === undefined && typedOver >= 400) return setNotice("A reagent table holds up to 400 typed cells.", "info");
     changeGrid(w.arrow, (g) => {
-      const own = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#";
-      if (own && head) return { own: g.own!.map((o) => (o === own ? { ...o, name: text } : o)) };
-      if (own) { const { [w.key]: _, ...rest } = own.values ?? {}; return { own: g.own!.map((o) => (o === own ? { ...o, values: text ? { ...rest, [w.key]: text } : rest } : o)) }; }
-      const k = head ? "#" : w.key, { [k]: _, ...rest } = g.text?.[w.row] ?? {}, cells = text ? { ...rest, [k]: text } : rest;
+      const mine = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#", styles = gridRuns(g, w.row, k, own);
+      if (mine && head) return { own: g.own!.map((o) => (o === mine ? { ...o, name: text } : o)), ...styles };
+      if (mine) { const { [w.key]: _, ...rest } = mine.values ?? {}; return { own: g.own!.map((o) => (o === mine ? { ...o, values: text ? { ...rest, [w.key]: text } : rest } : o)), ...styles }; }
+      const { [k]: _, ...rest } = g.text?.[w.row] ?? {}, cells = text ? { ...rest, [k]: text } : rest;
       const { [w.row]: _r, ...rows } = g.text ?? {};
-      return { text: Object.keys(cells).length ? { ...rows, [w.row]: cells } : rows };
+      return { text: Object.keys(cells).length ? { ...rows, [w.row]: cells } : rows, ...styles };
     });
   };
   // A cell shown again once something is typed in it (Grid.hidden.cells).
@@ -7506,7 +7625,7 @@ export default function Editor() {
     const next = gridStep(v.cells, gc, "down"), stay = () => setGridPick(next && next !== gc ? { arrow: v.arrow, key: next.key, row: next.row } : undefined);
     if (pick.key[0] === "#") {
       stay();
-      if (row.own) return changeGrid(v.arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row.id) }));
+      if (row.own) return changeGrid(v.arrow, (h) => dropOwn(h, row.id));
       return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, rows: [...(h.hidden?.rows ?? []), row.id] } }));
     }
     if (pick.row === "name" && !g.text?.name?.[pick.key]) { stay(); return changeGrid(v.arrow, (h) => ({ hidden: { ...h.hidden, cols: [...(h.hidden?.cols ?? []), pick.key] } })); }
@@ -7568,11 +7687,11 @@ export default function Editor() {
   // limiting reactant. A product's Expected mass is the mass wanted, kept as its mass (issue 136). One value sets the
   // scale: the mass wanted clears the reactants' amounts and another product's mass wanted, and a reactant's amount
   // clears it.
-  function commitGridCell(typed: string, cell: GridCell | undefined = gridEdit) {
-    const w = cell, text = expandEscapes(typed, keptText(gridEdit?.value)); // 5 \mu{}L is 5 μL (escapes.ts)
+  function commitGridCell(typed: string, cell: GridCell | undefined = gridEdit, runs?: TextRun[]) {
+    const w = cell, kept = keptText(gridEdit?.opened), text = expandEscapes(typed, kept); // 5 \mu{}L is 5 μL (escapes.ts)
     setGridEdit(undefined);
     if (!w) return;
-    if (!gridTypes(w)) return gridWrites(w) ? writeGridCell(w, text) : undefined;
+    if (!gridTypes(w)) return gridWrites(w) ? writeGridCell(w, text, runs && expandRuns(runs, kept)) : undefined;
     // A hidden cell typed in shows again, in the same step.
     const changeGrid = (arrow: number, change: (g: Grid, v: GridView) => Partial<Grid>) => changeGridNow(arrow, (g, v) => { const r = change(g, v); return Object.keys(r).length ? { ...unhide(g, w), ...r } : r; });
     const row = GRID_ROWS.find((r) => r.id === w.row)!, col = gridViews.find((x) => x.arrow === w.arrow)?.all.find((c) => c.key === w.key), role = col?.role;
@@ -7706,6 +7825,13 @@ export default function Editor() {
       const cellAlign = lastCell?.id === sh.id ? aligns[lastCell.c] : aligns.every((a) => a === aligns[0]) ? aligns[0] : undefined;
       return { lines: linesOf(sh.table), cellAlign, weight: ((sh.table ? sh.table.weight : sh.width) ?? style.line) * scaleOf(sh), cell: lastCell?.id === sh.id };
     };
+    // Bold, Italic and Underline as on: the open cell's at its caret (the next characters typed) or its selection, else
+    // the table's.
+    const tableFace = (sh: Shape) => {
+      const range = cell && cellOpen.current && cell.id === sh.id ? cellApi.current?.range() ?? [cell.value.length, cell.value.length] : undefined;
+      const at: { bold?: boolean; italic?: boolean; underline?: boolean } = range ? cell!.pending ?? common(cell!.runs, range[0], range[1]) : sh;
+      return { bold: !!at.bold, italic: !!at.italic, underline: !!at.underline };
+    };
     // Shapes picked on their own.
     const pickedShapes = (doc.shapes ?? []).filter((x) => picked.has(x.id));
     if (!selection.size && pickedShapes.length && pickedShapes.length === picked.size) {
@@ -7714,7 +7840,7 @@ export default function Editor() {
         kind: "shape", count: pickedShapes.length, shape: first.kind, ...(first.kind === "symbol" ? { symbol: first.symbol ?? "plus", symbolPt: Math.round(symbolSize(first) * style.bond * 10) / 10 } : {}), charges: chargesOf(doc, [], picked), dashed: !!first.dashed, boldLine: !!first.boldLine, rgroup: pickedShapes.some((x) => x.rgroup), colour: first.colour ?? (first.kind === "highlight" ? HIGHLIGHT : "#000000"),
         style: first.fill ?? (first.shadow ? "shadow" : first.dashed ? "dashed" : "plain"), side: first.side ?? "both", mark: first.mark ?? "", rf: !!first.tlc?.rf, ...tableContext(first), hide: first.tlc?.hide ?? [], ticks: !!first.tlc?.ticks, transparent: !!first.tlc?.transparent, lane: lanePick?.plate === first.id, shade: { ...SHADE, ...first.shade, pt: style.bond },
         ...(first.kind === "gel" ? { unit: first.tlc?.unit ?? "kDa" } : {}),
-        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { bold: !!first.bold, italic: !!first.italic, underline: !!first.underline, font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
+        ...(first.kind === "table" || isPlate(first) || first.kind === "plasmid" ? { text: { ...tableFace(first), font: first.font ?? style.captionFont, size: first.size ?? (isPlate(first) ? style.captionSize * 0.8 : style.captionSize) } } : {}),
       };
     }
     // Arrows picked on their own.
@@ -7751,8 +7877,10 @@ export default function Editor() {
     const wholeTable = picked.size === 1 && !selection.size ? tableOf([...picked][0]) : undefined, wholeGrid = wholeTable !== undefined ? gridViews.find((v) => v.arrow === wholeTable) : undefined;
     if (wholeGrid) return { kind: "grid", table: true, product: false, limiting: false, hidden: wholeGrid.hiding, rows: !!wholeGrid.texts, empty: emptyRows(wholeGrid).length > 0, free: !!wholeGrid.free, ...gridSteps(wholeGrid.arrow) };
     const pickedGrid = gridPick && !selection.size && !picked.size ? gridViews.find((v) => v.arrow === gridPick.arrow) : undefined, pickedCol = pickedGrid?.all.find((c) => c.key === gridPick!.key);
-    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow) };
-    if (pickedGrid && pickedCol) return { kind: "grid", product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
+    // A text cell being typed in: its Bold, Italic and Underline buttons, pressed when all of it has that style.
+    const cellStyles = gridEdit && gridStyles(gridEdit, gridEdit.value) ? { styles: common(gridEdit.runs, 0, gridEdit.value.length) } : {};
+    if (pickedGrid && !pickedCol) return { kind: "grid", table: !!gridPick?.line, product: false, limiting: false, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row), ...gridSteps(pickedGrid.arrow), ...cellStyles };
+    if (pickedGrid && pickedCol) return { kind: "grid", ...cellStyles, product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
     const risk = expPage && !riskGroup(doc);
@@ -7811,7 +7939,9 @@ export default function Editor() {
   glidingNow.current = gliding;
   const stillPanels = useRef<React.ReactNode>(undefined), lastPanel = useRef<Context>(undefined);
   const holdPanels = (make: () => React.ReactNode) => (gliding && stillPanels.current !== undefined ? stillPanels.current : (stillPanels.current = make()));
-  const panelContext = useMemo(() => (writing ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While a caption, a Table cell or a reagent table cell is typed in, the panel reads the context as it draws (the
+  // caret moves: carets; a style applied to a reagent table cell builds its box again).
+  const panelContext = useMemo(() => (writing || cell || gridEdit ? undefined : gliding && lastPanel.current ? lastPanel.current : (lastPanel.current = contextOf())), [doc, selection, picked, writing, !!cell, !!gridEdit, tool, textStyle, spotPick, featurePick, lanePick, lastCell, namesLoaded, loaded, style, fontList, drawing, placed, gridPick, gridViews, settings.properties, gliding, branchPick, stepPick, signPick]); // eslint-disable-line react-hooks/exhaustive-deps
   // The Notes panel (Notes.tsx, annotate.ts): the drawing's notes, then the selection's (one field for several targets),
   // then a row for each other object or group with a note. Worked out only while the panel is open.
   const noteName = (m: Mol, t: Target): string => {
@@ -9148,7 +9278,7 @@ export default function Editor() {
     about: ["About Octet Draw", "", <Info size={18} />], check_updates: ["Check for updates…", "", <CloudArrowDown size={18} />], report_problem: ["Report a problem…", "", <Bug size={18} />], tutorial: ["Tutorial", "", <GraduationCap size={18} />], atom_properties: ["Atom properties…", "", <Faders size={18} />], bond_properties: ["Bond properties…", "", <FadersHorizontal size={18} />],
     bracket_properties: ["Bracket properties…", "", <BracketsRound size={18} />], rlogic: ["R-Logic query…", "", <TreeStructure size={18} />],
     add_multicentre: ["Add multi-centre attachment", "", <MultiAttachmentGlyph />], add_variable: ["Add variable attachment", "", <VariableAttachmentGlyph />],
-    measure_distance: ["Measure distance", "", <DistanceGlyph size={18} />], measure_angle: ["Measure angle", "", <AngleGlyph size={18} />], measure_dihedral: ["Measure dihedral", "", <DihedralGlyph size={18} />],
+    measure_distance: ["Measure length", "", <DistanceGlyph size={18} />], measure_angle: ["Measure angle", "", <AngleGlyph size={18} />], measure_dihedral: ["Measure dihedral", "", <DihedralGlyph size={18} />],
     define_rgroup: ["Make an R-group definition", "", <BracketsSquare size={18} />], expand_generic: ["Expand generic structure", "", <SquaresFour size={18} />], expand_generic_sdf: ["Expand generic structure to SDF…", "", <Database size={18} />], atom_numbers: ["Show atom numbers", "", <Hash size={18} />],
     expand_label: ["Expand label", "", <ArrowsOutSimple size={18} />], contract_label: ["Contract label", "", <ArrowsInSimple size={18} />], define_nickname: ["Define nickname…", "", <Signature size={18} />], define_monomer: ["Define monomer…", "", <PuzzlePiece size={18} />], stoichiometry: ["Analyse stoichiometry", "", <Table size={18} />],
     undo: ["Undo", `${MOD}Z`, <ArrowCounterClockwise size={18} />], redo: ["Redo", `${MOD}Y`, <ArrowClockwise size={18} />], invert_selection: ["Invert selection", `⇧${MOD}I`, <SelectionInverse size={18} />], clean_reaction: ["Clean up reaction", `⇧${MOD}X`, <Broom size={18} />],
@@ -9239,6 +9369,7 @@ export default function Editor() {
         .map((k) => [k, `${arrowName(k)} arrow`, <ArrowGlyph kind={k} />]), "Arrows"),
       ...variants("shape", "shape", [...SHAPE_GRID.flat(), ...SHAPE_EXTRA].map((k) => [k, shapeName(k)!, <ElementGlyph v={k} />]), "Shapes"),
       ...variants("bracket", "bracket", Object.entries(BRACKETS).map(([k, n]) => [k, n, <BracketGlyph v={k} />]), "Brackets"),
+      ...variants("pen", "pen", Object.entries(PENS).map(([k, n]) => [k, n, <PenGlyph v={k} />]), "Tools", "curve bezier spline freehand draw"),
       ...variants("orbital", "orbital", ORBITAL_GRID.flat().map((k) => [k, orbitalName(k)!, <OrbitalGlyph v={k} />]), "Orbitals"),
       { id: "tool:text", name: "Text", group: "Tools", keys: toolKey("tool.text"), icon: <TextT size={18} />, run: pick("text") },
       { id: "tool:erase", name: "Eraser", group: "Tools", keys: toolKey("tool.erase"), icon: <Eraser size={18} />, run: pick("erase") },
@@ -9340,7 +9471,7 @@ export default function Editor() {
         newRow.current = { arrow, row: id, rows: !!v.texts };
         return changeGrid(arrow, (h) => ({ own: [...(h.own ?? []), { id, name: "", after }] }));
       }
-      if (what === "row.delete") return changeGrid(arrow, (h) => ({ own: h.own?.filter((o) => o.id !== row) }));
+      if (what === "row.delete") return changeGrid(arrow, (h) => dropOwn(h, row));
       // Attach to reaction: back under its reaction, following it again.
       if (what === "attach") return changeGrid(arrow, () => ({ at: undefined, free: undefined }));
       // Make static: the table as plain text and lines in a group, in one step (⌘Z brings the table back).
@@ -9692,6 +9823,16 @@ export default function Editor() {
         if (what === "size" && Number(arg) > 0) return setEditing({ ...editing, size: Number(arg) });
         return;
       }
+      // The cell being typed in (a Table's, or a reagent table's text cell): the same styles and Formula on its
+      // characters, and Plain takes the script off too. An amount cell takes none. A font, size or colour goes on the
+      // whole table, below.
+      const box = cell && cellOpen.current ? "table" : gridEdit ? "grid" : undefined;
+      if (box && (toggles[what] || what === "formula")) {
+        const patch = what === "formula" ? "formula" as const : what === "plain" ? (st: RunStyle): RunStyle => ({ ...st, bold: undefined, italic: undefined, underline: undefined, script: undefined }) : toggles[what]!;
+        if (box === "table") return setCell(styleBox(cell!, cellApi.current?.range(), patch));
+        if (gridStyles(gridEdit!, gridEdit!.value)) setGridEdit(styleBox(gridEdit!, gridApi.current?.range(), patch));
+        return;
+      }
       // On selected atoms, the Text menu and the label style buttons style their labels, as in ChemDraw. Subscript and
       // Superscript put all of each label in that script.
       const labelled = !writing && !picked.size ? [...selection].filter((i) => drawing.label[i]) : [];
@@ -9723,7 +9864,17 @@ export default function Editor() {
           : what === "font" ? { font: arg === style.captionFont ? undefined : arg }
           : what === "size" ? { size: Number(arg) === (isPlate(x) ? style.captionSize * 0.8 : style.captionSize) ? undefined : Number(arg) }
           : { [what]: first[what as "bold" | "italic" | "underline"] ? undefined : true };
-        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? { ...x, ...change(x) } : x)) }, true);
+        // Bold, Italic, Underline or Plain on a whole Table goes on every character of its cells too, so no cell keeps
+        // that style of its own (Table.runs). Plain takes the scripts off too, as it does in a cell and on a caption.
+        const keys = what === "plain" ? ["bold", "italic", "underline", "script"] : [what];
+        const even = (x: Shape): Shape => {
+          if (!x.table?.runs || !["bold", "italic", "underline", "plain"].includes(what)) return x;
+          const base = cellBase(x), on = Object.fromEntries(keys.filter((k) => base[k as keyof RunStyle]).map((k) => [k, true]));
+          const runs = x.table.runs.map((row, r) => row.map((_, c) => { const now = cellRuns(x.table, r, c); return (now && ownRuns(without(now, keys).map((run) => ({ ...run, ...on })), base)) ?? null; }));
+          const { runs: _, ...table } = x.table;
+          return { ...x, table: runs.some((row) => row.some(Boolean)) ? { ...table, runs } : table };
+        };
+        return set({ ...doc, shapes: doc.shapes?.map((x) => (ids.has(x.id) ? even({ ...x, ...change(x) }) : x)) }, true);
       }
       // Text styles: on the characters selected while typing (or the next ones typed), else on whole captions.
       const patches: Record<string, ((s: RunStyle, all: RunStyle) => RunStyle) | undefined> = {
@@ -10115,7 +10266,7 @@ export default function Editor() {
         if (refused.current) return;
         setPicked(new Set([id]));
         // A new table opens its second header cell for typing (the first says Entry).
-        if (sh.kind === "table" && !cellOpen.current) { cellOpen.current = true; setCell({ id, r: 0, c: 1, value: "" }); }
+        if (sh.kind === "table" && !cellOpen.current) { cellOpen.current = true; setCell(cellOf({ ...sh, id } as Shape, 0, 1, (cell?.version ?? 0) + 1)); }
         return;
       }
       case "handle":
@@ -10164,11 +10315,11 @@ export default function Editor() {
         if ((pen?.length ?? 0) >= MAX_CURVE) return setNotice(`A curve holds up to ${MAX_CURVE.toLocaleString("en-GB")} points.`, "info");
         setPenAt(drag.at);
         return setPen([...(pen ?? []), penPoint(drag.at, drag.out)]);
-      case "measure": {
-        // Let go: 2 atoms make a distance, 3 an angle, 4 a dihedral, in the order passed (measureAtoms).
-        if (drag.atoms.length > 1) measureAtoms(drag.atoms, "pick");
-        return;
-      }
+      case "measure":
+        // A click places the next end where it went down. Moved and let go, it places it where it is let go: with none
+        // placed yet, the first end goes where it went down, so a drag from A to B makes a length.
+        setMeasureTo(drag.to ?? drag.at);
+        return placeMeasure(drag.to ? (measuring?.length ? [drag.to] : [drag.at, drag.to]) : [drag.at]);
       case "map": {
         // Dropped on another atom: the two are mapped to each other. A click on a mapped atom takes its number off.
         const to = drag.to ? hitAt(drag.to).atom : drag.atom;
@@ -10358,7 +10509,10 @@ export default function Editor() {
       if (gridPick && !mod && !e.altKey && gridKeyDown(e)) return;
       // Drawing with the Pen: Return or Escape ends the curve; Delete takes back the last point.
       if (pen && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); return finishPen(); }
-      if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return setPen(pen.length > 1 ? pen.slice(0, -1) : undefined); }
+      if (pen && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return takeBack(); }
+      // Measuring: Escape takes the measurement in progress away, Delete its last end.
+      if (measuring && e.key === "Escape") { e.preventDefault(); return setMeasuring(undefined); }
+      if (measuring && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); return takeBack(); }
       // Redo is ⌘Y (ChemDraw's) in the menu, and Repeat when there is nothing to redo; ⇧⌘Z, the Mac's own, works too.
       if (!TAURI && mod && key === "z") { e.preventDefault(); return undo(e.shiftKey); }
       if (mod && key === "y") { e.preventDefault(); return commands.current.redo(); }
@@ -10677,7 +10831,7 @@ export default function Editor() {
     const rect = <rect key={key} className={cls} x={b[0] - pad} y={b[1] - pad} width={b[2] - b[0] + 2 * pad} height={b[3] - b[1] + 2 * pad} rx={pad} transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined} />;
     if (!m) return rect;
     // A measurement's mark takes in its lines too, as an arrow's mark runs along it.
-    const ink = measureInk(shown, m.atoms, measureTrim), line = (q: P[]) => q.map(([x, y]) => `${x * L},${-y * L}`).join(" ");
+    const ink = measureInk(shown, m.ends, measureTrim), line = (q: P[]) => q.map(([x, y]) => `${x * L},${-y * L}`).join(" ");
     return (
       <g key={key}>
         {rect}
@@ -10825,6 +10979,8 @@ export default function Editor() {
   const hovered = (hover: Hover) => { const mark = hoveredMark(hover), shown = settings.interpretation ? interpretationAt(hover) : null; return shown ? <g key="h">{shown}{mark}</g> : mark; };
   // The mark on what is under the pointer, drawn by Live as the pointer moves.
   const hoveredMark = (hover: Hover, whole = drag ? undefined : integralAt(hover), pick = templatePick && !drag ? pickOf(hover) : undefined) => drag ? null
+    // The Measure tool: the atom a click would place an end on.
+    : tool === "measure" ? (hover.atom !== undefined && shown.atoms[hover.atom] ? atomMark(hover.atom, "h", "mark") : null)
     : pick ? partMark(...pick)
     : hover.mark !== undefined ? markRing(hover.atom!, hover.mark)
     : whole ? wholeMark(whole)
@@ -11063,10 +11219,17 @@ export default function Editor() {
       <g key={`table${sh.id}`} className="table">
         {across.map((v, i) => <line key={`r${i}`} x1={t.x0 * L} x2={t.x1 * L} y1={y(v)} y2={y(v)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
         {down.map((v, i) => <line key={`c${i}`} x1={v * L} x2={v * L} y1={y(t.y1)} y2={y(t.y0)} stroke={ink} strokeWidth={weight} strokeDasharray={dash} />)}
-        {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => text && !(cell?.id === sh.id && cell.r === r && cell.c === c) ? (
-          <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD * t.f : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD * t.f : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
-            textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={textFace(sh, size)}>{formula(text, size)}</text>
-        ) : null))}
+        {(sh.table?.cells ?? []).map((row, r) => row.map((text, c) => {
+          if (!text || (cell?.id === sh.id && cell.r === r && cell.c === c)) return null;
+          // A cell with styles of its own: each character in its whole style, the table's style left out (Table.runs).
+          const own = sh.table!.runs && cellRuns(sh.table, r, c);
+          return (
+            <text key={`${r}-${c}`} x={(anchor(c) === "left" ? t.col(c) + TABLE_PAD * t.f : anchor(c) === "right" ? t.col(c + 1) - TABLE_PAD * t.f : t.col(c) + t.widths[c] / 2) * L} y={y(t.row(r) - t.heights[r] / 2) + 0.35 * size}
+              textAnchor={anchor(c) === "left" ? "start" : anchor(c) === "right" ? "end" : "middle"} fill={ink} style={own ? textFace({ ...sh, bold: undefined, italic: undefined, underline: undefined }, size) : textFace(sh, size)}>
+              {own ? richSpans(formulaOver(own), size, pt, darkPaper) : formula(text, size)}
+            </text>
+          );
+        }))}
       </g>
     );
   };
@@ -11131,6 +11294,9 @@ export default function Editor() {
     });
   }, [gridViews, drag, carried]); // eslint-disable-line react-hooks/exhaustive-deps
   const gridKey = drawnGrids.length ? drawnGrids : undefined;
+  // The reagent table cell being typed in, which is left out of the drawing (its box is over it). Typing in it does not
+  // draw the drawing again.
+  const gridEditing = gridEdit && `${gridEdit.arrow}|${gridEdit.row}|${gridEdit.key}`;
   // The line under an amount measured out (a cell's text, centred on x, its baseline at y; px).
   const takenLine = (x: number, y: number, text: string, size: number, bold: boolean, f: number) => {
     const w = formulaWidth(text, size, bold, false, fontStack(style.captionFont)) / 2;
@@ -11210,11 +11376,14 @@ export default function Editor() {
         // name as rows from the left, the rest centred. The lines not taken out (Grid.hidden.lines).
         const cellInk = (cell: GridView["cells"][number]) => {
           const row = gridRowOf(v, cell.row), t = row && shownCell(v, cell.key, row);
-          if (!t?.text || (gridEdit?.arrow === v.arrow && gridEdit.key === cell.key && gridEdit.row === cell.row)) return null;
+          if (!t?.text || gridEditing === `${v.arrow}|${cell.row}|${cell.key}`) return null;
           const head = cell.key === "#", x = head ? v.left * L : cell.row === "name" ? (cell.x - cell.w / 2) * L : cell.x * L, at = baseline(cell.y);
+          // A cell with styles of its own: each character in its whole style (Grid.runs).
           return (
             <Fragment key={`${cell.row}|${cell.key}`}>
-              <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={x} y={at} textAnchor={head ? "end" : cell.row === "name" ? "start" : "middle"} fontWeight={t.typed || t.bold ? 700 : 400} className={t.taken && "taken"}>{t.formula ? formula(t.text, size) : t.text}</text>
+              <text data-cell={`${v.arrow} ${cell.row} ${cell.key}`} x={x} y={at} textAnchor={head ? "end" : cell.row === "name" ? "start" : "middle"} fontWeight={t.runs ? 400 : t.typed || t.bold ? 700 : 400} className={t.taken && "taken"}>
+                {t.runs ? richSpans(t.formula ? formulaOver(t.runs) : t.runs, size, pt, darkPaper) : t.formula ? formula(t.text, size) : t.text}
+              </text>
               {t.taken && takenLine(x, at, t.text, size, !!t.typed, v.f)}
             </Fragment>
           );
@@ -11232,7 +11401,7 @@ export default function Editor() {
           measurement's colour at the document's line width, under the structures. */}
       {(shown.captions ?? []).map((c) => {
         if (!c.measure || c.id === writing?.id) return null;
-        const ink = measureInk(shown, c.measure.atoms, measureTrim), px = (q: P): P => [q[0] * L, -q[1] * L], f = (n: number) => Math.round(n * 100) / 100;
+        const ink = measureInk(shown, c.measure.ends, measureTrim), px = (q: P): P => [q[0] * L, -q[1] * L], f = (n: number) => Math.round(n * 100) / 100;
         const d = ink.lines.flatMap(([a, b]) => dashes([px(a), px(b)], 0.15 * L, 0.1 * L)).map(([a, b]) => `M${f(a[0])} ${f(a[1])}L${f(b[0])} ${f(b[1])}`).join("")
           + (ink.arc ? arcPoints(ink.arc).map((q, k) => `${k ? "L" : "M"}${f(q[0] * L)} ${f(-q[1] * L)}`).join("") : "");
         return d ? <path key={`ms${c.id}`} className="measure-lines" d={d} fill="none" stroke={c.colour ? textInk(c.colour) : "var(--ink)"} strokeWidth={frame.line} /> : null;
@@ -11240,7 +11409,7 @@ export default function Editor() {
       {stereoMarks().map((m) => <text key={m.key} className="stereo-label" x={m.x} y={m.y} textAnchor={m.anchor} dominantBaseline="middle" fill={m.colour ?? (m.muted ? "var(--ink-muted)" : "var(--ink)")} style={{ font: `${m.upright ? "" : "italic "}${m.size}px ${fontStack(style.captionFont)}` }}>{m.prefix && <tspan style={{ fontStyle: "normal" }}>{m.prefix}</tspan>}{m.text}</text>)}
       {problemMarks()}
     </>
-  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEdit, style, stereo, stereoNamed, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
+  ), [shown, drawing, frame, darkPaper, arrows, pt, gridKey, gridEditing, style, stereo, stereoNamed, ringsOf, found, found.some((p) => p.caption !== undefined) && placed, doc.atoms, settings.stereoParens]); // eslint-disable-line react-hooks/exhaustive-deps
   // The selection's marks, and the mark on what is under the pointer (Live: a pointer move draws only that again).
   const marks = (
     <>
@@ -11504,22 +11673,31 @@ export default function Editor() {
               </g>
             );
           })()}
-          {drag?.kind === "measure" && (() => {
-            // Measuring: the atoms passed so far ringed, the measurement's lines between them, a dashed line on to the
-            // pointer while it can take another atom, and the value the measurement will have beside the pointer.
-            const atoms = drag.atoms.filter((i) => i < doc.atoms.length), last = atoms.length ? pos(doc, atoms[atoms.length - 1]) : undefined, kind = measureKind(atoms.length);
-            const ink = atoms.length > 1 ? measureInk(doc, atoms, measureTrim) : undefined, on = drag.to && hitAt(drag.to).atom, free = drag.to && last && atoms.length < 4 && (on === undefined || on === atoms[atoms.length - 1]) ? drag.to : undefined;
-            const dash = `${0.18 * L} ${0.14 * L}`, px = (q: P) => `${q[0] * L},${-q[1] * L}`;
+          {tool === "measure" && (measuring || drag?.kind === "measure") && <Live store={measureTos}>{(measureTo) => {
+            // Measuring: the ends placed so far, atoms ringed and free points as dots, with dashed legs between them
+            // (none where a bond is the leg). A dotted line runs on from the last end to the pointer, or to the atom
+            // under it, with the value the next click gives beside the pointer; an angle shows its arc from its vertex
+            // on. In a drag with no end yet, the end where it went down shows as placed.
+            const pressing = drag?.kind === "measure" ? drag : undefined, was = (measuring ?? []).filter((e) => !isAtom(e) || e < doc.atoms.length);
+            const ends = pressing?.to && !was.length ? nextEnd(was, pressing.at) : was, to = pressing ? pressing.to ?? pressing.at : measureTo;
+            const live = to ? nextEnd(ends, to) : ends, next = live.length > ends.length ? live[live.length - 1] : undefined, done = live.length === endsFor(measureChoice);
+            const last = ends.length ? endAt(doc, ends[ends.length - 1]) : undefined, aim = next !== undefined ? endAt(doc, next) : to;
+            const legs = ends.length > 1 ? measureInk(doc, ends, measureTrim).lines : [];
+            const lead = last && next !== undefined ? measureInk(doc, [ends[ends.length - 1], next], measureTrim).lines : last && aim ? [[last, aim] as [P, P]] : [];
+            const arc = measureChoice === "angle" && live.length === 3 ? measureInk(doc, live, measureTrim).arc : undefined, zoom = view.zoom;
+            const ring = (e: End, key: string) => (isAtom(e) ? <circle key={key} cx={pos(doc, e)[0] * L} cy={-pos(doc, e)[1] * L} r={0.32 * L} /> : <circle key={key} className="end" cx={e[0] * L} cy={-e[1] * L} r={3 / zoom} />);
+            const px = (q: P) => `${q[0] * L},${-q[1] * L}`;
             return (
               <g className="mapping measuring" aria-hidden>
-                {atoms.map((i) => <circle key={i} cx={pos(doc, i)[0] * L} cy={-pos(doc, i)[1] * L} r={0.32 * L} />)}
-                {ink?.lines.map(([a, b], k) => <line key={k} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeDasharray={dash} />)}
-                {ink?.arc && <polyline points={arcPoints(ink.arc).map(px).join(" ")} />}
-                {free && last && Math.hypot(free[0] - last[0], free[1] - last[1]) > 0.35 && <line x1={last[0] * L} y1={-last[1] * L} x2={free[0] * L} y2={-free[1] * L} strokeDasharray={dash} />}
-                {kind && drag.to && <text className="turn-angle" x={drag.to[0] * L + 12 / view.zoom} y={-drag.to[1] * L - 12 / view.zoom} style={{ fontSize: 12 / view.zoom }}>{measureText(kind, measureValue(drag.clean?.mol ?? doc, atoms))}</text>}
+                {ends.map((e, k) => ring(e, `e${k}`))}
+                {pressing && next !== undefined && ring(next, "next")}
+                {legs.map(([a, b], k) => <line key={k} x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeDasharray={`${0.18 * L} ${0.14 * L}`} />)}
+                {lead.map(([a, b], k) => <line key={`l${k}`} className="live" x1={a[0] * L} y1={-a[1] * L} x2={b[0] * L} y2={-b[1] * L} strokeWidth={2 / zoom} strokeDasharray={`0 ${6 / zoom}`} />)}
+                {arc && <polyline points={arcPoints(arc).map(px).join(" ")} />}
+                {done && to && <text className="turn-angle" x={to[0] * L + 12 / zoom} y={-to[1] * L - 12 / zoom} style={{ fontSize: 12 / zoom }}>{measureText(measureChoice, measureValue(doc, live))}</text>}
               </g>
             );
-          })()}
+          }}</Live>}
           {ghost && (
             <g className="ghost" aria-hidden>
               <path d={toPath(ghost.polygons)} />
@@ -11528,8 +11706,8 @@ export default function Editor() {
           )}
           {(() => {
             // A picked arrow's handles: its ends, and the middle of a curved one.
-            const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
-            const wh = drag?.kind === "move" ? undefined : widthHandle();
+            const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" && tool !== "measure" ? arrows.find((x) => x.id === ids[0]) : undefined;
+            const wh = drag?.kind === "move" || tool === "measure" ? undefined : widthHandle();
             if ((a?.kind === "curve" || a?.kind === "cut") && a.curve && !wh) {
               // A picked pen curve (or fragmentation line with corners): every anchor as a small square, and each handle
               // as a dot on a line from its anchor.
@@ -11576,7 +11754,8 @@ export default function Editor() {
           {(() => {
             // The selection's frame with its resize handles and rotation handle, and the centre the selection turns
             // about (a +, which Option-drag moves); while resizing, the frame as it is now and the scale in its middle;
-            // while turning, the centre and the angle.
+            // while turning, the centre and the angle. None with Measure in hand (resizeAt).
+            if (tool === "measure") return null;
             const h = drag?.kind === "turn" ? undefined : turnHandle(view.zoom), c = drag?.kind === "turn" ? drag.centre : h && centreMark;
             const centre = c && <path className="turn-centre" d="M-5 0H5M0 -5V5" transform={`translate(${c[0] * L} ${-c[1] * L}) scale(${1 / view.zoom})`} aria-hidden />;
             if (drag?.kind === "turn") {
@@ -11727,26 +11906,33 @@ export default function Editor() {
         // The stoichiometry cell box, over the cell; Enter keeps it, Escape leaves it as it was.
         const v = gridViews.find((x) => x.arrow === gridEdit.arrow);
         if (!v) return null;
-        const z = view.zoom, w = gridEdit.w * L * z, h = v.rh * L * z;
+        const z = view.zoom, w = gridEdit.w * L * z, h = v.rh * L * z, base = gridBase(gridEdit);
         return (
-          <input
-            className="cell-box" aria-label="Amount" autoFocus spellCheck={false} defaultValue={gridEdit.value}
-            style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h, font: `${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}` }}
+          <RichBox
+            className="cell-box" label={gridTypes(gridEdit) ? "Amount" : "Cell text"} singleLine base={base}
+            runs={gridEdit.runs} version={gridEdit.version} caret={gridEdit.caret} pending={gridEdit.pending} api={gridApi} look={cellLook}
             // Caret at the end, as a spreadsheet opens a cell (and after the key that started it).
-            onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+            style={{ left: view.x + gridEdit.x * L * z - w / 2, top: view.y - gridEdit.y * L * z, width: w, height: h,
+              font: `${base.bold ? "bold " : ""}${style.captionSize * pt * 0.9 * v.f * z}px ${fontStack(style.captionFont)}`, lineHeight: `${h}px` }}
+            // Typing alone changes nothing drawn (the box shows it), so it is kept on the open cell without drawing the
+            // editor again for each key, as the plain box before it was. A style applied builds the box again.
+            onRuns={(runs, rebuild) => {
+              if (!rebuild) { gridEdit.runs = runs; gridEdit.value = plainOf(runs); return; }
+              setGridEdit((x) => x && { ...x, runs, value: plainOf(runs), version: x.version + 1, caret: rebuild, pending: undefined });
+            }}
             // Return and Tab keep it and move on (Shift back), as do the up and down arrows (as in a Table); left and right
-            // stay in the text. Escape leaves it as it was, the cell still picked.
+            // stay in the text. Escape leaves it as it was, the cell still picked. ChemDraw's text keys style a text cell.
             onKeyDown={(e) => {
               const dir = e.key === "Enter" ? (e.shiftKey ? "up" : "down") : e.key === "Tab" ? (e.shiftKey ? "back" : "next") : e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : undefined;
               if (dir) {
                 e.preventDefault();
                 const n = gridStep(v.cells, gridEdit, dir)!;
-                commitGridCell(e.currentTarget.value);
+                commitGridCell(gridEdit.value, gridEdit, gridEdit.runs);
                 setGridPick({ arrow: v.arrow, key: n.key, row: n.row });
-              }
-              if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); }
+              } else if (e.key === "Escape") { e.preventDefault(); setGridEdit(undefined); }
+              else textKeys(e, false, true);
             }}
-            onBlur={(e) => { if (!inMap(e.relatedTarget)) commitGridCell(e.currentTarget.value); }}
+            onBlur={() => commitGridCell(gridEdit.value, gridEdit, gridEdit.runs)}
           />
         );
       }}</Live>}
@@ -11757,31 +11943,34 @@ export default function Editor() {
         const sh = doc.shapes?.find((x) => x.id === cell.id);
         if (!sh?.table) return null;
         const t = tableLayout(sh, cellWidth(sh), style.captionSize), z = view.zoom, size = (sh.size ?? style.captionSize) * pt * t.f * z, cols = t.cols;
-        const width = Math.max(t.widths[cell.c], (cellWidth(sh)(cell.value) + 2 * TABLE_PAD) * t.f) * L * z, align = sh.table.align?.[cell.c] ?? "centre";
+        const width = Math.max(t.widths[cell.c], (cellWidth(sh)(cell.value, cell.runs) + 2 * TABLE_PAD) * t.f) * L * z, align = sh.table.align?.[cell.c] ?? "centre", height = t.heights[cell.r] * L * z;
+        // The box opens with the cell's text selected. Its characters show in their whole styles (cellLook); text typed
+        // outside them takes the table's own (base).
         return (
-          <input
-            ref={cellInput}
+          <RichBox
             className="cell-box"
-            aria-label={`Row ${cell.r + 1}, column ${cell.c + 1}`}
-            autoFocus
-            spellCheck={false}
-            value={cell.value}
+            label={`Row ${cell.r + 1}, column ${cell.c + 1}`}
+            singleLine
+            base={cellBase(sh)}
+            runs={cell.runs}
+            version={cell.version}
+            caret={cell.caret}
+            pending={cell.pending}
+            api={cellApi}
+            look={cellLook}
             style={{
               left: view.x + ((t.col(cell.c) + t.widths[cell.c] / 2) * L * z) - width / 2, top: view.y - t.row(cell.r) * L * z,
-              width, height: t.heights[cell.r] * L * z, ...textFace(sh, size), color: sh.colour ?? style.colour,
+              // The box is underlined only when every character is (a span cannot take off its box's underline), so
+              // text typed into an empty cell of an underlined table shows it.
+              width, height, ...textFace({ ...sh, underline: sh.underline && cell.runs.every((x) => !x.text || x.underline) ? true : undefined }, size), lineHeight: `${height}px`, color: sh.colour ?? style.colour,
               textAlign: align === "centre" ? "center" : align, padding: `0 ${TABLE_PAD * t.f * L * z}px`,
             }}
-            // A table cell holds 500 characters and no tab, as Octet's files do: a tab (a row pasted from a spreadsheet)
-            // is a space, and what goes in past the limit is cut, with a notice (docs/plans/long-text.md). The text around
-            // it stays, with the caret after what went in.
-            onChange={(e) => {
-              const v = e.target.value.replace(/[\u0000-\u0009\u000b-\u001f]/g, " ");
-              if (v.length <= MAX_CELL) return setCell({ ...cell, value: v });
-              setNotice(cutNotice("A table cell", MAX_CELL));
-              const { text, at } = typedIn(cell.value, v, MAX_CELL), el = e.target;
-              setCell({ ...cell, value: text });
-              requestAnimationFrame(() => el.setSelectionRange(at, at));
-            }}
+            // A table cell holds MAX_CELL characters and no tab, as Octet's files do: a tab or line break (a row pasted from a
+            // spreadsheet) is a space (singleLine), and what goes in past the limit is cut, with a notice
+            // (docs/plans/long-text.md). The text around it stays, with the caret after what went in.
+            max={MAX_CELL}
+            onCut={() => setNotice(cutNotice("A table cell", MAX_CELL))}
+            onRuns={(runs, rebuild) => setCell((w) => w && { ...w, runs, value: plainOf(runs), ...(rebuild ? { version: w.version + 1, caret: rebuild, pending: undefined } : {}) })}
             onKeyDown={(e) => {
               const i = cell.r * cols + cell.c;
               if (e.key === "Tab") {
@@ -11794,8 +11983,10 @@ export default function Editor() {
               if ((e.key === "Enter" && !e.shiftKey) || e.key === "ArrowDown") { e.preventDefault(); return cell.r + 1 < t.rows ? commitCell([cell.r + 1, cell.c]) : commitCell(); }
               if (e.key === "ArrowUp" || e.key === "Enter") { e.preventDefault(); return commitCell([Math.max(0, cell.r - 1), cell.c]); }
               if (e.key === "Escape") { e.preventDefault(); return commitCell(); }
+              // ChemDraw's text keys, as in a caption.
+              textKeys(e, false, true);
             }}
-            onBlur={(e) => { if (!inMap(e.relatedTarget)) commitCell(); }}
+            onBlur={() => commitCell()}
           />
         );
       }}</Live>}
@@ -12070,7 +12261,7 @@ export default function Editor() {
       <Palette
         tool={tool}
         coach={coachTool}
-        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, cycle: cycleChoice, sequence: sequenceChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
+        variants={{ select: selectKind, bond: bondKind, ring: ringKind, template: templateVariant, symbol: symbolKind, orbital: orbitalChoice, shape: shapeChoice, bracket: bracketChoice, pen: penChoice, cycle: cycleChoice, sequence: sequenceChoice, measure: measureChoice, more: settings.variants.more ?? "tlc", arrow: arrowVariant(settings.variants.arrow) ? settings.variants.arrow : "reaction" }}
         curvedArrows={settings.curvedArrows}
         onCurvedArrows={(curvedArrows) => setSettings((s) => ({ ...s, curvedArrows }))}
         libraryRings={settings.libraryRings}
@@ -12113,8 +12304,8 @@ export default function Editor() {
         onLibrarySize={(librarySize) => setSettings((s) => ({ ...s, librarySize }))}
         onSaveSet={saveTemplateSet}
         popKey={pop?.n ?? 0}
-        canUndo={h.at > 0}
-        canRedo={h.at < h.stack.length - 1}
+        canUndo={h.at > 0 || !!pen || !!measuring}
+        canRedo={h.at < h.stack.length - 1 && !pen && !measuring}
         keys={hint}
         onTool={setTool}
         onVariant={(t, kind) => setSettings((s) => ({ ...s, variants: { ...s.variants, [t]: kind } }))}
@@ -12286,6 +12477,7 @@ export default function Editor() {
             sizes={sizeList}
             scale={selectionScale()}
             run={runAction}
+            cellOpen={!!cell || !!gridEdit}
           />
         );
       }}</Live>

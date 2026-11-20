@@ -305,7 +305,7 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   // limit of the text it edits: L17).
   assert.match(editor, /max=\{most\}\s+onCut=\{\(\) => setNotice\(cutNotice\(what, most\)\)\}/);
   assert.match(editor, /max=\{MAX_LABEL\}\s+onCut=\{\(\) => setNotice\(cutNotice\("A label", MAX_LABEL\)\)\}/);
-  assert.match(box, /const text = fit\(e\.clipboardData\.getData\("text\/plain"\)/, "a paste is cut to the room left, its tabs spaces");
+  assert.match(box, /const lined = e\.clipboardData\.getData\("text\/plain"\)[^\n]*, text = fit\(/, "a paste is cut to the room left, its tabs spaces");
   assert.match(box, /if \(p\.max !== undefined && plainOf\(now\)\.length > p\.max\) \{\n\s+p\.onCut\?\.\(\);\n\s+const \{ text, at \} = typedIn\(plainOf\(runs\.current\), plainOf\(now\), p\.max\);/, "typing past the limit cuts what went in");
   // Committed text: a chart label 80, a detail MAX_VALUE, a shown data field MAX_SHOWN, any other text MAX_TEXT; tabs
   // spaces.
@@ -314,7 +314,8 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /if \(over\) setNotice\(cutNotice\(what, most\)\);\n\s+const typed = over \? cutRuns\(clean, most\) : clean/);
   assert.match(editor, /if \(\/\[<>\]\/\.test\(text\)\) setNotice\("A label cannot hold < or >\. Octet left them out\."\);/);
   assert.equal(editor.match(/e\.target\.value\.replace\(\/\[<>\]\/g, ""\)\.slice\(0, MAX_LABEL\)/g)?.length, 2, "the Element and Label fields");
-  assert.match(editor, /if \(v\.length <= MAX_CELL\) return setCell\(\{ \.\.\.cell, value: v \}\);\n\s+setNotice\(cutNotice\("A table cell", MAX_CELL\)\);\n\s+const \{ text, at \} = typedIn\(cell\.value, v, MAX_CELL\)/);
+  // A table cell's box cuts as the caption box does, and makes a tab or line break a space (singleLine, before fit).
+  assert.match(editor, /singleLine\n\s+base=\{cellBase\(sh\)\}[^]*?max=\{MAX_CELL\}\n\s+onCut=\{\(\) => setNotice\(cutNotice\("A table cell", MAX_CELL\)\)\}/);
   assert.match(editor, /setNotice\(cutNotice\("A table cell", MAX_VALUE\)\)/, "a reagent table's text cell");
   assert.match(editor, /if \(groupTooBig\(doc, group\)\) return setNotice\("Select a group of 256 atoms or fewer\.", "info"\);/);
   // Define Nickname: no nickname is saved for a group Contract Label refuses.
@@ -589,6 +590,7 @@ it("L19 a drawing holds MAX_CHARACTERS of text, which saves within 64 MB: each k
   const structures = (k: number): Mol => ({ atoms: Array.from({ length: 3 * k }, (_, i) => ({ label: "C", location: spot(i) })), bonds: Array.from({ length: k }, (_, s) => [{ atoms: [3 * s, 3 * s + 1] as [number, number], type: 1 }, { atoms: [3 * s + 1, 3 * s + 2] as [number, number], type: 1 }]).flat() });
   const singles = (k: number): Mol => ({ atoms: Array.from({ length: k }, (_, i) => ({ label: "C", location: spot(i) })), bonds: [] });
   const grid = (key: string): Mol => ({ ...ETHANOL, arrows: [{ id: 3, kind: "reaction", from: [3, 0], to: [6, 0] }], grids: [{ arrow: 3, typed: { [key]: { mass: 1.5 } }, limiting: key, roles: { [key]: "reactant" }, text: { name: { [key]: "n" } } }] });
+  const cellRuns = (t: string): TextRun[] => [...t].map((c, k) => ({ text: c, bold: true, italic: true, underline: true, script: k % 2 ? "sub" : "super" }));
   const risk = (texts: TextRun[]): Mol => ({ ...ETHANOL, groups: [{ id: 9, atoms: [], items: [], risk: { substances: [], ticks: [], texts: { "head:waste": texts } } }] });
   const kinds: [string, (n: number) => Mol, number][] = [
     ['a text of "', (n) => withTexts(q(n)), 2000], ["a text of €", (n) => withTexts(eu(n)), 2000],
@@ -607,6 +609,9 @@ it("L19 a drawing holds MAX_CHARACTERS of text, which saves within 64 MB: each k
     ["a field on many structures", (n) => ({ ...singles(2000), data: [{ name: "F", atoms: Array.from({ length: n }, (_, i) => i), value: "" }] }), 2000],
     ["a shown field's name", (n) => setRows(ETHANOL, [0, 1, 2], [{ name: q(n), value: "v", show: true }]), 200],
     ["a table cell", (n) => ({ atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [8, -8], table: { cells: [[q(n), "b"], ["c", eu(n)]] } }] }), MAX_CELL],
+    // A table cell's and a reagent table's text styles (release-1.1.3): a run for each character, with every style.
+    ["a table cell's runs", (n) => ({ atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [8, -8], table: { cells: [[q(n), "b"], ["c", eu(n)]], runs: [[cellRuns(q(n)), null], [null, cellRuns(eu(n))]] } }] }), MAX_CELL],
+    ["a reagent table's runs", (n) => { const m = grid("r1"); return { ...m, grids: [{ ...m.grids![0], text: { name: { r1: q(n) } }, runs: { name: { r1: cellRuns(q(n)) } } }] }; }, 200],
     ["a risk text", (n) => risk([{ text: eu(n) }]), 2000], ["a risk text's runs", (n) => risk(Array.from({ length: n }, (_, k) => allStyles("ab"[k % 2], k))), 200],
     ["a risk text's runs with a font of 64 characters", (n) => risk(Array.from({ length: n }, (_, k) => allStyles("ab"[k % 2], k, FONT64, SIZE19))), 200],
     ['a reagent table\'s key of "', (n) => grid(`r:"${q(n)}"`), 2000], ["a reagent table's key of €", (n) => grid(`r:"${eu(n)}"`), 2000],
@@ -846,8 +851,8 @@ it("L32 a text or a table cell set refuses stays in its box with what was typed:
   assert.match(src("./RichBox.tsx"), /useLayoutEffect\(\(\) => \{ build\(p\.caret\); box\.current\?\.focus\(\); \}, \[p\.version\]\);/);
   // commitCell: a cell set refuses stays open with its text and has the focus back; it moves on or closes only after.
   const cell = body("commitCell");
-  assert.match(cell, /if \(m !== doc\) \{ set\(m, true\); if \(refused\.current\) return void requestAnimationFrame\(\(\) => cellInput\.current\?\.focus\(\)\); \}\n\s+if \(!to\) \{ cellOpen\.current = false; return setCell\(undefined\); \}/);
-  assert.ok(cell.indexOf("setCell({") > cell.indexOf("set(m, true)"), "the next cell opens after the set");
+  assert.match(cell, /if \(m !== doc\) \{ set\(m, true\); if \(refused\.current\) \{ const at = plainOf\(w\.runs\)\.length; return setCell\(\{ \.\.\.w, version: w\.version \+ 1, caret: \[at, at\], pending: undefined \}\); \} \}\n\s+if \(!to\) \{ cellOpen\.current = false; return setCell\(undefined\); \}/);
+  assert.ok(cell.indexOf("cellOf(cur") > cell.indexOf("set(m, true)"), "the next cell opens after the set");
   assert.match(editor, /const openCell = \(sh: Shape, p: P\) => \{\n\s+if \(cellOpen\.current\) return;/);
   assert.match(editor, /if \(sh\.kind === "table" && !cellOpen\.current\) \{ cellOpen\.current = true;/);
 });
@@ -964,7 +969,7 @@ it("L24 the settings and a reagent table keep what their readers keep: New set a
   assert.match(editor, /if \(kind\.length > 300\) return setNotice\("Octet cannot keep the attachment point of a template with so long a name\.", "info"\);/);
   assert.match(editor, /if \(Object\.keys\(settings\.anchors\)\.length >= 500\) return setNotice\("Octet keeps the attachment points of up to 500 templates\.", "info"\);/);
   // A reagent table's texts typed over its cells: 400 (stoich.ts readCells).
-  assert.match(src("./stoich.ts"), /n\+\+ < 400/);
+  assert.match(src("./stoich.ts"), /function readCells<T>\(x: unknown, read: \(v: unknown\) => T \| undefined, most = 400\)[^]*?n\+\+ < most/);
   assert.match(editor, /typedOver >= 400\) return setNotice\("A reagent table holds up to 400 typed cells\.", "info"\);/);
 });
 

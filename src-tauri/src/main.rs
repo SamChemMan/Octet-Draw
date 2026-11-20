@@ -961,7 +961,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     section.replace("Structure › Measure".into());
     let measure = Submenu::with_items(app, "Measure", true, &[
-        &item("measure_distance", "Distance", "")?,
+        &item("measure_distance", "Length", "")?,
         &item("measure_angle", "Angle", "")?,
         &item("measure_dihedral", "Dihedral", "")?,
     ])?;

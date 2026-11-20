@@ -51,20 +51,25 @@ get is listed under Cut.
 
 Each job is done when its "done" line is true and its checks in the acceptance list pass.
 
-**J1. The measurement and its maths** (`src/measurement.ts`, new)
-- A measurement is a caption with `measure: { atoms: number[]; at?: [number, number] }`. 2 atoms is a distance,
-  3 an angle at the middle atom, 4 a dihedral about the bond from the second to the third.
-- Its value from the atoms' `location` (x, y, depth): Å for a distance, degrees for an angle (0 to 180), and a signed
-  dihedral (−180 to 180, IUPAC sign). Undefined when two atoms coincide or three in a row are on one line.
-- Å per drawing unit: 1.52 over the median of (3D bond length / ratio) over the bonds of the structures the atoms
-  are in, with `ratio` exported from `clean3d.ts` (no change to what 3D Clean Up does). No bonds: 1.52 over the
-  atom's scale. The ratios are cached by structure (bonds and elements), so a drag pays only for the median.
+**J1. The measurement and its maths** (`src/measurement.ts`; redesigned 19 November 2026)
+- A measurement is a caption with `measure: { ends, at? }`. `ends` in order, each an atom (its index) or a free point
+  fixed in drawing units (`[x, y]`). 2 ends is a length, 3 an angle at the second end (the vertex), 4 a dihedral about
+  the second to the third. A dihedral's 4 ends are atoms. Atom ends are distinct.
+- The old form `{ atoms, at? }` (the 1.2 beta, and .oct files saved by 1.1.3 dev builds) is read everywhere a
+  measurement is read (.oct, Octet's clipboard, CDXML and CDX Octet data) as ends that are all atoms (`readMeasure`).
+  Only the new form is written.
+- Its value is worked out from the ends as drawn (D2). All ends atoms: from the atoms' `location` (x, y and depth).
+  Any free end: on the page plane, depth left out for every end. Å for a length, degrees for an angle (0 to 180), and a
+  signed dihedral (−180 to 180, IUPAC sign). Undefined when two ends coincide or three in a row are on one line.
+- Å per drawing unit: when any end is an atom, 1.52 over the median of (3D bond length / ratio) over the bonds of the
+  measured structures (D3), with `ratio` from `clean3d.ts`. No bonds: 1.52 over the atom's scale. All ends free: the
+  document's bond length is 1.52 Å. The ratios are cached by structure, so a drag pays only for the median.
 - Text: `2.54 Å` (no-break space), `109.5°`, `−60.2°` (U+2212), `–` when undefined. Interpret Chemically off.
-- Order: from the Measure tool, the order the drag passed the atoms. From the menu and the MCP: along the bonds when
-  the atoms make a chain of bonds, else the order they were picked or given.
-- `settleMeasures(before, after, style)`: drops a measurement whose atoms are not 2 to 4 distinct atoms of the
-  drawing, works out each text, and places each label (D4). It returns `after` itself when no caption has
-  `measure`.
+- Order: from the Measure tool, the order clicked. From the menu and the MCP: along the bonds when the atoms make a
+  chain of bonds, else the order they were picked or given.
+- `settleMeasures(before, after, style)`: drops a measurement whose ends are not sound, works out each text, and places
+  each label (D4). A label moved by the same step as every atom end (or with no atom end) moves its free ends with it.
+  It returns `after` itself when no caption has `measure`.
 - Done: values agree with the test geometries to 0.01 Å and 0.1°, and every rule in this list has a check.
 
 **J2. Editing** (`src/edit.ts`, `src/Editor.tsx`, and the readers of captions)
@@ -78,11 +83,16 @@ Each job is done when its "done" line is true and its checks in the acceptance l
   `src/edit.ts:988`), so Space, groups and copies take it with its structure. No turn, flip or scale moves it on
   its own (`transformParts`, `src/edit.ts:2198`; `movers`): it follows its atoms.
 - The label moved alone (drag, arrow keys, MCP move) keeps its new place relative to its atoms.
+- A measurement with a free end whose label moves with every one of its atoms (⌘A, Space, Select Structure, a box round
+  both, Align and Distribute, an Option-drag copy, an AI app's move of both ids) moves whole: its free ends go by the same
+  step, so its value stays (`carriedMeasure`, `followsAtoms` in edit.ts). Space and Select Structure pick the structure's
+  measurements with it, as ⌘A does. Its atoms moved without its label (a drag of one atom) leave the free ends, so the
+  value changes.
 - Typing over the text, or Un-tie from structure, makes it plain text (as for live property text).
 - It never reads as chemistry: not conditions (`reaction.ts`), not a compound number (`numbering.ts`), not a
   mixture, not a chart's data, never joins a cycle (`dropOnCycle`), never ties to a structure, never Make element
   or Convert name to structure. The MCP layout check leaves it out.
-- Accessibility: it belongs to its structure (`src/access.ts:246`) and reads as "Distance 2.54 Å".
+- Accessibility: it belongs to its structure (`src/access.ts:246`) and reads as "Length 2.54 Å" (D10).
 - Done: every edit function in the sibling list keeps measurements right in `measurement.check.ts`.
 
 **J3. Drawing** (`src/Editor.tsx`)
@@ -95,33 +105,53 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - Live: while atoms are dragged, turned or turned in 3D, lines, value and label follow every frame.
 - Done: seen in the dev server in light and dark, at 10% and the highest zoom; no `look:` errors.
 
-**J4. Making one**
-- The Measure tool, in the specialist tools' strip (`src/tools.tsx:98`, `:394`), with a glyph in Phosphor's style
-  (two bonds and a dashed line across their ends). Press on an atom, drag through the atoms in order, let go: two
-  atoms a distance, three an angle, four a dihedral. Lines and the value show while dragging. Going back over the
-  last atom takes it off. Escape stops. A press that is not on an atom does nothing. Holding still selects, as with
-  every tool.
-- Structure > Measure > Distance, Angle, Dihedral, where ChemDraw has Add 3D Property (after R-Logic Query…,
-  `src-tauri/src/main.rs:913`). Each is on when that many atoms are selected.
-- The Actions panel and the right-click menu, with 2 to 4 atoms selected: Measure distance, Measure angle or Measure
-  dihedral (`src/Actions.tsx`, structure context, beside Add multi-centre attachment). The command palette lists it.
-- A flat structure (no atom with depth) is cleaned up in 3D first, as 3D Clean Up does it, in the same step, with
-  the glide. Over 500 atoms: no clean-up, the same notice 3D Clean Up gives, and the value from the flat drawing.
-- The same measurement asked for again picks the one there.
-- The new measurement is picked.
+**J4. Making one** (redesigned 19 November 2026)
+- The Measure tool has its own slot on the main toolbar, in a section of its own after Bracket and before Text, with a
+  line above and below (Sam, 19 November). Its strip (`src/Menu.tsx`) has three variants: Length, Angle and Dihedral.
+  The slot shows the variant last used. Each variant has a keyboard action (Measure length tool, Measure angle tool,
+  Measure dihedral tool), with no default key. Measure is not in the specialist slot any more.
+- Click to place: with Measure in hand, a click places the next end. Over an atom (ringed on hover, before the click)
+  it is that atom; anywhere else it is a free point. Length takes 2 ends, Angle 3 (the angle at the second), Dihedral 4,
+  all atoms: a click off an atom does nothing for Dihedral. After each end a dotted line follows the pointer from the
+  last end, on to the atom under the pointer when there is one, with the value the next click gives beside the pointer.
+  Ends placed so far keep their rings (atoms) or a small dot (free points), with dashed legs between them (none where a
+  bond is the leg). An angle shows its arc as soon as its vertex is placed.
+- The last click makes the measurement in one undo step, picks it, and keeps Measure in hand. Nothing changes in the
+  drawing or its history before that.
+- A press moved 4 px or more and let go places the next end where it is let go, so a drag from A to B makes a length.
+  A press held still gives Select, as with every tool.
+- Escape takes the measurement in progress away. Backspace (or Delete) takes off the last end, and so does Undo (⌘Z,
+  Edit > Undo, the toolbar's Undo), with no change to the history; with no end left the measurement in progress ends,
+  and the next Undo undoes as usual. Redo does nothing while one is in progress. The Pen's curve in progress is the same
+  (20 November 2026). Changing tool or variant, the right-click menu or a menu command takes it away, but for Undo,
+  Redo and the View and Window menus' commands (Magnify, Show Grid), which change only what is shown. A click on the
+  end just placed, or on an atom placed already, does nothing. Undo, Delete and Backspace mid-way tell the screen
+  reader what they did ("Removed the last end.", "Stopped the measurement."). With Measure in hand and nothing picked, Delete takes nothing from under the pointer.
+- With Measure in hand no handle shows or takes a press (as with the Eraser): a press by the label of the measurement
+  just made places an end.
+- With grid snapping on, an end off an atom or bond goes on the grid, and the dotted line and the value follow the
+  point on the grid, so the value shown is the value the click makes.
+- Mouse, pen and touch: pointer events, a tap is a click.
+- Structure > Measure > Length, Angle, Dihedral, where ChemDraw has Add 3D Property (after R-Logic Query…). The
+  Actions panel and the right-click menu, with 2 to 4 atoms selected: Measure length, Measure angle or Measure
+  dihedral. A bond selected or right-clicked (its 2 atoms, the bond's actions) has Measure length too, in the same
+  place, beside 3D clean up (20 November 2026). The command palette lists them.
+- No 3D clean-up when measuring, from any of these (D2).
+- The same measurement asked for again picks the one there. The new measurement is picked.
 - Done: each path makes the same object in one undo step.
 
 **J5. Files and the clipboard**
-- `.oct` and Octet's clipboard (JSON): the caption with `measure: { atoms, at? }`. On read, an unsound `measure` is
+- `.oct` and Octet's clipboard (JSON): the caption with `measure: { ends, at? }`, each end an atom index or a free
+  point `[x, y]`. The old form `{ atoms, at? }` still opens (S45). On read, an unsound `measure` is
   left out and the caption stays as its text (`src/file.ts` `readCaptions`). The text, x and y are always written.
-- CDXML and CDX: the label as `t` with InterpretChemically no and Octet's data `measure: { atoms: node ids, at }`;
+- CDXML and CDX: the label as `t` with InterpretChemically no and Octet's data `measure: { ends: node ids or points, at }`;
   the dashed lines and the arc as Octet-only graphics (`Octet: {"d":1}`), which ChemDraw draws and Octet skips.
   Octet's own file reads back the measurement; a file ChemDraw has saved reads back as text and dashed lines.
 - Done: round trips in the checks, and the ChemDraw and Octet 1.1.2 checks below.
 
 **J6. MCP** (`src/mcp.ts`, small and local)
-- `text` takes `measure`: 2 to 4 atom ids in order (s3.2). It makes the measurement as the tool does, flat
-  structures cleaned up in 3D first, and says so.
+- `text` takes `measure`: 2 to 4 atom ids in order (s3.2). It makes the measurement as the tool does, from the
+  atoms as drawn (no clean-up). Free points through the MCP are for the 1.2 MCP session.
 - `read`: a measurement's text entry has `measure: { kind, atoms, value, unit }`.
 - `run_command measure`, with ids in order, as the menu.
 - `edit` (colour, size, font, bold, italic, underline), `delete` and `move` work on its t id as on any text.
@@ -134,11 +164,17 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 
 ## Rules every part keeps
 
-1. A value always comes from the atoms as drawn now. The text in a file is a copy for other programs.
+1. A value always comes from the ends as drawn now. The text in a file is a copy for other programs. Measuring never
+   changes the drawing.
 2. Å with 2 decimals, degrees with 1. A dihedral has its sign.
 3. The Å scale comes from the measured structures' own bonds, so scaling the drawing or changing the document style
-   never changes a value, and a bond reads the length 3D Clean Up gives it.
-4. A measurement follows its atoms. Only moving its label alone changes where the label sits.
+   never changes the value of a measurement with an atom end, and a bond reads the length 3D Clean Up gives it. With
+   no atom end, the document's bond length is 1.52 Å, so a scale changes the value (D14).
+4. A measurement follows its atoms. Its free ends move with it when it is moved or transformed as part of a
+   selection (its label with all its atoms: ⌘A, Space, a box round both), as a line's ends do. Only moving its label
+   alone changes where the label sits. One with no atom end moves whole when its label is dragged: its label is the
+   only thing to drag it by (open for Sam: a drag of its label could move the label alone, and a drag of its line the
+   whole).
 5. A measurement goes when any of its atoms goes, in the same undo step.
 6. It never reads as chemistry.
 7. It behaves as text everywhere else (sibling list).
@@ -152,10 +188,11 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - **D1. A caption with a `measure` field, not a new list of objects.** Text already has colour, the Text menu,
   selection, Tab, copy, groups, order, files, exports and MCP ids. A new list needs a branch in each of about 20
   places, and each one missed breaks the consistency pillar. Octet 1.1.2 also shows the value as text.
-- **D2. Values from the atoms as drawn; a flat structure is cleaned up in 3D when a measurement is made.** A flat
-  drawing has no real 3D geometry: its angles read 120° and its ring dihedrals 0°. Measuring from a hidden 3D model
-  was rejected: 3D Clean Up takes about 73 ms for paclitaxel on this Mac, which would run on every edit, and the
-  number would not match the drawing. After Flatten the values are the flat drawing's: they describe what is drawn.
+- **D2. Values as drawn; measuring never changes the drawing** (19 November 2026, replaces the 3D clean-up). Sam: a
+  length to or between empty points reads in Å at the drawing's scale, and measuring never changes the drawing
+  (measure as drawn). So a flat drawing reads its flat values (120° angles, 0° ring dihedrals) until the user runs 3D
+  Clean Up. The tool, the menu, the Actions panel, the palette and the MCP make the same measurement from the drawing as
+  it is, with no clean-up, no glide and no 500-atom notice.
 - **D3. The Å scale is 3D Clean Up's own unit.** With a plain 1.52 Å per median bond, a cleaned-up benzene would
   read 1.52 Å for each C–C bond. With the ratio, it reads 1.38 Å.
 - **D4. Label place.** Automatic: a distance's label beside the middle of its line, on the side with fewer
@@ -169,9 +206,36 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - **D7. Deleting an atom deletes the measurement**, with no warning. A measurement without one of its atoms has no
   value. Undo brings both back.
 - **D8. Typing over the value makes plain text**, as live property text does. The Text menu styles it without that.
-- **D9. One drag through the atoms**, as the Atom map tool drags from atom to atom. No click count to finish.
-- **D10. Names.** Tool: Measure. Menu: Structure > Measure > Distance, Angle, Dihedral. Actions and palette:
-  Measure distance, Measure angle, Measure dihedral. ChemDraw's "Add 3D Property" names its query feature.
+- **D9. Click to place** (19 November 2026, replaces the drag through the atoms). Sam: "measure tool is so funky to
+  use. you need to see it as a user, perhaps with a little dotted line that spawns when you drag. also holding your
+  click is not the meta. that's what people are used to doing to go to select. you should be able to CLICK between 2
+  points anywhere on the screen. ... should be a measure - length and a measure angle tool." The flow follows
+  Avogadro's Measure tool (click the atoms in order) and the click-to-measure of Figma and Sketch (click, and a line
+  with its value follows the pointer). A drag still works (press on A, let go on B), and a hold still gives Select.
+- **D10. Names** (19 November 2026). Tool: Measure, with Length, Angle and Dihedral in its strip; "Measure length",
+  "Measure angle", "Measure dihedral" where a full name is needed. Menu: Structure > Measure > Length, Angle, Dihedral.
+  Actions, right-click and palette: Measure length, Measure angle, Measure dihedral. A screen reader reads "Length
+  2.54 Å". One name (Length) everywhere the user reads it; "Distance" is gone. ChemDraw's "Add 3D Property" names its
+  query feature.
+- **D13. Its own toolbar slot** (19 November 2026). Sam, on the dihedral: "it needs its own slot in the tool bar along
+  with pen ... why tf is it hidden like it is? all three of these under one tool." Measure leaves the specialist slot.
+  Sam asked for Pen and Measure each in their own slot, together in a section after Bracket and before Text ("if it's
+  too long of a toolbar we can figure it out and rearrange after"). This branch adds the section with Measure in it;
+  Pen joins it from its own branch.
+- **D14. Free ends under Scale and a 3D turn** (20 November 2026; design, no code change). A free end is a point on
+  the page: it has no depth and no bonds.
+  - Scale: a measurement with no atom end reads in Å at the document's bond length (1.52 Å). Scale with its label
+    picked moves its free ends apart (or together), and the document's bond length stays as it is, so its value changes
+    with the scale: Scale 50% halves it. A measurement with an atom end keeps its value, as its scale comes from its
+    structure's bonds, which scale with it (a mixed one's free ends scale with its atoms).
+  - 3D turn (Structure Perspective, the tilt drag): the atoms turn in depth and the free ends stay where they are on the
+    page, as they have no depth. A mixed measurement (atoms and free ends) is worked out on the page plane, so its value
+    changes as its atoms turn. One with every end an atom keeps its value (it reads the atoms' depth). One with no atom
+    end does not move.
+  - Why: a free end marks a place on the page, not on a molecule. For a free length to keep its value under Scale it
+    would need a scale of its own, and for a free end to turn with its atoms it would need a depth. Both are new data
+    for a case no one has asked for. `src/measurement.ts`'s header still says a scale never changes a value; it holds for
+    measurements with an atom end.
 - **D11. A measurement asked for twice is made once.**
 - **D12. Fixed decimals.** No setting yet.
 
@@ -183,15 +247,15 @@ Each is checked for a measurement:
 | --- | --- |
 | Colour menu, Actions colour, MCP colour | text and lines |
 | Text menu: font, size, bold, italic, underline, plain | the label |
-| ⌘A, box, lasso, click, Space (whole structure), Tab | picked as text; Space and groups take it with its atoms |
-| Hold to Select | the Measure tool too |
-| Undo and redo | every change one step |
+| ⌘A, box, lasso, click, Space (whole structure), Tab | picked as text; Space and groups take it with its atoms; one with no atom end is picked as itself |
+| Hold to Select | the Measure tool too (a press held still) |
+| Undo and redo | every change one step; mid-way, Undo takes off the last end and Redo does nothing, as for the Pen's curve |
 | Copy, cut, paste (window to window), Paste into ChemDraw and Office | with its atoms; alone, plain text |
 | Duplicate, Add to templates | with its atoms |
 | Delete, Eraser, MCP delete | removes it; an atom deleted removes it |
 | Move label: drag, arrow keys, MCP move | offset kept |
 | Align, Distribute | not a thing of its own, as a compound number |
-| Turn, Rotate…, Flip, Rotate 180°, Scale, Structure Perspective (3D turn) | follows; stays upright; values hold (Mirror changes a dihedral's sign) |
+| Turn, Rotate…, Flip, Rotate 180°, Scale, Structure Perspective (3D turn) | follows; stays upright; values hold (Mirror changes a dihedral's sign; Scale changes one with no atom end, and a 3D turn a mixed one: D14) |
 | 3D Clean Up, Clean Up Structure, Flatten, Clean Up Reaction | follows the new geometry |
 | Group, Ungroup, integral groups | with its structure |
 | Bring to Front, Send to Back | as text |
@@ -199,14 +263,14 @@ Each is checked for a measurement:
 | MOL, SDF, RXN, RDF, SMILES, InChI, HELM, FASTA, LaTeX, 3MF | not written (a picture object) |
 | PDF, PNG, SVG, EMF, EPS, TIFF, JPEG, GIF, Print | drawn |
 | Dark mode, zoom | as text and lines |
-| Screen readers | "Distance 2.54 Å", in its structure |
+| Screen readers | "Length 2.54 Å", in its structure (one with no atom end: on its own) |
 | MCP read, edit, delete, move, text, run_command | J6 |
 | Native menu, right-click menu, Actions panel, command palette | J4 |
 | Notes (issues 101 and 102): Annotate…, the Notes panel, MCP edit's note | the label takes a note, as text; it stays through every edit and file that keeps the measurement, and in the label's `t` in CDXML, never in its lines; no picture or other app gets it |
 
 ## MCP
 
-- `text` `{ measure: ["s3.2", "s3.5"] }` → `t12`, its text, and "cleaned up s3 in 3D" when it was flat. `text` with
+- `text` `{ measure: ["s3.2", "s3.5"] }` → `t12` and its text, measured as drawn. `text` with
   `measure` takes the text style arguments too; `text` and `id` are refused with it.
 - `read` (full): `{ id: "t12", text: "2.54 Å", measure: { kind: "distance", atoms: ["s3.2", "s3.5"], value: 2.54,
   unit: "Å" } }`. The summary lists it under text with `measure: "distance"`.
@@ -231,14 +295,14 @@ A drawing saved by 1.1.2 after it opened the file keeps the value as plain text.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| S1 | Measure tool: press an atom, let go with no second atom | nothing added, no undo step |
-| S2 | Drag through 6 atoms | a dihedral of the first four; the rest ignored |
-| S3 | Drag back over the last atom, then let go | that atom taken off; a distance of the two left |
-| S4 | Drag passes an atom already picked (not the last) | ignored |
+| S1 | Measure tool: one click on an atom, then Escape | the ring goes; nothing added, no undo step |
+| S2 | Dihedral: a click off an atom | nothing placed |
+| S3 | Backspace after two ends of an angle | the last end taken off; the next click places it again |
+| S4 | A click on the end just placed, or on an atom placed already | nothing |
 | S5 | Empty drawing; press on empty canvas, a bond or text | nothing, no error |
-| S6 | Measure on a flat structure, then ⌘Z, then ⇧⌘Z | one step: cleaned up in 3D and measured; ⌘Z gives the flat drawing with no measurement; ⇧⌘Z both again |
-| S7 | Flat 500-residue peptide (about 4000 atoms) | no clean-up, 3D Clean Up's notice, value from the flat drawing, under 100 ms |
-| S8 | Distance between atoms of two structures, both flat | both cleaned up; the value is their distance as placed |
+| S6 | Measure on a flat structure, then ⌘Z, then ⇧⌘Z | one step; atoms as they were (no clean-up); ⌘Z takes the measurement away; ⇧⌘Z gives it back |
+| S7 | Flat 500-residue peptide (about 4000 atoms) | no clean-up, no notice, value from the flat drawing, under 100 ms |
+| S8 | Length between atoms of two structures, both flat | the value is their distance as placed; nothing moves |
 | S9 | Delete one measured atom, then ⌘Z | the measurement goes in the same step; ⌘Z brings both |
 | S10 | Undo and redo 20 steps of add, move label, colour, turn, delete atom | each step gives back the exact text, place and colour |
 | S11 | Turn 37°, Structure Perspective turn, Rotate 180° | values the same to 0.001; label upright, same place relative to the atoms |
@@ -271,6 +335,14 @@ A drawing saved by 1.1.2 after it opened the file keeps the value as plain text.
 | S38 | Flatten, Clean Up Structure on a measured structure | values follow the new geometry |
 | S39 | A measurement in a template, placed twice | each placed copy measures its own atoms |
 | S40 | Contract Label over a measured atom; a measurement on the label's own atom | the first goes with the atom; the second stays |
+| S41 | Length between two free points; and from an atom to a free point | Å at 1.52 per document bond; at the structure's scale |
+| S42 | Free ends: move, arrow keys, turn, flip, scale with the label picked | the free ends move with it |
+| S43 | An atom deleted from a mixed measurement | the measurement goes in the same step |
+| S44 | Free ends through .oct, the clipboard, CDXML, CDX, copy, paste, duplicate | kept, atom ends remapped |
+| S45 | An old-form measurement (`atoms`) in .oct, the clipboard, CDXML and CDX | opens as a measurement; saved in the new form |
+| S46 | Click flow in WebKit: two clicks, three clicks with the live arc, drag and let go, hold, Escape, Backspace, a tool change, zoom 10% and the highest | as J4; the live value equals the value made |
+| S47 | ⌘Z, ⇧⌘Z and ⌘Y with two ends of an angle placed; ⌘Z with one end placed, then ⌘Z again; the same for the Pen's curve | ⌘Z takes off the last end, history unchanged; ⇧⌘Z and ⌘Y nothing; with no end left, the next ⌘Z undoes the step before (W15; pentool T13) |
+| S48 | A bond selected, then right-clicked; Structure > Measure > Length with a bond selected | Measure length beside 3D clean up in the panel and in 3D tools in the menu; each makes the bond's length, 1.52 Å, in one step (W16) |
 
 ## Acceptance list
 
@@ -299,8 +371,18 @@ Checks are in `src/measurement.check.ts` (new) unless named.
 
 ## Cut (not in 1.1.3)
 
-- ChemDraw's other 3D properties: Line, Plane, Normal, Point (and its dialog), Centroid, Exclusion Sphere. Each
-  needs points that are not atoms, with their own drawing and file forms. Not cheap. Sam put exclusion spheres out.
+- ChemDraw's Add 3D Property items against Octet (19 November 2026; ChemDraw has no measuring tool, these are 3D
+  search constraints):
+  - Distance: in, as Length (atoms or free points).
+  - Angle: in (atoms or free points).
+  - Dihedral: in (atoms only).
+  - Point: in part. A free end is a point on the page; ChemDraw's Point is placed by a distance or a percentage from
+    one point towards another, by a dialog. Missing.
+  - Line: missing.
+  - Plane: missing.
+  - Normal: missing.
+  - Centroid: missing. A length between two groups needs it.
+  - Exclusion Sphere: missing (Sam put it out).
 - ChemDraw's constraint ranges (minimum to maximum, signed or unsigned dihedral, unconnected atoms in a sphere),
   and reading ChemDraw's constraint and geometry objects as objects. They are a 3D search feature and Octet has no
   3D search. On open they stay "left out", as now.
@@ -315,8 +397,9 @@ Checks are in `src/measurement.check.ts` (new) unless named.
 
 What the build changed in this plan, and why:
 
-- `addMeasure` and `cleanedFor` are in `edit.ts`, not `measurement.ts`. They need `addCaption` (edit.ts), and
-  edit.ts needs `measurement.ts`; the two importing each other broke Vite's hot reload.
+- `addMeasure` is in `edit.ts`, not `measurement.ts` (`cleanedFor` went with the clean-up on
+  19 November). It needs `addCaption` (edit.ts), and edit.ts needs `measurement.ts`; the two importing each other
+  broke Vite's hot reload.
 - Label place (D4): the automatic place is the nearest one clear of bonds, atoms and the measurement labels placed
   before it (the first hundred), out along the measurement's frame: both sides of a line in turn, inside an angle
   first and then outside it. The first build put a 1,4 distance's label on the ring's far bonds.
@@ -324,8 +407,8 @@ What the build changed in this plan, and why:
   frame of 40 paclitaxels with 120 measurements went from 30 ms to 0.4 ms.
 - A file opens with each label where Octet saved it (`settleMeasures` with `kept`): only the values are worked out
   again, so a drawing opens as it was saved.
-- "Flat" (J4) is no depth and no depth shading. 3D Clean Up turns shading on, so a structure that is flat in 3D (anti
-  butane) is not cleaned up again at each new measurement.
+- (Up to 19 November) "Flat" was no depth and no depth shading, for the clean-up on measuring. Measuring no
+  longer cleans up (D2), so this no longer applies.
 - The arc is a solid line; the lines between atoms are dashed.
 - Structure > Measure's items are always on, as Add Multi-Centre Attachment's are (native menu items here have no
   enabled state). With the wrong number of atoms selected, a notice says how many to select.
@@ -366,3 +449,75 @@ What the build changed in this plan, and why:
   12:41) listed no documents after `open -g -a`, and an AppleScript open timed out (-1712), as on 17 November. It needs
   a run with the ChemDraw window in view: open Octet's CDXML and CDX with three measurements, save each, and open the
   saves in Octet (S21).
+
+## Redesign (19 November 2026)
+
+Sam, using the tool on 19 November: "measure tool is so funky to use. you need to see it as a user, perhaps with a
+little dotted line that spawns when you drag. also holding your click is not the meta. that's what people are used to
+doing to go to select. you should be able to CLICK between 2 points anywhere on the screen. ... should be a measure -
+length and a measure angle tool." On the dihedral: "it needs its own slot in the tool bar along with pen ... why tf is
+it hidden like it is? all three of these under one tool." Sam's answers: a length to or between empty points reads in
+Å at the drawing's scale; measuring never changes the drawing (measure as drawn).
+
+What changed (J1, J4, D2, D9, D10, D13 and rules 1, 3 and 4 above hold the detail):
+
+- Ends: atoms or free points (`measure: { ends, at? }`). The old `{ atoms, at? }` still opens everywhere.
+- Click to place, with a dotted line and the live value following the pointer. A drag from A to B still makes a length.
+- No 3D clean-up when measuring. Values as drawn: 3D from atoms with depth when every end is an atom, on the page
+  plane otherwise.
+- Toolbar: Measure has its own slot with Length, Angle and Dihedral, in a section of its own after Bracket.
+- Distance is called Length everywhere the user reads it.
+- Free ends move with the measurement when it moves as part of a selection: a translation is found in
+  `settleMeasures` (the label and every atom end moved by the same step), and a turn, flip or scale moves them in
+  `transformParts`. A paste, duplicate or template placed at an offset moves them in `insertMol`.
+- The MCP keeps its arguments (atom ids). Its read gives atom ends as ids; free points are for the 1.2 MCP session.
+
+Built (19 November 2026):
+
+- With Measure in hand every press goes to the measurement, also on text, an arrow, a cycle or the selection: Sam asked to
+  click between two points anywhere. A press on empty canvas with something picked clears the pick and places the end in
+  the same press (Measure picks each measurement it makes, and changes nothing in the drawing).
+- Undo while measuring takes the measurement in progress away and nothing else: none of it is in the history yet.
+  (Changed on 20 November: Undo takes off the last end, as Backspace does. See J4.)
+- The pointer's place while measuring is in a store, so a pointer move draws the dotted line and its value again and not
+  the editor (as the Eraser's brush): on 2000 atoms a move costs about 1.3 ms, against about 3.8 ms for an Atom map drag.
+- The toolbar's indicator is placed by counting the slots and the section's lines (13 px each, its 1 px, its margins and
+  the gap after it); measurements-stress.check.ts checks it on every tool in one column and two.
+- The command palette has no Measure tool entries: its Measure length, angle and dihedral are the commands on selected
+  atoms, and two entries of one name would read as one. Sequence and Catalytic cycle are not there either.
+
+## Fixes after the independent check (20 November 2026)
+
+- A measurement from an atom to an empty point stayed behind at its free end when its structure and label moved
+  together (a drag, the arrow keys, Space and a drag, an Option-drag copy, an AI app's move), so its value changed. The
+  move counted it as text that follows its atoms. It now moves whole, its free ends by the same step (`followsAtoms`,
+  `carriedMeasure`); Align and Distribute too. Space and Select Structure pick the structure's measurements, as the
+  siblings table says ("Space and groups take it with its atoms"). Checks: followUi F1 to F4 and F9 in WebKit, and
+  measuremcp.check.ts for the AI move.
+- Grid snapping: the dotted line and the value followed the pointer, but the click placed the point on the grid. The
+  line and the value now use the point on the grid (`measureAim`). Check: F6.
+- One Backspace more than the ends placed deleted the atom under the pointer. With Measure in hand and nothing picked,
+  Delete now does nothing. The Pen keeps ChemDraw's Delete over an atom: it is a drawing tool. Check: F7.
+- The width handle of the measurement just made took a press with Measure in hand. Handles do not show or take a press
+  with Measure (as with the Eraser). Check: F8.
+- Every native menu command took the measurement in progress away, View > Magnify too. A View or Window command keeps it
+  (`showsOnly`, keys.ts). Check: keys.check.ts (the app's menu cannot run in the dev server).
+- The pointer timing (W13) compared Measure with an Atom map drag. It now times the editor's own path (hit test, hover,
+  dotted line and value) against Select's on 4000 atoms, length and angle in progress, best of two rounds each, with a
+  1.5 ms budget on the mean. The line that follows the pointer reuses the move's hit test (`measureHit`): measured in
+  WebKit, Select 1.0 to 1.4 ms a move, a length in progress 1.3 to 2.3 ms, an angle 1.5 to 2.2 ms (1 ms timer steps).
+- Left as designed: the label of a measurement with no atom end moves the whole measurement (rule 4). Sam to decide.
+
+## Changes on 20 November 2026 (after Sam's review)
+
+- Measure length on a bond. Two bonded atoms selected, or a bond right-clicked, give the bond's actions, which had no
+  Measure length. It is now in the bond's Actions panel and right-click menu, in the same place as for 2 atoms (3D
+  tools, beside 3D clean up), and makes the same length as Structure > Measure > Length with the bond's 2 atoms
+  selected. Check: W16 (measurements-stress.check.ts).
+- Undo in the middle of a curve or a measurement. ⌘Z while a Pen curve was in progress undid the step before and left
+  the curve going (1.1.2 did this too), and ⌘Z while measuring took the whole measurement in progress away. Now Undo
+  (⌘Z, Edit > Undo, the toolbar's Undo) takes off the last point placed, as Delete or Backspace does, and the history
+  stays as it is. With no point left the curve or the measurement ends, and the next Undo undoes as usual. Redo (⇧⌘Z,
+  ⌘Y, Edit > Redo) does nothing while one is in progress, and Repeat does not run. The menu's Undo and Redo leave a
+  measurement in progress to the editor's undo. Checks: W15, pentool T13, keys.check.ts (the menu path).
+- Scale and the 3D turn with free ends: D14.
