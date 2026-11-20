@@ -200,14 +200,17 @@ export function writeData(m: Mol, captions: Caption[]): ({ name: string; atoms: 
 export function readData(v: unknown, atoms: number, captions: Caption[]): { data?: DataField[]; left: number } {
   if (!Array.isArray(v)) return { left: v === undefined ? 0 : 1 };
   const data: DataField[] = [], taken = new Set<number>();
-  let left = Math.max(0, v.length - MAX_DATA);
+  let left = Math.max(0, v.length - MAX_DATA), last: number[] = [];
   for (const x of v.slice(0, MAX_DATA) as Record<string, unknown>[]) {
     const name = typeof x?.name === "string" && x.name.length <= MAX_NAME ? cleanName(x.name) : "", list = x?.atoms;
     const sound = name && Array.isArray(list) && list.length && list.length <= atoms && list.every((i) => Number.isInteger(i) && i >= 0 && i < atoms);
     const value = typeof x?.value === "string" ? cleanValue(x.value) : undefined, at = x?.caption as number;
     const shown = Number.isInteger(at) && at >= 0 && at < captions.length && !taken.has(at);
     if (!sound || (value === undefined) === !shown) { left++; continue; }
-    const ids = [...new Set(list as number[])];
+    // Fields of the same atoms share their list, as Attach Data makes them (an edit renumbers it once).
+    let ids = [...new Set(list as number[])];
+    if (ids.length === last.length && ids.every((i, k) => i === last[k])) ids = last;
+    last = ids;
     if (shown) { taken.add(at); data.push({ name, atoms: ids, caption: captions[at].id }); } else data.push({ name, atoms: ids, value });
   }
   return { ...(data.length ? { data } : {}), left };

@@ -1765,7 +1765,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     type Read = DataField & { datum?: number };
     const shown: Read[] = (mol.captions ?? []).flatMap((c) => (c.property?.attrs.ChemicalPropertyType === ATTACHED
       ? [{ name: cleanName(c.property.attrs.Name ?? "").slice(0, MAX_NAME) || NO_NAME, atoms: c.property.atoms, caption: c.id, ...(shownDatum.has(c.id) ? { datum: shownDatum.get(c.id) } : {}) }] : []));
-    let list: Read[] = [...fieldsRead.map((f) => ({ name: f.name, value: f.value, atoms: f.atoms.map(ix), ...(f.datum !== undefined ? { datum: f.datum } : {}) })), ...shown];
+    // A structure's fields share its list of atoms, as Attach Data makes them (an edit renumbers it once).
+    const lists = new Map<number[], number[]>(), listOf = (l: number[]) => { let out = lists.get(l); if (!out) lists.set(l, (out = l.map(ix))); return out; };
+    let list: Read[] = [...fieldsRead.map((f) => ({ name: f.name, value: f.value, atoms: listOf(f.atoms), ...(f.datum !== undefined ? { datum: f.datum } : {}) })), ...shown];
     if (!list.length) return;
     if (octet) {
       list = list.map((f, k) => [f, k] as const).sort((p, q) => (p[0].datum ?? Infinity) - (q[0].datum ?? Infinity) || p[1] - q[1]).map(([f]) => f);

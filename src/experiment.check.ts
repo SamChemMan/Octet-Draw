@@ -316,7 +316,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.match(editor, /const opened = withFields\(wholeGroups\(asOpened\(/);
   assert.match(editor, /\{!exporting && slots\.length > 0 && \(\n\s+<g className="fields">/);
   // Markup kept as typed (an escape, or Undo of the change) stays as typed when the caption is edited again.
-  assert.match(editor, /if \(!refused\.current && !\(expPage && markupCaption\(old\)\)\) marked\(m, w\.id\);/);
+  assert.match(editor, /if \(!kept\(\)\) return false;\n\s+if \(!\(expPage && markupCaption\(old\)\)\) marked\(m, w\.id\);/);
 }
 
 // A reaction inserted on a new page (Name to Structure, paste, import) lands inside the Reaction scheme box, at its top
