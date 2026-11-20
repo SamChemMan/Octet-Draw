@@ -100,6 +100,16 @@ export function labelStyle(runs: TextRun[]): { bold?: true; italic?: true; under
 
 // The runs after the text was typed to `next`: what changed is found by the longest common start and end, and
 // new characters take `pending` (a style set with nothing selected) or the style of the character before them.
+// The characters from `from` to `to`, each in its own style.
+export function sliceRuns(runs: TextRun[], from: number, to: number): TextRun[] {
+  const out: TextRun[] = [];
+  let at = 0;
+  for (const r of runs) {
+    const a = at, b = (at += r.text.length), x = Math.max(from, a), y = Math.min(to, b);
+    if (y > x) out.push({ ...r, text: r.text.slice(x - a, y - a) });
+  }
+  return out;
+}
 export function edited(runs: TextRun[], next: string, pending?: RunStyle): TextRun[] {
   const old = plainOf(runs);
   let p = 0;

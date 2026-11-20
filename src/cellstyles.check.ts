@@ -3,7 +3,7 @@
 // value, as in a caption (docs/plans/cell-styles.md). The editor is a React page, so this reads how it is wired.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { browserStyle, normalise, ownRuns, plainOf, styleRange } from "./richtext.ts";
+import { browserStyle, normalise, ownRuns, plainOf, sliceRuns, styleRange } from "./richtext.ts";
 import { formulaOver } from "./labels.ts";
 import { expandRuns } from "./escapes.ts";
 
@@ -37,7 +37,7 @@ assert.match(editor, /if \(gridStyles\(gridEdit!, gridEdit!\.value\)\) setGridEd
 assert.ok(editor.indexOf("const box = cell && cellOpen.current") < editor.indexOf("const texts = !writing && !selection.size"), "before the whole table's styles");
 // A compound number goes to its caption and keeps no styles, so the keys do nothing while the cell holds one.
 assert.match(editor, /const gridStyles = \(gc: GridCell, text\?: string\) => gridWrites\(gc\) && takesRuns\(gc\.row, gc\.key\) && !\(text !== undefined && gridNumber\(gc, oneLine\(text\)\.trim\(\)\)\);/);
-assert.match(editor, /const own = runs && gridStyles\(w, text\) && text \? ownRuns\(edited\(runs, text\), gridBase\(w\)\) : undefined, cap = gridNumber\(w, text\);/);
+assert.match(editor, /const own = kept && gridStyles\(w, text\) && text \? ownRuns\(kept, gridBase\(w\)\) : undefined, cap = gridNumber\(w, text\);/);
 // A row of your own deleted takes its styles with it, both ways (Delete on its name, the Delete row action), and so
 // does one an AI app deletes.
 assert.equal(editor.match(/changeGrid\([^)]*\(h\) => dropOwn\(h, row(\.id)?\)\)/g)?.length, 2);
@@ -103,4 +103,13 @@ assert.match(box, /onCompositionEnd=\{\(\) => \{ if \(p\.pending\) typed\(\); \}
 // The reagent table's panel has B, I and U while a text cell is open, in the group that keeps the cell open.
 assert.match(actions, /context\.kind === "grid" && context\.styles && \(\s*\/\/[^\n]*\n[^\n]*\n\s*<div className="chips label-style" role="group" aria-label="Cell style">/);
 assert.match(editor, /const cellStyles = gridEdit && gridStyles\(gridEdit, gridEdit\.value\) \? \{ styles: common\(gridEdit\.runs, 0, gridEdit\.value\.length\) \} : \{\};/);
+// A reagent table cell trimmed at both ends keeps each character's style: " dry THF " with "dry" italic is "dry THF"
+// with "dry" italic, not all plain.
+{
+  const typed = [{ text: " " }, { text: "dry", italic: true as const }, { text: " THF " }], text = plainOf(typed).trim(), at = plainOf(typed).indexOf(text);
+  assert.deepEqual(normalise(sliceRuns(typed, at, at + text.length)), [{ text: "dry", italic: true }, { text: " THF" }]);
+  assert.match(editor, /const at = runs \? plainOf\(runs\)\.indexOf\(text\) : -1, kept = runs && \(at >= 0 \? sliceRuns\(runs, at, at \+ text\.length\) : edited\(runs, text\)\);/);
+}
+// The details sheet's text keys read the selection as the key comes, not as it was at the last redraw.
+assert.match(sheet, /if \(command\) \{\s*e\.preventDefault\(\);\s*const r = apiOf\(f\.key\)\.current\?\.range\(\);\s*if \(r\) last\.current = \{ key: f\.key, range: r \};/);
 console.log("cellstyles.check: ok");

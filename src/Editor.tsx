@@ -136,7 +136,7 @@ import { addSet, addSetOf, addTo, closePalette, duplicateTemplate, freeSetName, 
 import { expandEscapes, expandRuns, keptText } from "./escapes";
 import { CharMap } from "./CharMap";
 import { bendOf, crossedBonds, cutEndAt, cutPoints, cutSides, cutThrough, extendCut } from "./masscut";
-import { common, edited, labelStyle, lines as richLines, normalise, ownRuns, plainOf, runsOf, shareColour, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
+import { common, edited, labelStyle, lines as richLines, normalise, ownRuns, plainOf, runsOf, shareColour, sliceRuns, styleRange, styled, trimLines, whole, without, type RunStyle, type TextRun } from "./richtext";
 import { RichBox, type RichApi } from "./RichBox";
 import { DetailsSheet } from "./DetailsSheet";
 import { Dialog } from "./Dialog";
@@ -7359,7 +7359,9 @@ export default function Editor() {
   const writeGridCell = (w: GridCell, typed: string, runs?: TextRun[]) => {
     const text = oneLine(typed).trim(), k = w.key[0] === "#" ? "#" : w.key;
     // Its characters' styles where they differ from the cell's look (none for a cell that takes none).
-    const own = runs && gridStyles(w, text) && text ? ownRuns(edited(runs, text), gridBase(w)) : undefined, cap = gridNumber(w, text);
+    // Trimmed at both ends, the characters keep their own styles (edited() would see a change at each end and lose them).
+    const at = runs ? plainOf(runs).indexOf(text) : -1, kept = runs && (at >= 0 ? sliceRuns(runs, at, at + text.length) : edited(runs, text));
+    const own = kept && gridStyles(w, text) && text ? ownRuns(kept, gridBase(w)) : undefined, cap = gridNumber(w, text);
     if (cap) {
       const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest }, ...gridRuns(g, w.row, w.key) }; });
       return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
