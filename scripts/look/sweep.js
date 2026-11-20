@@ -1,5 +1,5 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
+// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, the Pen tool's menu, the toolbar in two columns, a caption with the paste
 // offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
@@ -130,6 +130,16 @@ const template = [...document.querySelectorAll(".tool")].find((t) => /templates$
 template?.click(); await wait(500); template?.click();
 await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
 key({ key: "Escape" });
+await wait(600);
+// The Pen tool's menu (Pen and Edit curve), then the toolbar in two columns, and back to one.
+const pen = [...document.querySelectorAll(".palette > .slot > .tool")].find((t) => /^(pen|edit curve)$/i.test(t.getAttribute("aria-label") ?? ""));
+pen?.click(); await wait(500); pen?.click();
+await measure("the Pen tool's menu", !!(await until(() => document.querySelectorAll('.strip[data-tool="pen"] .variant').length === 2, 3000)));
+key({ key: "Escape" });
+await wait(600);
+labelled("Two columns")?.click();
+await measure("the toolbar in two columns", !!(await until(() => document.querySelector(".palette.wide"), 3000)));
+labelled("One column")?.click();
 await wait(600);
 
 // A caption, and the offer that comes when a reference is pasted into it with its formatting.

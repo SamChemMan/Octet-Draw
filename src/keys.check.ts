@@ -272,7 +272,7 @@ console.log("keys.check: circled charges on a key ok");
 
 // Every tool can be given a key (PR #58). The tools are read from their own union, so a tool added later needs an action.
 {
-  const { DEFAULT_KEYS, MEASURE_TOOLS, RING_TOOLS, optionCommand } = await import("./keys.ts");
+  const { DEFAULT_KEYS, MEASURE_TOOLS, PEN_TOOLS, RING_TOOLS, optionCommand } = await import("./keys.ts");
   const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
   const ids = tools.match(/^export type Tool = (.+);$/m)![1].split("|").map((t) => t.trim().replace(/"/g, ""));
   assert.ok(ids.length > 20 && ids.includes("gel") && ids.includes("sequence"), `read the tools: ${ids.join(" ")}`);
@@ -302,7 +302,7 @@ console.log("keys.check: circled charges on a key ok");
   assert.deepEqual(Object.values(MEASURE_TOOLS), ["distance", "angle", "dihedral"]);
   assert.match(tools, /t\.id === "measure" \? optionKey\("measure", p\.variants\.measure\)/, "the Measure slot names its variant's key");
   assert.ok(Object.values(RING_TOOLS).every((k) => new RegExp(`^  "?${k}"?: \\{ name:`, "m").test(tools)), "each ring command picks a ring in RINGS");
-  assert.match(tools, /data-key=\{p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key");
+  assert.match(tools, /data-key=\{t\.id === "pen" \? optionKey\("pen", p\.variants\.pen\) : p\.keys\(`tool\.\$\{t\.id\}`\) \?\? \(t\.id === "ring" \? optionKey\("ring", p\.variants\.ring\)/, "the Ring slot names its ring's key, and the Pen slot its option's");
   assert.match(tools, /hint: optionKey\("more", id\)/, "the More tools menu names each tool's key");
   assert.match(tools, /arrived: arrived === kind, hint: optionKey\(tool, kind\)/, "a strip's options name their keys");
   assert.match(tools, /aria-label=\{nameOf\(tool, kind\)\}\s+data-key=\{optionKey\(tool, kind\)\}/, "a pinned option names its key");
@@ -311,7 +311,25 @@ console.log("keys.check: circled charges on a key ok");
   assert.match(settings, /Taken from \$\{taken\.map\(\(t\) => ACTIONS\.find\(\(a\) => a\.id === t\)!\.name\.replace\(\/\^\[A-Z\]\(\?=\[a-z\]\)\/, \(c\) => c\.toLowerCase\(\)\)\)/);
   assert.deepEqual(["TLC plate tool", "Gel tool", "Set atom to Me"].map((n) => n.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())), ["TLC plate tool", "gel tool", "set atom to Me"]);
   assert.match(settings, /onClick=\{\(\) => \{ p\.onKeys\(\{\}\); setNote\(undefined\); \}\}/);
-  // A specialist tool's key leaves it in its slot, as its menu does; a Measure variant's key picks the variant.
-  assert.match(editor, /slot = ring \? "ring" : measure \? "measure" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings/);
+  // A specialist tool's key leaves it in its slot, as its menu does; a Pen key picks its option in the Pen slot, and a
+  // Measure variant's key the variant.
+  assert.match(editor, /slot = ring \? "ring" : penOption \? "pen" : measure \? "measure" : SPECIAL\.includes\(arg as Tool\) \? "more" : undefined;\s+if \(slot\) setSettings\(\(s\) => \(\{ \.\.\.s, variants: \{ \.\.\.s\.variants, \[slot\]: ring \?\? penOption \?\? measure \?\? arg \} \}\)\);\s+return setTool\(ring \? "ring" : penOption \? "pen" : measure \? "measure" : \(arg as Tool\)\);/);
+  // The Pen tool (Sam, 19 November 2026): tool.pen picks the Pen and tool.editcurve Edit curve, with no key by default
+  // (ChemDraw 22.2's hotkeys give its Pen tools none; only 17.1's guide gave the Pen l). Settings lists them as the
+  // other tools ("Pen tool"), and the Pen strip, its slot and a pinned Pen option name their keys.
+  const { PENS } = await import("./kinds.ts");
+  assert.deepEqual(["tool.pen", "tool.editcurve"].map((id) => [ACTIONS.find((a) => a.id === id)?.name, ACTIONS.find((a) => a.id === id)?.group, DEFAULT_KEYS[id]]), [["Pen tool", "Tools", []], ["Edit curve tool", "Tools", []]]);
+  assert.deepEqual([optionCommand("pen", "pen"), optionCommand("pen", "pen-edit"), optionCommand("pen", "box-plain"), optionCommand("shape", "pen")], ["tool.pen", "tool.editcurve", undefined, undefined]);
+  assert.deepEqual(Object.values(PEN_TOOLS).sort(), Object.keys(PENS).sort(), "each Pen option has its command");
+  const mine2 = keymap({ "tool.editcurve": ["shift+v"] });
+  assert.equal(actionFor(mine2, "shift+v", "none"), "tool.editcurve");
+  assert.deepEqual(clashes(keymap({ "tool.pen": ["g"] }), "tool.pen", "g"), ["tool.tlc"]);
+  // No ChemDraw key moved: DEFAULT_KEYS but the two Pen commands, the three Measure variants' (and the menu's, which
+  // registerMenu above put in) is as Octet 1.1.3 began (release-1.1.3 e5af1273). The digest is sha256 of its entries
+  // sorted by id, as JSON, cut to 16 hex digits.
+  const { createHash } = await import("node:crypto");
+  const rest = Object.entries(DEFAULT_KEYS).filter(([id]) => !["tool.pen", "tool.editcurve", "tool.measureLength", "tool.measureAngle", "tool.measureDihedral"].includes(id) && !id.startsWith("menu.")).sort(([a], [b]) => (a < b ? -1 : 1));
+  assert.equal(createHash("sha256").update(JSON.stringify(rest)).digest("hex").slice(0, 16), "b8569d18f3cb9344", "a default key changed: every other default is ChemDraw's");
+  assert.equal(rest.length, 142);
 }
 console.log("keys.check: every tool can be given a key, and the Ring slot names its ring's ok");

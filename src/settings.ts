@@ -3,7 +3,7 @@
 // guides: whether new drawings (and drawings from other programs) show the grid, the rulers and the crosshair: the
 // last choice in the View menu, as ChemDraw keeps its own. rulerUnit: the rulers' unit.
 // eraser: eraser radius in bond lengths. keys: the user's shortcut changes.
-// variants: the bond and ring each tool had last.
+// variants: the option each tool had last (the bond, the ring, Pen or Edit curve).
 // strips: the width each tool's options strip was dragged to. actions: whether the Actions panel is open.
 // templates: the user's own rings. pinned: options dragged onto the toolbar, as "tool:variant".
 // actionLayout: for each kind of selection, the user's order of Actions panel actions and how many show as rows.
@@ -24,11 +24,12 @@ import { readLayout, type HomeLayout } from "./homeLayout";
 import { CURSOR_INKS, type CursorInk } from "./cursor";
 import { readSelectColour, SELECT_DEFAULT } from "./selectcolour";
 import { OWN_MOST, PIN_MOST, PIN_PRESETS, type PinKind } from "./colours";
+import { movePens, movePins } from "./kinds";
 
 const inRange = (n: unknown, lo: number, hi: number) => typeof n === "number" && n >= lo && n <= hi;
 
 export type Settings = {
-  snap: boolean; snapGrid: boolean; guides: { grid: boolean; rulers: boolean; crosshair: boolean }; rulerUnit: RulerUnit; eraser: number; keys: Record<string, string[]>; variants: { select: string; bond: string; ring: string; template: string; symbol: string; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; measure: string; more: string };
+  snap: boolean; snapGrid: boolean; guides: { grid: boolean; rulers: boolean; crosshair: boolean }; rulerUnit: RulerUnit; eraser: number; keys: Record<string, string[]>; variants: { select: string; bond: string; ring: string; template: string; symbol: string; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; pen: string; measure: string; more: string };
   strips: Record<string, number>; actions: boolean; templates: SavedTemplate[]; pinned: string[];
   actionLayout: Record<string, { order: string[]; rows: number }>;
   layoutVersion: number; // the Actions panel's layout scheme the saved actionLayout was made for
@@ -114,7 +115,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", pen: "pen", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -124,9 +125,10 @@ export function loadSettings(): Settings {
     const list = <T,>(v: unknown, ok: (x: unknown) => boolean) => (Array.isArray(v) ? (v.filter(ok) as T[]) : []);
     return {
       // The Cycle tool's Reagent in and Product out (Octet 1.0.29) are its Catalytic cycle now: side arrows pull out of it.
-      ...DEFAULTS, ...saved, variants: { ...DEFAULTS.variants, ...saved.variants, ...(["in", "out"].includes(saved.variants?.cycle) ? { cycle: "circle" } : {}) },
+      // Pen and Edit curve (Shape tool options up to 1.1.2) are the Pen tool's (movePens, movePins).
+      ...DEFAULTS, ...saved, variants: { ...DEFAULTS.variants, ...movePens(saved.variants), ...(["in", "out"].includes(saved.variants?.cycle) ? { cycle: "circle" } : {}) },
       templates: list<SavedTemplate>(saved.templates, (t) => typeof t === "object" && t !== null),
-      pinned: list<string>(saved.pinned, (k) => typeof k === "string"),
+      pinned: movePins(list<string>(saved.pinned, (k) => typeof k === "string")),
       // Once: the user's own templates, all in the Ring strip before its pin (1.1.3), stay there.
       anchors: Object.fromEntries(Object.entries(saved.anchors && typeof saved.anchors === "object" ? saved.anchors : {}).filter(([k, a]) => /^(lib|name):./.test(k) && k.length <= 300
         && !!a && typeof a === "object" && [(a as { atom?: unknown }).atom, (a as { bond?: unknown }).bond].some((n) => Number.isInteger(n) && (n as number) >= 0)).slice(0, 500)),

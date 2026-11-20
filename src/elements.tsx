@@ -1,5 +1,6 @@
-// Drawing elements: the Shape tool's shapes, lines and arcs, and the Bracket tool's brackets and daggers. Each
-// variant is a string, so it can be kept as the tool's choice and pinned to the toolbar like any other option.
+// Drawing elements: the Shape tool's shapes, lines and arcs, the Bracket tool's brackets and daggers, and the Pen
+// tool's icons. Each variant is a string, so it can be kept as the tool's choice and pinned to the toolbar like any
+// other option.
 import { orbitalPaths, type Head, type HeadShape, type LineStyle, type OrbitalShape, type Phase, type ShapeKind } from "./render";
 
 function Icon({ children }: { children: React.ReactNode }) {
@@ -16,18 +17,14 @@ const STYLES = ["plain", "dashed", "shaded", "solid", "shadow"] as const;
 const LINES = ["plain", "dashed", "wavy", "bold"] as const;
 const ARCS = [270, 180, 120, 90];
 export const SHAPE_GRID: string[][] = SHAPE_ROWS.map((row, i) => [...STYLES.map((st) => `${row}-${st}`), `line-${LINES[i]}`, `arc-${ARCS[i]}`, `arc-${ARCS[i]}-dashed`]);
-export const SHAPE_EXTRA = ["highlight", "pen", "pen-edit", "rgroup", "line-membrane"];
+export const SHAPE_EXTRA = ["highlight", "rgroup", "line-membrane"];
 
 // What a Shape tool variant draws: a shape (a circle is an oval drawn out from its middle), or a line or arc.
 export type ElementSpec =
   | { shape: ShapeKind; circle?: boolean; dashed?: true; fill?: "shaded" | "solid" | "faded"; shadow?: true; bold?: true; rgroup?: true }
-  | { line: "line" | "arc"; sweep?: number; style?: LineStyle }
-  | { pen: true }
-  | { edit: true }; // Edit curve: a picked pen curve's points and handles, and points added or taken out
+  | { line: "line" | "arc"; sweep?: number; style?: LineStyle };
 export function shapeSpec(v: string): ElementSpec | undefined {
   if (v === "highlight") return { shape: "highlight" };
-  if (v === "pen") return { pen: true };
-  if (v === "pen-edit") return { edit: true };
   // An R-group definition (ChemDraw's Alternative Group tool): a box titled with its R number.
   if (v === "rgroup") return { shape: "box", rgroup: true };
   // Faded and bold are the Actions panel's styles for a picked shape (ChemDraw's Faded and Bold).
@@ -49,8 +46,6 @@ const SHAPE_NAMES = { circle: "circle", oval: "oval", rounded: "rounded box", bo
 const cap = (t: string) => t[0].toUpperCase() + t.slice(1);
 export function shapeName(v: string): string | undefined {
   if (v === "highlight") return "Highlight";
-  if (v === "pen") return "Pen";
-  if (v === "pen-edit") return "Edit curve";
   if (v === "rgroup") return "R-group definition";
   let m = /^(circle|oval|rounded|box)(?:-(plain|dashed|shaded|solid|shadow|faded|bold))?$/.exec(v);
   if (m) {
@@ -75,30 +70,6 @@ export function ElementGlyph({ v }: { v: string }) {
         <rect x={36} y={84} width={184} height={136} />
         <polyline points="36,84 36,40 124,40 124,84" />
         <text x={80} y={73} textAnchor="middle" fontSize={44} fontWeight={600} fill="currentColor" stroke="none">R</text>
-      </Icon>
-    );
-  }
-  // The pen: a Bézier curve with its two anchors and one handle.
-  if ("pen" in spec) {
-    return (
-      <Icon>
-        <path d="M44,196 C84,52 172,212 212,60" />
-        <line x1={44} y1={196} x2={84} y2={92} strokeWidth={8} />
-        <rect x={30} y={182} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
-        <rect x={198} y={46} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
-        <circle cx={84} cy={92} r={12} fill="currentColor" stroke="none" />
-      </Icon>
-    );
-  }
-  // Edit curve: a curve through three anchors, the middle one with its handles out.
-  if ("edit" in spec) {
-    return (
-      <Icon>
-        <path d="M40,192 C64,112 96,96 128,128 C160,160 192,144 216,64" />
-        <line x1={88} y1={96} x2={168} y2={160} strokeWidth={8} />
-        {[[40, 192], [128, 128], [216, 64]].map(([x, y]) => <rect key={x} x={x - 14} y={y - 14} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />)}
-        <circle cx={88} cy={96} r={12} fill="currentColor" stroke="none" />
-        <circle cx={168} cy={160} r={12} fill="currentColor" stroke="none" />
       </Icon>
     );
   }
@@ -142,6 +113,31 @@ export function ElementGlyph({ v }: { v: string }) {
   }
   if (spec.shadow) return <Icon><g transform="translate(18 18)">{shape({ fill: "currentColor", fillOpacity: 0.3, stroke: "none" })}</g>{shape({ fill: "var(--surface-raised)" })}</Icon>;
   return <Icon>{shape({ strokeDasharray: spec.dashed ? "24 22" : undefined })}</Icon>;
+}
+
+// The Pen tool's icons. Pen: a Bézier curve with its two anchors and one handle. Edit curve: a curve through three
+// anchors, the middle one with its handles out.
+export function PenGlyph({ v }: { v: string }) {
+  if (v === "pen-edit") {
+    return (
+      <Icon>
+        <path d="M40,192 C64,112 96,96 128,128 C160,160 192,144 216,64" />
+        <line x1={88} y1={96} x2={168} y2={160} strokeWidth={8} />
+        {[[40, 192], [128, 128], [216, 64]].map(([x, y]) => <rect key={x} x={x - 14} y={y - 14} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />)}
+        <circle cx={88} cy={96} r={12} fill="currentColor" stroke="none" />
+        <circle cx={168} cy={160} r={12} fill="currentColor" stroke="none" />
+      </Icon>
+    );
+  }
+  return (
+    <Icon>
+      <path d="M44,196 C84,52 172,212 212,60" />
+      <line x1={44} y1={196} x2={84} y2={92} strokeWidth={8} />
+      <rect x={30} y={182} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
+      <rect x={198} y={46} width={28} height={28} fill="var(--surface-raised)" strokeWidth={10} />
+      <circle cx={84} cy={92} r={12} fill="currentColor" stroke="none" />
+    </Icon>
+  );
 }
 
 // The Bracket tool: pairs and single brackets, and the daggers that mark a transition state (‡) or a radical (†).
