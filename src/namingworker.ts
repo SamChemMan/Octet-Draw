@@ -1,5 +1,6 @@
 // Structure to Name in a worker (naming.worker.ts) that Octet can stop, so a structure that is slow to name never holds
-// the window. One worker, started when first needed, does one request at a time, and Structure to Name's requests go
+// the window. One worker, started soon after the drawing opens (warmNaming) and again after Stop or a late structure,
+// does one request at a time, and Structure to Name's requests go
 // before the screen reader's. The worker has NAMING.load ms to load the names engine, then NAMING.deadline ms for each
 // request (ReShiki's limits). A request past its time, a request stopped while it runs, and a worker that fails end
 // the worker, and the next request starts a new one. Without Worker (the Node checks) a request runs at once, in place,
@@ -29,6 +30,10 @@ let worker: WorkerLike | undefined, loaded = false, sent: OwnName[] | undefined,
 
 export const namingBusy = () => !!running || queue.length > 0;
 
+// Loads the worker before the first request, so Structure to Name does not wait the 2 to 3 s the names engine takes to
+// load. A worker that fails to load is not started again here.
+export function warmNaming() { if (make && !worker) start(); }
+
 // A structure's name (namepart.ts namePart). own: the user's own dictionary. background: the screen reader's.
 export const askName = (part: Mol, own: OwnName[], background = false): Request<NamedPart> => ask({ part, own, background }, () => namePart(part));
 // A grouped mixture's name (namepart.ts nameMixture).
@@ -48,7 +53,7 @@ function ask<T>(o: Omit<Job, "done">, here: () => T): Request<T> {
   const cancel = () => {
     const k = queue.indexOf(job);
     if (k >= 0) { queue.splice(k, 1); job.done({ done: false, why: "stopped" }); }
-    else if (running === job) { stop(); finish({ done: false, why: "stopped" }); }
+    else if (running === job) { stop(); finish({ done: false, why: "stopped" }); warmNaming(); }
   };
   return { result, cancel };
 }
@@ -74,7 +79,7 @@ function broken() {
   finish({ done: false, why: "failed" });
   for (const j of waiting) j.done({ done: false, why: "failed" });
 }
-const late = () => { stop(); finish({ done: false, why: "late" }); };
+const late = () => { stop(); finish({ done: false, why: "late" }); warmNaming(); };
 function next() {
   if (running || !queue.length) return;
   const job = (running = queue.shift()!);

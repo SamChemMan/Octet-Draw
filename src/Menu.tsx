@@ -2,12 +2,15 @@
 // arrows) use it, so they all look and work the same (brand/CLAUDE.md, Menus). Each option is its icon and its full
 // name, in a grid two across by default; the corner grip drags it wider or narrower in whole columns. Groups (a
 // shape across its styles, say) start on a new row under a hairline. A menu taller than the window scrolls.
-// Do not build another menu: extend this one. Pick (below) is the menu as a list of choices from a button.
+// A menu can open with a segmented control across its top (segments) that changes what its options show, such as
+// the Arrow menu's Large, Medium and Small. Do not build another menu: extend this one. Pick (below) is the menu as a
+// list of choices from a button.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { holdCursor, followDrag } from "./cursor";
 import { Exit, useLeaving } from "./motion";
 import { CaretRight } from "@phosphor-icons/react";
+import { Segmented } from "./Fields";
 
 export type MenuItem = {
   key: string;
@@ -43,6 +46,8 @@ type Props = {
   onRelease?: (key: string) => void; // the press that opened the menu let go over an option
   extra?: React.ReactNode; // whole-width rows after the options (an option's own sub-menu, a field)
   head?: React.ReactNode; // a whole-width row before the options (a field to find one)
+  // A segmented control across the top: each option its key, its name and whether it is off (dimmed, skipped).
+  segments?: { label: string; value: string; options: [string, string, boolean?][]; onChange: (key: string) => void };
   children?: React.ReactNode; // a sub-menu open beside this one
   className?: string;
   tool?: string;
@@ -74,6 +79,11 @@ export function Menu(p: Props) {
     <div ref={box} className={["strip", live !== undefined && "resizing", p.className, leaving && "leaving"].filter(Boolean).join(" ")} data-tool={p.tool} role="menu" aria-label={p.label} inert={leaving}
       style={{ ...p.style, width: live ?? menuWidth(columns), marginTop: shift, "--columns": columns } as React.CSSProperties}>
       <div className="menu-body">
+      {p.segments && (
+        <div className="menu-head menu-segments">
+          <Segmented label={p.segments.label} value={p.segments.value} options={p.segments.options.map(([k, name, off]) => [k, name, undefined, off])} onChange={p.segments.onChange} />
+        </div>
+      )}
       {p.head && <div className="menu-head">{p.head}</div>}
       {p.groups.filter((g) => g.length).map((g, i) => (
         <div key={i} className={swatchGroup(g) ? "menu-group swatches" : "menu-group"} role="group">
