@@ -13,7 +13,7 @@ g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { parseStructure, ready } = await import("./chem.ts");
 const { EMPTY, addMeasure, insertMol, moveAtoms } = await import("./edit.ts");
-const { measureInk, settleMeasures } = await import("./measurement.ts");
+const { measureInk, measureValue, placeEnd, settleMeasures } = await import("./measurement.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
 
@@ -31,7 +31,7 @@ function interleaved(a: () => unknown, b: () => unknown, runs = 41): [number, nu
 // lines worked out (the canvas's under layer).
 const frame = (from: Mol, atom: number, d: number) => () => {
   const moved = settleMeasures(from, moveAtoms(from, new Set([atom]), [d, 0]));
-  for (const c of moved.captions ?? []) if (c.measure) measureInk(moved, c.measure.atoms, () => 0.15);
+  for (const c of moved.captions ?? []) if (c.measure) measureInk(moved, c.measure.ends, () => 0.15);
   return moved;
 };
 
@@ -44,7 +44,7 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   const near = (k: number, i: number) => one.bonds.filter((b) => b.atoms.includes(i)).map((b) => k * n + (b.atoms[0] === i ? b.atoms[1] : b.atoms[0]));
   const captions = Array.from({ length: 40 }, (_, k) => {
     const [a, b] = chain(k), c = near(k, b - k * n).find((x) => x !== a)!, d = near(k, c - k * n).find((x) => x !== b)!;
-    return [{ atoms: [a, d] }, { atoms: [a, b, c] }, { atoms: [a, b, c, d] }];
+    return [{ ends: [a, d] }, { ends: [a, b, c] }, { ends: [a, b, c, d] }];
   }).flat().map((measure, j) => ({ id: j + 1, text: "–", x: 0, y: 0, chemical: false as const, measure }));
   const plain = m, measured = settleMeasures(undefined, { ...m, captions });
   assert.equal(measured.captions!.filter((c) => c.measure).length, 120);
@@ -68,16 +68,39 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   }
   const peptide: Mol = { atoms, bonds };
   assert.equal(atoms.length, 4000);
-  const captions = Array.from({ length: 10 }, (_, k) => { const r = 40 * k + 10, b = r * 5; return { id: k + 1, text: "–", x: 0, y: 0, chemical: false as const, measure: { atoms: [b, b + 1, b + 3, b + 5] } }; });
+  const captions = Array.from({ length: 10 }, (_, k) => { const r = 40 * k + 10, b = r * 5; return { id: k + 1, text: "–", x: 0, y: 0, chemical: false as const, measure: { ends: [b, b + 1, b + 3, b + 5] } }; });
   const measured = settleMeasures(undefined, { ...peptide, captions });
   assert.ok(measured.captions!.every((c) => c.text !== "–"), "every dihedral has a value");
   const [withM, without] = interleaved(frame(measured, 52, 0.3), frame(peptide, 52, 0.3));
   console.log(`measurespeed.check: 4000-atom peptide, 10 dihedrals: a drag frame ${withM.toFixed(3)} ms, without measurements ${without.toFixed(3)} ms`);
   assert.ok(withM - without <= 2, `a frame costs ${(withM - without).toFixed(2)} ms more with 10 dihedrals (budget 2 ms)`);
+  // Free ends: a length from an atom to a free point and one between two free points, 10 each, beside the dihedrals.
+  const mixed = settleMeasures(undefined, { ...peptide, captions: [...captions, ...Array.from({ length: 20 }, (_, k) => ({ id: 100 + k, text: "–", x: 0, y: 0, chemical: false as const,
+    measure: { ends: k < 10 ? [k * 200, [k * 52, 4]] as [number, [number, number]] : [[k * 52, 4], [k * 52 + 3, 5]] as [[number, number], [number, number]] } }))] });
+  assert.equal(mixed.captions!.filter((c) => c.measure).length, 30);
+  const [withFree, plainFrame] = interleaved(frame(mixed, 52, 0.3), frame(peptide, 52, 0.3));
+  console.log(`measurespeed.check: 4000-atom peptide, 10 dihedrals and 20 lengths with free ends: a drag frame ${withFree.toFixed(3)} ms, without ${plainFrame.toFixed(3)} ms`);
+  assert.ok(withFree - plainFrame <= 2, `a frame costs ${(withFree - plainFrame).toFixed(2)} ms more with free ends (budget 2 ms)`);
+  // The pointer moving with Measure in hand and an angle in progress (two ends placed): the overlay's work at each move,
+  // as Editor.tsx draws it (the next end, the dashed legs, the dotted line on, the live arc and the value), over atoms
+  // and empty canvas in turn. The Atom map tool's move does no such work (its line is drawn from two points), so the
+  // budget is that of a frame: at most 1 ms a move (median), on 4000 atoms.
+  const placed: [number, number] = [500, 501];
+  const overlay = (k: number) => () => {
+    const on = k % 2 ? 503 + 5 * (k % 40) : undefined, p: [number, number] = [peptide.atoms[500].location[0] + (k % 7) * 0.3, 2 + (k % 5) * 0.2];
+    const live = placeEnd(placed, "angle", on, p);
+    measureInk(peptide, placed, () => 0.15);
+    measureInk(peptide, [placed[1], live[live.length - 1]], () => 0.15);
+    return [measureInk(peptide, live, () => 0.15).arc, measureValue(peptide, live)];
+  };
+  let k = 0;
+  const [move] = interleaved(() => overlay(k++)(), () => undefined, 201);
+  console.log(`measurespeed.check: a pointer move with an angle in progress on 4000 atoms: ${move.toFixed(3)} ms`);
+  assert.ok(move <= 1, `a pointer move costs ${move.toFixed(2)} ms (budget 1 ms)`);
 }
 
-// S7: a flat 4000-atom peptide: Measure is not cleaned up in 3D (over 500 atoms, as 3D Clean Up), says so, and takes
-// the value from the flat drawing, in well under 100 ms.
+// S7: a flat 4000-atom peptide: Measure takes the value from the drawing as it is (nothing is cleaned up, whatever its
+// size), in well under 100 ms.
 {
   const atoms: Mol["atoms"] = [], bonds: Mol["bonds"] = [];
   const add = (label: string, x: number, y: number) => atoms.push({ label, location: [x, y, 0] }) - 1;
@@ -93,8 +116,7 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   // slows one run, not all three.
   let ms = Infinity, r: ReturnType<typeof addMeasure> = "";
   for (let k = 0; k < 3; k++) { const t = performance.now(); r = addMeasure({ ...flat, bonds: flat.bonds.map((b) => ({ ...b })) }, [0, 1, 3, 5]); ms = Math.min(ms, performance.now() - t); }
-  assert.ok(typeof r !== "string" && r.tooBig && !r.cleaned.length, "too big to clean up: measured flat");
-  assert.ok(typeof r !== "string" && r.mol.atoms === flat.atoms, "the drawing's atoms are as they were");
+  assert.ok(typeof r !== "string" && r.mol.atoms === flat.atoms, "measured flat: the drawing's atoms are as they were");
   console.log(`measurespeed.check: Measure on a flat 4000-atom peptide: ${ms.toFixed(1)} ms`);
   assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
 }

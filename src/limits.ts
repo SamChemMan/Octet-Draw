@@ -14,17 +14,18 @@ export const MAX_OBJECTS = 10_000;
 
 // --- Text ---------------------------------------------------------------------------------------------------------------
 // The text a drawing holds: what MAX_TEXT and MAX_VALUE let grow, the characters of its texts, notes, data fields,
-// table cells, risk assessment texts and reagent tables. Each counts as the most bytes it takes in any form Octet
-// writes (.oct, .cdx, CDXML, the recovery copy), in characters of 9 bytes (" in a .oct takes 8.7, the most): a style
-// run counts RUN (309 bytes with a size of 19 digits) and its font's name, as a text's own font does (4 bytes a
-// character at most), a table cell's character and a shown field's name's 2 (16 and 11 bytes). A field not shown is
-// written in each structure it is on, so its name and value and its record (FIELD, 88 bytes) count once for each. So
-// text takes 45 MB at most: a drawing of text alone saves within 64 MB (main.rs MAX_BYTES), with 10,000 texts that have
-// every style, each with a note and a shown data field (longtext-stress L19). The rest of a drawing (structures, curves,
-// pictures, spectra, a table's own cells) is not counted: Save refuses a drawing larger than 64 MB, as before, and the
-// recovery copy kept last stays (docs/plans/long-text.md).
+// table cells and their style runs, risk assessment texts and reagent tables. Each counts as the most bytes it takes
+// in any form Octet writes (.oct, .cdx, CDXML, the recovery copy), in characters of 9 bytes (" in a .oct takes 8.7, the
+// most): a style run counts RUN (309 bytes with a size of 19 digits) and its font's name, as a text's own font does (4
+// bytes a character at most), a table cell's character and a shown field's name's 2 (16 and 11 bytes), and a table
+// cell's style run CELL_RUN (370 bytes with every style). A field not shown is written in each structure it is on, so
+// its name and value and its record (FIELD, 88 bytes) count once for each. So text takes 45 MB at most: a drawing of
+// text alone saves within 64 MB (main.rs MAX_BYTES), with 10,000 texts that have every style, each with a note and a
+// shown data field (longtext-stress L19). The rest of a drawing (structures, curves, pictures, spectra, a table's own
+// cells) is not counted: Save refuses a drawing larger than 64 MB, as before, and the recovery copy kept last stays
+// (docs/plans/long-text.md).
 export const MAX_CHARACTERS = 5_000_000;
-const RUN = 35, FIELD = 12;
+const RUN = 35, FIELD = 12, CELL_RUN = 42;
 // A list's text, kept for the list: an edit that makes no new list costs nothing, and one that does a pass over it.
 function part<T>(f: (x: T) => number) {
   const done = new WeakMap<T[], number>();
@@ -43,7 +44,7 @@ const tables = new WeakMap<NonNullable<Shape["table"]>, number>(), risks = new W
 const captionText = (c: Caption) => (c.runs ? runsText(c.runs) : c.text.length) + (c.font?.length ?? 0);
 const captionsText = part<Caption>((c) => captionText(c) + notesOf(c.notes));
 const arrowsText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes)), cyclesText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes));
-const shapesText = part<Shape>((s) => notesOf(s.notes) + (s.table ? kept(tables, s.table, (t) => 2 * t.cells.reduce((n, row) => n + row.reduce((k, c) => k + c.length, 0), 0)) : 0));
+const shapesText = part<Shape>((s) => notesOf(s.notes) + (s.table ? kept(tables, s.table, (t) => t.cells.reduce((n, row, r) => n + row.reduce((k, c, j) => k + 2 * c.length + CELL_RUN * (t.runs?.[r]?.[j]?.length ?? 0), 0), 0)) : 0));
 const groupsText = part<Group>((g) => notesOf(g.annotations) + (g.risk?.texts ? kept(risks, g.risk, (r) => Object.values(r.texts!).reduce((n, l) => n + runsText(l), 0)) : 0));
 const gridsText = part<Grid>((g) => kept(grids, g, (x) => JSON.stringify(x).length));
 // A field's text in one structure: its name and value (a shown field's value is its text's), and a record.
