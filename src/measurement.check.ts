@@ -2,7 +2,7 @@
 // wrong value, loses its atoms in an edit, or is read as chemistry. The plan: docs/plans/issue-85-measurements.md.
 import assert from "node:assert/strict";
 import { clean3d } from "./clean3d.ts";
-import { EMPTY, addCaption, addMeasure, addRing, deleteAtoms, transformParts } from "./edit.ts";
+import { EMPTY, addCaption, addMeasure, addRing, carriedMeasure, deleteAtoms, followsAtoms, transformParts } from "./edit.ts";
 import { chainOrder, middleOf, measureFrame, measureInk, measureText, measureValue, remapCaption, settleMeasures, soundMeasure, readMeasure, placeEnd } from "./measurement.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
 import { ASCENT, DESCENT, type Caption, type Mol } from "./render.ts";
@@ -580,6 +580,17 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.deepEqual(moved.captions!.map((c) => c.measure!.ends.map((e) => (typeof e === "number" ? e : [Math.round(e[0] * 1e6) / 1e6, Math.round(e[1] * 1e6) / 1e6]))),
     m.captions!.map((c) => c.measure!.ends.map((e) => (typeof e === "number" ? e : [e[0] + 1, e[1] + 2]))), "free ends moved with the selection");
   assert.deepEqual(moved.captions!.map((c) => c.text), values, "values kept");
+  // The moves themselves (the editor's drag and arrow keys, Align, an AI app's move): a label with free ends moved with
+  // all its atoms takes them along (carriedMeasure); it follows its atoms with no move of its own only when every end is
+  // an atom (followsAtoms). Its label moved without its atoms leaves them.
+  const atom0 = new Set([0]);
+  assert.deepEqual([followsAtoms({ ends: [0, 1] }, all4), followsAtoms({ ends: [0, [1, 1]] }, all4), followsAtoms({ ends: [[0, 0], [1, 1]] }, all4), followsAtoms({ ends: [0, 5] }, all4)], [true, false, false, false]);
+  assert.deepEqual(carriedMeasure({ ends: [0, [1, 1]], at: [0, 1] }, atom0, [2, 3]), { ends: [0, [3, 4]], at: [0, 1] }, "moved with its atom: whole");
+  assert.deepEqual(carriedMeasure({ ends: [[0, 0], [1, 1]] }, new Set(), [2, 3]).ends, [[2, 3], [3, 4]], "no atom end: whole");
+  assert.deepEqual(carriedMeasure({ ends: [[0, 3], 1, 2] }, new Set([1]), [2, 3]).ends, [[0, 3], 1, 2], "not all its atoms: the label alone");
+  const carried = settleMeasures(m, { ...moveAtoms(m, all4, [1, 2]), captions: m.captions!.map((c) => ({ ...c, x: c.x + 1, y: c.y + 2, measure: carriedMeasure(c.measure!, all4, [1, 2]) })) });
+  assert.deepEqual(carried.captions!.map((c) => c.text), values, "carried: values kept");
+  assert.deepEqual(carried.captions!.map((c) => [Math.round(c.x * 1e6) / 1e6, Math.round(c.y * 1e6) / 1e6]), moved.captions!.map((c) => [Math.round(c.x * 1e6) / 1e6, Math.round(c.y * 1e6) / 1e6]), "carried: labels where a move finds them");
   // The all-free one's label dragged alone: the whole measurement moves.
   const freeMoved = settleMeasures(m, by(m, [ids[1]], [0, 1]));
   assert.deepEqual(freeMoved.captions![1].measure!.ends, [[5, 6], [8, 6]]);

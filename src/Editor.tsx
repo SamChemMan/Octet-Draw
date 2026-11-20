@@ -30,7 +30,7 @@ import {
   addChair, addGroup, addLane, TLC_LANES, addTemplate, alignFragments, arrangeShifts, partBox, type Arrange, cutReaction, deleteLane, moveLane, restyleSpot, flipAtoms, fragments, joinOverlaps, joinSelection, setLabel, merge, moveAtoms, neighbours, onSelection, pos, setBondSpec, setElement, setPosition, sprout, subset, newGel, addBands, setRange, withLadder,
   addShape, addSymbol, markNear, moveMark, moveSign, setSign, signKind, setSignKind, dropCharge, bondOrders, toggleHydrogens, freePairs, nextDirection, appendCurvePoint, moveCurvePoint, nearestOnCurve, removeCurvePoint, splitCurve, withCurve, setAtomMarks, toggleLonePairs, updateShape, type BondSpec, type Group, type P, type SymbolKind, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, scaleSettings, scaleSizes, transformParts, medianBond, lineWidth, objectSettings, withObjectSettings, type ObjectSettings, fitSizes, scaleAt, stereocentres, setEnhanced, markDirections, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, carryDepth, groupsOf, groupSelection, ungroupSelection, duplicateSelection, extractSelection, insertMol, inRow, wholeIntegral, wholeGroups, groupTargets, selectedGroups, outermost, outerGroups, pivotOf,
   nextId, atomCaption, captionAtom, captionsToAtoms, interpretLabels, labelable, sandwich, scriptLabels, setLabelRuns, standInCaption, withCaptionAtoms,
-  type TemplateAnchor, labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, measuredBy, nextGroup, wholeMolecule, withAtom,
+  type TemplateAnchor, labelHooks, toFront, addChain, chainPoints, chainThrough, snake, clickBond, keyBond, dragBond, etaRing, addGroupAt, farBond, jumpHot, keepHot, walkHot, type Hot, keyElement, keyCharge, keyCharges, stepFree, circleCharges, chargesOf, chargeLook, settleHydrogens, placeCentres, pickAtoms, addMeasure, measuredBy, followsAtoms, carriedMeasure, nextGroup, wholeMolecule, withAtom,
 } from "./edit";
 import { heldAxis, oneAxis, snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
@@ -45,7 +45,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
-import { ACTIONS, ARRANGE, DIALOGS, MEASURE_TOOLS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
+import { ACTIONS, ARRANGE, DIALOGS, MEASURE_TOOLS, MENU_READ, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, showsOnly, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
 import { Properties } from "./Properties";
@@ -3064,7 +3064,7 @@ export default function Editor() {
     // Repeat (Edit menu, and ⌘Y when there is nothing to redo), as ChemDraw's.
     repeat: () => repeatLast(),
     // The whole structure of the selected atom or bond (ChemDraw's Molecule > Select), as Space over it selects it.
-    select_structure: () => choose(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked),
+    select_structure: () => choose(...withMeasures(fragments(doc).filter((g) => g.some((i) => selection.has(i))).flat(), picked)),
     // Group (⌘G) and Ungroup (⇧⌘G), as ChemDraw's: the selected structures and objects select and move as one.
     group: () => {
       const r = groupSelection(doc, selection, picked);
@@ -3471,7 +3471,8 @@ export default function Editor() {
     if (ran && ran.id === e.payload && performance.now() - ran.at < 600) return;
     // (Undo, Redo, Select All, Cut, Copy and Paste work on the note's own text.)
     const go = () => { if (menuRuns(e.payload, { home: homeOpen.current, modal: modal(), typing: typing(), calling: mcpCalling.current })) commands.current[e.payload]?.(); };
-    setMeasuring(undefined);
+    // A measurement in progress goes, but for a command that changes only what is shown (Magnify, Show Grid).
+    if (!showsOnly(e.payload)) setMeasuring(undefined);
     if (["undo", "redo", "select_all", "cut", "copy", "paste"].includes(e.payload)) go(); else afterNote(go);
   });
   // AI apps (decision 0021): the server starts with Octet when the user turned it on (Home starts it), and Settings
@@ -4513,9 +4514,15 @@ export default function Editor() {
     setSelection(new Set());
     setPicked(new Set([r.id]));
   };
+  // The atom under the point a pointer move gave the Measure tool, found by the move's own hit test, so the line that
+  // follows the pointer tests for it no more.
+  const measureHit = useRef<{ at: P; atom?: number; doc: Mol }>(undefined);
   // The Measure tool: the ends after one more at p, on the atom there or a free point (measurement.ts placeEnd), and a
   // click (or a press let go 4 px away) placing them. The last end makes the measurement; the tool stays in hand.
-  const nextEnd = (ends: End[], p: P) => placeEnd(ends, measureChoice, hitAt(p).atom, p, 4 / L / views.get().zoom);
+  const nextEnd = (ends: End[], p: P) => { const h = measureHit.current, on = h && h.at === p && h.doc === doc ? h.atom : hitAt(p).atom; return placeEnd(ends, measureChoice, on, p, 4 / L / views.get().zoom); };
+  // Snap to Grid: the point off an atom or bond on the grid, as a press there starts (onPointerDown), so the value shown
+  // before a click is the value it makes. free: ⌘ (Ctrl) held, which leaves the grid.
+  const measureAim = (p: P, free: boolean, t?: Hover) => { if (!snapGrid) return p; const h = t ?? hit(p); return h.atom === undefined && h.bond === undefined ? toGrid(p, free) : p; };
   function placeMeasure(points: P[]) {
     const was = measuring ?? [], ends = points.reduce(nextEnd, was);
     if (ends === was) return;
@@ -4998,6 +5005,8 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
+        // A measurement moved with all its atoms (or with none) takes its free ends along; its label alone leaves them.
+        if (c.measure) return { ...c, x: from[0] + d[0], y: from[1] + d[1], measure: carriedMeasure(c.measure, atoms, d) };
         // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged. A
         // step's name goes along its step the same way; an intermediate written as text stays one.
         if (isSide(c.cycle)) return { ...c, x: from[0] + d[0], y: from[1] + d[1] };
@@ -5241,12 +5250,14 @@ export default function Editor() {
       ?? cycles.find((c) => (id !== undefined ? c.id === id : c.nodes.some((n) => n.some((i) => atoms.includes(i)))));
     const add = (atoms: number[], items: number[], b: Box | undefined) => {
       if (!b) return;
-      const home = homeOf(atoms, items[0]), mine = home && out.find((o) => o.home === home);
+      const home = homeOf(atoms, atoms.length ? undefined : items[0]), mine = home && out.find((o) => o.home === home);
       if (mine) { mine.atoms.push(...atoms); mine.items.push(...items); mine.box = [Math.min(mine.box[0], b[0]), Math.min(mine.box[1], b[1]), Math.max(mine.box[2], b[2]), Math.max(mine.box[3], b[3])]; }
       else out.push({ atoms: [...atoms], items: [...items], box: b, home });
     };
     // A structure selected only in part lines up by that part and moves whole (partBox), as ChemDraw.
-    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const part = partBox(doc, g, selection), b = part ? undefined : withCaptions(g); add(g, [], part ?? (b && box(b))); }
+    // A picked measurement from it to an empty point goes with it whole (carriedMeasure).
+    const carried = (g: number[]) => { const s = new Set(g); return (doc.captions ?? []).filter((c) => picked.has(c.id) && c.measure && !followsAtoms(c.measure, s) && measuredBy(c.measure, s)).map((c) => c.id); };
+    for (const g of fragments(doc).filter((f) => f.some((i) => selection.has(i)))) { const part = partBox(doc, g, selection), b = part ? undefined : withCaptions(g); add(g, carried(g), part ?? (b && box(b))); }
     for (const c of cycles) { const b = drawnBox([], new Set([c.id])); add([], [c.id], b && box(b)); }
     for (const c of placed) if (picked.has(c.id)) { const cap = doc.captions?.find((x) => x.id === c.id); if (cap && !cap.under && !cap.on && !cap.cycle && !cap.measure) add([], [c.id], box(c.box)); }
     for (const a of doc.arrows ?? []) if (picked.has(a.id)) {
@@ -5394,7 +5405,7 @@ export default function Editor() {
     let out = moveAtoms(m, new Set(t.atoms), d);
     out = {
       ...out,
-      captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+      captions: out.captions?.map((c) => (ids.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1], ...(c.measure ? { measure: carriedMeasure(c.measure, new Set(t.atoms), d) } : {}) } : c)),
       arrows: out.arrows?.map((a) => (ids.has(a.id) ? { ...a, from: by(a.from), to: by(a.to), ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : a)),
       shapes: out.shapes?.map((x) => (ids.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
       cycles: out.cycles?.map((c) => (ids.has(c.id) ? { ...c, centre: by(c.centre) } : c)),
@@ -5436,8 +5447,9 @@ export default function Editor() {
     const cycleIds = new Set((base.cycles ?? []).filter((c) => picks.has(c.id)).map((c) => c.id));
     for (const caption of base.captions ?? []) {
       const c = placed.find((x) => x.id === (original.get(caption.id) ?? caption.id));
-      // A cycle's text follows it, but for an intermediate written as text, which moves as a structure would.
-      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.measure && measuredBy(caption.measure, atoms)) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
+      // A cycle's text follows it, but for an intermediate written as text, which moves as a structure would. A
+      // measurement with a free end moves whole (moveAll), its label too.
+      const follows = (caption.under && caption.under.every((i) => atoms.has(i))) || (caption.measure && followsAtoms(caption.measure, atoms)) || (caption.on && arrowIds.has(caption.on.arrow)) || (caption.cycle && caption.cycle.side !== "node" && cycleIds.has(caption.cycle.cycle));
       // A cycle's reagent or product moves by its arrow's outer end, where it is at the press.
       // (A reagent's text is at its arrow's start, a product's at its end.)
       const start = cycleArrows.find((a) => a.caption === caption.id), end = cycleArrows.find((a) => a.captionEnd === caption.id);
@@ -5654,6 +5666,9 @@ export default function Editor() {
     startArea(p, t, base, picks);
   }
 
+  // Whole structures picked (Space, Select Structure) with their measurements, as ⌘A picks them: a measurement from
+  // them to an empty point then moves whole with them (carriedMeasure).
+  const withMeasures = (atoms: number[], items: Iterable<number>): [number[], number[]] => { const s = new Set(atoms); return [atoms, [...items, ...(doc.captions ?? []).filter((c) => c.measure && measuredBy(c.measure, s)).map((c) => c.id)]]; };
   // Selects atoms and objects, with the whole of any integral group they touch: one cannot be split (as in ChemDraw,
   // where selecting any part of it selects all of it).
   // keep: the same things chosen again keep the sets as they are (a box or lasso moved without taking in more), so
@@ -5720,7 +5735,7 @@ export default function Editor() {
   // A cycle's side arrows' handles (where each meets the arc and its ends): every one's while the Cycle tool is over the
   // cycle, or when the cycle is picked on its own; the picked side arrow's alone, or the one whose text is picked.
   const branchHandles = (): CycleLayout["branches"] => {
-    if (writing || tool === "erase") return [];
+    if (writing || tool === "erase" || tool === "measure") return [];
     const over = tool === "cycle" ? overs.get().cycle : undefined, alone = picked.size === 1 && !selection.size ? [...picked][0] : undefined, one = loneCycle();
     const t = alone === undefined ? undefined : shown.captions?.find((x) => x.id === alone)?.cycle, sb = t && isSide(t) ? branchOf(shown, t) : undefined;
     const mine = (b: CycleLayout["branches"][number]) => (sb ? b.cycle === sb.c.id && b.branch === sb.b.id : b.cycle === one && stepPick?.cycle !== one && (branchPick?.cycle !== one || b.branch === branchPick.branch));
@@ -5729,15 +5744,17 @@ export default function Editor() {
   // A cycle's step handles (lead, trail and bow): every drawn step's while the Cycle tool is over the cycle, or when the
   // cycle is picked on its own; the picked step's alone.
   const stepHandles = (): { c: Cycle; steps: number[] } | undefined => {
-    if (writing || tool === "erase") return undefined;
+    if (writing || tool === "erase" || tool === "measure") return undefined;
     const one = doc.cycles?.find((x) => x.id === loneCycle()), id = tool === "cycle" ? overs.get().cycle ?? one?.id : one?.id, c = doc.cycles?.find((x) => x.id === id);
     if (!c) return undefined;
     const pick = c === one && stepPick?.cycle === c.id ? stepPick.step : undefined;
     if (c === one && branchPick?.cycle === c.id && overs.get().cycle !== c.id) return undefined;
     return { c, steps: cycleLayout.spans.filter((s) => s.cycle === c.id && s.to > s.from && !c.steps?.[s.step]?.hidden && (pick === undefined || s.step === pick)).map((s) => s.step) };
   };
-  // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
+  // The handle of the one picked arrow under a point: its ends, and the middle of a curved one. With Measure in hand
+  // there are none: every press goes to the measurement.
   const handleAt = (p: P): { id: number; which: Corner; step?: number; branch?: number } | undefined => {
+    if (tool === "measure") return undefined;
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
     for (const b of branchHandles()) for (const which of ["meet", "end:in", "end:out"] as const) { const q = which === "meet" ? b.T : b[which === "end:in" ? "in" : "out"]; if (q && near(q)) return { id: b.cycle, which, branch: b.branch }; }
@@ -6124,9 +6141,13 @@ export default function Editor() {
     if (hold.current && holdFrom.current && Math.hypot(e.clientX - holdFrom.current[0], e.clientY - holdFrom.current[1]) >= 4) stopHold();
     if (tool === "erase") setBrush(p);
     if (pen && !drag) setPenAt(p);
-    if (measuring && !drag) setMeasureTo(p);
     if (!drag) {
       const t = hit(p), h = tool === "cycle" || picked.size ? handleAt(p) : undefined;
+      if (measuring) {
+        const at = measureAim(p, e.metaKey, t);
+        measureHit.current = { at, atom: at === p ? t.atom : hitAt(at).atom, doc };
+        setMeasureTo(at);
+      }
       // A cycle's handle under the pointer: actions go on its step.
       const hs = h?.step ?? (h?.branch !== undefined ? doc.cycles?.find((c) => c.id === h.id)?.branches?.find((b) => b.id === h.branch)?.step : undefined);
       if (h && hs !== undefined && (cycleStep?.cycle !== h.id || cycleStep.step !== hs)) setCycleStep({ cycle: h.id, step: hs });
@@ -6206,7 +6227,7 @@ export default function Editor() {
         // Moved 4 px or more, the press places its end where it is let go.
         if (!drag.to && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4) return;
         stopHold();
-        return setDrag({ ...drag, to: p });
+        return setDrag({ ...drag, to: measureAim(p, e.metaKey) });
       case "ring": {
         // The ring's first bond follows the pointer, as the bond tool's does (on to an atom there, if any). A chair
         // faces the drag, across the page or up and down. From a bond, the pointer picks the ring's side (and a
@@ -6616,7 +6637,7 @@ export default function Editor() {
       let under = Object.values(hover).some((v) => v !== undefined) || !pointer.current ? hover : hit(pointer.current);
       if (!Object.values(under).some((v) => v !== undefined) && added.current?.mol === doc) under = added.current.at;
       const one = under.atom ?? (under.bond !== undefined ? doc.bonds[under.bond].atoms[0] : undefined);
-      if (one !== undefined) choose(fragments(doc).find((g) => g.includes(one)) ?? [one], []);
+      if (one !== undefined) choose(...withMeasures(fragments(doc).find((g) => g.includes(one)) ?? [one], []));
       else if (under.caption !== undefined || under.arrow !== undefined || under.cycle !== undefined) choose([], [(under.caption ?? under.arrow ?? under.cycle)!]);
       return;
     }
@@ -6709,6 +6730,9 @@ export default function Editor() {
       if (alone && stepPick && picked.has(stepPick.cycle)) return set(hideArc(stepPick.cycle, stepPick.step), true);
       if (signPick !== undefined && !selection.size && !picked.size && doc.atoms[signPick]?.charge) { setSignPick(undefined); return set(dropCharge(doc, signPick)); }
       if (selection.size || picked.size) return set(deleteChosen(doc, selection, picked, undefined, drawnAt, drawnAlign));
+      // Measure only measures: with nothing chosen, Delete takes nothing from under the pointer (one Delete more than the
+      // ends placed changes nothing).
+      if (tool === "measure") return;
       // As in ChemDraw: the first Delete on a labelled atom removes the label; the next removes the atom. Deleting
       // the keyboard hotspot's atom moves the hotspot back to the atom it was bonded to.
       const integral = atom !== undefined && groupsOf(doc, new Set([atom]), new Set()).some((g) => g.integral);
@@ -11341,8 +11365,8 @@ export default function Editor() {
           )}
           {(() => {
             // A picked arrow's handles: its ends, and the middle of a curved one.
-            const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" ? arrows.find((x) => x.id === ids[0]) : undefined;
-            const wh = drag?.kind === "move" ? undefined : widthHandle();
+            const ids = [...picked], a = ids.length === 1 && !selection.size && drag?.kind !== "move" && tool !== "measure" ? arrows.find((x) => x.id === ids[0]) : undefined;
+            const wh = drag?.kind === "move" || tool === "measure" ? undefined : widthHandle();
             if ((a?.kind === "curve" || a?.kind === "cut") && a.curve && !wh) {
               // A picked pen curve (or fragmentation line with corners): every anchor as a small square, and each handle
               // as a dot on a line from its anchor.

@@ -83,6 +83,11 @@ Each job is done when its "done" line is true and its checks in the acceptance l
   `src/edit.ts:988`), so Space, groups and copies take it with its structure. No turn, flip or scale moves it on
   its own (`transformParts`, `src/edit.ts:2198`; `movers`): it follows its atoms.
 - The label moved alone (drag, arrow keys, MCP move) keeps its new place relative to its atoms.
+- A measurement with a free end whose label moves with every one of its atoms (⌘A, Space, Select Structure, a box round
+  both, Align and Distribute, an Option-drag copy, an AI app's move of both ids) moves whole: its free ends go by the same
+  step, so its value stays (`carriedMeasure`, `followsAtoms` in edit.ts). Space and Select Structure pick the structure's
+  measurements with it, as ⌘A does. Its atoms moved without its label (a drag of one atom) leave the free ends, so the
+  value changes.
 - Typing over the text, or Un-tie from structure, makes it plain text (as for live property text).
 - It never reads as chemistry: not conditions (`reaction.ts`), not a compound number (`numbering.ts`), not a
   mixture, not a chart's data, never joins a cycle (`dropOnCycle`), never ties to a structure, never Make element
@@ -116,7 +121,13 @@ Each job is done when its "done" line is true and its checks in the acceptance l
 - A press moved 4 px or more and let go places the next end where it is let go, so a drag from A to B makes a length.
   A press held still gives Select, as with every tool.
 - Escape takes the measurement in progress away. Backspace (or Delete) takes off the last end. Changing tool or variant,
-  Undo, or opening a menu takes it away too. A click on the end just placed, or on an atom placed already, does nothing.
+  Undo, the right-click menu or a menu command takes it away too, but for the View and Window menus' commands (Magnify,
+  Show Grid), which change only what is shown. A click on the end just placed, or on an atom placed already, does
+  nothing. With Measure in hand and nothing picked, Delete takes nothing from under the pointer.
+- With Measure in hand no handle shows or takes a press (as with the Eraser): a press by the label of the measurement
+  just made places an end.
+- With grid snapping on, an end off an atom or bond goes on the grid, and the dotted line and the value follow the
+  point on the grid, so the value shown is the value the click makes.
 - Mouse, pen and touch: pointer events, a tap is a click.
 - Structure > Measure > Length, Angle, Dihedral, where ChemDraw has Add 3D Property (after R-Logic Query…). The
   Actions panel and the right-click menu, with 2 to 4 atoms selected: Measure length, Measure angle or Measure
@@ -155,7 +166,10 @@ Each job is done when its "done" line is true and its checks in the acceptance l
    never changes a value, and a bond reads the length 3D Clean Up gives it. With no atom end, the document's bond
    length is 1.52 Å.
 4. A measurement follows its atoms. Its free ends move with it when it is moved or transformed as part of a
-   selection, as a line's ends do. Only moving its label alone changes where the label sits.
+   selection (its label with all its atoms: ⌘A, Space, a box round both), as a line's ends do. Only moving its label
+   alone changes where the label sits. One with no atom end moves whole when its label is dragged: its label is the
+   only thing to drag it by (open for Sam: a drag of its label could move the label alone, and a drag of its line the
+   whole).
 5. A measurement goes when any of its atoms goes, in the same undo step.
 6. It never reads as chemistry.
 7. It behaves as text everywhere else (sibling list).
@@ -448,3 +462,25 @@ Built (19 November 2026):
   the gap after it); measurements-stress.check.ts checks it on every tool in one column and two.
 - The command palette has no Measure tool entries: its Measure length, angle and dihedral are the commands on selected
   atoms, and two entries of one name would read as one. Sequence and Catalytic cycle are not there either.
+
+## Fixes after the independent check (20 November 2026)
+
+- A measurement from an atom to an empty point stayed behind at its free end when its structure and label moved
+  together (a drag, the arrow keys, Space and a drag, an Option-drag copy, an AI app's move), so its value changed. The
+  move counted it as text that follows its atoms. It now moves whole, its free ends by the same step (`followsAtoms`,
+  `carriedMeasure`); Align and Distribute too. Space and Select Structure pick the structure's measurements, as the
+  siblings table says ("Space and groups take it with its atoms"). Checks: followUi F1 to F4 and F9 in WebKit, and
+  measuremcp.check.ts for the AI move.
+- Grid snapping: the dotted line and the value followed the pointer, but the click placed the point on the grid. The
+  line and the value now use the point on the grid (`measureAim`). Check: F6.
+- One Backspace more than the ends placed deleted the atom under the pointer. With Measure in hand and nothing picked,
+  Delete now does nothing. The Pen keeps ChemDraw's Delete over an atom: it is a drawing tool. Check: F7.
+- The width handle of the measurement just made took a press with Measure in hand. Handles do not show or take a press
+  with Measure (as with the Eraser). Check: F8.
+- Every native menu command took the measurement in progress away, View > Magnify too. A View or Window command keeps it
+  (`showsOnly`, keys.ts). Check: keys.check.ts (the app's menu cannot run in the dev server).
+- The pointer timing (W13) compared Measure with an Atom map drag. It now times the editor's own path (hit test, hover,
+  dotted line and value) against Select's on 4000 atoms, length and angle in progress, best of two rounds each, with a
+  1.5 ms budget on the mean. The line that follows the pointer reuses the move's hit test (`measureHit`): measured in
+  WebKit, Select 1.0 to 1.4 ms a move, a length in progress 1.3 to 2.3 ms, an angle 1.5 to 2.2 ms (1 ms timer steps).
+- Left as designed: the label of a measurement with no atom end moves the whole measurement (rule 4). Sam to decide.

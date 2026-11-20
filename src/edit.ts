@@ -3212,6 +3212,12 @@ export function cutReaction(m: Mol, from: P, to: P, retro: boolean): { mol: Mol;
 // Whether a measurement goes with these atoms: it has atom ends, and every one is among them. One with no atom end goes
 // with no atoms (it is picked as itself).
 export const measuredBy = (x: Measure, atoms: { has: (i: number) => boolean }) => { const a = atomEnds(x); return a.length > 0 && a.every((i) => atoms.has(i)); };
+// Whether a measurement's label follows these atoms with no move of its own, as a compound number does: every end an
+// atom, and every one among them. One with a free end moves whole with them when its label moves too (carriedMeasure).
+export const followsAtoms = (x: Measure, atoms: { has: (i: number) => boolean }) => x.ends.every(isAtom) && measuredBy(x, atoms);
+// The measure of a label moved by d with these atoms (a drag, the arrow keys, Align): with every atom end among them, or
+// none, the measurement moves whole and its free ends go by d too. Else its label moves alone and its ends stay.
+export const carriedMeasure = (x: Measure, atoms: { has: (i: number) => boolean }, d: P): Measure => (atomEnds(x).every((i) => atoms.has(i)) ? moveEnds(x, (q) => [q[0] + d[0], q[1] + d[1]]) : x);
 // Makes a measurement of these ends (2 a length, 3 an angle, 4 a dihedral of atoms), each an atom or a free point, in
 // the order given (order "pick", the Measure tool's) or, all atoms, along their bonds (chainOrder: the menu's and an AI
 // app's). The drawing is not changed: the value is the drawing's as it is. The same measurement asked for again (the

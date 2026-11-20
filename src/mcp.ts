@@ -6,7 +6,7 @@
 // and no tool reads or writes a file (Export and Save As open Octet's own dialogs, where the user chooses).
 // Each tool that changes the drawing is one undo step (Edit > Undo takes all of it away), and its result says what
 // it drew.
-import { addMeasure, measuredBy, bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
+import { addMeasure, followsAtoms, bounds, extent, chargeLook, addTemplate, insertMol, addArrow, addCaption, addCycle, fragments, extractSelection, deleteGraphics, erase, flipAtoms, rotateAtoms, moveAtoms, keepIdsAbove, startIds, setLabel, setEnhanced, setBondSpec, addShape, updateArrow, updateCaption, updateShape, newTable, pickAtoms, expandLabel, bondOrders, newGel, withLadder, withObjectSettings, setRange, addBands, addLane, deleteLane } from "./edit.ts";
 import { change, labelled, tagged, TRANSFORMATIONS, type Change } from "./compound.ts";
 import { compounds, symbolOwners } from "./mixtures.ts";
 import { LIBRARY, loadMore } from "./library.ts";
@@ -2222,14 +2222,15 @@ async function newDrawing(host: Host, a: { for: string; text?: string; example?:
 }
 
 // Atoms and objects (arrows, free text, cycles, shapes) moved by d; text tied to them (numbers, conditions, a cycle's
-// text, a measurement whose atoms all move) goes with them as the renderer places it. A measurement moved alone keeps
-// its new place by its atoms (measurement.ts settleMeasures).
+// text, a measurement whose ends are all atoms that move) goes with them as the renderer places it. A measurement moved
+// with its atoms and an empty point moves whole, and one moved alone keeps its new place by its atoms (measurement.ts
+// settleMeasures).
 function shift(m: Mol, atoms: Set<number>, items: Set<number>, d: P): Mol {
   const by = (p: [number, number]): [number, number] => [p[0] + d[0], p[1] + d[1]];
   m = moveAtoms(m, atoms, d);
   return {
     ...m, arrows: m.arrows?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to), ...(x.curve ? { curve: { ...x.curve, points: x.curve.points.map((q) => ({ ...q, at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) } : x)),
-    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !(c.measure && measuredBy(c.measure, atoms)) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
+    captions: m.captions?.map((c) => (items.has(c.id) && !c.under && !c.on && !c.cycle && !(c.measure && followsAtoms(c.measure, atoms)) ? { ...c, x: c.x + d[0], y: c.y + d[1] } : c)),
     cycles: m.cycles?.map((c) => (items.has(c.id) ? { ...c, centre: by(c.centre) } : c)), shapes: m.shapes?.map((x) => (items.has(x.id) ? { ...x, from: by(x.from), to: by(x.to) } : x)),
   };
 }

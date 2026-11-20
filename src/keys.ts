@@ -223,6 +223,9 @@ export function menuRuns(id: string, over: { home: boolean; modal: boolean; typi
   if (over.modal || over.calling) return false;
   return !over.home || HOME_COMMANDS.includes(id) || id.startsWith("new_") || id.startsWith("recent_") || id.startsWith("example_");
 }
+// Whether a menu command changes only what is shown (the View and Window menus: zoom, the grid, the panels, the windows),
+// so a measurement in progress stays (Editor's menu listener).
+export const showsOnly = (id: string) => /^(View|Window)( ›|$)/.test(ACTIONS.find((a) => a.id === `menu.${id}`)?.group ?? "");
 // The menu commands that open a dialog: their names end in "…", as the Mac's menus have it (Octet with no window
 // refuses them, for no one is there to finish one).
 export const DIALOGS = new Set<string>();

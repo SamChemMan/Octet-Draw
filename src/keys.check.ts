@@ -101,6 +101,11 @@ assert.equal(actionFor(keymap({}), "mod+alt+f", "none"), undefined);
 registerMenu([["grid", "Show Grid", "View", "CmdOrCtrl+'"], ["rulers", "Show Rulers", "View", "CmdOrCtrl+;"], ["crosshair", "Show Crosshair", "View", "Alt+CmdOrCtrl+X"]]);
 assert.deepEqual(["menu.grid", "menu.rulers", "menu.crosshair"].map((id) => keymap({})[id]), [["mod+'"], ["mod+;"], ["mod+alt+x"]]);
 assert.equal(actionFor(keymap({}), "mod+;", "none"), "menu.rulers");
+// A View or Window command leaves a measurement in progress; another menu command takes it away (Editor's menu listener).
+import { showsOnly } from "./keys.ts";
+registerMenu([["zoom_in", "Magnify", "View", "CmdOrCtrl+Shift+="], ["grid", "Show Grid", "View", "CmdOrCtrl+'"], ["minimise", "Minimise", "Window", "CmdOrCtrl+M"], ["clean_up", "Clean Up Structure", "Structure", "CmdOrCtrl+Shift+K"], ["undo", "Undo", "Edit", "CmdOrCtrl+Z"]]);
+assert.deepEqual(["zoom_in", "grid", "minimise", "clean_up", "undo", "nothing"].map(showsOnly), [true, true, true, false, false, false]);
+assert.match(readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), /useListen<string>\("menu", \(e\) => \{[^]*?if \(!showsOnly\(e\.payload\)\) setMeasuring\(undefined\);/);
 // Feedback's keys: 1, 2 and 3 with ⌘ held, all within 400 ms, in any order. No key-up is needed.
 {
   const p = new Map<string, number>();

@@ -191,4 +191,20 @@ assert.equal(plainN.notes?.[0].content, "From the X-ray structure", "with its no
   assert.deepEqual([loose.measure.kind, loose.measure.atoms, loose.measure.value], ["distance", [], 4.56], JSON.stringify(loose));
   assert.equal(`${loose.measure.value.toFixed(2)}\u00a0Å`, loose.text);
 }
+// A move of a structure with its measurement to an empty point (both ids) takes the free end along, so the value stays,
+// as a drag of both does; the label moved alone leaves the free end where it is.
+{
+  const of = () => measures().find((c) => typeof c.measure!.ends[0] === "number" && Array.isArray(c.measure!.ends[1]))!;
+  const was = of(), t = `t${was.id}`, free = was.measure!.ends[1] as [number, number], atom = m.atoms[was.measure!.ends[0] as number].location;
+  let r = await call("change", { operations: [{ op: "move", ids: [s, t], dx: 2, dy: 1 }] });
+  assert.ok(!r.isError, text(r));
+  const now = of(), moved = now.measure!.ends[1] as [number, number], to = m.atoms[now.measure!.ends[0] as number].location;
+  assert.deepEqual([to[0] - atom[0], to[1] - atom[1]].map((v) => Math.round(v * 1e6) / 1e6), [2, 1], "the structure moved");
+  assert.deepEqual([moved[0] - free[0], moved[1] - free[1]].map((v) => Math.round(v * 1e6) / 1e6), [2, 1], "the free end with it");
+  assert.equal(now.text, was.text, "the value stays");
+  r = await call("change", { operations: [{ op: "move", ids: [t], dx: 0, dy: -1 }] });
+  assert.ok(!r.isError, text(r));
+  assert.deepEqual(of().measure!.ends[1], moved, "moved alone, the label leaves the free end");
+  assert.ok(Math.abs(of().y - now.y + 1) < 1e-6, "and moves");
+}
 console.log("measuremcp.check: text measure, run_command measure, read, edit, move, delete, notes and bad arguments ok");
