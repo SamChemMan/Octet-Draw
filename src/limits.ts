@@ -30,6 +30,9 @@ const ATOM = 520, CARBON = 240, LABEL = 300, BOND = 90, TYPE = 50, CAPTION = 300
 // in; an atom in a field's or a group's list (MEMBER), in a text's under list (UNDER), in a ring fill or a property's
 // atoms (BASIS); a group, a ring fill, a cycle, a reagent table, a spectrum and its point.
 const FIELD = 190, SHOWN = 400, ON = 100, MEMBER = 16, UNDER = 24, BASIS = 30, GROUP = 170, FILL = 150, CYCLE = 2_000, GRID = 30_000, SPECTRUM = 20_000, SPECTRUM_POINT = 12;
+// A user's monomer a sequence uses (Mol.monomers, issue 27), and each character of its code, name and SMILES: a file's
+// may hold a control character, which JSON writes as \u0001 (14 bytes in a .oct).
+const MONOMER = 200, MONOMER_UNIT = 15;
 // What each property adds to its atom, bond, arrow, text or shape, measured with its costliest value and rounded up (0:
 // counted apart, or never written). One not listed (a list, an object) adds OTHER and its JSON at UNIT a character.
 const OTHER = 100;
@@ -144,7 +147,7 @@ function structurePart(m: Mol): number {
   return n + b;
 }
 const captionsPart = listPart(captionSize), arrowsPart = listPart(arrowSize), shapesPart = listPart(shapeSize);
-const lists = { cycles: new WeakMap<object, number>(), groups: new WeakMap<object, number>(), fills: new WeakMap<object, number>(), grids: new WeakMap<object, number>(), spectra: new WeakMap<object, number>() };
+const lists = { cycles: new WeakMap<object, number>(), groups: new WeakMap<object, number>(), fills: new WeakMap<object, number>(), grids: new WeakMap<object, number>(), spectra: new WeakMap<object, number>(), monomers: new WeakMap<object, number>() };
 function sum<T>(cache: WeakMap<object, number>, list: T[] | undefined, f: (x: T) => number): number {
   if (!list) return 0;
   let n = cache.get(list);
@@ -156,7 +159,8 @@ const partsSize = (m: Mol) => captionsPart(m.captions) + arrowsPart(m.arrows) + 
   + sum(lists.groups, m.groups, (g) => GROUP + MEMBER * (g.atoms.length + g.items.length) + notesSize(g.annotations) + UNIT * (json(g.plot) + json(g.risk)))
   + sum(lists.fills, m.fills, (f) => FILL + BASIS * f.atoms.length)
   + sum(lists.grids, m.grids, (g) => GRID + UNIT * json(g))
-  + sum(lists.spectra, m.spectra, (s) => SPECTRUM + SPECTRUM_POINT * s.y.length + UNIT * json(s.groups));
+  + sum(lists.spectra, m.spectra, (s) => SPECTRUM + SPECTRUM_POINT * s.y.length + UNIT * json(s.groups))
+  + sum(lists.monomers, m.monomers, (x) => MONOMER + MONOMER_UNIT * (x.code.length + (x.name?.length ?? 0) + x.smiles.length));
 
 // Each atom's structure (atoms joined by bonds, or by a ligand's link to its centre, as edit.ts fragments finds them),
 // as a union-find kept for the last drawing's bonds and number of atoms: an edit that only adds bonds and atoms joins
@@ -290,8 +294,8 @@ export function withinEach(m: Mol): { mol: Mol; left: number } {
   return { mol: { ...m, data: data.length ? data : undefined }, left: m.data!.length - data.length };
 }
 // The drawing read within MAX_SIZE: when it is larger, the notes past it are left out (the last first), then the texts,
-// then the data fields, and each is counted (lose). What else it holds (structures, pictures, curves) stays, so when that
-// alone is larger, nothing is left out: the drawing does not save either way.
+// then the data fields, and each is counted (lose). What else it holds (structures, pictures, curves, monomers) stays,
+// so when that alone is larger, nothing is left out: the drawing does not save either way.
 export function withinSize(m: Mol, lose: (what: string, n: number) => void): Mol {
   let over = sizeOf(m) - MAX_SIZE;
   if (over <= 0 || sizeOf({ ...capNotes(m, 0), captions: undefined, data: undefined }) > MAX_SIZE) return m;
