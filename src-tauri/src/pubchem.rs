@@ -24,6 +24,14 @@ const BY_KEY: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchike
 const BY_CID: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/";
 // PUG View's Source Categories: every depositor of a compound, by category. It takes no filter.
 const SOURCES: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/categories/compound/";
+// PubChem's table of every depositor: its country and how many substances it lists (about 420 KB, 19 November 2026).
+// Octet reads those columns only, and keeps them while it runs.
+const SOURCE_TABLE: &str = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/sourcetable/substance/JSON";
+const MOST_TABLE: usize = 8 * 1024 * 1024;
+const MOST_TABLE_ROWS: usize = 100_000;
+const TABLE_TIME: Duration = Duration::from_secs(20);
+// A country as Octet shows it: the longest seen was 24 characters.
+const MOST_COUNTRY: usize = 60;
 const COMPOUND: &str = "https://pubchem.ncbi.nlm.nih.gov/compound/";
 const SUBSTANCE: &str = "https://pubchem.ncbi.nlm.nih.gov/substance/";
 const MOST_TEXT: usize = 300;
@@ -40,6 +48,10 @@ const SOURCES_TIME: Duration = Duration::from_secs(120);
 const MOST_NAME: usize = 120;
 const MOST_LINK: usize = 2000;
 const MOST_SUPPLIERS: usize = 1000;
+// A supplier's catalogue numbers kept while reading (MOST_SUPPLIER_CODES), given (MOST_CODES), and each one's length.
+const MOST_SUPPLIER_CODES: usize = 50;
+const MOST_CODES: usize = 3;
+const MOST_CODE: usize = 40;
 pub const UNREACHED: &str = "Octet cannot reach PubChem.";
 pub const STOPPED: &str = "Stopped.";
 // A request whose time ran out: PubChem answered too slowly, which is not a lost connection.
@@ -308,17 +320,30 @@ async fn hazards(key: &str, version: &str, stop: Option<&Stop>) -> Result<Option
 }
 
 // Find suppliers (issue 114): a compound's chemical vendors in PubChem, as Octet shows them. Each supplier once, A to
-// Z, with a link Octet may open (https, checked here). PubChem has no prices, pack sizes or purity, so neither has this.
+// Z, with a link Octet may open (https, checked here), its catalogue numbers for the compound (newest first, at most
+// MOST_CODES) and how many products PubChem lists for it; and, from PubChem's source table, its country and how many
+// substances it lists in PubChem in all, when the table gives them. PubChem has no prices, pack sizes, purity, ratings
+// or logos, so neither has this.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Supplier {
     pub name: String,
     pub url: String,
+    pub codes: Vec<String>,
+    pub products: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listed: Option<u64>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Suppliers {
     pub cid: u64,
     pub suppliers: Vec<Supplier>,
+    // The source table could not be had, so the suppliers have no country or count: the page shows them but keeps
+    // no copy, and the next Find suppliers asks again.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 // PUG View's Source Categories answer, only the parts Octet reads. Any other part is skipped (serde reads it no deeper
@@ -353,6 +378,8 @@ struct Source {
     name: Option<String>,
     #[serde(rename = "SourceRecordURL")]
     record: Option<String>,
+    #[serde(rename = "RegistryID")]
+    code: Option<String>,
 }
 
 // Runs only when the user presses Find suppliers (or chooses it in the Search menu, the Actions panel or the palette),
@@ -384,7 +411,8 @@ async fn suppliers(key: &str, version: &str, stop: Option<&Stop>) -> Result<Opti
         Some(json) => suppliers_in(&json, cid)?,
         None => Vec::new(),
     };
-    Ok(Some(Suppliers { cid, suppliers }))
+    let (suppliers, partial) = with_about(suppliers, version, stop).await?;
+    Ok(Some(Suppliers { cid, suppliers, partial }))
 }
 
 // The suppliers in PubChem's answer for compound cid, read as hostile: the "Chemical Vendors" category's entries, each
@@ -401,6 +429,8 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
         name: String,
         sid: Option<u64>,
         link: Option<(u64, String)>,
+        codes: Vec<(Option<u64>, String)>,
+        products: u32,
     }
     let (mut by, mut at) = (Vec::<Found>::new(), std::collections::HashMap::<String, usize>::new());
     let vendors = answer.source_categories.categories.into_iter().filter(|c| c.category.as_deref() == Some("Chemical Vendors"));
@@ -411,12 +441,18 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
             Some(&k) => k,
             None if by.len() < MOST_SUPPLIERS => {
                 at.insert(key, by.len());
-                by.push(Found { name: name.clone(), sid: source.sid, link: None });
+                by.push(Found { name: name.clone(), sid: source.sid, link: None, codes: Vec::new(), products: 0 });
                 by.len() - 1
             }
             None => continue,
         };
         let f = &mut by[k];
+        f.products = f.products.saturating_add(1);
+        if let Some(code) = source.code.as_deref().and_then(supplier_code) {
+            if !f.codes.iter().any(|(_, c)| *c == code) && f.codes.len() < MOST_SUPPLIER_CODES {
+                f.codes.push((source.sid, code));
+            }
+        }
         if source.sid > f.sid {
             (f.name, f.sid) = (name, source.sid);
         }
@@ -426,12 +462,98 @@ pub fn suppliers_in(json: &str, cid: u64) -> Result<Vec<Supplier>, String> {
             }
         }
     }
-    let mut out: Vec<Supplier> = by.into_iter().map(|f| {
+    let mut out: Vec<Supplier> = by.into_iter().map(|mut f| {
         let url = f.link.map(|(_, l)| l).or_else(|| f.sid.map(|s| format!("{SUBSTANCE}{s}"))).unwrap_or_else(|| vendors_page(cid));
-        Supplier { name: f.name, url }
+        f.codes.sort_by(|a, b| b.0.cmp(&a.0));
+        let codes = f.codes.into_iter().take(MOST_CODES).map(|(_, c)| c).collect();
+        Supplier { name: f.name, url, codes, products: f.products, country: None, listed: None }
     }).collect();
     out.sort_by_cached_key(|s| s.name.to_lowercase());
     Ok(out)
+}
+
+// PUG REST's source table, only the parts Octet reads. Each row's cells line up with the column names.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct TableAnswer {
+    table: Table,
+}
+
+#[derive(Deserialize)]
+struct Table {
+    #[serde(rename = "Columns")]
+    columns: Columns,
+    #[serde(rename = "Row", default)]
+    rows: Vec<TableRow>,
+}
+
+#[derive(Deserialize)]
+struct Columns {
+    #[serde(rename = "Column", default)]
+    column: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct TableRow {
+    #[serde(rename = "Cell", default)]
+    cell: Vec<serde_json::Value>,
+}
+
+// Each depositor's country and count, by its name's key (supplier_key), from the source table.
+type About = std::collections::HashMap<String, (Option<String>, Option<u64>)>;
+static ABOUT: Mutex<Option<About>> = Mutex::new(None);
+
+// A supplier's name as a key: letter case and spaces aside (as suppliers_in counts each supplier once).
+fn supplier_key(name: &str) -> String {
+    name.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect()
+}
+
+// The source table read as hostile: the Source Name, Country and Live Substance Count columns, found by their names,
+// in at most MOST_TABLE_ROWS rows. A country is cleaned as a name, at most MOST_COUNTRY characters. None when the
+// answer has another shape.
+pub fn about_in(json: &str) -> Option<About> {
+    let answer: TableAnswer = serde_json::from_str(json).ok()?;
+    let at = |name: &str| answer.table.columns.column.iter().position(|c| c == name);
+    let (name, country, count) = (at("Source Name")?, at("Country"), at("Live Substance Count"));
+    let mut about = About::new();
+    for row in answer.table.rows.iter().take(MOST_TABLE_ROWS) {
+        let Some(n) = row.cell.get(name).and_then(|v| v.as_str()).and_then(supplier_name) else { continue };
+        let land = country.and_then(|k| row.cell.get(k)).and_then(|v| v.as_str()).and_then(supplier_name).filter(|t| t.chars().count() <= MOST_COUNTRY);
+        let listed = count.and_then(|k| row.cell.get(k)).and_then(|v| v.as_u64().or_else(|| v.as_str()?.trim().parse().ok()));
+        about.insert(supplier_key(&n), (land, listed));
+    }
+    Some(about)
+}
+
+// Each supplier's country and count, from the source table: asked once while Octet runs, after the suppliers, with
+// TABLE_TIME to answer (it took 0.84 s). Stop ends the lookup (STOPPED). When the table cannot be had (no network, a
+// broken answer) the suppliers go without them and are partial (true), and the next Find suppliers asks again.
+async fn with_about(mut suppliers: Vec<Supplier>, version: &str, stop: Option<&Stop>) -> Result<(Vec<Supplier>, bool), String> {
+    if suppliers.is_empty() {
+        return Ok((suppliers, false));
+    }
+    if ABOUT.lock().unwrap().is_none() {
+        let about = match client(version) {
+            Ok(client) => match answer(client.get(SOURCE_TABLE).timeout(TABLE_TIME), MOST_TABLE, stop).await {
+                Err(e) if e == STOPPED => return Err(e),
+                Ok(Some(json)) => about_in(&json),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        match about {
+            Some(about) => *ABOUT.lock().unwrap() = Some(about),
+            None => return Ok((suppliers, true)),
+        }
+    }
+    if let Some(about) = ABOUT.lock().unwrap().as_ref() {
+        for s in &mut suppliers {
+            if let Some((land, listed)) = about.get(&supplier_key(&s.name)) {
+                (s.country, s.listed) = (land.clone(), *listed);
+            }
+        }
+    }
+    Ok((suppliers, false))
 }
 
 // A supplier's name as Octet shows it: no control or format characters (bidirectional overrides among them), spaces
@@ -444,13 +566,22 @@ pub fn supplier_name(raw: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+// A supplier's catalogue number as Octet shows it: a supplier_name of at most MOST_CODE characters, else none.
+pub fn supplier_code(raw: &str) -> Option<String> {
+    supplier_name(raw).filter(|c| c.chars().count() <= MOST_CODE)
+}
+
 // A supplier's product link, kept only when it is https to a named host (no address, no localhost), with no user name
-// or password, at most MOST_LINK characters: in its parsed form (a host in other scripts as its punycode).
+// or password, at most MOST_LINK characters: in its parsed form (a host in other scripts as its punycode). An http link
+// is asked for over https instead (the same host and page), so the product page opens rather than PubChem's.
 pub fn supplier_link(raw: &str) -> Option<String> {
     if raw.len() > MOST_LINK {
         return None;
     }
-    let url = tauri::Url::parse(raw.trim()).ok()?;
+    let mut url = tauri::Url::parse(raw.trim()).ok()?;
+    if url.scheme() == "http" {
+        url.set_scheme("https").ok()?;
+    }
     let host = url.domain()?;
     let named = host.contains('.') && !host.ends_with('.') && !host.eq_ignore_ascii_case("localhost");
     (url.scheme() == "https" && named && url.username().is_empty() && url.password().is_none() && url.as_str().len() <= MOST_LINK).then(|| url.to_string())
@@ -628,13 +759,19 @@ mod tests {
             (20, "Sigma-Aldrich", Some("https://www.sigmaaldrich.com/p/20")),
             (5, "abcr GmbH", Some("https://abcr.example.com/5")),
             (7, "Yuhao Chemical", Some("http://www.chemyuhao.com/50-78-2.html")),
+            (9, "Yuhao Chemical", Some("ftp://www.chemyuhao.com/x")),
             (8, "Debye", None),
         ]);
         let got = suppliers_in(&json, 2244).unwrap();
         let names: Vec<&str> = got.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["abcr GmbH", "Debye", "sigma-aldrich", "Yuhao Chemical"], "A to Z, each once (case and spaces aside), the newest entry's name; the governments are not vendors");
-        assert_eq!(got[2].url, "https://www.sigmaaldrich.com/p/20", "the newest product with an https link");
-        assert_eq!(got[3].url, "https://pubchem.ncbi.nlm.nih.gov/substance/7", "an http link goes to the PubChem substance page");
+        assert_eq!(got[2].url, "https://www.sigmaaldrich.com/p/30", "the newest product with a link, http asked for over https");
+        assert_eq!(got[3].url, "https://www.chemyuhao.com/50-78-2.html", "an http link is asked for over https");
+        assert_eq!(got[2].products, 3, "each entry counts as a product");
+        assert_eq!(got[2].codes, ["X1"], "each catalogue number once");
+        assert_eq!(supplier_link("ftp://a.example.com/x"), None);
+        assert_eq!(supplier_code("  AB\u{202E}-12 "), Some("AB-12".into()));
+        assert_eq!(supplier_code(&"9".repeat(41)), None, "a code longer than 40 characters is left out");
         assert_eq!(got[1].url, "https://pubchem.ncbi.nlm.nih.gov/substance/8", "no link: the substance page");
         assert!(got.iter().all(|s| s.url.starts_with("https://")));
         // No vendor category: no suppliers. Another compound's answer: refused.
@@ -643,6 +780,41 @@ mod tests {
         // No SID at all: the compound's vendor section.
         let no_sid = r#"{"SourceCategories":{"Categories":[{"Category":"Chemical Vendors","Sources":[{"SourceName":"Odd"}]}]}}"#;
         assert_eq!(suppliers_in(no_sid, 5).unwrap()[0].url, "https://pubchem.ncbi.nlm.nih.gov/compound/5#section=Chemical-Vendors");
+    }
+
+    #[test]
+    fn partial_only_when_the_source_table_was_missing() {
+        let one = |partial| serde_json::to_value(Suppliers { cid: 1, suppliers: vec![], partial }).unwrap();
+        assert_eq!(one(false).get("partial"), None, "a complete answer says nothing");
+        assert_eq!(one(true)["partial"], true);
+        assert!(TABLE_TIME <= Duration::from_secs(20), "the table took 0.84 s; no 2-minute wait for it");
+        // An http link that is not safe over https (a user name, an address, another scheme): PubChem's substance page.
+        let json = vendors(9, &[(4, "Odd", Some("http://user@odd.example.com/p")), (5, "Ip", Some("http://10.0.0.1/p"))]);
+        assert!(suppliers_in(&json, 9).unwrap().iter().all(|s| s.url.starts_with(SUBSTANCE)));
+    }
+
+    #[test]
+    fn the_source_table_gives_country_and_count_by_name() {
+        let json = serde_json::json!({ "Table": { "Columns": { "Column": ["Source Name", "Live Substance Count", "Source Category", "Country"] },
+            "Row": [
+                { "Cell": ["Sigma-Aldrich", "258063", "Chemical Vendors", "United States"] },
+                { "Cell": ["TCI  (Tokyo)", 30360, "Chemical Vendors", ""] },
+                { "Cell": [7, "1", "", "Nowhere"] },
+                { "Cell": ["Bad\u{202E}Name", "x", "", "Land".repeat(20)] },
+                { "Cell": [] },
+            ] } }).to_string();
+        let about = about_in(&json).unwrap();
+        assert_eq!(about.get("sigma-aldrich"), Some(&(Some("United States".into()), Some(258063))));
+        assert_eq!(about.get("tci(tokyo)"), Some(&(None, Some(30360))), "an empty country is none");
+        assert_eq!(about.get("badname"), Some(&(None, None)), "a long country and a count that is no number are left out");
+        assert_eq!(about.len(), 3, "a name that is no text, and a row with no cells, are skipped");
+        assert!(about_in(r#"{"Table":{"Columns":{"Column":["Country"]},"Row":[]}}"#).is_none(), "no Source Name column");
+        assert!(about_in("<html>").is_none());
+        assert!(about_in(&format!(r#"{{"Table":{}{}}}"#, "[".repeat(200), "]".repeat(200))).is_none(), "nesting 200 deep");
+        // More rows than MOST_TABLE_ROWS: the rest are not read.
+        let rows: Vec<serde_json::Value> = (0..MOST_TABLE_ROWS + 5).map(|k| serde_json::json!({ "Cell": [format!("S{k}"), "1", "", ""] })).collect();
+        let big = serde_json::json!({ "Table": { "Columns": { "Column": ["Source Name", "Live Substance Count", "Source Category", "Country"] }, "Row": rows } }).to_string();
+        assert_eq!(about_in(&big).unwrap().len(), MOST_TABLE_ROWS);
     }
 
     #[test]
@@ -731,9 +903,10 @@ mod tests {
     #[test]
     fn supplier_links_are_clean_https_only() {
         assert_eq!(supplier_link("https://www.sigmaaldrich.com/GB/en/product/sial/a5376?a=1&b=2#x").as_deref(), Some("https://www.sigmaaldrich.com/GB/en/product/sial/a5376?a=1&b=2#x"));
+        assert_eq!(supplier_link("http://www.sigmaaldrich.com/p").as_deref(), Some("https://www.sigmaaldrich.com/p"), "http asked for over https");
         assert_eq!(supplier_link("https://bücher.example/p a").as_deref(), Some("https://xn--bcher-kva.example/p%20a"), "parsed form: punycode host, escaped space");
         for bad in [
-            "javascript:alert(1)", "file:///etc/passwd", "data:text/html,<script>alert(1)</script>", "http://www.sigmaaldrich.com/",
+            "javascript:alert(1)", "file:///etc/passwd", "data:text/html,<script>alert(1)</script>", "http://user@www.example.com/", "http://127.0.0.1/",
             "https://user:pass@www.example.com/", "https://user@www.example.com/", "https://127.0.0.1/admin", "https://localhost/", "https://[::1]/",
             "https://intranet/", "HTTPS:", "", "https://", "vbscript:x", "ftp://example.com/a",
         ] {
