@@ -301,7 +301,7 @@ test("S23 bad arguments from an AI app", async () => {
     [arrow, [{ name: "x", value: "y" }], /takes no data|no data/],
     ["t999", [{ name: "x", value: "y" }], /no|There is/i],
     [s1, [{ name: "a<b", value: "y" }], /no < or >/], [s1, [{ name: "", value: "y" }], /1 to 200/], [s1, [{ name: "x".repeat(201), value: "y" }], /200/],
-    [s1, [{ name: "x", value: "v".repeat(10_001) }], /10,?000/], [s1, [{ name: "x", value: "v".repeat(2_001), show: true }], /too long to show/],
+    [s1, [{ name: "x", value: "v".repeat(D.MAX_VALUE + 1) }], /20,?000/], [s1, [{ name: "x", value: "v".repeat(2_001), show: true }], /too long to show/],
     [s1, [{ name: "absent", remove: true }], /no data field absent/], [s1, "not a list", /list|array|data/i],
   ] as [string, unknown, RegExp][]) {
     const r = await call("change", { operations: [{ op: "edit", ids: [id], data }] });

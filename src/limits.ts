@@ -1,242 +1,210 @@
 // What a drawing holds at most, so that every drawing the editor makes saves and opens again whole
-// (docs/plans/long-text.md): the counts Octet's own readers keep, and the size of the largest form Octet writes. The
-// editor refuses an edit that takes a count past its limit (overLimit, in Editor.tsx set), and the readers leave out
-// what is past it and count it (withinEach, withinSize).
+// (docs/plans/long-text.md): the counts Octet's own readers keep, and the text that keeps a drawing within the 64 MB
+// Octet saves. The editor refuses an edit that takes a count past its limit (overLimit, in Editor.tsx set), and the
+// readers leave out what is past it and count it (withinEach, withinText).
 import { capNotes, MAX_ANNOTATIONS, MAX_NOTES } from "./annotate.ts";
 import { MAX_DATA, MAX_EACH } from "./datafields.ts";
-import { deleteGraphics } from "./edit.ts";
-import { MAX_GRIDS } from "./experiment.ts";
-import { MOST_OWN_MONOMERS } from "./monomers.ts";
-import { membrane, type Annotation, type Arrow, type Atom, type Bond, type Caption, type DataField, type Mol, type Shape } from "./render.ts";
+import { bondsMadeFrom, deleteGraphics } from "./edit.ts";
+import { MAX_GRIDS, stamped } from "./experiment.ts";
+import { MOST_OWN_MONOMERS, type OwnMonomer } from "./monomers.ts";
+import type { Annotation, Caption, DataField, Grid, Group, Mol, Shape } from "./render.ts";
 
 export const MAX_ATOMS = 100_000;
 // Texts, arrows, shapes, cycles, ring fills and groups, each. A text's length is MAX_TEXT (richtext.ts).
 export const MAX_OBJECTS = 10_000;
-// The most bytes a drawing's largest form takes: Octet saves, keeps a recovery copy of and opens files of 64 MB at
-// most (main.rs MAX_BYTES), and sizeOf is a little over what the writers make.
-export const MAX_SIZE = 63 * 2 ** 20;
 
-// --- Size ---------------------------------------------------------------------------------------------------------------
-// The most bytes each thing takes in the largest form Octet writes (the .oct file: its CDXML, and Octet's own copy in
-// base64; a .cdx file for a spectrum), measured on the writers with the costliest values (" takes 8.8 bytes a character
-// in a .oct, a style run with every style 310 bytes, ids of six digits), rounded up. A drawing's size is their sum,
-// worked out from lengths and counts without writing it.
-const BASE = 300_000, UNIT = 9, RUN = 320, NOTE = 120;
-// An atom (CARBON: a carbon with a bond, whose label is not written), its label's text, a bond (TYPE more when it is
-// not single), a text, an arrow, a pen curve's point, a membrane's lipid, a shape, a table cell and its character, a
-// picture's byte.
-const ATOM = 520, CARBON = 240, LABEL = 300, BOND = 90, TYPE = 50, CAPTION = 300, ARROW = 820, POINT = 270, LIPID = 1_500, SHAPE = 500, CELL = 30, CELL_UNIT = 17, PICTURE = 4.7;
-// A data field (SHOWN more when it is shown: its ChemDraw property), and each structure a field not shown is written
-// in; an atom in a field's or a group's list (MEMBER), in a text's under list (UNDER), in a ring fill or a property's
-// atoms (BASIS); a group, a ring fill, a cycle, a reagent table, a spectrum and its point.
-const FIELD = 190, SHOWN = 400, ON = 100, MEMBER = 16, UNDER = 24, BASIS = 30, GROUP = 170, FILL = 150, CYCLE = 2_000, GRID = 30_000, SPECTRUM = 20_000, SPECTRUM_POINT = 12;
-// A user's monomer a sequence uses (Mol.monomers, issue 27), and each character of its code, name and SMILES: a file's
-// may hold a control character, which JSON writes as \u0001 (14 bytes in a .oct).
-const MONOMER = 200, MONOMER_UNIT = 15;
-// What each property adds to its atom, bond, arrow, text or shape, measured with its costliest value and rounded up (0:
-// counted apart, or never written). One not listed (a list, an object) adds OTHER and its JSON at UNIT a character.
-const OTHER = 100;
-const PROPS: Record<"atom" | "bond" | "arrow" | "caption" | "shape", Record<string, number>> = {
-  atom: { key: 0, tag: 0, session: 0, text: 0, runs: 0, inner: 0, charge: 240, radical: 450, isotope: 300, pairs: 440, circled: 40, partial: 280, hmark: 90, attach: 120, bead: 120,
-    map: 70, enhanced: 100, colour: 80, shade: 160, font: 130, size: 30, bold: 30, italic: 30, underline: 40, ignoreWarnings: 70, cip: 70, halo: 60, circle: 70, number: 100, hiddenNumber: 100, align: 80,
-    labelAngle: 70, hidden: 60, bars: 30, chemical: 70, shown: 230, order: 40, kept: 200, scale: 210, implicitHCount: 40, ox: 20 },
-  bond: { stereo: 60, display: 60, position: 40, colour: 60, halo: 60, ignoreWarnings: 70, query: 80, topology: 70, rxn: 80, spacing: 70, line: 180, bold: 180, route: 30, ports: 60 },
-  arrow: { from: 0, to: 0, curve: 0, notes: 0, bend: 70, style: 30, colour: 70, start: 130, end: 130, head: 40, fill: 90, point: 70, ratio: 70, shaft: 40, order: 40, width: 80, scale: 150 },
-  caption: { x: 0, y: 0, runs: 0, notes: 0, property: 0, facts: 0, under: 80, measure: 1_000, bold: 60, italic: 60, underline: 70, size: 50, align: 40, colour: 70, angle: 70, font: 150,
-    order: 40, width: 100, lineHeight: 60, chemical: 70, auto: 60, on: 200, placed: 170 },
-  shape: { from: 0, to: 0, table: 0, picture: 0, notes: 0, symbol: 0, mark: 300, dashed: 70, colour: 60, fill: 90, shadow: 60, side: 30, boldLine: 40, order: 40, angle: 80, width: 70,
-    radius: 40, font: 150, size: 30, bold: 30, italic: 30, underline: 40, ignoreWarnings: 90, bracketed: 40, scale: 150, count: 50 },
-};
-const json = (v: unknown) => (v === undefined ? 0 : JSON.stringify(v).length);
-// first, second: two properties every one has (a check that costs less than a look-up).
-function propsSize(o: object, costs: Record<string, number>, first: string, second: string): number {
-  let n = 0;
-  for (const k in o) {
-    if (k === first || k === second) continue;
-    const v = (o as Record<string, unknown>)[k], c = costs[k];
-    if (v !== undefined) n += typeof c === "number" ? c : OTHER + UNIT * json(v);
-  }
-  return n;
+// --- Text ---------------------------------------------------------------------------------------------------------------
+// The text a drawing holds: what MAX_TEXT and MAX_VALUE let grow, the characters of its texts, notes, data fields,
+// table cells, risk assessment texts, reagent tables and a sequence's own monomers. Each counts as the most bytes it
+// takes in any form Octet writes (.oct, .cdx, CDXML, the recovery copy), in characters of 9 bytes (" in a .oct takes
+// 8.7, the most): a style run counts RUN (309 bytes with a size of 19 digits) and its font's name, as a text's own font
+// does (4 bytes a character at most), a table cell's character and a shown field's name's 2 (16 and 11 bytes), and a
+// monomer's code, name and SMILES 2 a character (a file's may hold a control character, which JSON writes as \u0001: 14
+// bytes in a .oct) and its record MONOMER (120 bytes). A field not shown is written in each structure it is on, so its
+// name and value and its record (FIELD, 88 bytes) count once for each. So text takes 45 MB at most: a drawing of text
+// alone saves within 64 MB (main.rs MAX_BYTES), with 10,000 texts that have every style, each with a note and a shown
+// data field (longtext-stress L19). The rest of a drawing (structures, curves, pictures, spectra, a table's own cells)
+// is not counted: Save refuses a drawing larger than 64 MB, as before, and the recovery copy kept last stays
+// (docs/plans/long-text.md).
+export const MAX_CHARACTERS = 5_000_000;
+const RUN = 35, FIELD = 12, MONOMER = 14;
+// A list's text, kept for the list: an edit that makes no new list costs nothing, and one that does a pass over it.
+function part<T>(f: (x: T) => number) {
+  const done = new WeakMap<T[], number>();
+  return (l?: T[]) => {
+    if (!l?.length) return 0;
+    let n = done.get(l);
+    if (n === undefined) { n = 0; for (const x of l) n += f(x); done.set(l, n); }
+    return n;
+  };
 }
 const kept = <K extends object>(cache: WeakMap<K, number>, k: K, f: (k: K) => number) => { let n = cache.get(k); if (n === undefined) cache.set(k, (n = f(k))); return n; };
-const notesCache = new WeakMap<Annotation[], number>(), innerCache = new WeakMap<Mol, number>(), lipids = new WeakMap<Arrow, number>();
-const notesSize = (l?: Annotation[]) => (l ? kept(notesCache, l, (l) => l.reduce((n, a) => n + NOTE + UNIT * (a.keyword.length + a.content.length), 0)) : 0);
-const textSize = (t: { text?: string; runs?: unknown[] }) => UNIT * (t.text?.length ?? 0) + RUN * (t.runs?.length ?? 0);
-const bondSize = (b: Bond) => BOND + propsSize(b, PROPS.bond, "atoms", "type") + (b.type === 1 ? 0 : TYPE);
-// An atom; bonded: it has a bond and no carbon labels are shown, so a carbon's label is not written.
-function atomSize(a: Atom, bonded: boolean): number {
-  let n = (bonded && a.label === "C" ? CARBON : ATOM) + propsSize(a, PROPS.atom, "label", "location");
-  if (a.text) n += LABEL + textSize(a);
-  if (a.inner) n += kept(innerCache, a.inner, (g) => g.atoms.reduce((k, x) => k + atomSize(x, false), 0) + g.bonds.reduce((k, b) => k + bondSize(b), 0));
-  return n;
-}
-const captionSize = (c: Caption) => CAPTION + textSize(c) + notesSize(c.notes) + propsSize(c, PROPS.caption, "id", "text") + UNDER * (c.under?.length ?? 0)
-  + (c.property ? UNIT * json(c.property.attrs) + BASIS * c.property.atoms.length : 0);
-const arrowSize = (a: Arrow) => ARROW + propsSize(a, PROPS.arrow, "id", "kind") + POINT * (a.curve?.points.length ?? 0) + notesSize(a.notes)
-  + (a.style === "membrane" ? LIPID * kept(lipids, a, (x) => membrane(x, 1).heads.length) : 0);
-function shapeSize(s: Shape): number {
-  let n = SHAPE + propsSize(s, PROPS.shape, "id", "kind") + notesSize(s.notes) + UNIT * (s.mark?.length ?? 0);
-  if (s.table) { const { cells, ...rest } = s.table; n += UNIT * json(rest); for (const row of cells) for (const c of row) n += CELL + CELL_UNIT * c.length; }
-  for (const v of Object.values(s.picture ?? {})) n += PICTURE * (v.length / 2);
-  return n;
+const noteText = (a: Annotation) => a.keyword.length + a.content.length;
+const notesOf = part<Annotation>(noteText);
+const runsText = (l: { text: string; font?: string }[]) => l.reduce((n, r) => n + r.text.length + RUN + (r.font?.length ?? 0), 0);
+const tables = new WeakMap<NonNullable<Shape["table"]>, number>(), risks = new WeakMap<NonNullable<Group["risk"]>, number>(), grids = new WeakMap<Grid, number>();
+const captionText = (c: Caption) => (c.runs ? runsText(c.runs) : c.text.length) + (c.font?.length ?? 0);
+const captionsText = part<Caption>((c) => captionText(c) + notesOf(c.notes));
+const arrowsText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes)), cyclesText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes));
+const shapesText = part<Shape>((s) => notesOf(s.notes) + (s.table ? kept(tables, s.table, (t) => 2 * t.cells.reduce((n, row) => n + row.reduce((k, c) => k + c.length, 0), 0)) : 0));
+const groupsText = part<Group>((g) => notesOf(g.annotations) + (g.risk?.texts ? kept(risks, g.risk, (r) => Object.values(r.texts!).reduce((n, l) => n + runsText(l), 0)) : 0));
+const gridsText = part<Grid>((g) => kept(grids, g, (x) => JSON.stringify(x).length));
+// A sequence's own monomers (issue 27): 500 of 2,092 characters (a code of 12, a name of 80, SMILES of 2,000) take up to
+// 14 MB in a .oct, so they count.
+const monomersText = part<OwnMonomer>((x) => MONOMER + 2 * (x.code.length + (x.name?.length ?? 0) + x.smiles.length));
+// A field's text in one structure: its name and value (a shown field's value is its text's), and a record.
+const fieldText = (f: DataField) => (f.caption !== undefined ? 2 * f.name.length : f.name.length + (f.value?.length ?? 0) + FIELD);
+// At most: a field not shown in as many structures as it has atoms.
+const fieldsMost = part<DataField>((f) => fieldText(f) * (f.caption !== undefined ? 1 : f.atoms.length));
+// The drawing's text but its fields' (what the drawing's lists hold).
+const restOf = (m: Mol) => captionsText(m.captions) + notesOf(m.annotations) + arrowsText(m.arrows) + cyclesText(m.cycles) + shapesText(m.shapes) + groupsText(m.groups) + gridsText(m.grids) + monomersText(m.monomers);
+// The drawing's text, in characters of 9 bytes (MAX_CHARACTERS): at most that, and exactly that when it is past
+// MAX_CHARACTERS. The fields' text is worked out from their structures only when the most it can be (each field not
+// shown in a structure of its own for each atom) takes the drawing past it. was: the drawing before an edit (fieldsOf).
+export function textOf(m: Mol, was?: Mol): number {
+  const rest = restOf(m), most = fieldsMost(m.data);
+  if (!m.data?.length || rest + most <= MAX_CHARACTERS) return rest + most;
+  const n = rest + fieldsOf(m, was).text;
+  return n <= MAX_CHARACTERS ? n : rest + fieldsOf(m, was, true).text;
 }
 
-// A list's part: each thing's size, kept for the last list worked out, and worked out for a new list from that one by
-// the things that changed (an edit makes a new list, and most of its things are the same objects). When things are put
-// in or taken out, the rest are matched from the end, so a deletion costs what it took out. changed: each thing taken
-// out (-1) and put in (1).
-type Part<T> = { list: T[]; sizes: Float64Array; size: number };
-// An empty list of objects: a list literal [] is one of small numbers, and a loop given both kinds reads each slower.
-const EMPTY = ([{}] as never[]).slice(0, 0);
-const part = <T>(): Part<T> => ({ list: EMPTY, sizes: new Float64Array(0), size: 0 });
-function partSize<T>(p: Part<T>, list: T[], size: (x: T, i: number) => number, changed?: (x: T, by: number) => void): number {
-  const o = p.list, l = list.length ? list : EMPTY;
-  let n = p.size, sizes = p.sizes;
-  if (l === o) return n;
-  if (l.length === o.length) {
-    for (let i = same(l, o, 0, l.length); i < l.length; i = same(l, o, i + 1, l.length)) {
-      if (changed) { changed(o[i], -1); changed(l[i], 1); }
-      const s = size(l[i], i);
-      n += s - sizes[i];
-      sizes[i] = s;
+// --- Structures ---------------------------------------------------------------------------------------------------------
+// Each atom's structure, by its first atom (atoms joined by bonds, or by a ligand's link to its centre, as edit.ts
+// fragments finds them), kept for the drawing's bonds and number of atoms (an edit that moves atoms keeps them). Only a
+// drawing with more than MAX_EACH data fields, or whose fields' text could take it past MAX_CHARACTERS, needs them.
+// Worked out whole, they take one pass over the bonds and atoms (1 to 1.5 ms on 100,000 atoms). An edit that keeps the
+// bonds of the drawing before it (was) and adds atoms and bonds (a bond drawn, a paste, a bond's order changed) takes
+// was's and joins only what it added. A bond drawn, a paste and a bond tool on a bond say so (edit.ts bondsMadeFrom);
+// for another edit, a pass compares the two lists of bonds, reading no bond (0.1 to 0.3 ms on 100,000 atoms). A link
+// to a centre is made or changed with the bonds' order changed (edit.ts ligand) or on an atom that had one (a
+// template's point), so was's links are compared only where it had them (centred). The structures are kept in a buffer
+// that an edit adding atoms fills on (was's part stays as it was): used, how much of it a drawing took last. fields:
+// what the data fields on these structures hold (fieldsOf), for each list of fields.
+type Buffer = { a: Int32Array; used: number };
+type Parts = { n: number; of: Int32Array; buf: Buffer; centred: number[]; fields: WeakMap<DataField[], Fields> };
+const parts = new WeakMap<object, Parts>();
+const room = (n: number) => new Int32Array(Math.ceil(n * 1.25) + 1024);
+// m's structures, and was's (w) when it has them; joins: how many of was's structures went into another (0 when was's
+// are as they were), or -1 when they were worked out whole.
+function partsOf(m: Mol, was?: Mol): { p: Parts; joins: number; w?: Parts } {
+  const n = m.atoms.length, done = parts.get(m.bonds), w0 = was && parts.get(was.bonds), w = w0 && w0.n === was!.atoms.length ? w0 : undefined;
+  if (done?.n === n) return { p: done, joins: done.of === w?.of ? 0 : -1, w };
+  const n0 = was?.atoms.length ?? 0, b0 = was?.bonds.length ?? 0, nb = m.bonds.length;
+  if (w && n >= n0 && nb >= b0 && (madeFrom(m.bonds, was!.bonds) || sameBonds(m.bonds, was!.bonds, b0)) && w.centred.every((i) => sameCentre(m.atoms[i].centre, was!.atoms[i].centre))) {
+    if (n === n0 && nb === b0) { parts.set(m.bonds, w); return { p: w, joins: 0, w }; }
+    // was's buffer, filled on past was's atoms when no other drawing has filled it on; was's own part changes only
+    // when one of its structures goes into another (moved), and then in a copy.
+    let buf = w.buf;
+    if (buf.used !== n0 || buf.a.length < n) { const a = room(n); a.set(w.of); buf = { a, used: n0 }; }
+    const a = buf.a, moved = new Map<number, number>(), up = (i: number) => (i < n0 ? moved.get(i) ?? a[i] : a[i]);
+    const root = (i: number) => { for (let j = up(i); j !== i; j = up(i)) i = j; return i; };
+    for (let i = n0; i < n; i++) a[i] = i;
+    const join = (i: number, j: number) => {
+      if (!(i >= 0 && j >= 0 && i < n && j < n)) return;
+      i = root(i);
+      j = root(j);
+      if (i === j) return;
+      if (i > j) [i, j] = [j, i];
+      if (j < n0) moved.set(j, i);
+      else a[j] = i;
+    };
+    for (let k = b0; k < nb; k++) join(m.bonds[k].atoms[0], m.bonds[k].atoms[1]);
+    const centred = w.centred.filter((i) => i < n && m.atoms[i].centre);
+    for (let i = n0; i < n; i++) { const c = m.atoms[i].centre; if (c) { centred.push(i); for (const j of c.atoms) join(i, j); } }
+    let out = buf;
+    if (moved.size) {
+      out = { a: new Int32Array(a.length), used: n };
+      out.a.set(a.subarray(0, n));
+      for (const [j, i] of moved) out.a[j] = i;
+      for (let i = 0; i < n; i++) out.a[i] = out.a[out.a[i]];
+    } else {
+      for (let i = n0; i < n; i++) a[i] = a[a[i]];
+      buf.used = n;
     }
-  } else {
-    const a = same(l, o, 0, Math.min(l.length, o.length)), z = sameEnd(l, o, Math.min(l.length, o.length) - a);
-    for (let i = a; i < o.length - z; i++) { changed?.(o[i], -1); n -= sizes[i]; }
-    if (sizes.length < l.length) { const s = new Float64Array(Math.max(l.length, 2 * sizes.length)); s.set(sizes.subarray(0, o.length)); sizes = p.sizes = s; }
-    sizes.copyWithin(l.length - z, o.length - z, o.length);
-    for (let i = a; i < l.length - z; i++) { changed?.(l[i], 1); n += sizes[i] = size(l[i], i); }
+    const p: Parts = { n, of: out.a.subarray(0, n), buf: out, centred, fields: new WeakMap() };
+    parts.set(m.bonds, p);
+    return { p, joins: moved.size, w };
   }
-  p.list = l;
-  p.size = n;
-  return n;
+  const a = room(n), centred: number[] = [];
+  for (let i = 0; i < n; i++) a[i] = i;
+  // A structure goes under its lowest atom, so each atom's is below it, and one pass in order gives every atom's.
+  const join = (i: number, j: number) => {
+    if (!(i >= 0 && j >= 0 && i < n && j < n)) return;
+    while (a[i] !== i) i = a[i] = a[a[i]];
+    while (a[j] !== j) j = a[j] = a[a[j]];
+    if (i < j) a[j] = i;
+    else if (j < i) a[i] = j;
+  };
+  for (const b of m.bonds) join(b.atoms[0], b.atoms[1]);
+  for (let i = 0; i < n; i++) { const c = m.atoms[i].centre; if (c) { centred.push(i); for (const j of c.atoms) join(i, j); } }
+  for (let i = 0; i < n; i++) a[i] = a[a[i]];
+  const p: Parts = { n, of: a.subarray(0, n), buf: { a, used: n }, centred, fields: new WeakMap() };
+  parts.set(m.bonds, p);
+  return { p, joins: -1, w };
 }
-// The first place from i on (before end) where two lists differ, and how many things two lists end with the same (most
-// at most): loops of their own, which stay fast whatever partSize is given.
-function same(l: unknown[], o: unknown[], i: number, end: number): number {
-  while (i < end && l[i] === o[i]) i++;
-  return i;
+// Whether bonds were made from base by adding bonds or changing one's order or style (edit.ts bondsMadeFrom: a bond
+// drawn, a paste, a bond tool on a bond), as the lists made on the way say; whether the first b bonds of p join the
+// atoms q's do (the same bonds, as other edits that add keep them, cost a pass that reads none of them); and whether
+// two links to a centre are the same.
+function madeFrom(bonds: Mol["bonds"] | undefined, base: Mol["bonds"]): boolean {
+  for (let k = 0; k < 64 && bonds; k++) { if (bonds === base) return true; bonds = bondsMadeFrom.get(bonds)?.deref(); }
+  return false;
 }
-function sameEnd(l: unknown[], o: unknown[], most: number): number {
-  let z = 0;
-  while (z < most && l[l.length - 1 - z] === o[o.length - 1 - z]) z++;
-  return z;
-}
-// A list's part kept for the list.
-function listPart<T>(size: (x: T) => number) {
-  const p = part<T>(), done = new WeakMap<T[], number>();
-  return (l?: T[]) => { if (!l) return 0; let n = done.get(l); if (n === undefined) done.set(l, (n = partSize(p, l, size))); return n; };
-}
-// The atoms' and bonds' part, kept for the atoms, the bonds and the carbon labels. A carbon's size depends on whether it
-// has a bond, so the bonds go first, counting each atom's bonds (degree), and each atom whose count went from none to
-// some, or back, is worked out again.
-const atoms = part<Atom>(), bonds = part<Bond>(), done = new WeakMap<Atom[], { bonds: Bond[]; labels: boolean; size: number }>();
-let degree = new Int32Array(0), labelled = false;
-function structurePart(m: Mol): number {
-  const labels = !!(m.style?.terminalLabels || m.style?.carbonLabels), was = done.get(m.atoms);
-  if (was?.bonds === m.bonds && was.labels === labels) return was.size;
-  if (degree.length < m.atoms.length) { const d = new Int32Array(Math.max(m.atoms.length, 2 * degree.length)); d.set(degree); degree = d; }
-  const flipped: number[] = [], count = (i: number, by: number) => { if (i >= 0 && i < degree.length && !(degree[i] += by) !== !(degree[i] - by)) flipped.push(i); };
-  const b = partSize(bonds, m.bonds, bondSize, (x, by) => { count(x.atoms[0], by); count(x.atoms[1], by); });
-  if (labels !== labelled) { atoms.list = EMPTY; atoms.size = 0; labelled = labels; }
-  const size = (a: Atom, i: number) => atomSize(a, !labels && degree[i] > 0);
-  let n = partSize(atoms, m.atoms, size);
-  for (const i of flipped) if (i < m.atoms.length) { const s = size(m.atoms[i], i); n += s - atoms.sizes[i]; atoms.sizes[i] = s; }
-  atoms.size = n;
-  done.set(m.atoms, { bonds: m.bonds, labels, size: n + b });
-  return n + b;
-}
-const captionsPart = listPart(captionSize), arrowsPart = listPart(arrowSize), shapesPart = listPart(shapeSize);
-const lists = { cycles: new WeakMap<object, number>(), groups: new WeakMap<object, number>(), fills: new WeakMap<object, number>(), grids: new WeakMap<object, number>(), spectra: new WeakMap<object, number>(), monomers: new WeakMap<object, number>() };
-function sum<T>(cache: WeakMap<object, number>, list: T[] | undefined, f: (x: T) => number): number {
-  if (!list) return 0;
-  let n = cache.get(list);
-  if (n === undefined) { n = 0; for (const x of list) n += f(x); cache.set(list, n); }
-  return n;
-}
-const partsSize = (m: Mol) => captionsPart(m.captions) + arrowsPart(m.arrows) + shapesPart(m.shapes)
-  + sum(lists.cycles, m.cycles, (c) => { const { notes, ...rest } = c; return CYCLE + UNIT * json(rest) + notesSize(notes); })
-  + sum(lists.groups, m.groups, (g) => GROUP + MEMBER * (g.atoms.length + g.items.length) + notesSize(g.annotations) + UNIT * (json(g.plot) + json(g.risk)))
-  + sum(lists.fills, m.fills, (f) => FILL + BASIS * f.atoms.length)
-  + sum(lists.grids, m.grids, (g) => GRID + UNIT * json(g))
-  + sum(lists.spectra, m.spectra, (s) => SPECTRUM + SPECTRUM_POINT * s.y.length + UNIT * json(s.groups))
-  + sum(lists.monomers, m.monomers, (x) => MONOMER + MONOMER_UNIT * (x.code.length + (x.name?.length ?? 0) + x.smiles.length));
-
-// Each atom's structure (atoms joined by bonds, or by a ligand's link to its centre, as edit.ts fragments finds them),
-// as a union-find kept for the last drawing's bonds and number of atoms: an edit that only adds bonds and atoms joins
-// them in, and any other builds it again. top(i): the first atom of i's structure, which stands for it. version counts
-// the changes to the structures of the atoms there were: a new atom joined to a structure is none.
-const joined = { bonds: [] as Bond[], n: 0, up: new Int32Array(0), version: 0 };
-const top = (i: number) => { const up = joined.up; while (up[i] !== i) i = up[i] = up[up[i]]; return i; };
-let from = 0, merged = false;
-// The structures of i and j as one, under the first atom of either.
-function join(i: number, j: number) {
-  if (!(i >= 0 && j >= 0 && i < joined.n && j < joined.n)) return;
-  const up = joined.up;
-  while (up[i] !== i) i = up[i] = up[up[i]];
-  while (up[j] !== j) j = up[j] = up[up[j]];
-  if (i === j) return;
-  if (i < j) up[j] = i;
-  else up[i] = j;
-  if (i < from && j < from) merged = true;
-}
-function structures(m: Mol): number {
-  const l = m.bonds, o = joined.bonds, n = m.atoms.length;
-  if (l === o && n === joined.n) return joined.version;
+function sameBonds(p: Mol["bonds"], q: Mol["bonds"], b: number): boolean {
+  if (p === q) return true;
   let k = 0;
-  if (n >= joined.n && l.length >= o.length) while (k < o.length && l[k] === o[k]) k++;
-  const again = k < o.length || n < joined.n;
-  from = again ? 0 : joined.n;
-  merged = again || !from;
-  if (joined.up.length < n) { const up = new Int32Array(Math.max(n, 2 * joined.up.length)); if (!again) up.set(joined.up.subarray(0, from)); joined.up = up; }
-  const up = joined.up;
-  for (let i = from; i < n; i++) up[i] = i;
-  joined.n = n;
-  for (let b = again ? 0 : k; b < l.length; b++) join(l[b].atoms[0], l[b].atoms[1]);
-  for (let i = from; i < n; i++) { const c = m.atoms[i].centre; if (c) for (const j of c.atoms) join(i, j); }
-  joined.bonds = l;
-  return merged ? ++joined.version : joined.version;
+  while (k < b && p[k] === q[k]) k++;
+  for (; k < b; k++) if (p[k] !== q[k] && (p[k].atoms[0] !== q[k].atoms[0] || p[k].atoms[1] !== q[k].atoms[1])) return false;
+  return true;
 }
+const sameCentre = (c?: { atoms: number[] }, d?: { atoms: number[] }) => c === d || (!!c && !!d && c.atoms.length === d.atoms.length && c.atoms.every((j, k) => j === d.atoms[k]));
+const structuresOf = (m: Mol) => partsOf(m).p.of;
 // The structures a field is on (most are on one, which needs no set).
-function onStructures(f: { atoms: number[] }): number[] {
-  const first = top(f.atoms[0]);
-  for (let k = 1; k < f.atoms.length; k++) if (top(f.atoms[k]) !== first) return [...new Set(f.atoms.map(top))];
+function onStructures(f: { atoms: number[] }, of: Int32Array): number[] {
+  const l = f.atoms, first = of[l[0]];
+  for (let k = 1; k < l.length; k++) if (of[l[k]] !== first) return [...new Set(l.map((i) => of[i]))];
   return [first];
 }
-// A field: its atoms, and for one shown, its text's atoms as ChemDraw's property (its text is the caption's); one not
-// shown is written in each structure it is on.
-const fieldSize = (f: DataField, on: number) => FIELD + MEMBER * f.atoms.length
-  + (f.caption !== undefined ? SHOWN + BASIS * f.atoms.length + UNIT * f.name.length : on * (ON + UNIT * (f.name.length + (f.value?.length ?? 0))));
-// The fields' part and the most fields on one structure, kept for the fields and the structures.
-const fieldsCache = new WeakMap<object, { version: number; size: number; most: number }>();
-function fieldCounts(m: Mol): { size: number; most: number } {
-  if (!m.data?.length) return { size: 0, most: 0 };
-  const version = structures(m), was = fieldsCache.get(m.data);
-  if (was?.version === version) return was;
-  const n = new Map<number, number>();
-  let size = 0, most = 0;
-  for (const f of m.data) {
-    const on = onStructures(f);
-    size += fieldSize(f, on.length);
-    for (const s of on) { const k = (n.get(s) ?? 0) + 1; n.set(s, k); if (k > most) most = k; }
+// The fields' text (fieldText in each structure each is on) and the most fields on one structure, kept with the
+// structures for the list of fields. Worked out whole, they take a pass over the fields' atoms (a list the fields share
+// once). From was's, after an edit that only adds to was (partsOf) and keeps its fields or adds to them, they are at
+// most was's: joined structures hold no more text, and as many fields at most as the structures joined (joins + 1)
+// held, with one more for each field added. exact: worked out whole (asked for when the most they can be is past a
+// limit).
+type Fields = { text: number; most: number; exact: boolean };
+function fieldsOf(m: Mol, was?: Mol, exact = false): Fields {
+  const data = m.data!, { p, joins, w: wp } = partsOf(m, was), of = p.of, done = p.fields.get(data);
+  if (done && (done.exact || !exact)) return done;
+  const w = !exact && joins >= 0 && was?.data ? wp?.fields.get(was.data) : undefined;
+  let out: Fields;
+  if (w && data.length >= was!.data!.length && (data === was!.data || was!.data!.every((f, k) => data[k] === f))) {
+    out = { text: w.text, most: w.most * (joins + 1) + data.length - was!.data!.length, exact: w.exact && !joins && data === was!.data };
+    for (let k = was!.data!.length; k < data.length; k++) { const f = data[k]; out.text += fieldText(f) * (f.caption !== undefined ? 1 : onStructures(f, of).length); }
+  } else {
+    const count = new Int32Array(of.length), lists = new Map<number[], number[]>();
+    out = { text: 0, most: 0, exact: true };
+    for (const f of data) {
+      let on = lists.get(f.atoms);
+      if (!on) lists.set(f.atoms, (on = onStructures(f, of)));
+      out.text += fieldText(f) * (f.caption !== undefined ? 1 : on.length);
+      for (const s of on) if (++count[s] > out.most) out.most = count[s];
+    }
   }
-  const out = { version, size, most };
-  fieldsCache.set(m.data, out);
+  p.fields.set(data, out);
   return out;
 }
-const dataSize = (m: Mol) => fieldCounts(m).size;
-// The most bytes the drawing takes in the largest form Octet writes it in: within MAX_SIZE, it saves (as .oct, CDXML or
-// CDX) and its recovery copy is kept.
-export function sizeOf(m: Mol): number {
-  return BASE + structurePart(m) + notesSize(m.annotations) + dataSize(m) + partsSize(m);
+// The most data fields on one structure (a field is on each structure it has an atom in): at most that, and exactly
+// that when it is past MAX_EACH.
+function mostOnOne(m: Mol, was?: Mol): number {
+  if ((m.data?.length ?? 0) <= MAX_EACH) return m.data?.length ?? 0;
+  const most = fieldsOf(m, was).most;
+  return most <= MAX_EACH ? most : fieldsOf(m, was, true).most;
 }
 
-// The most data fields on one structure (a field is on each structure it has an atom in).
-const mostOnOne = (m: Mol) => ((m.data?.length ?? 0) <= MAX_EACH ? m.data?.length ?? 0 : fieldCounts(m).most);
-
 // --- Counts -------------------------------------------------------------------------------------------------------------
-// Each limit: what is counted, its limit and what the editor says past it.
-type Count = (m: Mol) => number;
+// Each limit: what is counted (at most, and exactly past its limit; was: the drawing before an edit, which only makes
+// the count cheaper), its limit and what the editor says past it.
+type Count = (m: Mol, was?: Mol) => number;
 const noteCache = new WeakMap<Mol, [number, number]>();
 // Every annotation in the drawing, and the most on one object (or on the drawing): one pass.
 function noteCounts(m: Mol): [number, number] {
@@ -260,22 +228,29 @@ const limits = (): [Count, number, string][] => [
   [(m) => noteCounts(m)[0], MAX_NOTES, most(MAX_NOTES, "notes")],
   [(m) => noteCounts(m)[1], MAX_ANNOTATIONS, `A drawing or an object holds up to ${MAX_ANNOTATIONS.toLocaleString("en-GB")} notes.`],
   [(m) => m.monomers?.length ?? 0, MOST_OWN_MONOMERS, most(MOST_OWN_MONOMERS, "monomers")],
-  [sizeOf, MAX_SIZE, "A drawing holds up to 64 MB."],
+  [textOf, MAX_CHARACTERS, most(MAX_CHARACTERS, "characters of text")],
 ];
 let table: ReturnType<typeof limits> | undefined;
 const counted = new WeakMap<Mol, number[]>();
-function countsOf(m: Mol): number[] {
+function countsOf(m: Mol, was?: Mol): number[] {
   let n = counted.get(m);
-  if (!n) counted.set(m, (n = (table ??= limits()).map(([count]) => count(m))));
+  if (!n) counted.set(m, (n = (table ??= limits()).map(([count]) => count(m, was))));
   return n;
 }
-// Why an edit makes a drawing a reader refuses or opens with less (past a count above, or larger than Octet saves),
-// as the editor says it; undefined when it does not. was: the drawing before the edit. A count past its limit there
-// already (a file from another program) stops only an edit that makes it larger, so each limit holds on its own.
+// Why an edit makes a drawing a reader refuses or opens with less (past a count above), as the editor says it;
+// undefined when it does not. was: the drawing before the edit. A count past its limit there already (a file from
+// another program) stops only an edit that makes it larger, so each limit holds on its own. was's counts are needed
+// only then (a count past its limit is exact, and one within it at least was's exact count).
 export function overLimit(m: Mol, was?: Mol): string | undefined {
-  const now = countsOf(m), before = was && countsOf(was);
-  const k = (table ??= limits()).findIndex(([, limit], k) => now[k] > limit && (!before || now[k] > before[k]));
+  const now = countsOf(m, was);
+  const k = (table ??= limits()).findIndex(([, limit], k) => now[k] > limit && (!was || now[k] > countsOf(was)[k]));
   return k < 0 ? undefined : table[k][2];
+}
+// The drawing as this user saves it (experiment.ts stamped: Last changed by), when that keeps it within every limit;
+// otherwise as it is, so the file opens whole (no name is added).
+export function stampedWithin(m: Mol, name: string): Mol {
+  const s = stamped(m, name);
+  return s === m || !overLimit(s, m) ? s : m;
 }
 
 // --- Readers ------------------------------------------------------------------------------------------------------------
@@ -283,44 +258,61 @@ export function overLimit(m: Mol, was?: Mol): string | undefined {
 // shown one's text stays as plain text). left: how many.
 export function withinEach(m: Mol): { mol: Mol; left: number } {
   if (mostOnOne(m) <= MAX_EACH) return { mol: m, left: 0 };
-  structures(m);
-  const n = new Map<number, number>();
+  const of = structuresOf(m), n = new Map<number, number>();
   const data = m.data!.filter((f) => {
-    const on = onStructures(f);
+    const on = onStructures(f, of);
     if (on.some((s) => (n.get(s) ?? 0) >= MAX_EACH)) return false;
     for (const s of on) n.set(s, (n.get(s) ?? 0) + 1);
     return true;
   });
   return { mol: { ...m, data: data.length ? data : undefined }, left: m.data!.length - data.length };
 }
-// The drawing read within MAX_SIZE: when it is larger, the notes past it are left out (the last first), then the texts,
-// then the data fields, and each is counted (lose). What else it holds (structures, pictures, curves, monomers) stays,
-// so when that alone is larger, nothing is left out: the drawing does not save either way.
-export function withinSize(m: Mol, lose: (what: string, n: number) => void): Mol {
-  let over = sizeOf(m) - MAX_SIZE;
-  if (over <= 0 || sizeOf({ ...capNotes(m, 0), captions: undefined, data: undefined }) > MAX_SIZE) return m;
-  let out = m;
+// The drawing read with at most MAX_CHARACTERS of text: when it has more, notes are left out (the last first), then
+// texts, then data fields, each counted (lose), and only what brings it within: when leaving out every note and text
+// would not be enough, data fields go (the last first) until it is within, and the notes and texts stay; when leaving
+// out every note would not, texts go and the notes stay. A shown field's text that goes leaves its value
+// (datafields.ts remapData), so what is still past the limit then goes as texts, then fields. Text of other kinds
+// (table cells, risk texts, reagent tables, monomers) stays: when leaving out every note, text and field would not
+// bring the drawing within, nothing is left out, and the editor takes no edit that adds text.
+export function withinText(m: Mol, lose: (what: string, n: number) => void): Mol {
+  const over = (x: Mol) => textOf(x) - MAX_CHARACTERS;
+  if (over(m) <= 0) return m;
   // The notes in the order capNotes keeps them: the drawing's, then the groups', then the objects'.
-  const all = [m.annotations ?? [], ...(m.groups ?? []).map((g) => g.annotations ?? []), ...[m.captions, m.arrows, m.shapes, m.cycles].flatMap((l) => (l ?? []).map((x) => x.notes ?? []))].flat();
-  let keep = all.length;
-  while (keep > 0 && over > 0) { const a = all[--keep]; over -= NOTE + UNIT * (a.keyword.length + a.content.length); }
-  if (keep < all.length) { out = capNotes(out, keep); lose("annotation", all.length - keep); }
-  const caps = out.captions ?? [], gone = new Set<number>();
-  for (let k = caps.length - 1; k >= 0 && over > 0; k--) { over -= captionSize(caps[k]); gone.add(caps[k].id); }
-  if (gone.size) {
-    const fields = out.data?.length ?? 0, notesWere = noteCounts(out)[0];
-    out = deleteGraphics(out, gone);
+  const notes = (x: Mol) => [x.annotations ?? [], ...(x.groups ?? []).map((g) => g.annotations ?? []), ...[x.captions, x.arrows, x.shapes, x.cycles].flatMap((l) => (l ?? []).map((y) => y.notes ?? []))].flat();
+  const sum = <T>(l: T[] | undefined, f: (y: T) => number) => (l ?? []).reduce((n, y) => n + f(y), 0);
+  const fieldCost = (x: Mol) => { const of = structuresOf(x); return (f: DataField) => fieldText(f) * (f.caption !== undefined ? 1 : onStructures(f, of).length); };
+  const notesText = (x: Mol) => sum(notes(x), noteText), textsText = (x: Mol) => sum(x.captions, captionText);
+  if (over(m) > notesText(m) + textsText(m) + (m.data?.length ? sum(m.data, fieldCost(m)) : 0)) return m;
+  // Each kind left out from its end until n characters have gone.
+  const dropNotes = (x: Mol, n: number) => {
+    const all = notes(x);
+    let keep = all.length;
+    while (keep > 0 && n > 0) n -= noteText(all[--keep]);
+    if (keep === all.length) return x;
+    lose("annotation", all.length - keep);
+    return capNotes(x, keep);
+  };
+  const dropTexts = (x: Mol, n: number) => {
+    const caps = x.captions ?? [], gone = new Set<number>();
+    for (let k = caps.length - 1; k >= 0 && n > 0; k--) { n -= captionText(caps[k]); gone.add(caps[k].id); }
+    if (!gone.size) return x;
+    const fields = x.data?.length ?? 0, notesWere = noteCounts(x)[0], y = deleteGraphics(x, gone);
     lose("text", gone.size);
-    if (fields > (out.data?.length ?? 0)) lose("data field", fields - (out.data?.length ?? 0));
-    if (notesWere > noteCounts(out)[0]) lose("annotation", notesWere - noteCounts(out)[0]);
-    over = sizeOf(out) - MAX_SIZE;
-  }
-  if (over > 0 && out.data?.length) {
-    structures(out);
-    let k = out.data.length;
-    while (k > 0 && over > 0) { const f = out.data[--k]; over -= fieldSize(f, onStructures(f).length); }
-    lose("data field", out.data.length - k);
-    out = { ...out, data: k ? out.data.slice(0, k) : undefined };
-  }
-  return out;
+    if (fields > (y.data?.length ?? 0)) lose("data field", fields - (y.data?.length ?? 0));
+    if (notesWere > noteCounts(y)[0]) lose("annotation", notesWere - noteCounts(y)[0]);
+    return y;
+  };
+  const dropFields = (x: Mol, n: number) => {
+    if (!x.data?.length || n <= 0) return x;
+    const cost = fieldCost(x);
+    let k = x.data.length;
+    while (k > 0 && n > 0) n -= cost(x.data[--k]);
+    lose("data field", x.data.length - k);
+    return { ...x, data: k ? x.data.slice(0, k) : undefined };
+  };
+  let out = over(m) > notesText(m) + textsText(m) ? dropFields(m, over(m)) : m;
+  if (over(out) > notesText(out)) out = dropTexts(out, over(out));
+  out = dropNotes(out, over(out));
+  out = dropTexts(out, over(out));
+  return dropFields(out, over(out));
 }

@@ -6,12 +6,13 @@
 // cleaners and limits, a structure's fields, the dialog's rows, Select Linked Objects, the SD data reader and writer,
 // and the forms the files keep.
 import { addCaption, deleteGraphics, fragments } from "./edit.ts";
+import { MAX_TEXT } from "./richtext.ts";
 import type { Caption, DataField, Mol } from "./render.ts";
 
-// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to 10,000
-// characters; one over 2,000 cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000
-// fields and a drawing up to 10,000.
-export const MAX_NAME = 200, MAX_VALUE = 10_000, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
+// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to MAX_TEXT
+// (20,000) characters, as a text, so a shown value whose Show is turned off keeps what its text kept; one over 2,000
+// cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000 fields and a drawing up to 10,000.
+export const MAX_NAME = 200, MAX_VALUE = MAX_TEXT, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
 // A field from a file with no name.
 export const NO_NAME = "Data";
 // ChemDraw's attached data: a live property of type 23, its Name the field's name.
@@ -199,14 +200,17 @@ export function writeData(m: Mol, captions: Caption[]): ({ name: string; atoms: 
 export function readData(v: unknown, atoms: number, captions: Caption[]): { data?: DataField[]; left: number } {
   if (!Array.isArray(v)) return { left: v === undefined ? 0 : 1 };
   const data: DataField[] = [], taken = new Set<number>();
-  let left = Math.max(0, v.length - MAX_DATA);
+  let left = Math.max(0, v.length - MAX_DATA), last: number[] = [];
   for (const x of v.slice(0, MAX_DATA) as Record<string, unknown>[]) {
     const name = typeof x?.name === "string" && x.name.length <= MAX_NAME ? cleanName(x.name) : "", list = x?.atoms;
     const sound = name && Array.isArray(list) && list.length && list.length <= atoms && list.every((i) => Number.isInteger(i) && i >= 0 && i < atoms);
     const value = typeof x?.value === "string" ? cleanValue(x.value) : undefined, at = x?.caption as number;
     const shown = Number.isInteger(at) && at >= 0 && at < captions.length && !taken.has(at);
     if (!sound || (value === undefined) === !shown) { left++; continue; }
-    const ids = [...new Set(list as number[])];
+    // Fields of the same atoms share their list, as Attach Data makes them (an edit renumbers it once).
+    let ids = [...new Set(list as number[])];
+    if (ids.length === last.length && ids.every((i, k) => i === last[k])) ids = last;
+    last = ids;
     if (shown) { taken.add(at); data.push({ name, atoms: ids, caption: captions[at].id }); } else data.push({ name, atoms: ids, value });
   }
   return { ...(data.length ? { data } : {}), left };

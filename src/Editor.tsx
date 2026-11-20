@@ -23,7 +23,8 @@ import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { overLimit, parse, serialize } from "./file";
-import { allNotes, annotationsOf, isNote, NOTE, noteTargets, stampedWithin, withNote, withoutNotes, type Target } from "./annotate";
+import { allNotes, annotationsOf, isNote, NOTE, noteTargets, withNote, withoutNotes, type Target } from "./annotate";
+import { stampedWithin } from "./limits";
 import { Notes, type NoteField, type NoteRow } from "./Notes";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
@@ -153,7 +154,7 @@ import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
-import { cutNotice, failure, fileName, refusal, type NoticeKind } from "./notice";
+import { cutNotice, failure, fileName, reason, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { followArrows, MARK_KEY, tieable, tieAt, withTies } from "./arrowlink";
@@ -597,6 +598,10 @@ function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   keeper.queue = run.catch(() => {});
   return run;
 }
+// Save refuses a drawing larger than 64 MB (main.rs MAX_BYTES), and the recovery copy kept last stays (recovery.rs):
+// the notice says what to do (docs/plans/long-text.md).
+const TOO_LARGE = "This drawing is larger than 64 MB. Octet cannot save it. Delete part of it, or copy part of it to a new drawing and save that.";
+const saveFailed = (e: unknown) => (/^This drawing is larger than 64 MB\./.test(reason(e)) ? TOO_LARGE : failure("Octet cannot save this drawing.", e));
 // The copy, written now: the error boundary keeps the drawing as last drawn before the window can close.
 export function keepNow() {
   clearTimeout(keeper.timer);
@@ -1136,7 +1141,9 @@ export default function Editor() {
   const writingOpen = useRef(false);
   // The style new text starts with, set from the Actions panel while the Text tool is in hand.
   const [textStyle, setTextStyle] = useState<Partial<Caption>>({});
-  const openWriting = (w: Writing) => { writingOpen.current = true; setWriting(w); };
+  // A box that is open stays: another does not open over it, so what is typed there is not lost (a text set refused
+  // stays in its box, commitWriting).
+  const openWriting = (w: Writing) => { if (writingOpen.current) return; writingOpen.current = true; setWriting(w); };
   const richApi = useRef<RichApi>(undefined);
   // The caret moving in the box changes what the Actions panel shows as on (Bold, Subscript and so on): only the panel
   // draws again.
@@ -1864,7 +1871,7 @@ export default function Editor() {
     }
     try {
       // The drawing says who saved it last (issue 100): the save's own step takes the name, so it is not left changed.
-      // Not past the drawing's notes limits (stampedWithin), so the file opens whole.
+      // Not past the drawing's limits (limits.ts stampedWithin), so the file opens whole.
       const out = stampedWithin(doc, systemName);
       // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
       const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...out, guides }, savedStyle(), cdxmlOptions())) : undefined;
@@ -1875,7 +1882,7 @@ export default function Editor() {
       if (path && path !== file.path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(failure("Octet cannot save this drawing.", e));
+      setNotice(saveFailed(e));
       return false;
     }
   }
@@ -1933,7 +1940,7 @@ export default function Editor() {
       if (path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(failure("Octet cannot save this drawing.", e));
+      setNotice(saveFailed(e));
       return false;
     }
   };
@@ -2728,7 +2735,7 @@ export default function Editor() {
     if (writing) {
       const text = writing.value.trim(), c = placed.find((x) => x.id === (writing.id ?? DRAFT)), found = text ? structureOrSuggestion(text, true) : undefined;
       // The caption is kept first, so Undo gives back the text as typed (as in ChemDraw, where the caption is there).
-      commitWriting();
+      if (!commitWriting()) return;
       if (!found || !c) return openNaming(text);
       return convertInPlace(found, writing.id !== undefined ? deleteGraphics(doc, new Set([writing.id])) : doc, [(c.box[0] + c.box[2]) / 2 / L, -(c.box[1] + c.box[3]) / 2 / L]);
     }
@@ -4561,6 +4568,7 @@ export default function Editor() {
     return undefined;
   };
   const openCell = (sh: Shape, p: P) => {
+    if (cellOpen.current) return; // a cell open (its text set refused) stays
     const t = tableLayout(sh, cellWidth(sh), style.captionSize);
     const c = Math.max(0, Array.from({ length: t.cols }, (_, i) => i).filter((i) => t.col(i) <= p[0]).pop() ?? 0);
     const r = Math.max(0, Array.from({ length: t.rows }, (_, i) => i).filter((i) => t.row(i) >= p[1]).pop() ?? 0);
@@ -4590,12 +4598,11 @@ export default function Editor() {
     let cur = sh, m = doc;
     const value = expandEscapes(w.value, keptText(sh.table.cells[w.r]?.[w.c])); // \delta is δ (escapes.ts)
     if (value !== (sh.table.cells[w.r]?.[w.c] ?? "")) { cur = { ...cur, ...setTableCell(cur, w.r, w.c, value, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
-    if (to) {
-      const [r, c] = to, rows = cur.table!.cells.length;
-      if (r >= rows) { cur = { ...cur, ...resizeTable(cur, rows + 1, cur.table!.cells[0].length, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
-      if (r >= 0) setCell({ id: sh.id, r, c, value: cur.table!.cells[r]?.[c] ?? "" });
-    } else { cellOpen.current = false; setCell(undefined); }
-    if (m !== doc) set(m, true);
+    if (to && to[0] >= cur.table!.cells.length) { cur = { ...cur, ...resizeTable(cur, cur.table!.cells.length + 1, cur.table!.cells[0].length, cellWidth(cur), style.captionSize) }; m = updateShape(m, sh.id, cur); }
+    // A cell set refuses (past a count a file holds: overLimit) stays open with its text as typed, and set says why.
+    if (m !== doc) { set(m, true); if (refused.current) return void requestAnimationFrame(() => cellInput.current?.focus()); }
+    if (!to) { cellOpen.current = false; return setCell(undefined); }
+    if (to[0] >= 0) setCell({ id: sh.id, r: to[0], c: to[1], value: cur.table!.cells[to[0]]?.[to[1]] ?? "" });
   }
   // The caption under a point (drawing coordinates), with a few px of slack.
   // Where a measurement's lines stop short of an atom (bond lengths): clear of its label, or a little way off a bare
@@ -4928,7 +4935,7 @@ export default function Editor() {
     const w = writing, at = w?.at;
     if (!w || !at) return;
     const text = w.value.replace(/\s+$/, ""), gap = (20 * pt) / L, row = tabRow.current ?? { x: [at[0]], style: [w.style], k: 0 };
-    commitWriting();
+    if (!commitWriting()) return;
     if (!text) { tabRow.current = { ...row, k: 0 }; return openWriting({ value: "", at: [row.x[0], at[1] - gap], style: { ...row.style[0] } }); }
     const size = (w.style.size ?? style.captionSize) * pt, font = fontStack(w.style.font ?? style.captionFont), align = w.style.align ?? "left";
     const wide = Math.max(...text.split("\n").map((t) => textWidth(t, size, w.style.bold, w.style.italic, font))) / L, k = row.k + 1;
@@ -4949,8 +4956,7 @@ export default function Editor() {
   function tabField(back: boolean): boolean {
     const w = writing, field = w && (w.style.field ?? doc.captions?.find((c) => c.id === w.id)?.field), k = slots.findIndex((x) => x.field === field);
     if (!w || k < 0 || slots.length < 2) return false;
-    commitWriting();
-    typeField(slots[(k + (back ? slots.length - 1 : 1)) % slots.length]);
+    if (commitWriting()) typeField(slots[(k + (back ? slots.length - 1 : 1)) % slots.length]);
     return true;
   }
   // Tab in a side arrow's text: the text is kept and the text at its other end opens (that end is added if missing).
@@ -4958,7 +4964,7 @@ export default function Editor() {
     const w = writing, t = w && (w.cycle ?? doc.captions?.find((c) => c.id === w.id)?.cycle), c = t && doc.cycles?.find((x) => x.id === t.cycle);
     if (!w || !t || !c || !isSide(t)) return false;
     const branch = branchFor(c, t), other = t.side === "in" ? "out" : "in", there = doc.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.branch === branch && x.cycle.side === other);
-    commitWriting();
+    if (!commitWriting()) return true;
     if (there) openWriting({ id: there.id, value: there.text, runs: runsOf(there).map((x) => ({ ...x })), version: 0, style: {} });
     else openWriting({ value: "", cycle: { cycle: c.id, step: t.step, side: other, branch }, style: { ...textStyle } });
     return true;
@@ -4972,12 +4978,14 @@ export default function Editor() {
     return chartLabel ? [80, "A chart label"] : was?.field && DETAILS.some(([k]) => k === was.field) ? [MAX_VALUE, "A detail"]
       : was && fieldOfCaption(doc, was.id) >= 0 ? [MAX_SHOWN, "A shown value"] : [MAX_TEXT, "A text"];
   };
-  function commitWriting() {
+  // Keeps the text typed, and closes the box. When set refuses it (past a count a file holds: overLimit), the box opens
+  // again with the text as typed, so nothing typed is lost, and set says why: false then.
+  function commitWriting(): boolean {
     const w = writing;
-    if (!writingOpen.current) return;
+    if (!writingOpen.current) return true;
     writingOpen.current = false;
     setWriting(undefined);
-    if (!w) return;
+    if (!w) return true;
     // A name typed as LaTeX's, \delta, is its character, δ (escapes.ts, Stefan Schramm's idea in PR 42).
     const was = w.id !== undefined ? doc.captions?.find((c) => c.id === w.id) : undefined, written = expandRuns(w.runs ?? [{ text: w.value }], keptText(was?.text));
     // What the text holds (textMost). A tab is a space, and no other control character but a line break is kept. More
@@ -4986,6 +4994,12 @@ export default function Editor() {
     const clean = written.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "") })), over = plainOf(clean).length > most;
     if (over) setNotice(cutNotice(what, most));
     const typed = over ? cutRuns(clean, most) : clean, text = plainOf(typed).replace(/\s+$/, "");
+    const kept = () => {
+      if (!refused.current) return true;
+      const at = plainOf(typed).length;
+      openWriting({ ...w, runs: typed, value: plainOf(typed), version: (w.version ?? 0) + 1, caret: [at, at], pending: undefined });
+      return false;
+    };
     // Runs are kept only when some text has a style of its own; trailing space goes from them as from the text. A colour
     // all the text has becomes the caption's own (shareColour), so it is kept as a colour picked for the whole caption.
     const own = "colour" in w.style ? w.style.colour : doc.captions?.find((c) => c.id === w.id)?.colour;
@@ -4994,29 +5008,35 @@ export default function Editor() {
     const marked = (m: Mol, id: number) => {
       const c = expPage ? m.captions?.find((x) => x.id === id) : undefined, next = c && markupCaption(c);
       if (!next) return;
-      // An edit like any other, so the Procedure box grows for it (growProcedure).
-      lastSet.current = { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) };
-      dispatch({ type: "set", mol: lastSet.current });
+      // An edit like any other, so the Procedure box grows for it (growProcedure). Its style runs count in the drawing's
+      // text (limits.ts): past it, the text stays as typed.
+      const out = { ...m, captions: m.captions!.map((x) => (x.id === id ? next : x)) }, over = overLimit(out, m);
+      if (over) return setNotice(over, "info");
+      lastSet.current = out;
+      dispatch({ type: "set", mol: out });
     };
     if (w.id !== undefined) {
       const old = doc.captions?.find((c) => c.id === w.id);
-      if (!text) return set(deleteGraphics(doc, new Set([w.id])));
+      if (!text) { set(deleteGraphics(doc, new Set([w.id]))); return kept(); }
       if (old && (text !== old.text || Object.keys(st).length || JSON.stringify(runs) !== JSON.stringify(old.runs))) {
         // A caption that already held markup kept as typed (an escape, or Undo of the change) is not changed again.
         // New text typed over a number Octet gave makes it the user's (numbering.ts renumber), and over live values
         // stops them following the structure (liveValues).
         const m = set(updateCaption(doc, w.id, { text, ...st, runs, ...(text !== old.text ? { auto: undefined, ...(old.property?.attrs.rows ? { property: undefined } : {}), ...(old.measure ? { measure: undefined } : {}) } : {}) }));
+        if (!kept()) return false;
         if (!(expPage && markupCaption(old))) marked(m, w.id);
       }
-      return setPicked(new Set([w.id]));
+      setPicked(new Set([w.id]));
+      return true;
     }
     // A side arrow's end written with nothing stays there, bare.
-    if (!text) { const sb = w.cycle && isSide(w.cycle) ? branchOf(doc, w.cycle) : undefined, part = w.cycle?.side as "in" | "out"; return sb && !sb.b[part] ? void set(withEnd(doc, sb.c.id, sb.b.id, part)) : undefined; }
+    if (!text) { const sb = w.cycle && isSide(w.cycle) ? branchOf(doc, w.cycle) : undefined, part = w.cycle?.side as "in" | "out"; if (sb && !sb.b[part]) set(withEnd(doc, sb.c.id, sb.b.id, part)); return true; }
     const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...st, ...(runs ? { runs } : {}) });
     const made = set(labelEnd(mol, id));
-    if (refused.current) return;
+    if (!kept()) return false;
     marked(made, id);
     setPicked(new Set([id]));
+    return true;
   }
   // A text style on the characters selected in the caption box (with nothing selected, on the next characters
   // typed), or on the whole of every picked caption (the caption's own bold, italic and underline go into its runs,
@@ -7350,8 +7370,8 @@ export default function Editor() {
       want.forEach((x) => riskAsked.current.add(`${x.key} ${x.inchi ?? ""}`));
       if (!same) {
         const next = withRiskCas(withSubstances(m, list.map(({ inchi: _, ...x }) => x), s), offlineCas(list), s);
-        lastSet.current = next;
-        dispatch({ type: "amend", mol: next });
+        // Within the drawing's limits (limits.ts), as every edit.
+        if (!overLimit(next, m)) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
       }
       if (want.length) void riskOnline(true, want, true);
     }, 300);
@@ -7385,7 +7405,7 @@ export default function Editor() {
     }
     const s = sheetOf(style), next = withRiskCas(withHazards(now.current, found, s), cas, s);
     // Found for substances the reaction just got: in the edit's own undo step, when nothing has changed since.
-    if (next !== now.current && amend && lastSet.current === now.current) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
+    if (next !== now.current && amend && lastSet.current === now.current && !overLimit(next, now.current)) { lastSet.current = next; dispatch({ type: "amend", mol: next }); }
     else if (next !== now.current) set(next, true);
     if (hazards && failed && !Object.keys(found).length) setNotice(failedNotice(why), "info");
   }
@@ -7976,8 +7996,9 @@ export default function Editor() {
     const cas = casLive(doc);
     if (cas && !namesLoaded) return;
     const t = setTimeout(() => {
+      // Within the drawing's limits (limits.ts): a value that would take its text past them stays as it is.
       const next = liveValues(doc, liveOf(doc, cas));
-      if (next === doc) return;
+      if (next === doc || overLimit(next, doc)) return;
       if (added.current?.mol === doc) added.current = { ...added.current, mol: next };
       before.current = next;
       dispatch({ type: "amend", mol: next });
@@ -10094,7 +10115,7 @@ export default function Editor() {
         if (refused.current) return;
         setPicked(new Set([id]));
         // A new table opens its second header cell for typing (the first says Entry).
-        if (sh.kind === "table") { cellOpen.current = true; setCell({ id, r: 0, c: 1, value: "" }); }
+        if (sh.kind === "table" && !cellOpen.current) { cellOpen.current = true; setCell({ id, r: 0, c: 1, value: "" }); }
         return;
       }
       case "handle":

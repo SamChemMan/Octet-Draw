@@ -6,7 +6,7 @@ import { readMonomers } from "./monomers.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { capNotes, isNote, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, noteCount } from "./annotate.ts";
-import { MAX_ATOMS, MAX_OBJECTS, overLimit, withinEach, withinSize } from "./limits.ts";
+import { MAX_ATOMS, MAX_OBJECTS, overLimit, withinEach, withinText } from "./limits.ts";
 import { MAX_CHARGE, oldLigands, settleHydrogens, tidyGroups } from "./edit.ts";
 import { settleMeasures, soundMeasure } from "./measurement.ts";
 import { migrateCycles, readBranches, readSteps, type Cycle, type CycleSide, type CycleText } from "./cycle.ts";
@@ -421,15 +421,18 @@ export function parse(text: string): Mol {
   // long to show is turned into a value (longShown), in Octet's own fields and in 1.1.2's (fromProperties).
   const fields = readData(d.data, out.atoms.length, out.captions ?? []);
   if (fields.data) out.data = fields.data;
-  const settled = settleMeasures(undefined, settleHydrogens(tidyGroups(migrateCycles(d.app === undefined ? oldLigands(fromProperties(out)) : fromProperties(out)))), undefined, true);
+  const migrated = migrateCycles(d.app === undefined ? oldLigands(fromProperties(out)) : fromProperties(out)), tidy = tidyGroups(migrated);
+  const settled = settleMeasures(undefined, settleHydrogens(tidy), undefined, true);
   const shown = longShown(settled), each = withinEach(shown.mol);
-  // At most 10,000 notes (annotate.ts capNotes) and 64 MB (limits.ts): a file from before the editor kept those limits.
-  // What goes is counted.
-  const lost: Record<string, number> = { "data field": fields.left + shown.left + each.left, annotation: notesCut + shown.notes, [SHOWN_OFF]: shown.off, monomer: monomersLeft };
+  // A group of one thing goes, and its annotations with it (longShown counts those of the groups it takes apart). At
+  // most 10,000 notes (annotate.ts capNotes) and MAX_CHARACTERS of text (limits.ts): a file from before the editor kept
+  // those limits. What goes is counted.
+  const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0);
+  const lost: Record<string, number> = { "data field": fields.left + shown.left + each.left, annotation: notesCut + shown.notes + groupNotes(migrated) - groupNotes(tidy), [SHOWN_OFF]: shown.off, monomer: monomersLeft };
   const lose = (what: string, n: number) => { lost[what] = (lost[what] ?? 0) + n; };
   const capped = capNotes(each.mol);
   lose("annotation", noteCount(each.mol) - noteCount(capped));
-  return markLeft(withinSize(capped, lose), lost);
+  return markLeft(withinText(capped, lose), lost);
 }
 
 // An object's notes, if any: checked as annotations are (a bad list makes the drawing damaged).

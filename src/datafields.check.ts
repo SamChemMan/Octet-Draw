@@ -182,7 +182,7 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   // S10: hostile lists. Bad entries are left out and counted, and the drawing opens.
   const file = (data: unknown) => JSON.stringify({ ...JSON.parse(serialize(withFields)), data });
   const bad = [{ name: "ok", atoms: [0], value: "v" }, { name: "", atoms: [0], value: "v" }, { name: "x".repeat(201), atoms: [0], value: "v" }, { name: "a", atoms: [99], value: "v" },
-    { name: "a", atoms: [], value: "v" }, { name: "a", atoms: [0], caption: 7 }, { name: "a", atoms: [0], value: 5 }, { name: "a", atoms: [0], value: "v", caption: 0 }, { name: "a", atoms: [0], value: "z".repeat(10_001) }, null, "x"];
+    { name: "a", atoms: [], value: "v" }, { name: "a", atoms: [0], caption: 7 }, { name: "a", atoms: [0], value: 5 }, { name: "a", atoms: [0], value: "v", caption: 0 }, { name: "a", atoms: [0], value: "z".repeat(D.MAX_VALUE + 1) }, null, "x"];
   const read = readOct(file(bad));
   // (The shown field's text keeps its attached-data property, so it is a field again.)
   assert.deepEqual([read.mol.data, read.lost], [[{ name: "ok", atoms: [0], value: "v" }, { name: "mp", atoms: P, caption: 1 }], { "data field": bad.length - 1 }]);
