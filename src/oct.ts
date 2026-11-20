@@ -3,7 +3,7 @@
 // CDXML, the hash no longer matches, and Octet reads the CDXML instead. Old .octet files are the JSON alone.
 // A .cdx file (decision 0009) works the same way: the drawing's JSON goes in a property of the CDX document, beside a
 // hash of the rest of the file.
-import { leftOf } from "./datafields.ts";
+import { leftOf, SHOWN_OFF, shownOffText } from "./datafields.ts";
 import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml.ts";
 import { BASE64_MAGIC, cdxToXml, fromBase64 as bytesOf, toBase64, xmlToCdx } from "./cdx.ts";
 import type { DocStyle } from "./docstyle.ts";
@@ -111,20 +111,23 @@ export function readOct(text: string, oct = false): Read {
 export const isDrawingText = (text: string) => text.startsWith(BASE64_MAGIC) || /^\s*\{/.test(text) || /<CDXML[\s>/]/.test(text.slice(0, 65536));
 
 // What Octet could not hold from a file (readOct's `lost`), as a list: "6 annotations and 1 rotated shape". Its own
-// copy it cannot read (FALLBACK) is "Octet's own extras".
+// copy it cannot read (FALLBACK) is "Octet's own extras". A data field whose Show a reader turned off (SHOWN_OFF) is
+// not lost, so it is not in the list.
 export function lostText(lost: Record<string, number>): string {
-  const parts = Object.entries(lost).map(([what, n]) => (what === FALLBACK ? "Octet's own extras" : `${n.toLocaleString("en-GB")} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`));
+  const parts = Object.entries(losses(lost)).map(([what, n]) => (what === FALLBACK ? "Octet's own extras" : `${n.toLocaleString("en-GB")} ${what}${n > 1 && !/s$/.test(what) ? "s" : ""}`));
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] ?? "";
 }
+// What a reader lost, without what it only changed (SHOWN_OFF): what makes Save ask before it replaces the file.
+export const losses = (lost: Record<string, number>) => { const { [SHOWN_OFF]: _, ...rest } = lost; return rest; };
 // What Octet says when it opens or adds a drawing (done: "opened", "added"): its own copy it cannot read first (Read
-// fallback), then what it left out. "" when nothing is lost.
+// fallback), then what it left out, then the data fields it no longer shows. "" when nothing is lost or changed.
 export function lostNotice(lost: Record<string, number>, done: string): string {
-  const { [FALLBACK]: copy, ...rest } = lost;
-  return [copy ? `Octet cannot read its own copy of this drawing. It ${done} the ChemDraw copy, without Octet's own extras.` : "", Object.keys(rest).length ? `Octet left out ${lostText(rest)}.` : ""].filter(Boolean).join(" ");
+  const { [FALLBACK]: copy, [SHOWN_OFF]: off, ...rest } = lost;
+  return [copy ? `Octet cannot read its own copy of this drawing. It ${done} the ChemDraw copy, without Octet's own extras.` : "", Object.keys(rest).length ? `Octet left out ${lostText(rest)}.` : "", off ? shownOffText(off) : ""].filter(Boolean).join(" ");
 }
 // What Save says before Replace writes over a file it opened with something lost (the Replace dialog).
 export function replaceNote(lost: Record<string, number>): string {
-  const { [FALLBACK]: copy, ...rest } = lost, n = Object.values(rest).reduce((a, b) => a + b, 0);
+  const { [FALLBACK]: copy, ...rest } = losses(lost), n = Object.values(rest).reduce((a, b) => a + b, 0);
   return [
     copy ? "Octet cannot read its own copy of this drawing. Replace removes Octet's own extras from this file." : "",
     n ? `Replace ${copy ? "also removes" : "removes"} ${lostText(rest)}${copy ? "" : " from this file"}, because Octet cannot keep ${n > 1 ? "them" : "it"}.` : "",

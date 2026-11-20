@@ -66,5 +66,7 @@ assert.match(editor, /return readOct\(text, \/\\\.oct\$\/i\.test\(path \?\? ""\)
 assert.ok(editor.includes("const read = readFile(path, text);"));
 assert.match(editor, /if \(read\.resaved\) setNotice\(`ChemDraw saved this file last and did not keep Octet's own extras\./);
 // With things Octet left out, it stays an error, as sayLost's notice is.
-assert.match(editor, /extras\.\$\{left \? ` Octet left out \$\{lostText\(lost\)\}\.` : ""\}`, left \? "error" : "info"\)/);
+// A data field whose Show a reader turned off (SHOWN_OFF) is said too, but is not lost (losses).
+assert.match(editor, /extras\.\$\{left \|\| lost\[SHOWN_OFF\] \? ` \$\{lostNotice\(lost, "opened"\)\}` : ""\}`, left \? "error" : "info"\)/);
+assert.match(editor, /const left = Object\.keys\(lossy\)\.length > 0;/);
 console.log("oct.check: ok");

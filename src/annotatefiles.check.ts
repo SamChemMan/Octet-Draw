@@ -58,7 +58,7 @@ const notesIn = (xml: string) => [...xml.matchAll(/<annotation\s+Keyword="([^"]*
   each(back, ".oct");
   assert.equal(noteCount(back), noteCount(noted));
   const json = JSON.parse(serialize(noted));
-  for (const bad of [{ notes: "x" }, { notes: [{ keyword: "Note", content: "a\tb" }] }, { notes: [{ keyword: "Note", content: "x".repeat(MAX_CONTENT + 1) }] }, { notes: [{ keyword: "k".repeat(201), content: "x" }] }, { notes: Array.from({ length: 1001 }, () => ({ keyword: "Note", content: "x" })) }]) {
+  for (const bad of [{ notes: "x" }, { notes: [{ keyword: "Note", content: "a\tb" }] }, { notes: [{ keyword: "Note", content: "x".repeat(MAX_CONTENT + 1) }] }, { notes: [{ keyword: "k".repeat(201), content: "x" }] }, { notes: Array.from({ length: 4001 }, () => ({ keyword: "Note", content: "x" })) }]) {
     const copy = structuredClone(json);
     Object.assign(copy.arrows[0], bad);
     assert.throws(() => parse(JSON.stringify(copy)), /This drawing is damaged\./, JSON.stringify(bad).slice(0, 60));

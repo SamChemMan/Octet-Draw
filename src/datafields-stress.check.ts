@@ -154,7 +154,8 @@ test("S10 a hostile .oct", () => {
   assert.deepEqual(open({ a: 1 }).lost, { "data field": 1 });
   assert.deepEqual(open([{ name: "a", atoms: [99], value: "v" }, { name: "b", atoms: [0], caption: 5 }, { name: "x".repeat(10_000), atoms: [0], value: "v" }, { name: "c", atoms: [0, 0, 1], value: "w" }]).mol.data, [{ name: "c", atoms: [0, 1], value: "w" }]);
   const t = performance.now(), many = open(Array.from({ length: 100_000 }, (_, k) => ({ name: `f${k}`, atoms: [k % 3], value: "v" })));
-  assert.deepEqual([many.mol.data!.length, many.lost], [D.MAX_DATA, { "data field": 90_000 }]);
+  // All on one structure, which holds MAX_EACH (limits.ts withinEach): the rest are counted.
+  assert.deepEqual([many.mol.data!.length, many.lost], [D.MAX_EACH, { "data field": 100_000 - D.MAX_EACH }]);
   assert.ok(performance.now() - t < 1500);
 });
 

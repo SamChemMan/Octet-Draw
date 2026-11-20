@@ -190,7 +190,8 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual(parse(file({ not: "a list" })).data, [{ name: "mp", atoms: P, caption: 1 }]);
   let t = performance.now();
   const many = parse(file(Array.from({ length: 100_000 }, (_, k) => ({ name: `f${k}`, atoms: [k % 6], value: "v" }))));
-  assert.equal(many.data!.length, D.MAX_DATA);
+  // A structure holds MAX_EACH (limits.ts withinEach): the drawing has two.
+  assert.equal(many.data!.length, 2 * D.MAX_EACH);
   assert.ok(performance.now() - t < 1500, "100,000 entries read in under a second and a half");
   t = 0;
 }

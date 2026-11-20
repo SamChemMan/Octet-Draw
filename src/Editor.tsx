@@ -23,7 +23,7 @@ import { RULER, Rulers } from "./Rulers";
 import { Scrollbars } from "./Scrollbars";
 import { hiddenWarnings, hideProblems, MARK, messy, onCaptions, problemAt, problems, showWarnedHydrogens, showWarnings, WARNING_TYPES, type Problem, type WarningType } from "./check";
 import { overLimit, parse, serialize } from "./file";
-import { allNotes, annotationsOf, isNote, NOTE, noteTargets, withNote, withoutNotes, type Target } from "./annotate";
+import { allNotes, annotationsOf, isNote, NOTE, noteTargets, stampedWithin, withNote, withoutNotes, type Target } from "./annotate";
 import { Notes, type NoteField, type NoteRow } from "./Notes";
 import {
   EMPTY, extent, stack, addArrow, addCaption, addCycle, addCharge, addRing, lowerBond, updateArrow, deleteGraphics, deleteChosen, inPolygon, updateCaption, atomAt, atomsInArea, bondAt, bounds, inkOfAtoms, deleteAtom, deleteAtoms, flipBond,
@@ -65,7 +65,7 @@ import { figureBox, isChart, isDataRole, kindOf as transitionKind, NEW_ENERGY, N
 import { ChartDialog, type ChartData } from "./ChartDialog";
 import { DataDialog } from "./DataDialog";
 import { Paperclip, SelectionBackground } from "@phosphor-icons/react";
-import { fieldCaptions, fieldOfCaption, leftOf, linked, MAX_SHOWN, rowsOf, setRows, type DataRow } from "./datafields";
+import { fieldCaptions, fieldOfCaption, leftOf, linked, MAX_SHOWN, rowsOf, setRows, SHOWN_OFF, type DataRow } from "./datafields";
 import type { Show } from "./Spectrum";
 import { analyse as analyseSpectrum, defineGroup, fromJcamp, groupText, keepIds, keyOf as spectrumKeyOf, measuredHead, msPeaks, nameOf as spectrumName, nextGroupId, nucleusText, regroup, type Measured } from "./measured";
 import { isNmredata, nmredataDrawing, writeNmredata, type Written } from "./nmredata";
@@ -73,7 +73,7 @@ import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { fromCdxml, parseXml, toCdxml, union, type CdxmlOptions } from "./cdxml";
-import { isDrawingText, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } from "./oct";
+import { isDrawingText, losses, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
 import { WhatsNew } from "./WhatsNew";
@@ -93,7 +93,7 @@ import { CARRY_CDXML, copyToClipboard, exportFile, glyphInk, MDL, onWholePoints,
 import { FULL, kindOf, MAX_PICTURE, pictureBytes, pictureMol, readPicture } from "./picture";
 import { CONDITIONS, parseAmount, reagentFormula, ROLES, type Field } from "./stoich";
 import { addRisk, partAt, partItems, removeRiskPart, substancesOf, riskGroup, riskLayout, riskPlace, syncRisk, toggleRisk, withCas as withRiskCas, withHazards, withSubstances } from "./riskassess";
-import { FIELDS as DETAILS, MAX_VALUE, PROPERTIES, detailsOf, stamped, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
+import { FIELDS as DETAILS, MAX_VALUE, PROPERTIES, detailsOf, experimentPage, experimentsCsv, growProcedure, growScheme, inSpan, markupCaption, markupRuns, newExperiment, newGrids, nextNumber, titleSizeOf, detailRuns, withDetailRuns, type Field as DetailField, oneLine, procedureSpan, schemeLanding, schemeSpan, slotText, slotsOf, syncDetails, templateOf, withDetails, withHeader, type ExperimentEntry, type Sheet, type Slot } from "./experiment";
 import { nextCompound, renumber, romanNumbers, setRoman } from "./numbering";
 import { CommandPalette, type Command } from "./CommandPalette";
 import { StructureThumb, type TemplateTool } from "./TemplateLibrary";
@@ -290,7 +290,7 @@ type Drag =
   // snap: the boxes snapping uses, made at the first move (a click does not need them) and kept for the drag.
   // d: the offset shown; to: where the move goes (d is part of the way there while the Shift lock glides); held: the
   // axis the Shift lock holds (snap.ts heldAxis). slots: the arrows moving text will be the conditions of, lit.
-  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; to?: P; held?: 0 | 1; alone?: true; slots?: number[] }
+  | { kind: "move"; from: P; working: Mol; moved: boolean; start: [number, number]; target: Hover; guides: Guide[]; point?: P; captions: Map<number, P>; arrows: Set<number>; cycles: Set<number>; snap: () => { moving: number[]; targets: number[][] } | undefined; base?: Mol; atoms?: Set<number>; skip?: boolean; d?: P; to?: P; held?: 0 | 1; alone?: true; slots?: number[]; was?: [Set<number>, Set<number>] }
   // Drawing an arrow, and dragging one of a picked arrow's handles (an end, or the middle of a curved one).
   // corners: a Mass spec analysis line's corners so far (a key pressed during the drag adds one where the pointer is);
   // longer: the line whose end the drag started from, which it makes longer.
@@ -763,7 +763,7 @@ export default function Editor() {
   // Template sets (the library's categories of the user's own): a new one, one renamed (its templates go with it), one
   // removed (its templates go to My templates), and a template moved to another set.
   const templateSets = {
-    add: (name: string) => (settings.templateSets.length >= MOST_SETS ? setNotice(FULL_SETS, "info") : setSettings((s) => addSet(s, name))),
+    add: (name: string) => { if (settings.templateSets.length >= MOST_SETS) { setNotice(FULL_SETS, "info"); return false; } setSettings((s) => addSet(s, name)); return true; },
     rename: (from: string, name: string) => setSettings((s) => renameSet(s, from, name)),
     remove: (name: string) => setSettings((s) => removeSet(s, name)),
     move: (id: string, set: string) => setSettings((s) => moveTemplate(s, id, set)),
@@ -980,7 +980,16 @@ export default function Editor() {
   // The atom or bond a template attaches by, chosen in the library: the user's own templates keep it with them, the
   // built-in and named ones in the settings.
   const anchorFor = (kind: string) => templates.find((x) => templateKind(x.id) === kind)?.anchor ?? settings.anchors[kind];
-  const setAnchor = (kind: string, a: TemplateAnchor | undefined) => setSettings((s) => {
+  // The settings keep 500 of the built-in and named ones, each by a name of up to 300 characters (settings.ts): past
+  // that, Octet says so and keeps none.
+  const setAnchor = (kind: string, a: TemplateAnchor | undefined) => {
+    if (a && !ownId(kind) && !(kind in settings.anchors)) {
+      if (kind.length > 300) return setNotice("Octet cannot keep the attachment point of a template with so long a name.", "info");
+      if (Object.keys(settings.anchors).length >= 500) return setNotice("Octet keeps the attachment points of up to 500 templates.", "info");
+    }
+    keepAnchor(kind, a);
+  };
+  const keepAnchor = (kind: string, a: TemplateAnchor | undefined) => setSettings((s) => {
     const id = ownId(kind);
     if (id) return setTemplateAnchor(s, id, a);
     const { [kind]: _, ...rest } = s.anchors;
@@ -1207,6 +1216,8 @@ export default function Editor() {
   const builtSeq = (text: string, m: Mol): Mol | undefined => {
     try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels", own: ownMonomers }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
   };
+  // Whether set refused the last edit it was given (overLimit): what an edit adds is then not selected.
+  const refused = useRef(false);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
     // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
@@ -1226,10 +1237,12 @@ export default function Editor() {
     const ordered = onTop(doc, wholeGroups(dropped(fitted, !drop, drop === "placed")), fragments), next = expPage && mol.style === doc.style ? syncDetails(doc, renumber(newGrids(doc, ordered)), sheetOf(style)) : ordered;
     // Its risk assessment takes in what was typed in it, and lays it out again (riskassess.ts syncRisk).
     const risked = expPage && mol.style === doc.style ? syncRisk(doc, next, sheetOf(style)) : next;
-    // An edit that would make more atoms or objects than a file holds is not made, so every drawing saves and opens
-    // again whole (docs/plans/long-text.md). A drawing opened is within them.
-    const over = opened ? undefined : overLimit(risked);
-    if (over && !overLimit(doc)) { setNotice(over, "info"); return doc; }
+    // An edit that would make more atoms or objects than a file holds, or a drawing larger than Octet saves, is not
+    // made, so every drawing saves and opens again whole (docs/plans/long-text.md, limits.ts). Each limit on its own: a
+    // drawing opened past one (another program's) takes any edit that does not make that count larger.
+    const over = opened ? undefined : overLimit(risked, doc);
+    refused.current = !!over;
+    if (over) { setNotice(over, "info"); return doc; }
     lastSet.current = risked;
     dispatch({ type: "set", mol: risked, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
@@ -1727,7 +1740,7 @@ export default function Editor() {
       const keys = new Set(r.spectra.map(spectrumKeyOf)), spectra = [...(base0.spectra ?? []).filter((x) => !keys.has(spectrumKeyOf(x))), ...r.spectra];
       const base = { ...linksKept(base0, spectra), spectra: spectra.length ? spectra : undefined }, start = base.atoms.length;
       const next = place(asOpened(r.mol, text, true), base, at), added = fragments(r.mol).sort((p, q) => q.length - p.length)[0]?.map((i) => start + i) ?? [];
-      if (r.spectra.length && next) {
+      if (r.spectra.length && next && !refused.current) {
         openSpectrum(spectrumKeyOf(r.spectra[0]), added, next);
         setSpectrumShow("measured");
         setChosenGroup(undefined);
@@ -1835,7 +1848,8 @@ export default function Editor() {
   });
   // What Octet could not hold from a ChemDraw file, said once: "Octet left out 6 annotations and 1 rotated shape."
   // What a drawing added (inserted, dropped, pasted) lost, its own copy Octet cannot read first (oct.ts lostNotice).
-  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(lostNotice(lost, "added")); };
+  // A data field Octet no longer shows (SHOWN_OFF) is said, but nothing is lost.
+  const sayLost = (lost: Record<string, number>) => { if (Object.keys(lost).length) setNotice(lostNotice(lost, "added"), Object.keys(losses(lost)).length ? "error" : "info"); };
   // Resolves true when the drawing was saved. Over a file another app changed since Octet opened or saved it (issue 2),
   // Save asks first, as Mac apps do: Save Anyway writes over it, Save As keeps it. Over a file that had things Octet
   // could not hold (REL-11), Save asks too: Save As keeps the original file, Replace writes over it. anyway: the first
@@ -1849,7 +1863,8 @@ export default function Editor() {
     }
     try {
       // The drawing says who saved it last (issue 100): the save's own step takes the name, so it is not left changed.
-      const out = stamped(doc, systemName);
+      // Not past the drawing's notes limits (stampedWithin), so the file opens whole.
+      const out = stampedWithin(doc, systemName);
       // A .cdx file, or one the Save dialog could make, gets ChemDraw's binary form too (decision 0009).
       const cdx = as || !file.path || /\.cdx$/i.test(file.path) ? toBase64(writeCdx({ ...out, guides }, savedStyle(), cdxmlOptions())) : undefined;
       const path = await invoke<string | null>("save_drawing", { path: as ? null : (file.path ?? null), name, contents: writeOct({ ...out, guides }, savedStyle(), cdxmlOptions()), cdx, format: settings.files.saveAs });
@@ -1912,7 +1927,7 @@ export default function Editor() {
   // Save Copy As…: the drawing to a file of its own; the window stays the object's.
   const saveCopy = async () => {
     try {
-      const contents = writeOct({ ...stamped(doc, systemName), guides }, savedStyle(), cdxmlOptions()), cdx = toBase64(writeCdx({ ...stamped(doc, systemName), guides }, savedStyle(), cdxmlOptions()));
+      const out = stampedWithin(doc, systemName), contents = writeOct({ ...out, guides }, savedStyle(), cdxmlOptions()), cdx = toBase64(writeCdx({ ...out, guides }, savedStyle(), cdxmlOptions()));
       const path = await invoke<string | null>("save_drawing", { path: null, name: "Octet Drawing", contents, cdx, format: settings.files.saveAs });
       if (path) saved(path);
       return !!path;
@@ -2339,7 +2354,7 @@ export default function Editor() {
     try {
       const read = readFile(path, text);
       if (bare) read.mol = withoutNotes(read.mol);
-      const lost = read.lost, { guides: saved, ...kept } = read.mol;
+      const lost = read.lost, { guides: saved, ...kept } = read.mol, lossy = losses(lost);
       // Settings > Files > Keep ChemDraw styles off: another program's drawing takes Octet's default style. A drawing
       // opened from the CDXML of a file Octet wrote (fallback) has Octet's own style.
       const other = read.foreign && !read.fallback;
@@ -2355,7 +2370,7 @@ export default function Editor() {
       set(mol, false, joinNext.current, true, true);
       // As ChemDraw does, a drawing with a structure turned in 3D opens with Select as Structure Perspective, to turn it.
       if (mol.atoms.some((a) => a.location[2])) { setSettings((s) => ({ ...s, variants: { ...s.variants, select: "perspective" } })); setTool("select"); }
-      setFile(path ? { path, saved: mol, lost: Object.keys(lost).length ? lost : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
+      setFile(path ? { path, saved: mol, lost: Object.keys(lossy).length ? lossy : undefined } : title !== undefined ? { saved: EMPTY, name: title } : { saved: mol });
       // Undo cannot take the drawing back to the one it replaced (a blank one, or another file under this one's name).
       if (!keepSteps) dispatch({ type: "reset", h: { stack: [lastSet.current ?? mol], at: 0 } });
       setHome(false); setCoach(0); outlineFrom.current = undefined;
@@ -2364,11 +2379,11 @@ export default function Editor() {
       if (mol.spectra?.length) { openSpectrum(spectrumKeyOf(mol.spectra[0]), [...fragments(mol)].sort((p, q) => q.length - p.length)[0] ?? [], mol); setSpectrumShow("measured"); setChosenGroup(undefined); }
       // Once for each open: a file Octet wrote that ChemDraw saved since has lost Octet's own extras (issue 19).
       // With things left out too it stays an error, as sayLost's notice is.
-      const left = Object.keys(lost).length > 0;
+      const left = Object.keys(lossy).length > 0;
       // A file whose own copy Octet cannot read opened from its CDXML (docs/plans/long-text.md): said once, as an
       // error, and Save asks before it writes over the file (its lost counts the copy).
       if (read.fallback) setNotice(lostNotice(lost, "opened"), "error");
-      else if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left ? ` Octet left out ${lostText(lost)}.` : ""}`, left ? "error" : "info");
+      else if (read.resaved) setNotice(`ChemDraw saved this file last and did not keep Octet's own extras.${left || lost[SHOWN_OFF] ? ` ${lostNotice(lost, "opened")}` : ""}`, left ? "error" : "info");
       else sayLost(lost);
       if (b) setView((v) => ({ ...v, x: innerWidth / 2 - ((b[0] + b[2]) / 2) * v.zoom * L, y: innerHeight / 2 + ((b[1] + b[3]) / 2) * v.zoom * L }));
       return left ? { lost: lostText(lost) } : {};
@@ -2572,11 +2587,13 @@ export default function Editor() {
     if (frag.shapes?.length || frag.arrows?.length || frag.captions?.length) {
       const r = insertMol(base, frag, land(frag, at)), next = frag.arrows?.length ? laidOut(r.mol, (frag.arrows ?? []).map((a) => r.ids.get(a.id)!)) : r.mol;
       set(next, false, undefined, drop);
+      if (refused.current) { revealNext.current = false; return doc; }
       reselect(r.atoms, r.items);
       return next;
     }
     const next = merge(base, frag, land(frag, at));
     set(next, false, undefined, drop);
+    if (refused.current) { revealNext.current = false; return doc; }
     setSelection(new Set(frag.atoms.map((_, i) => base.atoms.length + i)));
     return next;
   }
@@ -2615,6 +2632,7 @@ export default function Editor() {
       if (!pic?.shapes?.length) return;
       const r = insertMol(now.current, pic, landing(pic, undefined, extent(pic)!));
       set(r.mol, true);
+      if (refused.current) return;
       revealNext.current = true;
       const sh = r.mol.shapes!.find((x) => x.id === r.ids.get(pic.shapes![0].id))!;
       setPicked(new Set([sh.id]));
@@ -2658,6 +2676,7 @@ export default function Editor() {
       }
       if (!added.length && !arrows) return setNotice("Octet found no structure in the picture.", "info");
       set(m, true);
+      if (refused.current) return;
       revealNext.current = true;
       reselect(new Set(unsure.length ? unsure : added), new Set());
       const groups = (count === 1 ? "1 structure" : `${count} structures`) + (arrows ? (arrows === 1 ? " and 1 arrow" : ` and ${arrows} arrows`) : "");
@@ -3059,7 +3078,7 @@ export default function Editor() {
       const pad = (isBracket({ kind }) ? 0.3 : 0.4) * L;
       const [mol, frameId] = addShape(doc, { kind, from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L], ...(shadow ? { shadow: true } : {}) });
       set(mol);
-      setPicked(new Set([frameId]));
+      if (!refused.current) setPicked(new Set([frameId]));
     }])),
     // Structure Perspective (⌥⌘S), as ChemDraw's: depth shading on or off for the selected structures (or every one).
     // With it on, a 3D structure's further bonds and labels are fainter; off takes away any opacity set by hand too.
@@ -3219,7 +3238,7 @@ export default function Editor() {
       const [x0, y0, x1, y1] = ink ? [ink[0] / L, -ink[3] / L, ink[2] / L, -ink[1] / L] : [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       const [m, id] = addShape(doc, { kind: "box", from: [x0 - 0.4, y1 + 0.4], to: [x1 + 0.4, y0 - 0.4], rgroup: { name: nextRGroup(doc) } });
       set(m);
-      setPicked(new Set([id]));
+      if (!refused.current) setPicked(new Set([id]));
     },
     expand_generic: () => void expandGenerics(false),
     expand_generic_sdf: () => void expandGenerics(true),
@@ -4233,7 +4252,7 @@ export default function Editor() {
     const made = caps.flatMap((c) => { const p = placed.find((x) => x.id === c.id); return p ? [{ id: c.id, atom: placedAtom(c, p) }] : []; });
     if (!made.length) return undefined;
     const m = set(captionsToAtoms(doc, made), false, merge);
-    if (select) setSelection(new Set(made.map((_, k) => doc.atoms.length + k)));
+    if (select && !refused.current) setSelection(new Set(made.map((_, k) => doc.atoms.length + k)));
     return m;
   }
   // The structure for the name being typed, where place puts it: in the Reaction scheme box on an experiment page,
@@ -4557,7 +4576,7 @@ export default function Editor() {
     const curve = { points, ...(closed && points.length > 2 ? { closed: true } : {}) };
     const [mol, id] = addArrow(doc, { kind: "curve", from: points[0].at, to: points[points.length - 1].at, curve });
     set(mol);
-    setPicked(new Set([id]));
+    if (!refused.current) setPicked(new Set([id]));
   }
   // Putting the Pen down ends its curve.
   useEffect(() => { if (pen && !(tool === "shape" && "pen" in shapePick)) finishPen(); }, [tool, shapeChoice]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4601,6 +4620,7 @@ export default function Editor() {
     if (typeof r === "string") return setNotice(r);
     if (r.tooBig) setNotice(`Octet cannot clean up in 3D a structure of more than ${MOST_3D} atoms.`);
     if (r.made) { if (r.cleaned.length) glideTo(r.mol); else set(r.mol, true); }
+    if (r.made && refused.current) return;
     setSelection(new Set());
     setPicked(new Set([r.id]));
   };
@@ -4689,6 +4709,7 @@ export default function Editor() {
     const far = (pick: (i: number) => boolean) => copy.filter(pick).sort((p, q) => Math.hypot(pos(mol, q)[0] - head[0], pos(mol, q)[1] - head[1]) - Math.hypot(pos(mol, p)[0] - head[0], pos(mol, p)[1] - head[1]))[0];
     const hot = was !== undefined && atoms.has(was) ? copy[sorted.indexOf(was)] : far((i) => !["C", "H"].includes(mol.atoms[i].label)) ?? far(() => true);
     set(mol);
+    if (refused.current) return true;
     revealNext.current = true;
     if (hot !== undefined) hotOf.current.set(mol, { atom: hot });
     reselect(r.atoms, new Set());
@@ -4850,7 +4871,7 @@ export default function Editor() {
   const revealNext = useRef<boolean | Set<number>>(false);
   // A part just inserted (insertMol's result) lands: one undo step, selected, and in view.
   // An edit set refuses (past a count a file holds: overLimit) selects nothing new.
-  const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { if (set(r.mol, true, undefined, drop) === doc && r.mol !== doc) return; revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
+  const landPart = (r: { mol: Mol; atoms: Set<number>; items: Set<number> }, drop: boolean | "placed" = true) => { set(r.mol, true, undefined, drop); if (refused.current) return; revealNext.current = true; setSelection(r.atoms); setPicked(r.items); };
   const panelSpans = () => [...document.querySelectorAll(".palette, .actions:not(.leaving), .actions-reopen, .spectrum:not(.minimised), .properties, .note-panel:not(.leaving)")].map((p): Span => { const r = p.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; });
   // What the scroll bars span: the drawing (drawnBox, with every object) and its pages, drawing px at 100%, y down.
   const scrollBox = useMemo((): Span => {
@@ -4991,7 +5012,9 @@ export default function Editor() {
     // A side arrow's end written with nothing stays there, bare.
     if (!text) { const sb = w.cycle && isSide(w.cycle) ? branchOf(doc, w.cycle) : undefined, part = w.cycle?.side as "in" | "out"; return sb && !sb.b[part] ? void set(withEnd(doc, sb.c.id, sb.b.id, part)) : undefined; }
     const [mol, id] = addCaption(doc, { text, x: w.at?.[0] ?? 0, y: w.at?.[1] ?? 0, ...(w.under ? { under: w.under } : {}), ...(w.on ? { on: w.on } : {}), ...(w.cycle ? { cycle: w.cycle } : {}), ...st, ...(runs ? { runs } : {}) });
-    marked(set(labelEnd(mol, id)), id);
+    const made = set(labelEnd(mol, id));
+    if (refused.current) return;
+    marked(made, id);
     setPicked(new Set([id]));
   }
   // A text style on the characters selected in the caption box (with nothing selected, on the next characters
@@ -5199,6 +5222,7 @@ export default function Editor() {
       const [m, branch] = addBranch(doc, c.id, s);
       if (branch === undefined) return;
       set(m, true);
+      if (refused.current) return;
       reselect(new Set(), new Set([c.id]));
       setStepPick(undefined);
       return setBranchPick({ cycle: c.id, branch });
@@ -5633,7 +5657,7 @@ export default function Editor() {
     // They are worked out at the first move and kept for the rest of the drag.
     let boxes: ReturnType<Extract<Drag, { kind: "move" }>["snap"]> | null = null;
     const snap = () => (boxes !== null ? boxes : (boxes = objectBoxes(atoms0, picks0, !!copies)));
-    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}), ...(alone ? { alone: true as const } : {}) });
+    setDrag({ kind: "move", from: p, working: base, moved: false, start: screen, target: t, guides: [], captions, arrows: arrowIds, cycles: cycleIds, snap, ...(copies || alone ? { base, atoms } : {}), ...(alone ? { alone: true as const } : {}), ...(copies ? { was: [atoms0, picks0] as [Set<number>, Set<number>] } : {}) });
   };
   // A press on a cycle's arrows picks the cycle with all its parts (cycleParts, and the rest of an integral group it is
   // in), and grabs them.
@@ -6686,6 +6710,7 @@ export default function Editor() {
     const ends = atoms.map((i) => { let end: number; [m, end] = addGroupAt(m, i, "chain"); return end; });
     const merge = `sprout-label ${++sprouts.current}`;
     set(m, false, merge);
+    if (refused.current) return;
     labelOpen.current = true;
     setEditing({ atom: ends[0], value: "", ...(ends.length > 1 ? { all: ends } : {}), merge, blank: true });
   }
@@ -7426,6 +7451,9 @@ export default function Editor() {
       const grids = doc.grids?.map((g) => { if (g.arrow !== w.arrow || g.text?.[w.row]?.[w.key] === undefined) return g; const { [w.key]: _, ...rest } = g.text[w.row]; return { ...g, text: { ...g.text, [w.row]: rest } }; });
       return set({ ...doc, captions: doc.captions!.map((c) => (c === cap ? { ...c, text } : c)), grids }, true);
     }
+    // A table keeps up to 400 texts typed over its cells (stoich.ts readCells): one more is not made.
+    const was = doc.grids?.find((g) => g.arrow === w.arrow), typedOver = Object.values(was?.text ?? {}).reduce((n, r) => n + Object.keys(r).length, 0);
+    if (text && !was?.own?.some((o) => o.id === w.row) && was?.text?.[w.row]?.[w.key[0] === "#" ? "#" : w.key] === undefined && typedOver >= 400) return setNotice("A reagent table holds up to 400 typed cells.", "info");
     changeGrid(w.arrow, (g) => {
       const own = g.own?.find((o) => o.id === w.row), head = w.key[0] === "#";
       if (own && head) return { own: g.own!.map((o) => (o === own ? { ...o, name: text } : o)) };
@@ -8219,6 +8247,7 @@ export default function Editor() {
     // Text lands clear too; a label beside its fragment is kept clear of the other structures.
     if (a.what !== "spectrum") m = landText(m, items, a.what === "label" ? atoms : undefined);
     set(m);
+    if (refused.current) return;
     revealNext.current = true;
     reselect(new Set(), new Set(items));
   }
@@ -8729,6 +8758,7 @@ export default function Editor() {
     const drop = figureDrop(m, items);
     if (drop) [m, items] = placePlot(doc, { ...plot, origin: [cx - W / 2, low - 1.4 * em - top - drop] }, env, fig);
     set(m);
+    if (refused.current) return;
     // It comes into view in the room the panels leave (above the strip), picked (B1.20).
     revealNext.current = true;
     reselect(new Set(), new Set(items));
@@ -8757,6 +8787,7 @@ export default function Editor() {
     const record = { ...change, frame, origin: [0, 0], scale: 1, text: 1, roles: [] } as Chart, fig = plotFigure(record, env);
     const [m, items] = placePlot(doc, { ...record, origin: landing({ atoms: [], bonds: [] }, undefined, figureBox(fig, style.captionSize / style.bond, env.measure)) }, env, fig);
     set(m);
+    if (refused.current) return;
     revealNext.current = true;
     reselect(new Set(), new Set(items));
     say(`${plotName(record)} added`);
@@ -8904,7 +8935,7 @@ export default function Editor() {
     dialog: (id) => DIALOGS.has(id) || !!MENU_NAMES[id]?.[0].endsWith("…") || (id === "save" && !file.path && !officeRef.current && !templateEdit) || /^arrow\.(above|below)$/.test(id) || id === "add_to_libreoffice",
     opens: async (text) => {
       if (!isDrawingText(text)) await ready;
-      try { const { lost } = readFile(undefined, text); return Object.keys(lost).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
+      try { const { lost } = readFile(undefined, text); return Object.keys(losses(lost)).length ? { lost: lostText(lost) } : {}; } catch (e) { return { failed: failure("Octet cannot open this file.", e) }; }
     },
     windowless: () => HEADLESS,
     asking: () => modal() || typing(),
@@ -9897,7 +9928,7 @@ export default function Editor() {
       const round = "circle" in shapePick && shapePick.circle && tool === "shape", cx = (b[0] + b[2]) / 2 / L, cy = -(b[1] + b[3]) / 2 / L, r = Math.hypot(b[2] - b[0], b[3] - b[1]) / 2 / L + pad / L;
       const [mol, id] = addShape(doc, { ...sh, ...(round ? { from: [cx - r, cy - r], to: [cx + r, cy + r] } : { from: [(b[0] - pad) / L, -(b[3] + pad) / L], to: [(b[2] + pad) / L, -(b[1] - pad) / L] }) });
       set(mol);
-      return reselect(new Set(), new Set([id]));
+      return refused.current ? undefined : reselect(new Set(), new Set([id]));
     }
     if (tool === "template") {
       const mol = templateMol(templateVariant);
@@ -10006,7 +10037,7 @@ export default function Editor() {
         if (drag.make?.kind === "cut") {
           if (!drag.to) return;
           const { mol, items } = massCut(drag, !!drag.alt);
-          if (mol !== doc) { set(mol); setPicked(new Set(items)); }
+          if (mol !== doc) { set(mol); if (!refused.current) setPicked(new Set(items)); }
           return;
         }
         // A click makes an arrow of the usual length (three bonds; a short arc for a curved one), going right.
@@ -10015,7 +10046,7 @@ export default function Editor() {
         if (Math.hypot(to[0] - drag.from[0], to[1] - drag.from[1]) < 0.2) return;
         const [mol, id] = addArrow(doc, withTies(newArrow(drag.from, to, drag.side, drag.make), drag.make ? undefined : drag.on, drag.make || !drag.to ? undefined : drag.onTo));
         set(mol);
-        return setPicked(new Set([id]));
+        return refused.current ? undefined : setPicked(new Set([id]));
       }
       case "cycle":
         if (drag.radius) return set(drag.radius, true);
@@ -10033,6 +10064,7 @@ export default function Editor() {
         if (!sh) return;
         const [mol, id] = addShape(doc, sh);
         set(mol);
+        if (refused.current) return;
         setPicked(new Set([id]));
         // A new table opens its second header cell for typing (the first says Entry).
         if (sh.kind === "table") { cellOpen.current = true; setCell({ id, r: 0, c: 1, value: "" }); }
@@ -10157,7 +10189,11 @@ export default function Editor() {
         // A curved arrow let go without what its ends are tied to ties them to what they are on, or lets go.
         const { mol, joined } = joinOverlaps(dropArrows(working, drag.arrows, drag.atoms ?? selection), drag.atoms ?? selection);
         const laid = land && mol.captions?.some((c) => c.on && !c.placed && drag.captions.has(c.id));
-        return laid && !joined ? glideTo(mol) : set(mol, !joined, undefined, !drag.skip);
+        if (laid && !joined) glideTo(mol);
+        else set(mol, !joined, undefined, !drag.skip);
+        // Copies an Option-drag made that set refused (overLimit) are not there: the originals stay selected.
+        if (refused.current && drag.was) reselect(...drag.was);
+        return;
       }
     }
   }
@@ -10348,7 +10384,7 @@ export default function Editor() {
         const [m, id] = addArrow(doc, { kind: "reaction", from: offer.from, to: offer.to });
         setOffer(undefined);
         set(m, true);
-        return reselect(new Set(), new Set([id]));
+        return refused.current ? undefined : reselect(new Set(), new Set([id]));
       }
       // Otherwise Tab and Shift+Tab step through the objects on the canvas (stepAccess).
       if (e.key === "Tab" && !e.altKey && stepAccess(e.shiftKey)) { e.preventDefault(); return; }

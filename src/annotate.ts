@@ -2,7 +2,7 @@
 // the drawing (Mol.annotations), on a group (Group.annotations) and on a text, arrow, shape or catalytic cycle (their
 // notes). The note the user types has the keyword Note; one from a ChemDraw file may have any keyword. None is drawn,
 // and none goes into a picture or onto the clipboard for another app (withoutNotes).
-import { CHANGED_BY, FIELDS, PROPERTIES } from "./experiment.ts";
+import { CHANGED_BY, FIELDS, PROPERTIES, stamped } from "./experiment.ts";
 import { selectedGroups } from "./edit.ts";
 import type { Annotation, Mol } from "./render.ts";
 
@@ -130,12 +130,12 @@ export function allNotes(m: Mol): NoteRow[] {
   return rows;
 }
 
-// The drawing with at most MAX_NOTES annotations: the drawing's first, then its groups' and its objects' in their
-// order; the rest go. Paste and Option-drag can take a drawing over the limit, and a file Octet wrote must open again.
-// The same drawing when it is within the limit.
-export function capNotes(m: Mol): Mol {
-  if (noteCount(m) <= MAX_NOTES) return m;
-  let room = MAX_NOTES;
+// The drawing with at most MAX_NOTES annotations (or most): the drawing's first, then its groups' and its objects' in
+// their order; the rest go. A file from before the editor kept the limit must open, and save and open again. The same
+// drawing when it is within the limit.
+export function capNotes(m: Mol, most = MAX_NOTES): Mol {
+  if (noteCount(m) <= most) return m;
+  let room = most;
   const lists = new Map<Target, Annotation[]>(), take = (t: Target, l?: Annotation[]) => {
     if (!l?.length) return;
     if (l.length > room) lists.set(t, l.slice(0, room));
@@ -145,6 +145,13 @@ export function capNotes(m: Mol): Mol {
   for (const g of m.groups ?? []) take(g.id, g.annotations);
   for (const x of items(m)) take(x.id, x.notes);
   return withLists(m, lists);
+}
+
+// The drawing as this user saves it (experiment.ts stamped), when Last changed by keeps it within MAX_ANNOTATIONS on the
+// drawing and MAX_NOTES in all; otherwise as it is, so the file opens whole (no name is added).
+export function stampedWithin(m: Mol, name: string): Mol {
+  const s = stamped(m, name);
+  return s === m || ((s.annotations?.length ?? 0) <= MAX_ANNOTATIONS && noteCount(s) <= MAX_NOTES) ? s : m;
 }
 
 // The drawing with no notes, for a picture, another app's clipboard, a template or an object window: every annotation
