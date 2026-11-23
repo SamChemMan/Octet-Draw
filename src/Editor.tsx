@@ -10137,6 +10137,9 @@ export default function Editor() {
       return refused.current ? undefined : reselect(new Set(), new Set([id]));
     }
     if (tool === "template") {
+      // The Photochemistry set's Jablonski and energy diagrams are charts you can edit (charts.ts), not drawings.
+      if (templateVariant === "lib:Jablonski diagram") return applyChart(NEW_JABLONSKI);
+      if (templateVariant === "lib:Energy diagram") return setDialog({ kind: "chart", chart: NEW_ENERGY });
       const mol = templateMol(templateVariant);
       // The point goes too: a template with no bonds or no atoms (a lamp, a flask) goes where the click was.
       // Stamped beside a catalytic cycle, it joins it (⌘ keeps it free).

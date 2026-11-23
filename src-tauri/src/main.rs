@@ -1045,13 +1045,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("frame_box_shadow", "Rectangle with Shadow", "")?,
         &item("frame_rounded_shadow", "Rounded Rectangle with Shadow", "")?,
     ])?;
-    // Charts on the page (src/charts.ts): an energy diagram and a sensitivity screen each from a dialog with its data,
-    // and a Jablonski diagram at once (it has no data sheet).
+    // Charts on the page (src/charts.ts): a sensitivity screen from a dialog with its data. The energy diagram and the
+    // Jablonski diagram are templates (Photochemistry set), where people look for them (Sam, 23 November 2026).
     section.replace("Object › Add Chart".into());
     let chart = Submenu::with_items(app, "Add Chart", true, &[
-        &item("chart_energy", "Energy Diagram…", "")?,
         &item("chart_radar", "Sensitivity Screen…", "")?,
-        &item("chart_jablonski", "Jablonski Diagram", "")?,
         &sep()?,
         &item("chart_edit", "Edit Data…", "")?,
     ])?;
