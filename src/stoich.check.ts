@@ -605,5 +605,40 @@ for (const [text, want] of [["sat. NaHCO3", "NaHCO3"], ["sat. aq. NH4Cl", "NH4Cl
   assert.equal(flat.groups, undefined, "each its own object, to delete one by one");
   // Copy table follows what shows.
   assert.match(gridTsv(own), /^Supplier\tSigma\t/m);
+  // Text styles on the text cells (Grid.runs): each character's whole style, shown while they join to the text shown.
+  const bold = { text: "C6", bold: true as const }, styledText: Partial<Grid> = { own: [{ id: "u1", name: "Supplier", values: { "r:S0": "Sigma" } }], text: { formula: { "r:S0": "C6H6" }, mass: { "#": "Weighed" } },
+    runs: { formula: { "r:S0": [bold, { text: "H6" }] }, mass: { "#": [{ text: "Weigh", italic: true }, { text: "ed" }] }, u1: { "#": [{ text: "Supplier", underline: true }], "r:S0": [{ text: "Sig" }, { text: "ma", script: "super" }] } } };
+  const styledView = view(styledText);
+  assert.deepEqual(show(styledView, "formula", "r:S0"), { text: "C6H6", typed: true, formula: true, runs: [bold, { text: "H6" }] });
+  assert.deepEqual(show(styledView, "u1", "r:S0").runs, [{ text: "Sig" }, { text: "ma", script: "super" }]);
+  assert.equal(show(view({ ...styledText, text: { formula: { "r:S0": "C7H8" } } }), "formula", "r:S0").runs, undefined, "runs that no longer join to the text are not used");
+  assert.equal(show(view({ ...styledText, layout: "rows" }), "mass", "#0").runs?.[0].italic, true, "as rows, a row's name keeps its styles");
+  // Runs on a cell whose text is no longer kept (an AI app took off an MW name typed as "MW") are not used, as readGrid
+  // leaves them out on opening.
+  assert.equal(show(view({ runs: { mw: { "#": [{ text: "M", bold: true }, { text: "W" }] } } }), "mw", "#0").runs, undefined, "runs on a default name are not used");
+  // Up to 20 rows of the user's own, each styled in 61 cells, all kept.
+  const ownMany = Array.from({ length: 20 }, (_, i) => ({ id: `u${i + 1}`, name: "Lot", values: Object.fromEntries(Array.from({ length: 60 }, (_, j) => [`r:S${j}`, "ab"])) }));
+  const ownRuns = Object.fromEntries(ownMany.map((o) => [o.id, Object.fromEntries(["#", ...Object.keys(o.values)].map((k) => [k, k === "#" ? [{ text: "L", bold: true }, { text: "ot" }] : [{ text: "a", italic: true }, { text: "b" }]]))]));
+  const allRuns = readGrid({ typed: {}, own: ownMany, runs: ownRuns }, 9)!.runs!;
+  assert.equal(Object.values(allRuns).reduce((n, cells) => n + Object.keys(cells).length, 0), 1220, "every styled cell of the user's own rows kept");
+  // .oct and CDXML keep them.
+  assert.deepEqual(kept(parse(serialize(mol(styledText)))), kept(mol(styledText)), ".oct keeps the cells' styles");
+  assert.deepEqual(kept(fromCdxml(toCdxml(mol(styledText), DEFAULT_STYLE)).mol), kept(mol(styledText)), "CDXML keeps them as Octet's own data");
+  // readGrid keeps the sound ones: not on an amount cell (its text is written again from its number), not with a font,
+  // size, colour or other key, not on a row of the user's own that is gone, and each joining to the text kept.
+  const read = readGrid({ typed: {}, ...styledText, text: { ...styledText.text, mass: { "#": "Weighed", "r:S0": "5 g" } }, runs: { ...styledText.runs, mass: { "#": [{ text: "Weighed" }], "r:S0": [{ text: "5 g", bold: true }] },
+    mw: { "r:S0": [{ text: "1", bold: true }] }, name: { "r:S0": [{ text: "x", font: "Arial" }] }, nonsense: { "r:S0": [{ text: "x" }] }, u2: { "#": [{ text: "Lot" }] } } }, 9)!;
+  assert.deepEqual(read.runs, { formula: styledText.runs!.formula, mass: { "#": [{ text: "Weighed" }] }, u1: styledText.runs!.u1 });
+  assert.equal(readGrid({ typed: {}, runs: { formula: { "r:S0": [{ text: "C6" }] } } }, 9)!.runs, undefined, "runs with no text kept are left out");
+  assert.equal(readGrid({ typed: {}, own: [], runs: { u1: { "#": [{ text: "Supplier" }] } } }, 9)!.runs, undefined, "a deleted row's runs go");
+  assert.equal(readGrid({ typed: {}, text: { formula: { "r:S0": "C6H6" } }, runs: "C6H6" }, 9)!.runs, undefined);
+  // A row's name in bold takes its bold width.
+  const wide = { ...deps, nameWidth: (t: string, _: number, b?: boolean) => t.length * (b ? 2 : 1) }, long = { text: { mass: { "#": "Weighed out by hand" } } };
+  const left = (g: Partial<Grid>) => gridViews(mol(g), wide)[0].start;
+  assert.ok(left({ ...long, runs: { mass: { "#": [{ text: "Weighed out by hand", bold: true }] } } }) < left(long) - 10, "the names start further left");
+  // Make static: each text with its own styles, formula counts lowered.
+  const still = staticTable(mol(styledText), styledView, { size: 10, perPt: 0.05, id: 100, arrows: [9] });
+  assert.deepEqual(still.captions!.find((c) => c.text === "C6H6")?.runs, [{ text: "C", bold: true }, { text: "6", bold: true, script: "sub" }, { text: "H" }, { text: "6", script: "sub" }]);
+  assert.equal(still.captions!.find((c) => c.text === "C6H6")?.bold, undefined, "the runs are the whole style");
 }
 console.log("stoich.check: ok");

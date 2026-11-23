@@ -54,8 +54,9 @@ try {
     let last = read(), since = Date.now();
     for (const t0 = Date.now(); Date.now() - t0 < 5000;) { await new Promise((r) => setTimeout(r, 100)); const now = read(); if (now !== last) { last = now; since = Date.now(); } else if (Date.now() - since > 600) break; }
     return last;`);
-  // An empty canvas, and the tool in hand: the toolbar's tool at slot (1 Bond, 5 Sequence, 12 Text, 14 the specialist
-  // tool), with the option of its menu with the key given. keep: the drawing stays.
+  // An empty canvas, and the tool in hand: the toolbar's tool at slot (0 Select, 1 Bond, 3 Ring, 5 Sequence, 8 Arrow,
+  // 12 Pen, 13 Measure, 14 Text, 15 Eraser, 16 the specialist tool), with the option of its menu with the key given.
+  // keep: the drawing stays.
   const fresh = (slot = 1, option = "", keep = false) => run(`
     const key = (init) => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -135,8 +136,8 @@ try {
   const FIELDS = [
     ["Peptide: a tap, ACDE and Return", () => fresh(5), async (act) => { await act([[600, 400]]); await sleep(500); await typeText("ACDE"); await enter(); }],
     ["Peptide: a tap on an atom", async (act) => { await fresh(); await act([[600, 400]]); await settled(); await fresh(5, "", true); }, (act) => act([[600, 400]])],
-    ["Table: a tap", () => fresh(14, "table"), (act) => act([[600, 400]])],
-    ["Text: a tap away from a caption being typed", async (act) => { await fresh(12); await act([[600, 400]]); await sleep(300); await typeText("THF"); }, (act) => act([[800, 500]])],
+    ["Table: a tap", () => fresh(16, "table"), (act) => act([[600, 400]])],
+    ["Text: a tap away from a caption being typed", async (act) => { await fresh(14); await act([[600, 400]]); await sleep(300); await typeText("THF"); }, (act) => act([[800, 500]])],
   ];
   const typed = {};
   for (const [kind, act] of [["mouse", byMouse], ["finger", touch]]) {
@@ -233,7 +234,7 @@ try {
         if (!/butane/.test(document.querySelector('[data-object]').getAttribute('aria-label')) || document.elementFromPoint(...q)?.tagName !== 'path') throw new Error('no butane with its middle bond in the middle');
         return q;`);
     }],
-    ["a text", async () => { await fresh(12); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
+    ["a text", async () => { await fresh(14); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
     ["an arrow", async () => { await fresh(8); await byMouse(line([520, 400], [680, 400])); await settled(); await fresh(0, "", true); return [600, 400]; }],
   ];
   const doubled = {};
@@ -291,8 +292,10 @@ try {
   const marks = () => run("return document.querySelectorAll('svg.canvas .mark, svg.canvas .brush').length;");
   const tapAtom = [[600, 400]];
   const HOVERS = [
-    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((slot) => [`slot ${slot}`, slot, "", tapAtom]),
-    ...["tlc", "gel", "plasmid", "table", "fragment", "synthesis", "retro", "map", "measure", "massspec"].map((key) => [key, 14, key, tapAtom]),
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15].map((slot) => [`slot ${slot}`, slot, "", tapAtom]),
+    ...["pen", "pen-edit"].map((key) => [key, 12, key, tapAtom]),
+    ...["distance", "angle", "dihedral"].map((key) => [key, 13, key, tapAtom]),
+    ...["tlc", "gel", "plasmid", "table", "fragment", "synthesis", "retro", "map", "massspec"].map((key) => [key, 16, key, tapAtom]),
     ["Bond, a tap on the canvas", 1, "", [[700, 300]]],
     ["Bond, a drag from the atom", 1, "", line([600, 400], [660, 460])],
   ];
@@ -332,9 +335,9 @@ try {
   // canvas does nothing too. Before each, the mouse draws, so it rests off the canvas. What is picked is read from its
   // marks: Mass spec analysis's panel (HOVERS) hides the Actions panel.
   const PALMS = [
-    ["a text", async () => { await fresh(12); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
+    ["a text", async () => { await fresh(14); await byMouse([[600, 400]]); await sleep(300); await typeText("THF"); await fresh(0, "", true); return textAt("THF"); }],
     ["an atom", async () => { await fresh(); await byMouse([[600, 400]]); await settled(); await fresh(0, "", true); return [600, 400]; }],
-    ["a table cell", async () => { await fresh(14, "table"); await byMouse([[600, 400]]); await sleep(400); await typeText("ab"); await fresh(0, "", true); return textAt("ab"); }],
+    ["a table cell", async () => { await fresh(16, "table"); await byMouse([[600, 400]]); await sleep(400); await typeText("ab"); await fresh(0, "", true); return textAt("ab"); }],
   ];
   const pen = (type, [x, y], o = {}) => call("Input.dispatchMouseEvent", { type, x, y, pointerType: "pen", ...o });
   for (const held of [false, true]) {

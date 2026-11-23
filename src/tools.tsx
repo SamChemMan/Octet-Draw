@@ -1,11 +1,11 @@
 // The tool palette: one tool per kind of object, each with variants in a strip that opens beside it.
 // Click an active tool again (or press and hold any tool) to open its strip; press, slide and release also works.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowClockwise, ArrowCounterClockwise, CaretLeft, CaretRight, Cube, Eraser, Lasso, Plus, PushPin, Selection, TextT, Trash, X } from "@phosphor-icons/react";
 import { chairPoints, type SymbolKind } from "./edit";
 import { ARROW_SIZES, curvePath, headOfLength, membrane, SWEEPS, type ArrowKind, type ArrowSize, type FreeSymbol, type HeadSize, type Mol, type ShapeKind } from "./render";
-import { ARROWS, BONDS, SHAPES, type BondKind } from "./kinds";
+import { ARROWS, BONDS, PENS, SHAPES, type BondKind } from "./kinds";
 import { closePalette, kindName, legible, MY_SET, ringStrip, ringsOnly, templateKind, type FloatingPalette, type Template, type TemplateSize } from "./templates";
 import type { TemplateActions, TemplateSetActions, TemplateTool } from "./TemplateLibrary";
 import type { TemplateAnchor } from "./edit";
@@ -13,13 +13,14 @@ import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { FloatingTemplates, LibraryPanel } from "./TemplateLibrary";
 import { columnsFor, DEFAULT_COLUMNS, Menu, menuWidth, type MenuItem } from "./Menu";
 import { Exit, reduced, timing } from "./motion";
-import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
+import { BracketGlyph, BRACKETS, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, PenGlyph, SHAPE_EXTRA, SHAPE_GRID, shapeName } from "./elements";
 import { elementFacts } from "./periodic.ts";
 import { PeriodicTable } from "./PeriodicTable";
 import { followDrag } from "./cursor";
 import { optionCommand } from "./keys";
+import { KINDS, MEASURE_NAMES, type MeasureKind } from "./measurement";
 
-export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "measure" | "text" | "erase";
+export type Tool = "select" | "bond" | "chain" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "pen" | "tlc" | "gel" | "plasmid" | "table" | "fragment" | "massspec" | "synthesis" | "retro" | "map" | "measure" | "text" | "erase";
 
 // The bond, arrow and shape kinds' names are in kinds.ts, so the canvas for screen readers (access.ts) shares them.
 export { ARROWS, BONDS, SHAPES, type BondKind };
@@ -95,11 +96,19 @@ export type SelectKind = keyof typeof SELECTS;
 
 // ring is a RingKind, or a template's kind (custom:id).
 // template: a library template ("lib:name") or one of the user's own ("custom:id").
-export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; more: string };
+export type Variants = { select: SelectKind; bond: BondKind; ring: string; template: string; symbol: SymbolKind; orbital: string; arrow: string; cycle: string; sequence: string; shape: string; bracket: string; pen: string; measure: string; more: string };
 // Specialist tools share one slot at the bottom of the toolbar, which shows the one last used.
-export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map", "measure"];
-type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "more";
-const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket";
+export const SPECIAL: Tool[] = ["tlc", "gel", "plasmid", "table", "fragment", "massspec", "synthesis", "retro", "map"];
+// The toolbar's section after Bracket, with a line above it and below it (Sam, 19 November 2026): Pen, then Measure,
+// each in a slot of its own.
+export const SECTION: Tool[] = ["pen", "measure"];
+type Strip = "select" | "bond" | "ring" | "template" | "symbol" | "orbital" | "arrow" | "cycle" | "sequence" | "shape" | "bracket" | "pen" | "measure" | "more";
+const isStrip = (t: Tool): t is Exclude<Strip, "more"> => t === "select" || t === "bond" || t === "ring" || t === "template" || t === "symbol" || t === "orbital" || t === "arrow" || t === "cycle" || t === "sequence" || t === "shape" || t === "bracket" || t === "pen" || t === "measure";
+// The Measure tool's variants: Length, Angle and Dihedral, each with its icon. Its name in full: "Measure length".
+const MEASURE_GLYPHS: Record<MeasureKind, (p: { size?: number }) => React.ReactNode> = { distance: (p) => <DistanceGlyph {...p} />, angle: (p) => <AngleGlyph {...p} />, dihedral: (p) => <DihedralGlyph {...p} /> };
+const measureOf = (v: string): MeasureKind => (KINDS.includes(v as MeasureKind) ? (v as MeasureKind) : "distance");
+export const measureToolName = (v: string) => `Measure ${MEASURE_NAMES[measureOf(v)].toLowerCase()}`;
+export const MeasureToolGlyph = ({ v, size }: { v: string; size?: number }) => MEASURE_GLYPHS[measureOf(v)]({ size });
 // Strips laid out as a grid of icons (named on hover): each row a shape across its styles.
 // One hold time for every press and hold (FEEL-37): a tool pressed this long opens its strip, and on the canvas Select
 // takes over from a drawing tool.
@@ -178,23 +187,24 @@ export function RingGlyph({ kind }: { kind: RingKind }) {
 const BooksGlyph = () => <Icon><polygon points="128,40 196,80 196,160 128,200 60,160 60,80" /><line x1={40} y1={224} x2={216} y2={224} /></Icon>;
 export const ChainGlyph = () => <Icon><polyline points="32,168 80,104 128,168 176,104 224,168" /></Icon>;
 
-// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets
-// how long the barbs are.
+// Arrow icons: each draws its arrow, with open heads in the icon style. kind is an arrow variant; its size sets the
+// head, longer and wider in step as ChemDraw's are (Large, Medium and Small heads are 22.5, 15 and 10 line widths).
+// Large's two heads on a resonance arrow stay well apart, so it never reads as a diamond.
+const HEADS = { small: [44, 31], medium: [58, 41], large: [72, 50] }; // length back from the tip, and width each side
 export function ArrowGlyph({ kind: variant }: { kind: string }) {
   const v = arrowVariant(variant), kind = v?.kind;
   if (v?.ellipse) return <EllipseGlyph clockwise={v.ellipse === "cw"} />;
   if (v?.sweep) return <CurvedGlyph kind={v.kind} sweep={v.sweep} />;
-  const b = v?.size === "large" ? 88 : v?.size === "medium" ? 66 : 48, head = (x: number, y: number) => <polyline points={`${x - b},${y - b} ${x},${y} ${x - b},${y + b}`} />;
-  const e = (b * 5) / 6;
+  const [l, w] = HEADS[v?.size ?? "small"], c = (32 + 216 - l) / 2, head = (x: number, y: number, dir = 1) => <polyline points={`${x - dir * l},${y - w} ${x},${y} ${x - dir * l},${y + w}`} />;
   switch (kind) {
     case "equilibrium":
       return v?.ratio
-        ? <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`168,156 88,156 ${88 + e},${156 + e}`} /></Icon>
-        : <Icon><polyline points={`32,100 216,100 ${216 - e},${100 - e}`} /><polyline points={`224,156 40,156 ${40 + e},${156 + e}`} /></Icon>;
-    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} /><polyline points={`${32 + b},${128 - b} 32,128 ${32 + b},${128 + b}`} />{head(224, 128)}</Icon>;
+        ? <Icon><polyline points={`32,100 216,100 ${216 - l},${100 - w}`} /><polyline points={`176,156 72,156 ${72 + l},${156 + w}`} /></Icon>
+        : <Icon><polyline points={`32,100 216,100 ${216 - l},${100 - w}`} /><polyline points={`224,156 40,156 ${40 + l},${156 + w}`} /></Icon>;
+    case "resonance": return <Icon><line x1={32} y1={128} x2={224} y2={128} />{head(32, 128, -1)}{head(224, 128)}</Icon>;
     case "retro": return <Icon><line x1={32} y1={100} x2={184} y2={100} /><line x1={32} y1={156} x2={184} y2={156} /><polyline points="160,56 224,128 160,200" /></Icon>;
-    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={88} y1={88} x2={136} y2={168} /><line x1={136} y1={88} x2={88} y2={168} /></Icon>;
-    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={76} y1={168} x2={100} y2={88} /><line x1={112} y1={168} x2={136} y2={88} /></Icon>;
+    case "nogo": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={c - 24} y1={88} x2={c + 24} y2={168} /><line x1={c + 24} y1={88} x2={c - 24} y2={168} /></Icon>;
+    case "hash": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={c - 30} y1={168} x2={c - 6} y2={88} /><line x1={c + 6} y1={168} x2={c + 30} y2={88} /></Icon>;
     case "dipole": return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}<line x1={68} y1={92} x2={68} y2={164} /></Icon>;
     case "block": { const w = v?.size === "medium" ? 28 : 40; return <Icon><polygon points={`32,${128 - w / 2} 148,${128 - w / 2} 148,${128 - w * 1.6} 224,128 148,${128 + w * 1.6} 148,${128 + w / 2} 32,${128 + w / 2}`} /></Icon>; }
     default: return <Icon><line x1={32} y1={128} x2={216} y2={128} />{head(216, 128)}</Icon>;
@@ -351,15 +361,7 @@ export const MapGlyph = () => (
   </Icon>
 );
 
-// Measure: an angle with its arc, and a dashed line across the ends of its two bonds (a distance).
-export const MeasureGlyph = ({ size }: { size?: number }) => (
-  <Icon size={size}>
-    <polyline points="200,200 48,200 160,72" />
-    <path d="M120,200A72,72 0 0 0 95.4,145.8" />
-    <line x1={200} y1={200} x2={160} y2={72} strokeDasharray="8 30" />
-  </Icon>
-);
-// Measure distance: two atoms and the dashed line between them.
+// Measure length: two atoms and the dashed line between them.
 export const DistanceGlyph = ({ size }: { size?: number }) => (
   <Icon size={size}>
     <circle cx={52} cy={128} r={20} />
@@ -436,7 +438,7 @@ export const SynthesisGlyph = ({ retro }: { retro?: boolean }) => (
 // The specialist tools' names and icons.
 const SPECIAL_TOOLS: Record<string, { name: string; icon: React.ReactNode }> = { tlc: { name: "TLC plate", icon: <TlcGlyph /> }, gel: { name: "Gel", icon: <GelGlyph /> }, plasmid: { name: "Plasmid map", icon: <PlasmidGlyph /> }, table: { name: "Table", icon: <TableGlyph /> }, fragment: { name: "Mass fragmentation", icon: <FragmentGlyph /> },
   massspec: { name: "Mass spec analysis", icon: <MassSpecGlyph /> },
-  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> }, measure: { name: "Measure", icon: <MeasureGlyph /> } };
+  synthesis: { name: "Synthesis", icon: <SynthesisGlyph /> }, retro: { name: "Retrosynthesis", icon: <SynthesisGlyph retro /> }, map: { name: "Atom map", icon: <MapGlyph /> } };
 
 // A curved arrow's icon: its arc at its true sweep, bulging up, with a head at the right-hand end (both ends for a
 // double-headed arrow, and one barb on the outside for a fishhook).
@@ -576,8 +578,6 @@ type PaletteProps = {
 };
 
 const DRAG_PX = 6; // an option pressed and moved this far is being dragged to the toolbar
-// From one tool to the next: a tool and the gap after it (tokens, so a coarse pointer's larger tools step right too).
-const STEP = "(var(--size-tool) + var(--space-1))";
 
 export function Palette(p: PaletteProps) {
   // ?strip=ring opens a strip on load (dev only, for checking its layout).
@@ -588,6 +588,7 @@ export function Palette(p: PaletteProps) {
   // toList: a curved arrow is over the Arrow strip, which takes it into its list.
   const [carry, setCarry] = useState<{ key: string; pin: boolean; x: number; y: number; tilt: number; over: boolean; toList?: boolean; index: number; phase: "drag" | "land" | "drop" }>();
   const [curves, setCurves] = useState(false); // every curved arrow, beside the Arrow strip
+  const [sizeView, setSizeView] = useState<ArrowSize>("small"); // the size the Arrow strip shows while a curved arrow is in hand
   const [library, setLibrary] = useState(false); // the template library, beside the Ring strip
   const [arrived, setArrived] = useState<string>(); // a curved arrow just added to the Arrow strip settles in
   const [landed, setLanded] = useState<{ key: string; n: number }>(); // the shortcut that just landed: it settles, the others ripple
@@ -692,7 +693,7 @@ export function Palette(p: PaletteProps) {
   // A template found by name has its name once its structure can be drawn (the names engine has loaded).
   const named = (kind: string) => (p.named(kind) ? kindName(kind) : undefined);
   const nameOf = (tool: Strip, kind: string) =>
-    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "cycle" ? CYCLES[kind] : tool === "sequence" ? SEQUENCES[kind]?.name : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
+    tool === "more" ? SPECIAL_TOOLS[kind]?.name : tool === "bond" ? BONDS[kind as BondKind]?.name : tool === "template" ? (template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind)) : tool === "symbol" ? SYMBOLS[kind as SymbolKind] : tool === "shape" ? shapeName(kind) : tool === "measure" ? MEASURE_NAMES[kind as MeasureKind] : tool === "orbital" ? orbitalName(kind) : tool === "bracket" ? BRACKETS[kind] : tool === "pen" ? PENS[kind] : tool === "cycle" ? CYCLES[kind] : tool === "sequence" ? SEQUENCES[kind]?.name : tool === "ring" ? (RINGS[kind as RingKind]?.name ?? template(kind)?.name ?? libraryItem(kind)?.name ?? named(kind))
       : tool === "arrow" ? arrowName(kind) : SELECTS[kind as SelectKind]?.name;
   const optionKey = (tool: Strip, kind: string) => { const c = optionCommand(tool, kind); return c ? p.keys(c) : undefined; }; // J for benzene
   const iconOf = (tool: Strip, kind: string) => {
@@ -705,21 +706,24 @@ export function Palette(p: PaletteProps) {
     if (tool === "shape") return <ElementGlyph v={kind} />;
     if (tool === "orbital") return <OrbitalGlyph v={kind} />;
     if (tool === "bracket") return <BracketGlyph v={kind} />;
+    if (tool === "pen") return <PenGlyph v={kind} />;
+    if (tool === "measure") return <MeasureToolGlyph v={kind} />;
     if (tool === "cycle") return <CycleGlyph v={kind} />;
     if (tool === "sequence") return <SequenceGlyph v={kind} />;
     const mol = shapeOf(kind);
     return mol ? <TemplateGlyph mol={mol} /> : <RingGlyph kind={kind as RingKind} />;
   };
   const options = (tool: Strip) =>
-    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (!arrowSize || (k === "block" && arrowSize === "small") ? k : withSize(k, arrowSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...ringStrip(p.libraryRings, (k) => libraryItem(k) || p.named(k) || template(k))];
+    tool === "bond" ? Object.keys(BONDS) : tool === "template" ? [p.variants.template] : tool === "symbol" ? Object.keys(SYMBOLS) : tool === "shape" ? [...SHAPE_GRID.flat(), ...SHAPE_EXTRA] : tool === "orbital" ? ORBITAL_GRID.flat() : tool === "bracket" ? Object.keys(BRACKETS) : tool === "pen" ? Object.keys(PENS) : tool === "measure" ? KINDS : tool === "cycle" ? Object.keys(CYCLES) : tool === "sequence" ? Object.keys(SEQUENCES) : tool === "select" ? Object.keys(SELECTS) : tool === "arrow" ? [...STRAIGHT.map((k) => (k === "block" && shownSize === "small" ? "block medium" : withSize(k, shownSize))), ...p.curvedArrows.filter((v) => arrowVariant(v)?.sweep)] : [...Object.keys(RINGS), ...ringStrip(p.libraryRings, (k) => libraryItem(k) || p.named(k) || template(k))];
   // A menu's groups: shapes across their styles, then lines, arcs and the rest; each orbital across its phases;
   // one group for everything else.
-  // The Arrow strip's last group: the sizes of the straight arrow in hand, as ChemDraw's Large, Medium and Small rows.
   const groupsOf = (tool: Strip, list: string[]): string[][] =>
     tool === "shape" ? [...SHAPE_GRID.map((r) => r.slice(0, 5)), SHAPE_GRID.map((r) => r[5]), SHAPE_GRID.flatMap((r) => r.slice(6)), SHAPE_EXTRA]
-      : tool === "orbital" ? ORBITAL_GRID : tool === "arrow" ? [list, (p.variants.arrow.startsWith("block") ? ["large", "medium"] : ["large", "medium", "small"]).map((x) => `size:${x}`)] : [list];
-  // The size the straight arrow in hand is drawn at (Small when unnamed), which the strip's arrows show.
+      : tool === "orbital" ? ORBITAL_GRID : [list];
+  // The size the straight arrow in hand is drawn at (Small when unnamed). The strip's straight arrows show it, or with
+  // a curved arrow in hand the size last chosen at its top. A block arrow is Large or Medium, so Small shows it Medium.
   const pick = arrowVariant(p.variants.arrow), arrowSize: ArrowSize | undefined = pick && !pick.sweep ? (pick.size ?? (pick.kind === "block" ? "large" : "small")) : undefined;
+  const shownSize = arrowSize ?? sizeView;
   // The columns a menu opens with: the user's own, or two across.
   const columnsOf = (key: string) => (p.stripWidths[key] ? columnsFor(p.stripWidths[key]) : DEFAULT_COLUMNS);
   // Pinned shortcuts whose option still exists.
@@ -742,6 +746,9 @@ export function Palette(p: PaletteProps) {
     { id: "cycle", name: CYCLES[p.variants.cycle] ?? "Catalytic cycle", icon: <CycleGlyph v={p.variants.cycle} /> },
     { id: "shape", name: shapeName(p.variants.shape) ?? "Shape", icon: <ElementGlyph v={p.variants.shape} /> },
     { id: "bracket", name: BRACKETS[p.variants.bracket] ?? "Brackets", icon: <BracketGlyph v={p.variants.bracket} /> },
+    // The section of its own (SECTION): Pen, then Measure, each showing the option last used.
+    { id: "pen", name: PENS[p.variants.pen] ?? "Pen", icon: <PenGlyph v={p.variants.pen} /> },
+    { id: "measure", name: measureToolName(p.variants.measure), icon: <MeasureToolGlyph v={p.variants.measure} /> },
     // The Text tool shows the element it puts on atoms, when one was chosen from its periodic table.
     { id: "text", name: p.element ? `${elementFacts(p.element).name}. Text` : "Text", icon: p.element ? <Icon><text x={128} y={128} dy="0.35em" textAnchor="middle" fill="currentColor" stroke="none" style={{ font: `600 ${p.element.length > 1 ? 136 : 176}px var(--font-sans)` }}>{p.element}</text></Icon> : <TextT size={20} /> },
     { id: "erase", name: "Eraser ([ and ] change its size)", icon: <Eraser size={20} /> },
@@ -750,6 +757,17 @@ export function Palette(p: PaletteProps) {
   const special = SPECIAL.includes(p.tool) ? p.tool : SPECIAL.includes(p.variants.more as Tool) ? (p.variants.more as Tool) : SPECIAL[0];
   tools.push({ id: special, name: SPECIAL_TOOLS[special].name, icon: SPECIAL_TOOLS[special].icon });
   const active = tools.findIndex((t) => t.id === p.tool);
+  // Where each tool sits, for the indicator: a line comes before the section's first tool and after its last, and in
+  // two columns the tool after a line starts a row. A line takes 13 px: its 1 px, its margins and one more gap
+  // (editor.css, .palette hr).
+  let row = 0, col = 0, lines = 0;
+  const place = tools.map((t, i) => {
+    const line = i > 0 && SECTION.includes(t.id) !== SECTION.includes(tools[i - 1].id);
+    if (line) { lines++; if (col) { row++; col = 0; } }
+    const at = { line, col, x: col * 36, y: row * 36 + lines * 13 };
+    if (wide && !col) col = 1; else { row++; col = 0; }
+    return at;
+  });
   const choose = (t: Strip, kind: string) => { p.onVariant(t, kind); p.onTool(t === "more" ? (kind as Tool) : t); setOpen(undefined); setChosen(undefined); };
   // A shortcut chosen from the toolbar takes the active look (the indicator) from its tool's slot while that option
   // stays in hand, so one button looks active, never two.
@@ -846,19 +864,22 @@ export function Palette(p: PaletteProps) {
 
   return (
     <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools" data-tips="right">
-      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : wide ? `translate(calc(${active % 2} * ${STEP}), calc(${Math.floor(active / 2)} * ${STEP}))` : `translateY(calc(${active} * ${STEP}))`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
+      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : `translate(${place[active]?.x ?? 0}px, ${place[active]?.y ?? 0}px)`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : t.id === "text" ? [] : undefined; // the Text tool's is its periodic table
         return (
-          <div key={t.id} className="slot" data-col={wide ? i % 2 : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
+          <Fragment key={t.id}>
+          {place[i].line && <hr />}
+          <div className="slot" data-col={wide ? place[i].col : undefined} style={{ "--d": Math.abs(i - (tools.length + 1 + pins.findIndex((x) => x.key === landed?.key))) } as React.CSSProperties}>
             <button
               className={["tool", p.coach === t.id && p.tool !== t.id && "coach-target", t.id === "select" && p.variants.select === "perspective" && "turn-3d"].filter(Boolean).join(" ")}
               aria-pressed={p.tool === t.id && !lit}
               aria-label={t.name}
               aria-haspopup={strip ? "menu" : undefined}
               aria-expanded={strip ? open === t.id : undefined}
-              data-key={p.keys(`tool.${t.id}`) ?? (t.id === "ring" ? optionKey("ring", p.variants.ring) : undefined)}
+              // The Pen slot names the key of the option it shows (tool.pen picks the Pen, tool.editcurve Edit curve).
+              data-key={t.id === "pen" ? optionKey("pen", p.variants.pen) : p.keys(`tool.${t.id}`) ?? (t.id === "ring" ? optionKey("ring", p.variants.ring) : t.id === "measure" ? optionKey("measure", p.variants.measure) : undefined)}
               // A selection dragged from the canvas onto the Ring or Template tool goes into My templates.
               {...(t.id === "ring" || t.id === "template" ? { "data-drop-set": MY_SET, "data-drop-tool": t.id } : {})}
               onPointerDown={() => {
@@ -899,11 +920,8 @@ export function Palette(p: PaletteProps) {
             <Exit>{strip && isStrip(t.id) && t.id !== "template" && open === t.id && (() => {
               const tool = t.id, curveCarry = !!carry && keepable(carry.key) === tool;
               const item = (kind: string): MenuItem => {
-                if (kind.startsWith("size:")) {
-                  const size = kind.slice(5) as ArrowSize, v = withSize(p.variants.arrow, size);
-                  return { key: kind, name: SIZE_NAMES[size], icon: <ArrowGlyph kind={v} />, checked: arrowSize === size };
-                }
-                const name = nameOf(tool, kind)!;
+                // A straight arrow is named without its size: the control at the top names that.
+                const name = tool === "arrow" && !arrowVariant(kind)?.sweep ? arrowName(kind.split(" ")[0])! : nameOf(tool, kind)!;
                 const kept = (tool === "arrow" && !!arrowVariant(kind)?.sweep) || (tool === "ring" && (!!libraryItem(kind) || !!kindName(kind) || !!template(kind)));
                 return {
                   key: kind, name, icon: iconOf(tool, kind), checked: p.variants[tool] === kind, arrived: arrived === kind, hint: optionKey(tool, kind),
@@ -945,12 +963,19 @@ export function Palette(p: PaletteProps) {
                 return { key: v, name, icon: <ArrowGlyph kind={v} />, checked: p.variants.arrow === v,
                   action: { icon: <PushPin size={12} />, label: isKept ? "In the Arrow menu" : "Keep in the Arrow menu", pressed: isKept, onClick: () => (isKept ? unkeep("arrow", v) : keep("arrow", v)) } };
               }));
+              // The Arrow menu's sizes, across its top: ChemDraw's Large, Medium and Small straight arrows. A change
+              // resizes the straight arrow in hand and leaves the menu open; a block arrow has no Small.
+              const segments = tool === "arrow" ? {
+                label: "Arrow size", value: shownSize,
+                options: (["large", "medium", "small"] as const).map((x): [string, string, boolean] => [x, SIZE_NAMES[x], x === "small" && pick?.kind === "block"]),
+                onChange: (x: string) => { setSizeView(x as ArrowSize); if (arrowSize) { p.onVariant("arrow", withSize(p.variants.arrow, x as ArrowSize)); p.onTool("arrow"); } },
+              } : undefined;
               return (
-                <Menu label={`${t.name} options`} tool={tool} groups={groups} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
+                <Menu label={`${t.name} options`} tool={tool} groups={groups} segments={segments} className={[carry && !curveCarry && "carrying", carry?.toList && "receiving"].filter(Boolean).join(" ")}
                   columns={columnsOf(tool)} onColumns={(n) => p.onStripWidth(tool, menuWidth(n))}
-                  onPress={(e, kind) => { if (!kind.startsWith("size:")) startCarry(e, `${tool}:${kind}`); }}
-                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
-                  onRelease={(kind) => { if (held) choose(tool, kind.startsWith("size:") ? withSize(p.variants.arrow, kind.slice(5) as ArrowSize) : kind); }}
+                  onPress={(e, kind) => startCarry(e, `${tool}:${kind}`)}
+                  onChoose={(kind) => { if (!dragged.current) choose(tool, kind); }}
+                  onRelease={(kind) => { if (held) choose(tool, kind); }}
                   extra={extra}>
                   <Exit>{tool === "arrow" && curves && (
                     <Menu label="Curved arrows" className={["submenu", curveCarry && "carrying"].filter(Boolean).join(" ")} groups={curveGroups}
@@ -966,6 +991,7 @@ export function Palette(p: PaletteProps) {
               );
             })()}</Exit>
           </div>
+          </Fragment>
         );
       })}
       {(() => {

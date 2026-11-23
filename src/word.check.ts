@@ -1,23 +1,28 @@
-// Run: node src/word.check.ts. Word on the Mac (src-tauri/src/word.rs). Octet asks Word nothing for a double-click
-// until the user turns the setting on, a double-click in Word never shows an alert, and Edit Picture from Word opens
-// no second window on a picture. Only a Mac compiles word.rs, so this reads its source; its own tests are beside it.
+// Run: node src/word.check.ts. Word on the Mac (src-tauri/src/word.rs). A double-click on a structure in Word opens
+// it in Octet unless the user turns the setting off, a double-click in Word never shows an alert, and Edit Picture
+// from Word opens no second window on a picture. Only a Mac compiles word.rs, so this reads its source; its own tests
+// are beside it.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
-const settings = read("settings.ts"), rs = read("../src-tauri/src/word.rs");
+const settings = read("settings.ts"), rs = read("../src-tauri/src/word.rs"), editor = read("Editor.tsx");
 const body = (start: string) => { const i = rs.indexOf(start); assert.ok(i >= 0, `found ${start}; update this check`); return rs.slice(i, rs.indexOf("\n}\n", i)); };
 
-// Settings > General > Word > Double-click opens a structure in Octet is off for a new user and for a user who
-// updates: only a saved true turns it on. Until then Octet installs no mouse monitor and sends Word no Apple Event.
-assert.match(settings, /\nconst DEFAULTS: Settings = \{[^\n]*\bwordClick: false,/, "off for a new user");
-const load = /\n {6}wordClick: ([^\n]+),\n/.exec(settings);
+// Settings > General > Word > Double-click opens a structure in Octet is on for a new user and for a user who updates
+// (Sam, 19 November 2026): only a false the user set with the switch (wordChosen) turns it off, as 1.1.2 saved the old
+// default, off, in every copy. Off, Octet installs no mouse monitor and sends Word no Apple Event.
+assert.match(settings, /\nconst DEFAULTS: Settings = \{[^\n]*\bwordClick: true, wordChosen: false,/, "on for a new user");
+const load = /\n {6}wordClick: ([^\n]+?), wordChosen: ([^\n]+),\n/.exec(settings);
 assert.ok(load, "found how wordClick loads; update this check");
 const wordClick = new Function("saved", `return ${load[1]};`) as (saved: object) => unknown;
-assert.equal(wordClick({}), false, "settings saved before this setting was there");
-assert.equal(wordClick({ wordClick: true }), true, "the user turned it on");
-assert.equal(wordClick({ wordClick: false }), false);
-assert.equal(wordClick({ wordClick: "true" }), false, "a boolean only");
+assert.equal(wordClick({}), true, "settings saved before this setting was there");
+assert.equal(wordClick({ wordClick: false }), true, "1.1.2's saved default does not count");
+assert.equal(wordClick({ wordClick: false, wordChosen: true }), false, "the user turned it off");
+assert.equal(wordClick({ wordClick: true, wordChosen: true }), true);
+assert.equal(wordClick({ wordClick: "false", wordChosen: true }), true, "only a boolean false turns it off");
+assert.equal(wordClick({ wordClick: false, wordChosen: "true" }), true, "only a boolean true counts as chosen");
+assert.match(editor, /onWordClick=\{\(wordClick\) => setSettings\(\(s\) => \(\{ \.\.\.s, wordClick, wordChosen: true \}\)\)\}/, "the switch marks it chosen");
 
 // A double-click in Word is not a command to Octet: when the user did not allow Octet to control Word, it shows no
 // alert. File > Edit Picture from Word and Update show it.

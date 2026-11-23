@@ -117,7 +117,8 @@ async function strokePath(kind, points) {
   return settle();
 }
 // The toolbar's tools in order: 0 Select, 1 Bond, 2 Chain, 3 Ring, 4 Template, 5 Sequence, 6 Orbital, 7 Symbol,
-// 8 Arrow, 9 Cycle, 10 Shape, 11 Brackets, 12 Text, 13 Eraser, 14 the specialist tool.
+// 8 Arrow, 9 Cycle, 10 Shape, 11 Brackets, 12 Pen, 13 Measure (the section between two lines), 14 Text, 15 Eraser,
+// 16 the specialist tool.
 const slotTool = (i) => document.querySelectorAll(".palette .slot > button.tool")[i];
 const pickSlot = async (i) => {
   const t = slotTool(i);
@@ -160,7 +161,7 @@ const SESSION = [
 {
   // The options a new user has, which the checks find their tools by: the web view keeps the settings, and a run
   // stopped part way leaves the options its sibling checks chose.
-  for (const [slot, key] of [[0, "box"], [10, "box-plain"], [14, "tlc"]]) await option(slot, key);
+  for (const [slot, key] of [[0, "box"], [10, "box-plain"], [12, "pen"], [13, "distance"], [16, "tlc"]]) await option(slot, key);
   await clear();
   for (const [tool, act] of SESSION) { await pick(tool); await act("mouse"); }
   out.session = await settle();
@@ -199,16 +200,17 @@ const SIBLINGS = [
   ["Symbol", 7, undefined, "tap", [600, 420], undefined, true],
   ["Peptide", 5, undefined, "tap", [600, 420]],
   ["Catalytic cycle", 9, "circle", "drag", [560, 420], [680, 420]],
-  ["Pen curve", 10, "pen", "drag", [560, 420], [620, 450], false, true],
-  ["Eraser", 13, undefined, "drag", ...across, true],
-  ["Gel", 14, "gel", "drag", [560, 420], [660, 560]],
-  ["Plasmid map", 14, "plasmid", "drag", [560, 420], [660, 520]],
-  ["Table", 14, "table", "drag", [560, 420], [700, 520]],
-  ["Mass fragmentation", 14, "fragment", "drag", ...across, true],
-  ["Mass spec analysis", 14, "massspec", "drag", ...across, true],
-  ["Synthesis", 14, "synthesis", "drag", ...across, true],
-  ["Retrosynthesis", 14, "retro", "drag", ...across, true],
-  ["Atom map", 14, "map", "drag", (r) => [r.left, (r.top + r.bottom) / 2], (r) => [r.right, (r.top + r.bottom) / 2], true, true],
+  ["Pen curve", 12, "pen", "drag", [560, 420], [620, 450], false, true],
+  ["Measure length", 13, "distance", "drag", [560, 420], [660, 470]],
+  ["Eraser", 15, undefined, "drag", ...across, true],
+  ["Gel", 16, "gel", "drag", [560, 420], [660, 560]],
+  ["Plasmid map", 16, "plasmid", "drag", [560, 420], [660, 520]],
+  ["Table", 16, "table", "drag", [560, 420], [700, 520]],
+  ["Mass fragmentation", 16, "fragment", "drag", ...across, true],
+  ["Mass spec analysis", 16, "massspec", "drag", ...across, true],
+  ["Synthesis", 16, "synthesis", "drag", ...across, true],
+  ["Retrosynthesis", 16, "retro", "drag", ...across, true],
+  ["Atom map", 16, "map", "drag", (r) => [r.left, (r.top + r.bottom) / 2], (r) => [r.right, (r.top + r.bottom) / 2], true, true],
 ];
 const canvasMarks = () => `\nmarks: ${svg.querySelectorAll("path, line, polyline, polygon, circle, ellipse, rect, text").length}`;
 const bondFirst = async () => { await pick(/bond$/i); await stroke("mouse", [600, 420], [660, 420]); };

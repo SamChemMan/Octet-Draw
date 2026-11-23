@@ -84,12 +84,29 @@ export function TextField({ value, label, onChange, onTyped, lines, max = lines 
 }
 
 // A short choice, as a row of buttons: one is on (or none, when the value is none of them; Tab then reaches the
-// first). Left and Right move along it. An option marked off is dimmed and skipped.
+// first). Left and Right move along it. An option marked off is dimmed and skipped. The on segment's fill slides to
+// the new choice, as the toolbar's indicator does between tools; with reduced motion the fill fades instead.
 export function Segmented<T extends string>({ label, value, options, onChange, className }: {
-  label: string; value: T; options: [T, React.ReactNode, string?, boolean?][]; onChange: (v: T) => void; className?: string;
+  label: string; value: T; options: [T, React.ReactNode, string?, boolean?, string?][]; onChange: (v: T) => void; className?: string; // the fifth: the option's key, shown in its tip
 }) {
+  const box = useRef<HTMLSpanElement>(null), thumb = useRef<HTMLSpanElement>(null), at = options.findIndex(([v]) => v === value);
+  // The fill takes the on segment's place and size, measured as laid out (so it follows a menu dragged wider and a
+  // row of segments that wraps). It is placed before it shows, so it never slides in from the corner.
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = thumb.current, on = box.current?.children[at] as HTMLElement | undefined;
+      if (!el) return;
+      if (!on) return void el.removeAttribute("data-on");
+      Object.assign(el.style, { transform: `translate(${on.offsetLeft}px, ${on.offsetTop}px)`, width: `${on.offsetWidth}px`, height: `${on.offsetHeight}px` });
+      if (!el.hasAttribute("data-on")) requestAnimationFrame(() => el.setAttribute("data-on", ""));
+    };
+    place();
+    const watch = new ResizeObserver(place);
+    if (box.current) watch.observe(box.current);
+    return () => watch.disconnect();
+  }, [at, options.length]);
   return (
-    <span className={className ? `segmented ${className}` : "segmented"} role="radiogroup" aria-label={label}
+    <span ref={box} className={className ? `segmented ${className}` : "segmented"} role="radiogroup" aria-label={label}
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
@@ -100,10 +117,11 @@ export function Segmented<T extends string>({ label, value, options, onChange, c
         onChange(next);
         (e.currentTarget.children[options.findIndex(([v]) => v === next)] as HTMLElement | undefined)?.focus();
       }}>
-      {options.map(([v, shown, name, off], k) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} data-tip={name} disabled={off}
+      {options.map(([v, shown, name, off, keyHint], k) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-label={name} data-tip={name} data-key={keyHint} disabled={off}
           tabIndex={value === v || (k === 0 && !options.some(([o]) => o === value)) ? 0 : -1} onClick={() => onChange(v)}>{shown}</button>
       ))}
+      <span ref={thumb} className="seg-thumb" aria-hidden />
     </span>
   );
 }

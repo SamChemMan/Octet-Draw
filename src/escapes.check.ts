@@ -58,8 +58,9 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 const body = (name: string) => { const at = editor.indexOf(`function ${name}(`); return editor.slice(at, editor.indexOf("\n  }\n", at)); };
 assert.match(body("commitWriting"), /const typed = expandRuns\(w\.runs \?\? \[\{ text: w\.value \}\], keptText\(doc\.captions\?\.find\(\(c\) => c\.id === w\.id\)\?\.text\)\), text = plainOf\(typed\)/);
 assert.match(body("commitCell"), /setTableCell\(cur, w\.r, w\.c, value,/);
-assert.match(body("commitCell"), /const value = expandEscapes\(w\.value, keptText\(sh\.table\.cells\[w\.r\]\?\.\[w\.c\]\)\)/);
-assert.match(body("commitGridCell"), /text = expandEscapes\(typed, keptText\(gridEdit\?\.value\)\)/);
+assert.match(body("commitCell"), /const typed = expandRuns\(w\.runs, keptText\(sh\.table\.cells\[w\.r\]\?\.\[w\.c\]\)\), value = plainOf\(typed\)/);
+assert.match(body("commitGridCell"), /kept = keptText\(gridEdit\?\.opened\), text = expandEscapes\(typed, kept\)/);
+assert.match(body("commitGridCell"), /writeGridCell\(w, text, runs && expandRuns\(runs, kept\)\)/);
 assert.match(editor, /const typed = trimLines\(expandRuns\(editing\.runs \?\? \[\{ text: editing\.value \}\], keptText\(a\.text\)\)\)/);
 assert.match(editor, /set\(setLabel\(doc, editing\.atom, expandEscapes\(editing\.value, keptText\(doc\.atoms\[editing\.atom\]\.text\)\)\)\)/);
 assert.match(editor, /const typed = Object\.fromEntries\(Object\.entries\(values\)\.map\(\(\[k, v\]\) => \[k, v && expandRuns\(v, keptText\(plainOf\(runs\[k as DetailField\]\)\)\)\]\)\);\n\s*const next = withDetailRuns\(doc, typed, sheet\)/);
@@ -85,8 +86,9 @@ assert.match(map, /document\.execCommand\("insertText", false, ch\)/);
 assert.match(map, /aria-label=\{charName\(ch\)\}/);
 assert.match(map, /const groups: \[string, string\[\]\]\[\] = \[\["Recent", recent\], \.\.\.CHAR_GROUPS\]/, "Recent keeps its row, so the map does not move under the pointer");
 assert.match(readFileSync(new URL("RichBox.tsx", import.meta.url), "utf8"), /onBlur=\{\(e\) => \{ if \(!inMap\(e\.relatedTarget\)\) p\.onBlur\(\); \}\}/);
-assert.match(editor, /onBlur=\{\(e\) => \{ if \(!inMap\(e\.relatedTarget\)\) commitGridCell\(e\.currentTarget\.value\); \}\}/);
-assert.match(editor, /onBlur=\{\(e\) => \{ if \(!inMap\(e\.relatedTarget\)\) commitCell\(\); \}\}/);
+// The cell boxes are RichBoxes (above): focus moved into the map keeps them open too.
+assert.match(editor, /onBlur=\{\(\) => commitGridCell\(gridEdit\.value, gridEdit, gridEdit\.runs\)\}/);
+assert.match(editor, /onBlur=\{\(\) => commitCell\(\)\}/);
 // Reached from Text > Character Map, the caption's and the label's options, and the command palette, and with the
 // keyboard from any text box: ⇧⌘Space (Ctrl+Shift+Space on Windows and Linux), shown in the Text menu. The Mac's own
 // ⌃⌘Space stays the system's Emoji & Symbols. The key is free: no other command or drawing key has it.

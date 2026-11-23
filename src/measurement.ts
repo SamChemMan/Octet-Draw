@@ -1,21 +1,23 @@
-// Measurements (issue 85): the distance between two atoms, the angle at three and the dihedral across four, each a
-// text that belongs to its atoms (a caption with measure). The value comes from the atoms as drawn now, in 3D (x, y
-// and depth), every time the drawing changes; the text in a file is only a copy for other programs. Dashed lines join
-// the atoms that no bond joins, and an angle has an arc at its middle atom (measureInk).
+// Measurements (issue 85): the length between two ends, the angle at three and the dihedral across four atoms, each a
+// text that belongs to its ends (a caption with measure). An end is an atom or a free point on the page. The value
+// comes from the ends as drawn now, every time the drawing changes: in 3D (x, y and depth) when every end is an atom,
+// on the page plane when one is a free point. Measuring never changes the drawing. The text in a file is only a copy
+// for other programs. Dashed lines join the ends that no bond joins, and an angle has an arc at its vertex (measureInk).
 //
 // The Å scale is 3D Clean Up's own unit (clean3d.ts): a bond's real length over a C–C single bond's (its ratio), so
-// a structure's median of (length / ratio) is the length of a 1.52 Å bond. Scaling the drawing or changing the style
-// never changes a value, and a bond reads the length 3D Clean Up gives it.
+// a structure's median of (length / ratio) is the length of a 1.52 Å bond. For a measurement with an atom end, scaling
+// the drawing or changing the style never changes a value, and a bond reads the length 3D Clean Up gives it. With no
+// atom end, the document's bond length is 1.52 Å, so scaling the drawing changes the value (D14).
 import { bondRatios } from "./clean3d.ts";
 import { widthOf } from "./arial.ts";
 import { DEFAULT_STYLE, type DocStyle } from "./docstyle.ts";
-import { ASCENT, DESCENT, HBOND, type Atom, type Bond, type Caption, type Measure, type Mol } from "./render.ts";
+import { ASCENT, DESCENT, HBOND, type Atom, type Bond, type Caption, type End, type Measure, type Mol } from "./render.ts";
 
 export type MeasureKind = "distance" | "angle" | "dihedral";
-// By the number of atoms less 2.
+// By the number of ends less 2.
 export const KINDS: MeasureKind[] = ["distance", "angle", "dihedral"];
 export const kindOf = (atoms: number): MeasureKind | undefined => KINDS[atoms - 2];
-export const MEASURE_NAMES: Record<MeasureKind, string> = { distance: "Distance", angle: "Angle", dihedral: "Dihedral" };
+export const MEASURE_NAMES: Record<MeasureKind, string> = { distance: "Length", angle: "Angle", dihedral: "Dihedral" };
 export const UNITS: Record<MeasureKind, string> = { distance: "Å", angle: "°", dihedral: "°" };
 const CC = 1.52; // Å, a C–C single bond
 // An angle's arc (bond lengths), and the space between a label and its lines.
@@ -41,15 +43,33 @@ const perp = (a: P): P => [-a[1], a[0]];
 const unit = (a: P): P | undefined => { const l = len(a); return l > 1e-9 ? [a[0] / l, a[1] / l] : undefined; };
 const at3 = (m: Mol, i: number): V => [m.atoms[i].location[0], m.atoms[i].location[1], m.atoms[i].location[2] ?? 0];
 const at2 = (m: Mol, i: number): P => [m.atoms[i].location[0], m.atoms[i].location[1]];
+// An end that is an atom (its index); the other ends are free points.
+export const isAtom = (e: End): e is number => typeof e === "number";
+// A measurement's atoms, in order.
+export const atomEnds = (x: Measure): number[] => x.ends.filter(isAtom);
+// Where an end is on the page.
+export const endAt = (m: Mol, e: End): P => (isAtom(e) ? at2(m, e) : e);
+const point = (v: unknown, most: number): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every((q) => typeof q === "number" && Number.isFinite(q) && Math.abs(q) <= most);
 
-// A measure that can stand in a drawing of n atoms: 2 to 4 distinct atoms, and a label offset within 1000 bond
-// lengths. Anything else (a damaged or hostile file) is not a measurement.
+// A measure that can stand in a drawing of n atoms: 2 to 4 ends, each an atom of the drawing or a point within a
+// million bond lengths, its atoms distinct, a dihedral's four all atoms, and a label offset within 1000 bond lengths.
+// Anything else (a damaged or hostile file) is not a measurement.
 export function soundMeasure(x: unknown, n: number): x is Measure {
   if (typeof x !== "object" || x === null) return false;
-  const { atoms, at } = x as { atoms?: unknown; at?: unknown };
-  if (!Array.isArray(atoms) || atoms.length < 2 || atoms.length > 4 || new Set(atoms).size !== atoms.length) return false;
-  if (!atoms.every((i) => Number.isInteger(i) && i >= 0 && i < n)) return false;
-  return at === undefined || (Array.isArray(at) && at.length === 2 && at.every((v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1000));
+  const { ends, at } = x as { ends?: unknown; at?: unknown };
+  if (!Array.isArray(ends) || ends.length < 2 || ends.length > 4) return false;
+  if (!ends.every((e) => (Number.isInteger(e) && e >= 0 && e < n) || point(e, 1e6))) return false;
+  const atoms = ends.filter((e) => typeof e === "number");
+  if (new Set(atoms).size !== atoms.length || (ends.length === 4 && atoms.length !== 4)) return false;
+  return at === undefined || point(at, 1000);
+}
+// A measure read from a file or the clipboard, in either form: { ends, at? }, or the form the 1.2 beta and 1.1.3 dev
+// builds wrote, { atoms, at? } (every end an atom). A copy of it when it is sound, else undefined (plain text).
+export function readMeasure(x: unknown, n: number): Measure | undefined {
+  if (typeof x !== "object" || x === null) return undefined;
+  const o = x as { ends?: unknown; atoms?: unknown; at?: unknown }, y = { ends: o.ends ?? o.atoms, ...(o.at !== undefined ? { at: o.at } : {}) };
+  if (!soundMeasure(y, n)) return undefined;
+  return { ends: y.ends.map((e) => (isAtom(e) ? e : [e[0], e[1]] as [number, number])), ...(y.at ? { at: [y.at[0], y.at[1]] as [number, number] } : {}) };
 }
 // A caption that is a measurement.
 export const isMeasure = (c: Caption): c is Caption & { measure: Measure } => !!c.measure;
@@ -79,6 +99,11 @@ function chemistry(m: Mol): Known {
 }
 // The drawing length of a 1.52 Å bond for the structures these atoms are in: the median of (length / ratio) over
 // their bonds, in 3D. A structure with no bonds (a lone atom) takes its atom's scale.
+// With no atom end, a bond length of the drawing (its document's) is 1.52 Å.
+function unitFor(m: Mol, ends: End[], k?: Known, memo?: Map<string, number>): number {
+  const atoms = ends.filter(isAtom);
+  return atoms.length ? unitOf(m, atoms, k ?? chemistry(m), memo) : 1;
+}
 function unitOf(m: Mol, atoms: number[], k: Known, memo?: Map<string, number>): number {
   const comps = [...new Set(atoms.map((i) => k.comp[i]))].sort((p, q) => p - q), key = comps.join(" ");
   const had = memo?.get(key);
@@ -106,11 +131,12 @@ export function middleOf(v: number[]): number {
   }
   return v[want];
 }
-// A measurement's value: Å for a distance, degrees for an angle (0 to 180) and a dihedral (−180 to 180, by IUPAC's
+// A measurement's value: Å for a length, degrees for an angle (0 to 180) and a dihedral (−180 to 180, by IUPAC's
 // sign: positive when the near bond turns clockwise onto the far one, seen along the middle bond). Undefined for an
-// angle with a leg of no length, and a dihedral across three atoms in a line.
-export function measureValue(m: Mol, atoms: number[], unit = unitOf(m, atoms, chemistry(m))): number | undefined {
-  const p = atoms.map((i) => at3(m, i));
+// angle with a leg of no length, and a dihedral across three atoms in a line. Every end an atom: in 3D, from the
+// atoms' depth too. A free end: on the page plane, with no depth for any end.
+export function measureValue(m: Mol, ends: End[], unit = unitFor(m, ends)): number | undefined {
+  const flat = !ends.every(isAtom), p = ends.map((e): V => (isAtom(e) && !flat ? at3(m, e) : [...endAt(m, e), 0]));
   if (p.length === 2) return (len3(sub3(p[1], p[0])) * CC) / unit;
   if (p.length === 3) {
     const a = sub3(p[0], p[1]), c = sub3(p[2], p[1]), la = len3(a), lc = len3(c);
@@ -132,13 +158,20 @@ export function measureText(kind: MeasureKind, v: number | undefined): string {
   const sign = s.startsWith("-") && /[1-9]/.test(plain) && plain !== "180.0" ? "−" : "";
   return kind === "distance" ? `${sign}${plain} Å` : `${sign}${plain}°`;
 }
-// What a screen reader says for it: "Distance 2.54 Å".
-// The Measure tool's atoms when its drag passes an atom (on; undefined: none). Each atom passed joins, up to four; back
-// on the one before the last takes the last off; an atom passed already is not taken again. The same list when nothing
-// changes.
-export const passAtom = (list: number[], on: number | undefined): number[] =>
-  on === undefined ? list : list.length > 1 && on === list[list.length - 2] ? list.slice(0, -1) : !list.includes(on) && list.length < 4 ? [...list, on] : list;
-export const measureName = (c: Caption) => (c.measure ? `${MEASURE_NAMES[kindOf(c.measure.atoms.length) ?? "distance"]} ${c.text}` : c.text);
+// The ends a measurement of this kind takes: Length 2, Angle 3, Dihedral 4.
+export const endsFor = (kind: MeasureKind) => KINDS.indexOf(kind) + 2;
+// The Measure tool's ends after a click: on the atom under it (on), else a free point at it (at). A dihedral takes atoms
+// only. An atom placed already, a point within close of the last end, or a click past the last end places nothing:
+// the same list comes back.
+export function placeEnd(ends: End[], kind: MeasureKind, on: number | undefined, at: P, close = 0): End[] {
+  if (ends.length >= endsFor(kind)) return ends;
+  if (on !== undefined) return ends.includes(on) ? ends : [...ends, on];
+  const last = ends[ends.length - 1];
+  if (kind === "dihedral" || (last !== undefined && !isAtom(last) && Math.hypot(at[0] - last[0], at[1] - last[1]) <= close)) return ends;
+  return [...ends, [at[0], at[1]]];
+}
+// What a screen reader says for it: "Length 2.54 Å".
+export const measureName = (c: Caption) => (c.measure ? `${MEASURE_NAMES[kindOf(c.measure.ends.length) ?? "distance"]} ${c.text}` : c.text);
 
 // The atoms in measuring order: as given, unless another order of them is a chain of bonds and the given one is not
 // (an angle's middle atom is the one bonded to both others; a dihedral's four run along their bonds), from the end
@@ -154,11 +187,11 @@ export function chainOrder(m: Mol, atoms: number[]): number[] {
 }
 
 // The measurement's frame on the page: its origin and a direction along it (u), with v a quarter turn anticlockwise.
-// A distance: the middle of its line, along it. An angle: its middle atom, along the line halving it (into the angle). A
+// A length: the middle of its line, along it. An angle: its vertex, along the line halving it (into the angle). A
 // dihedral: the middle of its middle bond, along it. A label moved by hand keeps its offset in this frame, so it rides
-// with the atoms through drags, turns and 3D turns.
-export function measureFrame(m: Mol, atoms: number[]): { o: P; u: P; v: P } {
-  const p = atoms.map((i) => at2(m, i));
+// with the ends through drags, turns and 3D turns.
+export function measureFrame(m: Mol, ends: End[]): { o: P; u: P; v: P } {
+  const p = ends.map((e) => endAt(m, e));
   let o: P, u: P | undefined;
   if (p.length === 3) {
     const a = unit(sub(p[0], p[1])), c = unit(sub(p[2], p[1]));
@@ -180,18 +213,18 @@ export function measureFrame(m: Mol, atoms: number[]): { o: P; u: P; v: P } {
 // outside past its middle atom. Where nothing is clear, the place with the fewest in the way.
 type Box = [number, number, number, number];
 const STEP = 0.25, FAR = 3;
-function autoPlace(m: Mol, atoms: number[], f: { o: P; u: P; v: P }, w: number, h: number, near: (i: number) => number[], taken: Box[]): P {
+function autoPlace(m: Mol, atoms: End[], f: { o: P; u: P; v: P }, w: number, h: number, near: (i: number) => number[], taken: Box[]): P {
   let fewest = Infinity;
   const space = spaceOf(m, f.o, FAR + Math.max(w, h) + 1);
   const reach = (d: P) => (Math.abs(d[0]) * w) / 2 + (Math.abs(d[1]) * h) / 2;
   let ways: { d: P; from: number }[];
   if (atoms.length === 3) {
-    const out = mul(f.u, -1), vertex = labelled(m.atoms[atoms[1]]) ? 0.35 : 0.1;
+    const out = mul(f.u, -1), vertex = isAtom(atoms[1]) && labelled(m.atoms[atoms[1]]) ? 0.35 : 0.1;
     ways = [{ d: f.u, from: ARC + GAP + reach(f.u) }, { d: out, from: vertex + GAP + reach(out) }];
   } else {
     const mine = new Set(atoms), others = new Set<number>();
-    for (const i of atoms) for (const j of near(i)) if (!mine.has(j)) others.add(j);
-    if (atoms.length === 4) { others.add(atoms[0]); others.add(atoms[3]); }
+    for (const i of atoms) if (isAtom(i)) for (const j of near(i)) if (!mine.has(j)) others.add(j);
+    if (atoms.length === 4 && isAtom(atoms[0]) && isAtom(atoms[3])) { others.add(atoms[0]); others.add(atoms[3]); }
     let score = 0;
     for (const j of others) { const s = cross(f.u, sub(at2(m, j), f.o)); if (Math.abs(s) > 1e-6) score += Math.sign(s); }
     const side = score > 0 ? -1 : score < 0 ? 1 : f.v[1] > 1e-9 || (Math.abs(f.v[1]) <= 1e-9 && f.v[0] < 0) ? 1 : -1;
@@ -259,11 +292,15 @@ function neighboursOf(m: Mol, all = false): (i: number) => number[] {
   return (i) => near![i] ?? [];
 }
 
-export const sameAtoms = (a: number[], b: number[]) => a.length === b.length && a.every((x, k) => x === b[k]);
+const sameEnd = (a: End, b: End) => a === b || (!isAtom(a) && !isAtom(b) && a[0] === b[0] && a[1] === b[1]);
+export const sameEnds = (a: End[], b: End[]) => a === b || (a.length === b.length && a.every((x, k) => sameEnd(x, b[k])));
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
-// Each measurement after an edit: its value and text worked out from its atoms, and its label placed (or, when the
-// edit moved the label alone, its offset kept). A measurement whose atoms are not 2 to 4 distinct atoms of the
-// drawing becomes plain text. before: the drawing the edit started from (none when a drawing is opened or pasted).
+// A measurement's free ends moved by f (a move, turn, flip or scale of what it is part of). The same object when it has none.
+export const moveEnds = (x: Measure, f: (q: P) => P): Measure => (x.ends.every(isAtom) ? x : { ...x, ends: x.ends.map((e) => (isAtom(e) ? e : f(e))) });
+// Each measurement after an edit: its value and text worked out from its ends, and its label placed (or, when the
+// edit moved the label alone, its offset kept). A label moved by the same step as every one of its atoms (or with no
+// atom end) takes its free ends with it: the measurement was moved whole. A measurement that is not sound
+// (soundMeasure) becomes plain text. before: the drawing the edit started from (none when a drawing is opened or pasted).
 // docStyle: the document's style, when the drawing does not carry it (a file being read). kept: a drawing read from a
 // file, whose labels stay where the file has them (where Octet placed them when it saved), so it opens as it was
 // saved; only their values are worked out again. Returns after itself when nothing changes, and at once when it has no
@@ -288,58 +325,64 @@ export function settleMeasures(before: Mol | undefined, after: Mol, docStyle?: D
     if (!c.measure) return c;
     if (!soundMeasure(c.measure, after.atoms.length)) { changed = true; const { measure: _, ...plain } = c; return plain; }
     const p = was?.get(c.id);
-    if (touched && p === c && c.chemical === false && !c.runs && c.measure.atoms.every((i) => !touched.has(k.comp[i]))) {
+    if (touched && p === c && c.chemical === false && !c.runs && atomEnds(c.measure).every((i) => !touched.has(k.comp[i]))) {
       if (taken.length < 100) taken.push(box(c, c.text));
       return c;
     }
     if (kept) {
-      const text = measureText(kindOf(c.measure.atoms.length)!, measureValue(after, c.measure.atoms, unitOf(after, c.measure.atoms, k, memo)));
+      const text = measureText(kindOf(c.measure.ends.length)!, measureValue(after, c.measure.ends, unitFor(after, c.measure.ends, k, memo)));
       if (taken.length < 100) taken.push(box(c, text));
       if (text === c.text && c.chemical === false && !c.runs) return c;
       changed = true;
       const { runs: _r, ...rest } = c;
       return { ...rest, text, chemical: false as const };
     }
-    const atoms = c.measure.atoms, kind = kindOf(atoms.length)!, text = measureText(kind, measureValue(after, atoms, unitOf(after, atoms, k, memo)));
+    let ends = c.measure.ends;
+    if (p && before && !ends.every(isAtom) && sameEnds(p.measure.ends, ends)) {
+      const d: P = [c.x - p.x, c.y - p.y], by = (i: number) => { const a = before.atoms[i]?.location, b = after.atoms[i].location; return !!a && near(b[0] - a[0], d[0]) && near(b[1] - a[1], d[1]); };
+      if ((!near(d[0], 0) || !near(d[1], 0)) && ends.every((e) => !isAtom(e) || by(e))) ends = ends.map((e) => (isAtom(e) ? e : [e[0] + d[0], e[1] + d[1]]));
+    }
+    const kind = kindOf(ends.length)!, text = measureText(kind, measureValue(after, ends, unitFor(after, ends, k, memo)));
     const size = (c.size ?? style.captionSize) / style.bond, w = widthOf(text, size), lift = ((ASCENT - DESCENT) / 2) * size;
     // The label's middle from its anchor, and back, by its alignment.
     const shift = c.align === "left" || c.align === "justify" ? w / 2 : c.align === "right" ? -w / 2 : 0;
-    const f = measureFrame(after, atoms), prev = was?.get(c.id);
+    const f = measureFrame(after, ends), prev = was?.get(c.id);
     let at = c.measure.at, middle: P;
-    if (prev && sameAtoms(prev.measure.atoms, atoms) && (!near(prev.x, c.x) || !near(prev.y, c.y))) {
+    if (prev && sameEnds(prev.measure.ends, ends) && (!near(prev.x, c.x) || !near(prev.y, c.y))) {
       // Moved alone: it stays where it was put, and keeps that place in its frame from now on.
       middle = [c.x + shift, c.y + lift];
       const d = sub(middle, f.o);
       at = [Math.round(dot(d, f.u) * 1e6) / 1e6, Math.round(dot(d, f.v) * 1e6) / 1e6];
-    } else middle = at ? add(f.o, add(mul(f.u, at[0]), mul(f.v, at[1]))) : autoPlace(after, atoms, f, w, (ASCENT + DESCENT) * size, around, taken);
+    } else middle = at ? add(f.o, add(mul(f.u, at[0]), mul(f.v, at[1]))) : autoPlace(after, ends, f, w, (ASCENT + DESCENT) * size, around, taken);
     // (The first hundred labels keep clear of each other: a hostile file of thousands costs no more than that.)
     if (taken.length < 100) taken.push([middle[0] - w / 2, middle[1] - ((ASCENT + DESCENT) * size) / 2, middle[0] + w / 2, middle[1] + ((ASCENT + DESCENT) * size) / 2]);
-    const x = middle[0] - shift, y = middle[1] - lift, same = c.text === text && near(c.x, x) && near(c.y, y) && at === c.measure.at && !c.runs && c.chemical === false;
+    const x = middle[0] - shift, y = middle[1] - lift, same = c.text === text && near(c.x, x) && near(c.y, y) && at === c.measure.at && ends === c.measure.ends && !c.runs && c.chemical === false;
     if (same) return c;
     changed = true;
     const { runs: _r, ...rest } = c;
-    return { ...rest, text, x, y, chemical: false as const, measure: at ? { atoms, at } : { atoms } };
+    return { ...rest, text, x, y, chemical: false as const, measure: at ? { ends: ends, at } : { ends: ends } };
   });
   return changed ? { ...after, captions: out } : after;
 }
 
-// A measurement's lines on the page (bond lengths, y up): a dashed line between each two atoms in a row that no bond
-// joins, each end cut back by trim (to clear a label), and an angle's arc at its middle atom (from one leg round to
-// the other, the short way). The value and the label are the caption's.
+// A measurement's lines on the page (bond lengths, y up): a dashed line between each two ends in a row that no bond
+// joins, each atom end cut back by trim (to clear a label), and an angle's arc at its vertex (from one leg round to the
+// other, the short way). The value and the label are the caption's.
 export type MeasureInk = { lines: [P, P][]; arc?: { centre: P; r: number; start: number; sweep: number } };
-export function measureInk(m: Mol, atoms: number[], trim: (i: number) => number = () => 0): MeasureInk {
-  const near = neighboursOf(m, true), lines: [P, P][] = [];
-  for (let k = 1; k < atoms.length; k++) {
-    const [i, j] = [atoms[k - 1], atoms[k]];
-    if (i >= m.atoms.length || j >= m.atoms.length || near(i).includes(j)) continue;
-    const s = at2(m, i), t = at2(m, j), u = unit(sub(t, s)), a = trim(i), b = trim(j), l = len(sub(t, s));
+export function measureInk(m: Mol, ends: End[], trim: (i: number) => number = () => 0): MeasureInk {
+  const near = neighboursOf(m, true), lines: [P, P][] = [], gone = ends.some((e) => isAtom(e) && e >= m.atoms.length), cut = (e: End) => (isAtom(e) ? trim(e) : 0);
+  if (gone) return { lines };
+  for (let k = 1; k < ends.length; k++) {
+    const [i, j] = [ends[k - 1], ends[k]];
+    if (isAtom(i) && isAtom(j) && near(i).includes(j)) continue;
+    const s = endAt(m, i), t = endAt(m, j), u = unit(sub(t, s)), a = cut(i), b = cut(j), l = len(sub(t, s));
     if (u && l - a - b > 1e-6) lines.push([add(s, mul(u, a)), sub(t, mul(u, b))]);
   }
-  if (atoms.length !== 3 || atoms.some((i) => i >= m.atoms.length)) return { lines };
-  const [a, o, c] = atoms.map((i) => at2(m, i)), ua = unit(sub(a, o)), uc = unit(sub(c, o));
+  if (ends.length !== 3) return { lines };
+  const [a, o, c] = ends.map((e) => endAt(m, e)), ua = unit(sub(a, o)), uc = unit(sub(c, o));
   if (!ua || !uc) return { lines };
   const start = Math.atan2(ua[1], ua[0]), sweep = Math.atan2(cross(ua, uc), dot(ua, uc));
-  return { lines, arc: { centre: o, r: Math.max(ARC, trim(atoms[1]) + 0.1), start, sweep } };
+  return { lines, arc: { centre: o, r: Math.max(ARC, cut(ends[1]) + 0.1), start, sweep } };
 }
 // Whether an atom shows a label, which a measurement's line stops short of.
 export const labelled = (a: Atom) => a.label !== "C" || !!a.text || !!a.shown;
@@ -347,12 +390,12 @@ export const labelled = (a: Atom) => a.label !== "C" || !!a.text || !!a.shown;
 export const arcPoints = (a: NonNullable<MeasureInk["arc"]>, n = 24): P[] =>
   Array.from({ length: n + 1 }, (_, k) => { const t = a.start + (a.sweep * k) / n; return [a.centre[0] + a.r * Math.cos(t), a.centre[1] + a.r * Math.sin(t)]; });
 
-// A measurement copied or moved to new atom numbers: undefined when `to` leaves out any of its atoms (it cannot be
-// measured without them), or two of them become one.
+// A measurement copied or moved to new atom numbers, its free ends as they are: undefined when `to` leaves out any of
+// its atoms (it cannot be measured without them), or two of them become one.
 export function remapMeasure(x: Measure, to: (i: number) => number | undefined): Measure | undefined {
-  const atoms = x.atoms.map(to);
-  if (atoms.some((i) => i === undefined) || new Set(atoms).size !== atoms.length) return undefined;
-  return { ...x, atoms: atoms as number[] };
+  const ends = x.ends.map((e) => (isAtom(e) ? to(e) : e)), atoms = ends.filter((e) => typeof e === "number");
+  if (ends.some((e) => e === undefined) || new Set(atoms).size !== atoms.length) return undefined;
+  return { ...x, ends: ends as End[] };
 }
 // A caption with its measurement remapped, or as plain text when the measurement cannot go with it (a label copied
 // without its atoms). Other captions as they are.
@@ -363,13 +406,3 @@ export function remapCaption(c: Caption, to: (i: number) => number | undefined):
   const { measure: _, ...plain } = c;
   return plain;
 }
-
-// The structures (by their atoms) these atoms are in.
-export function structuresOf(m: Mol, atoms: number[]): number[][] {
-  const k = chemistry(m), want = new Set(atoms.map((i) => k.comp[i])), out = new Map<number, number[]>();
-  k.comp.forEach((c, i) => { if (want.has(c)) { const g = out.get(c) ?? []; g.push(i); out.set(c, g); } });
-  return [...out.values()];
-}
-// A structure drawn flat: no atom has depth, and none has depth shading (3D Clean Up turns it on, so a structure that
-// is flat in 3D, such as anti butane, is not cleaned up again each time).
-export const flatAtoms = (m: Mol, g: number[]) => g.every((i) => Math.abs(m.atoms[i].location[2] ?? 0) < 1e-6 && !m.atoms[i].shade);

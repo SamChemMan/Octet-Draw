@@ -4,7 +4,7 @@
 // cleanUpReaction lays it out as ChemDraw 26.1's Structure > Clean Up Reaction does (⇧⌘X). The two are kept apart,
 // so a fuller reading of reactions (reaction interpretation) can replace findReaction and keep the layout.
 import { GAP_ARROW_PT, LINE, curveBox, curved, isNumber, straightArrow, type Arrow, type Box, type Caption, type Mol, type Shape } from "./render.ts";
-import { addCaption, fragments, moveAtoms } from "./edit.ts";
+import { addCaption, fragments, measuredBy, moveAtoms } from "./edit.ts";
 import { compounds, symbolOwners } from "./mixtures.ts";
 
 type P = [number, number];
@@ -338,7 +338,7 @@ function findRow(m: Mol, arrowId: number, arrows: Arrow[], drawn: Drawn, caption
   // Its captions: the plus signs and text in the row, each arrow's conditions, the numbers and names under its
   // structures, and the text its parts carry.
   const inRow = new Set(atoms), own = new Set([...steps, ...condSteps].flatMap((s) => (s.kind === "plus" || s.kind === "text" ? [s.id] : [])).concat(carries.flatMap((k) => k.captions)));
-  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i))) || (c.measure && c.measure.atoms.every((i) => inRow.has(i)))).map((c) => c.id);
+  const captions = (m.captions ?? []).filter((c) => own.has(c.id) || (c.on && arrowIds.includes(c.on.arrow)) || (c.under && c.under.every((i) => inRow.has(i))) || (c.measure && measuredBy(c.measure, inRow))).map((c) => c.id);
   return { steps, arrows: arrowIds, atoms, captions, carried: [...new Set([...steps.flatMap((s) => (s.kind === "plus" && s.shape ? [s.id] : [])), ...carries.flatMap((k) => [...k.arrows, ...k.shapes, ...k.ends.map((e) => e[0])])])], conditions };
 }
 // A reaction wrapped onto lines (as Clean Up Reaction wraps one wider than the page) reads as one reaction: a line that

@@ -279,7 +279,7 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual([notes(withoutNotes(m)), withoutNotes(m).data], [[], m.data]);
 }
 
-// A measured structure (issue 85) keeps its fields: Measure's 3D clean-up keeps them, a measurement's label is never
+// A measured structure (issue 85) keeps its fields: measuring changes nothing in it, a measurement's label is never
 // a field's text, and a join keeps both structures' fields and the measurement on the atoms it joined.
 {
   const r = E.addMeasure(withFields, [0, 2]);
@@ -291,13 +291,13 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.ok(!sd.includes("Å"), "nor an SD item");
   assert.deepEqual(values(fromCdxml(toCdxml(measured, DEFAULT_STYLE)).mol, P), values(withFields, P), "CDXML keeps both");
   // Ethanol measured C to O, then moved so its first atom lies on propane's last: they join.
-  const [withLabel] = E.addCaption(withFields, { text: "–", x: 0, y: 0, chemical: false, measure: { atoms: [3, 5] } });
+  const [withLabel] = E.addCaption(withFields, { text: "–", x: 0, y: 0, chemical: false, measure: { ends: [3, 5] } });
   const moved: Mol = { ...withLabel, atoms: withLabel.atoms.map((a, i) => (Q.includes(i) ? { ...a, location: [a.location[0] - 4, a.location[1], 0] as [number, number, number] } : a)) };
   const joined = E.joinOverlaps(moved, new Set(Q));
   assert.ok(joined.joined);
   const one = [0, 1, 2, 3, 4];
   assert.deepEqual(values(joined.mol, one), [...values(withFields, P), ...values(withFields, Q)], "one structure with both lists, the earlier first");
-  assert.deepEqual(joined.mol.captions!.find((c) => c.measure)!.measure!.atoms, [2, 4], "the measurement goes on with the atom it joined");
+  assert.deepEqual(joined.mol.captions!.find((c) => c.measure)!.measure!.ends, [2, 4], "the measurement goes on with the atom it joined");
 }
 
 // S9: a hostile SD file: a giant value, 20,000 items on one record, a header with no <name>, NUL and ESC in values,

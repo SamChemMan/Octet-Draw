@@ -4,11 +4,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useModal } from "./Dialog";
+import { movePins } from "./kinds";
 
 export type Command = { id: string; name: string; group: string; icon?: React.ReactNode; keys?: string; words?: string; run: () => void };
 
+// Recent commands, with 1.1.2's Shape > Pen and Edit curve as the Pen tool's (movePins).
 const RECENT = "octet.recent";
-const recent = (): string[] => { try { const v = JSON.parse(localStorage.getItem(RECENT) ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } };
+const recent = (): string[] => { try { const v = JSON.parse(localStorage.getItem(RECENT) ?? "[]"); return Array.isArray(v) ? movePins(v.filter((x) => typeof x === "string")) : []; } catch { return []; } };
 const remember = (id: string) => { try { localStorage.setItem(RECENT, JSON.stringify([id, ...recent().filter((x) => x !== id)].slice(0, 8))); } catch { /* storage is optional */ } };
 
 // How well a command matches what is typed: the whole name, its start, a word's start, anywhere in it, its other

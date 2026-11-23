@@ -9,22 +9,22 @@
 // Octet='{"d":1}', and Octet skips them when it reads its own file back.
 
 import { charsetCode, isSymbolFont, symbolText } from "./charset.ts";
-import { FONTS, PAGES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
+import { FONTS, PAGES, PURPOSES, fontName, pageSize, readGuides, readStyle, type DocStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
 import {
-  HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
+  HBOND, HIGHLIGHT, LIPID_HEAD, membrane, orderOf, QUADRUPLE, ringCircleRadius, SHADE, TLC_FRONT, TLC_ORIGIN, bendPoint, cellRuns, circledRings, curved, headsOf, hydrogens, isBracket, linesOf, markAt, scaleOf, settleShape, shapeBounds, straightArrow, tableLayout, takesHeads, shapesHeads, tlcLayout, turnPoint, TABLE_PAD, bandRf, bandSize, gelScale, namesTurn, plasmidLayout, sizeText, spotPath,
   ORBITAL_SHAPES, PHASES, ALL_ARROW_KINDS, freeSymbol, symbolSize, partialText, symbolCharge, signOf, isChargeKind, reKind, DIGIT, placedAt, headSize, headOfLength, ellipsePoints, sizedHead, turns, ASCENT, DESCENT, GAP_ARROW_PT, LINE, isNumber, lineOffsets, signBonds, signSpot, turnPx, ION_GAP, type HeadSize,
   type Annotation, type Arrow, type ArrowEnd, type ArrowKind, type Kept, type Atom, type AtomQuery, type Bond, type Polymer, type Box, type Caption, type CurveFill, type CurvePoint, type Display, type Grid, type Group, type Head, type HeadShape, type RingFill,
   type FreeSymbol, type Ink, type LineStyle, type Mol, type OrbitalShape, type Phase, type Plasmid, type Shape, type ShapeKind, type Spot, type Table, type TableLine, type Tlc,
 } from "./render.ts";
-import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
-import { labelStyle, normalise, plainOf, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
+import { ELEMENTS, anchorElement, chemicalText, formulaCaption, formulaOver, formulaRuns, formulaTextRuns, isElement, pieces, standsIn, units } from "./labels.ts";
+import { labelStyle, normalise, plainOf, readTableRuns, runsOf, styleOf, styled, type RunStyle, type TextRun } from "./richtext.ts";
 import { findReaction } from "./reaction.ts";
 import { readGrid } from "./stoich.ts";
 import { readTie, retie, tieable } from "./arrowlink.ts";
 import { fragments, groupParents, markDirections, oldLigands, renumberCentre, settleHydrogens, tidyGroups } from "./edit.ts";
 import type { StereoText } from "./stereonames.ts";
-import { labelled, measureInk, remapCaption, settleMeasures, soundMeasure } from "./measurement.ts";
+import { atomEnds, isAtom, labelled, measureInk, readMeasure, remapCaption, settleMeasures } from "./measurement.ts";
 import { altGroup, elementList, enclosed, linkNode, polymerLabel, queryLabel, readPolymer, readRgroup, rgroupMembers, rNumber, USAGES, USAGE_KINDS } from "./query.ts";
 import { cross, len, ligandEllipse, readSign, SIGN_REACH, SIGN_SIZES, signPoint, sub, type DataField } from "./render.ts";
 import { ATTACHED, cleanName, cleanValue, MAX_DATA, MAX_EACH, MAX_NAME, NO_NAME, remapData, withProperties } from "./datafields.ts";
@@ -271,8 +271,30 @@ function printable(style: Pick<DocStyle, "page" | "custom" | "landscape">): [num
   const [w, h] = pageSize(style);
   return [(w * 72) / 25.4 - 72, (h * 72) / 25.4 - 72];
 }
+// ChemDraw keeps a page's own size only as a poster (DrawingSpace poster, with Width and Height). Otherwise a page is
+// its printer's paper, A4 or US Letter. So every page but A4 and Letter (either way round, to 1 mm) is a poster, when
+// ChemDraw 22.2 opens it (tested 19 November 2026). It does not open a poster with a side of 0 pt or less after the
+// margins (a page side of 25.4 mm or less), and it stops (quits with no message) as it saves or closes about the fifth
+// poster in a session with a side of 42.3 pt or less (a page side of 40.3 mm; 40.4 mm and more never did), so each side
+// must be 45 pt or more (41.3 mm). It makes a poster bigger than its drawing (all objects, wherever they are) when it
+// opens it, and that can take minutes, so the drawing must be smaller than the page each way, with 9 pt to spare (a
+// margin; a bond 0.5 pt shorter than the page opened at once). Any other page is written as A4 and Letter are, as before.
+const POSTER_MIN = 45;
+function poster(style: Pick<DocStyle, "page" | "custom" | "landscape">, [W, H]: number[], drawing?: Box): boolean {
+  const [w, h] = pageSize(style), near = ([pw, ph]: [number, number]) => (Math.abs(w - pw) < 1 && Math.abs(h - ph) < 1) || (Math.abs(w - ph) < 1 && Math.abs(h - pw) < 1);
+  return !near(PAGES.A4) && !near(PAGES.Letter) && W >= POSTER_MIN && H >= POSTER_MIN && (!drawing || (drawing[2] - drawing[0] <= W - 9 && drawing[3] - drawing[1] <= H - 9));
+}
 // The middle of a page side, on the 0.01 pt grid so Octet's 0,0 is written exactly.
 const middle = (side: number) => Math.round(side * 50) / 100;
+// Labels with a generic part that ChemDraw reads as an element from their text, whatever the node's type: Y (yttrium),
+// M with a Roman oxidation state, in a bracket or not (M, I and V for M(IV)), and every label with Ar in it (Ar, ArH,
+// Ar1, OAr, ArB(OH)2, BuAr: argon, with an invalid valence). Ar followed by a small letter is a word (Aryl, Arg). Their
+// text is written as not chemistry (InterpretChemically no), which ChemDraw keeps with no argon in it, and read back as
+// the label it was. An element list ([Ar,Kr]), alternative group or link node is no such label.
+const AS_ELEMENTS = /^(?:Y|M(?:I{1,3}|IV|VI{0,3}|IX|X|\((?:I{1,3}|IV|VI{0,3}|IX|X)\)))$|Ar(?![a-z])/;
+const asElements = (text = "") => AS_ELEMENTS.test(text) && !["list", "alt", "link"].includes(queryLabel(text) ?? "");
+// A label's text is not chemistry when the user turned Interpret Chemically off, or when it is one of those.
+const notChemistry = (a: Atom) => a.chemical === false || asElements(a.text);
 const hex = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -360,7 +382,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const ownBond = (f: number, b: Bond) => (f === 1 && !b.line && !b.bold ? {} : { BondLength: fmt(B * f), LineWidth: fmt((b.line ?? line) * f), BoldWidth: fmt((b.bold ?? style.bold) * f), HashSpacing: fmt(style.hash * f), MarginWidth: fmt(style.margin * f) });
   const ownScale = (x: { scale?: number }) => (x.scale && x.scale !== 1 ? x.scale : undefined);
   // A reaction arrow's stoichiometry grid, kept in Octet's own data on the arrow (ChemDraw's grid is not in CDXML).
-  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour, layout: g.layout, roles: g.roles, taken: g.taken, conc: g.conc, conditions: g.conditions, step: g.step, at: g.at, free: g.free, own: g.own, text: g.text }; };
+  const gridOf = (arrow: number) => { const g = mol.grids?.find((x) => x.arrow === arrow); return g && { typed: g.typed, limiting: g.limiting, hidden: g.hidden, colour: g.colour, layout: g.layout, roles: g.roles, taken: g.taken, conc: g.conc, conditions: g.conditions, step: g.step, at: g.at, free: g.free, own: g.own, text: g.text, runs: g.runs }; };
 
   // Ids: Octet's own object ids where they are sound, everything else from one counter above them (spec 2).
   const own = [...(mol.captions ?? []), ...(mol.arrows ?? []), ...(mol.shapes ?? []), ...(mol.cycles ?? []), ...(mol.groups ?? [])].map((x) => x.id);
@@ -404,7 +426,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     for (const i of g.atoms) if (!groupOfAtom.has(i)) groupOfAtom.set(i, g.id);
   }
   for (const c of mol.captions ?? []) {
-    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(c.measure.atoms[0]) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
+    const host = groupOfItem.get(c.id) ?? (c.under?.length ? groupOfAtom.get(c.under[0]) : c.measure ? groupOfAtom.get(atomEnds(c.measure)[0] ?? -1) : c.on ? groupOfItem.get(c.on.arrow) : c.cycle && groupOfItem.get(c.cycle.cycle));
     if (host !== undefined) groupOfItem.set(c.id, host);
   }
   const put = (xml: string, rank: number, box: Box, item?: number) => outs.push({ xml, rank, box, group: item === undefined ? undefined : groupOfItem.get(item) });
@@ -543,7 +565,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     } else if (sh.kind === "table") {
       // The table's rules and cells, laid out as Octet lays them out (text measured with Arial's widths).
       // The text at its own size (or the document's) times the table's scale.
-      const own = sh.size ?? style.captionSize, size = own * f, face = (sh.bold ? 1 : 0) | (sh.italic ? 2 : 0) | (sh.underline ? 4 : 0);
+      const own = sh.size ?? style.captionSize, size = own * f, whole: RunStyle = { bold: sh.bold || undefined, italic: sh.italic || undefined, underline: sh.underline || undefined }, faced = face(whole);
       const t = tableLayout(sh, (s) => widthOf(s, own) / B, style.captionSize), lines = new Set(linesOf(sh.table)), inner = (n: number) => Array.from({ length: Math.max(0, n - 1) }, (_, k) => k + 1);
       const across = [...(lines.has("top") ? [t.y1] : []), ...inner(t.rows).filter((r) => lines.has("rows") || (r === 1 && lines.has("header"))).map((r) => t.row(r)), ...(lines.has("bottom") ? [t.y0] : [])];
       const down = [...(lines.has("left") ? [t.x0] : []), ...(lines.has("cols") ? inner(t.cols).map((k) => t.col(k)) : []), ...(lines.has("right") ? [t.x1] : [])];
@@ -553,9 +575,11 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
         if (!text) return;
         const align = sh.table?.align?.[k] ?? "centre", x = align === "left" ? t.col(k) + TABLE_PAD * f : align === "right" ? t.col(k + 1) - TABLE_PAD * f : t.col(k) + t.widths[k] / 2;
         const p = at([x, t.row(r) - t.heights[r] / 2]), q: P = [p[0], p[1] + 0.35 * size], just = align === "centre" ? "Center" : align === "right" ? "Right" : undefined;
-        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, run(text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face })));
+        // Each character in its own style (cellRuns, else the table's), formula counts as subscripts, as the page draws it.
+        const spans = formulaOver(cellRuns(sh.table, r, k) ?? [{ ...whole, text }]);
+        kids.push(el("t", { id: fresh(), p: pt(q), Z: Z(), color: colour(sh.colour), CaptionJustification: just, Justification: just, LineHeight: "auto", Octet: DERIVED }, spans.map((x) => run(x.text, { font: sh.font ?? style.captionFont, size, colour: sh.colour, face: face(x) })).join("")));
       }));
-      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: face || undefined, scale: ownScale(sh) }) }, kids.join("") + notes(sh.notes)), 0, box, sh.id);
+      put(el("group", { id, BoundingBox: boxText(box), Z: Z(), color: colour(sh.colour), Octet: priv({ kind: "table", table: sh.table ?? { cells: [[""]] }, dashed: sh.dashed, font: sh.font, size: sh.size, face: faced || undefined, scale: ownScale(sh) }) }, kids.join("") + notes(sh.notes)), 0, box, sh.id);
     } else if (sh.kind === "gel" || sh.kind === "plasmid") {
       // A gel or plasmid map as the lines, bands, arrows and text ChemDraw shows, laid out as Octet draws it, with the
       // object itself in Octet's data (as a table).
@@ -798,7 +822,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // A scaled atom's label size, as drawn (its own size, or the document's, times its scale), and its line width
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
-      Octet: priv({ cip: stereoAdded.has(i) ? 1 : undefined, hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined }),
+      Octet: priv({ cip: stereoAdded.has(i) ? 1 : undefined, hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, sign: a.charge ? a.sign : undefined, scale: ownScale(a), opacity: typeof a.shade === "number" ? a.shade : undefined, plain: plain && asElements(a.text) ? 1 : undefined }),
     }, (inner ? nested(i, inner, !!known && !opts.own?.(a.text!)) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
@@ -894,7 +918,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // A link node's repeat range ([CH2]3-7) is subscript, apart from the formula before it.
     const range = linkNode(text) ? /\d{1,2}-\d{1,2}$/.exec(text)![0] : "";
     return {
-      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: a.chemical === false ? "no" : undefined,
+      xml: el("t", { p: pt([x, y]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: stack, InterpretChemically: notChemistry(a) ? "no" : undefined,
         RotationAngle: rotationAngle(a.labelAngle) },
         (iso ? run(iso, { ...style2, face: 0x40 | look }) : "") + labelText(a, text.slice(0, text.length - range.length), 0, { ...style2, face: 0x60 | look }) + (range ? run(range, { ...style2, face: 0x20 | look }) : "")
         + (sign ? run(sign, { ...style2, colour: a.sign?.colour ?? a.colour, face: 0x40 | look }) : "")),
@@ -939,7 +963,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     const text = parts.map(([t]) => t).join(""), ends = [...[...text.matchAll(/\n/g)].map((m) => m.index! + 1), text.length];
     return {
       xml: el("t", { p: pt([x, y0]), BoundingBox: boxText(box), color: colour(a.colour), LabelJustification: just, Justification: just === "Left" ? undefined : just, LabelAlignment: a.align === "above" ? "Above" : a.align === "below" ? "Below" : undefined,
-        InterpretChemically: a.chemical === false ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
+        InterpretChemically: notChemistry(a) ? "no" : undefined, RotationAngle: rotationAngle(a.labelAngle), LineStarts: ends.join(" ") },
         parts.filter(([t]) => t).map(([t, face, at]) => (at === undefined ? run(t, { ...style2, colour: a.sign?.colour ?? a.colour, face }) : labelText(a, t, at, { ...style2, face }))).join("")),
       box,
     };
@@ -1150,7 +1174,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   for (const c of mol.captions ?? []) {
     if (!c.measure) continue;
     zOrder = c.order;
-    const ink = measureInk(mol, c.measure.atoms, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
+    const ink = measureInk(mol, c.measure.ends, (i) => (labelled(mol.atoms[i]) ? 0.35 : 0.15));
     for (const [from, to] of ink.lines) arrowOut({ id: -1, kind: "line", style: "dashed", from, to, ...(c.colour ? { colour: c.colour } : {}) }, true, undefined, c.id);
     if (ink.arc) {
       const { centre: o, r, start, sweep } = ink.arc, end = start + sweep, from: P = [o[0] + r * Math.cos(start), o[1] + r * Math.sin(start)], to: P = [o[0] + r * Math.cos(end), o[1] + r * Math.sin(end)];
@@ -1229,7 +1253,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       CaptionJustification: just, Justification: just, LineHeight: c.lineHeight === "variable" ? undefined : typeof c.lineHeight === "number" ? fmtSize(c.lineHeight) : "auto",
       CaptionLineHeight: c.lineHeight === "variable" ? "variable" : undefined, InterpretChemically: c.chemical === false || datumOf.has(c.id) ? "no" : undefined, RotationAngle: rotationAngle(c.angle),
       Octet: priv({ under: c.under?.map((i) => nodeId.get(i)).filter((n) => n !== undefined), cycle: c.cycle && { ...c.cycle, cycle: idOf.get(c.cycle.cycle) }, xy: x !== c.x || y !== c.y ? [c.x, c.y] : undefined, placed: hand ? 1 : undefined, gap: c.on?.gap,
-        measure: c.measure && { atoms: c.measure.atoms.map((i) => nodeId.get(i)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
+        measure: c.measure && { ends: c.measure.ends.map((e) => (isAtom(e) ? nodeId.get(e) : e)), at: c.measure.at }, align: align !== own ? c.align ?? "centre" : undefined, width: c.width && Math.round(c.width * B) / B !== c.width ? c.width : undefined, role: c.role, formula, auto: c.auto ? 1 : undefined, field: c.field, live }),
     }, runs.map((r) => run(r.text, { font: r.font ?? c.font ?? style.captionFont, size: r.size ?? size, colour: r.colour ?? c.colour, face: face({ ...whole, ...r }) })).join("") + notes(c.notes)), 2, box, c.id);
     if (c.property && !live) {
       const atoms = new Set(c.property.atoms.filter((i) => i < mol.atoms.length));
@@ -1309,7 +1333,8 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   // only when the drawing has an Author (changedBy): with none, no name goes in the file.
   const said = mol.annotations?.findIndex((a) => a.keyword === COMMENT) ?? -1, comment = said < 0 ? undefined : mol.annotations![said].content;
   const byAt = mol.annotations?.findIndex((a) => a.keyword === CHANGED_BY) ?? -1, by = changedBy(mol.annotations);
-  const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations?.filter((_, k) => k !== said && k !== byAt)));
+  const big = poster(style, [W, H], top.length ? all : undefined), pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1,
+    DrawingSpace: big ? "poster" : undefined, Width: big ? fmt(W) : undefined, Height: big ? fmt(H) : undefined }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations?.filter((_, k) => k !== said && k !== byAt)));
   const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
   for (const c of style.palette ?? []) colour(c.hex);
@@ -1456,7 +1481,7 @@ export function readPlasmid(v: unknown): Plasmid | undefined {
   };
 }
 
-// A table from Octet's own data, if it is sound (the same limits as Octet's file format).
+// A table from Octet's own data, if it is sound (the same limits as Octet's file format), with its cells' styles.
 function readTable(v: unknown): Table | undefined {
   const t = v as Record<string, unknown>, list = (x: unknown, most: number, ok: (y: unknown) => boolean) => x === undefined || (Array.isArray(x) && x.length <= most && x.every(ok));
   if (!t || typeof t !== "object" || !Array.isArray(t.cells) || !t.cells.length || t.cells.length > 100) return undefined;
@@ -1464,8 +1489,9 @@ function readTable(v: unknown): Table | undefined {
   const size = (n: unknown) => isNum(n, 0.002, 5000);
   if (!list(t.widths, 20, size) || !list(t.heights, 100, size) || !list(t.lines, 7, (x) => ["top", "bottom", "left", "right", "header", "rows", "cols"].includes(x as string))
     || !list(t.align, 20, (x) => ["left", "centre", "right"].includes(x as string)) || (t.weight !== undefined && !isNum(t.weight, 0.001, 1000)) || (t.grid !== undefined && t.grid !== true)) return undefined;
+  const runs = readTableRuns(t.runs, t.cells as string[][]);
   return {
-    cells: t.cells as string[][], ...(t.grid ? { grid: true } : {}), ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
+    cells: t.cells as string[][], ...(runs ? { runs } : {}), ...(t.grid ? { grid: true } : {}), ...(t.widths ? { widths: t.widths as number[] } : {}), ...(t.heights ? { heights: t.heights as number[] } : {}),
     ...(t.lines ? { lines: [...new Set(t.lines as TableLine[])] } : {}), ...(t.align ? { align: t.align as Table["align"] } : {}), ...(t.weight !== undefined ? { weight: t.weight as number } : {}),
   };
 }
@@ -1562,7 +1588,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
   const r = root.attrs, bondPt = real(r.BondLength), B = bondPt && bondPt >= 1 && bondPt <= 200 ? bondPt : 14.4;
   const mm = [((W + 72) * 25.4) / 72, ((H + 72) * 25.4) / 72];
   const paper = Object.entries(PAGES).find(([, [w, h]]) => (Math.abs(w - mm[0]) < 1 && Math.abs(h - mm[1]) < 1) || (Math.abs(h - mm[0]) < 1 && Math.abs(w - mm[1]) < 1));
-  const style = readStyle({
+  // A poster from another program (DrawingSpace poster, as Octet writes every page but A4 and Letter) on a built-in
+  // purpose's page has that purpose: A0 is Poster's, a 16:9 slide Slides'.
+  const kind = !octet && page?.attrs.DrawingSpace === "poster" ? (["poster", "slides"] as const).find((k) => PURPOSES[k].page === paper?.[0] && PURPOSES[k].landscape === mm[0] > mm[1] + 1) : undefined;
+  let style = readStyle({
     page: paper?.[0] ?? "Custom", landscape: !!paper && mm[0] > mm[1] + 1, custom: mm.map((v) => Math.round(Math.min(2000, Math.max(10, v)) * 100) / 100),
     ...(octet ? { page: top!.page, custom: top!.custom, landscape: top!.landscape === true, edges: top!.edges !== false, grid: top!.grid, background: top!.background, scale: top!.scale, purpose: top!.purpose, palette: top!.palette, circled: top!.circled === 1, arrowGap: top!.arrowGap } : {}),
     bond: B, line: real(r.LineWidth), bold: real(r.BoldWidth), margin: real(r.MarginWidth), hash: real(r.HashSpacing), spacing: real(r.BondSpacing),
@@ -1574,7 +1603,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Interpret Chemically When Possible: on when the file does not say (the spec's default).
     interpret: r.InterpretChemically === undefined || yes(r.InterpretChemically),
     chainAngle: real(r.ChainAngle),
+    ...(kind ? { purpose: kind } : {}),
   });
+  // Its scale too, when the document's sizes are a preset's at the purpose's scale (ACS at 300% for Poster).
+  if (kind) { const at = readStyle({ ...style, scale: PURPOSES[kind].scale }); if (at.preset !== "Custom") style = at; }
   // Octet's 0,0 is the middle of the page it writes back (ChemDraw rounds an A4 page to 523 by 770 pt, Octet writes
   // 523.28 by 769.89), so everything keeps its place from the page's top left corner through a save.
   const [ow, oh] = printable(style).map((v) => Number(fmt(v))), ox = pb[0] + middle(ow), oy = pb[1] + middle(oh);
@@ -1887,7 +1919,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // colour.
     const runs = ss.map((k, j): TextRun => { const f = int(k.attrs.face) ?? 0; return { text: k.text, ...(f & 1 ? { bold: true } : {}), ...(f & 2 ? { italic: true } : {}), ...(f & 4 ? { underline: true } : {}),
       ...((f & 0x60) === 0x40 ? { script: "super" as const } : (f & 0x60) === 0x20 ? { script: "sub" as const } : {}), ...(hues[j] !== (a.colour ?? "#000000") ? { colour: hues[j] } : {}) }; });
-    if (t) labels.push({ i, text: t.kids.filter((k) => k.name === "s").map((k) => k.text).join(""), type, isotope, plain: t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically),
+    // A label with a generic part written as not chemistry so that ChemDraw keeps its text (AS_ELEMENTS) is chemistry
+    // again, whatever element ChemDraw put on the node; unless Octet marked the user's own Interpret Chemically off
+    // (plain). Its text can end with its charge's sign (Ar+, Y2-), a count only for 2 or more. ChemDraw leaves the charge
+    // off a node it keeps Unspecified (M(IV)+, Ar1+), so in its file a raised run of a sign alone, as Octet writes a
+    // charge, is the charge then.
+    const said = t?.kids.filter((k) => k.name === "s").map((k) => k.text).join("") ?? "", plain = !!t && t.attrs.InterpretChemically !== undefined && !yes(t.attrs.InterpretChemically);
+    const run = plain && !a.charge && !octet ? [...runs].reverse().map((r) => (r.script === "super" ? /^([2-9]?)([+\-−–])$/.exec(cleanText(r.text).trim()) : null)).find(Boolean) : undefined;
+    const z = a.charge ?? (run ? (run[2] === "+" ? 1 : -1) * Number(run[1] || 1) : 0), bare = cleanText(said).trim();
+    const generic = plain && p?.plain !== 1 && asElements(z ? bare.replace(new RegExp(`${Math.abs(z) > 1 ? Math.abs(z) : ""}${z > 0 ? "\\+" : "[\\-−–]"}$`), "") : bare);
+    if (generic && run) a.charge = z;
+    if (t) labels.push({ i, text: said, type: generic ? "Unspecified" : type, isotope, plain: plain && !generic,
       just: t.attrs.LabelJustification ?? t.attrs.Justification, stack: t.attrs.LabelAlignment, turn: t.attrs.RotationAngle, runs });
     else if (type === "GenericNickname" && n.attrs.GenericNickname) labels.push({ i, text: n.attrs.GenericNickname, type });
     else if (type === "ElementList" && n.attrs.ElementList) {
@@ -2157,16 +2199,17 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       const { i, text: raw, type, isotope, plain } = l, a = mol.atoms[i], charge = a.charge ?? 0;
       // A label of more than one line keeps its lines (each trimmed, empty ones left out); an element's label is read
       // without them (ChemDraw's stacked NH can be typed N, Option-Return, H).
-      // The node's charge sign after the label (after its first or last line) is not text. Its run in a colour of its own
+      // The node's charge sign after the label (after its first or last line) is not text, with its count for a charge of
+      // 2 or more (R1+ is R1 with a charge of 1, R12+ is R1 with a charge of 2). Its run in a colour of its own
       // (one the label's other text does not have) is the charge's own colour (Atom.sign, issue 164).
       const signRun = () => {
         const r = [...(l.runs ?? [])].reverse().find((r) => /[+\-−–]$/.test(cleanText(r.text).trim()));
         if (!octet && r?.colour) a.sign = readSign({ ...a.sign, colour: r.colour.toLowerCase() });
       };
-      const rows = cleanText(raw).split("\n").map((t) => t.trim()).filter(Boolean);
+      const rows = cleanText(raw).split("\n").map((t) => t.trim()).filter(Boolean), count = Math.abs(charge) > 1 ? String(Math.abs(charge)) : "";
       for (const k of new Set([0, rows.length - 1])) {
-        const sign = /(\d*)([+\-−–])$/.exec(rows[k] ?? "");
-        if (charge && sign && (sign[2] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].length - (sign[1] === String(Math.abs(charge)) ? sign[0].length : 1)).trim(); signRun(); break; }
+        const sign = /[+\-−–]$/.exec(rows[k] ?? "");
+        if (charge && sign && (sign[0] === "+") === charge > 0) { rows[k] = rows[k].slice(0, rows[k].slice(0, -1).endsWith(count) ? -1 - count.length : -1).trim(); signRun(); break; }
       }
       const lined = rows.filter(Boolean).join("\n");
       let text = lined.replace(/\n/g, "");
@@ -2186,8 +2229,9 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
       if (lined.includes("\n")) text = lined;
       if (text.length > MAX_LABEL || /[<>]/.test(text)) { lose("label text"); text = text.replace(/[<>]/g, "").slice(0, MAX_LABEL).trim(); }
       // A fragment's label is an abbreviation even when it spells an element: Ac (acetyl) and Pr (propyl), never actinium
-      // or praseodymium. So is a node of no known kind that stands in for a group: Octet's Ar label, never argon.
-      if (isElement(text) && !plain && type !== "Fragment" && !(type === "Unspecified" && standsIn(text))) a.label = text;
+      // or praseodymium. So is a node of no known kind that stands in for a group: Octet's Ar label, never argon. A
+      // generic label is never an element either (Octet's Y, never yttrium).
+      if (isElement(text) && !plain && type !== "Fragment" && type !== "GenericNickname" && !(type === "Unspecified" && standsIn(text))) a.label = text;
       else {
         a.text = text;
         a.label = anchorElement(text) ?? "C";
@@ -2869,12 +2913,13 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const under = atomsOf(nodes);
     if (under.length) c.under = under;
   }
-  // Octet's measurements: their atoms by node id, in order. One that names a node that is not an atom, or is not sound
-  // (soundMeasure), is plain text.
+  // Octet's measurements: their ends in order, an atom by its node id and a free point as drawing units, or (as the 1.2
+  // beta and 1.1.3 dev builds wrote them) atoms only. One that names a node that is not an atom, or is not sound
+  // (readMeasure), is plain text.
   for (const { c, m: x } of measures) {
-    const atoms = Array.isArray(x.atoms) ? x.atoms.slice(0, 5).map((n) => atomOf.get(Number.isInteger(n) ? (n as number) : -1) ?? -1) : [];
-    const measure = { atoms, ...(x.at !== undefined ? { at: x.at } : {}) };
-    if (soundMeasure(measure, mol.atoms.length)) c.measure = { atoms, ...(measure.at ? { at: [...measure.at] as [number, number] } : {}) };
+    const list = x.ends ?? x.atoms, ends = Array.isArray(list) ? list.slice(0, 5).map((n) => (Array.isArray(n) ? n : atomOf.get(Number.isInteger(n) ? (n as number) : -1) ?? -1)) : undefined;
+    const measure = readMeasure({ ends, at: x.at }, mol.atoms.length);
+    if (measure) c.measure = measure;
   }
   // Octet's live values: their rows and decimals, for their atoms.
   for (const { c, live } of lives) {
@@ -2945,7 +2990,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (tied) arrows.splice(0, arrows.length, ...tied);
     for (const c of cycles) { c.nodes = c.nodes.map((n) => n.map(ix)); if (c.sides) c.sides = c.sides.map((s) => ({ ...s, atoms: s.atoms.map(ix) })); Object.assign(c, mapBranches(c, ix)); }
     for (const c of captions) if (c.property) c.property.atoms = c.property.atoms.map(ix);
-    for (const c of captions) if (c.measure) c.measure.atoms = c.measure.atoms.map(ix);
+    for (const c of captions) if (c.measure) c.measure.ends = c.measure.ends.map((e) => (isAtom(e) ? ix(e) : e));
   }
   // Each object's notes, from the element it was read from (a cycle's from its first arc).
   for (const x of [...captions, ...arrows, ...shapes]) { const n = notesOf(madeFrom.get(x.id)); if (n) x.notes = n; }

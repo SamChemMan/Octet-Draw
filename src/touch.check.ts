@@ -504,8 +504,10 @@ const H = 350;
     assert.match(editor.slice(at, editor.indexOf("\n  }", at) > 0 ? Math.min(editor.indexOf("\n  };", at), at + 900) : at + 900), /reach\.current/, `${site} takes the reach`);
   }
   // No px value over the zoom is left without the reach, so a hit test added later (a new tool's, a merged branch's)
-  // fails here until it takes it. These few snap, place a mark or start a drag, and do not hit anything.
-  const NOT_HITS = ["pad = 4 / zoom", "+ 14 / zoom", "Math.hypot(d[0], d[1]) * L * views.get().zoom < 3", "resizeBy(drag.frame", "snapBoxes(boxes.moving", "const tol = 6 / (views.get().zoom * L);"];
+  // fails here until it takes it. These few snap, place a mark or start a drag, or only draw (the Measure tool's
+  // live line), and do not hit anything.
+  const NOT_HITS = ["pad = 4 / zoom", "+ 14 / zoom", "Math.hypot(d[0], d[1]) * L * views.get().zoom < 3", "resizeBy(drag.frame", "snapBoxes(boxes.moving", "const tol = 6 / (views.get().zoom * L);",
+    "r={3 / zoom} />", "strokeWidth={2 / zoom} strokeDasharray={`0 ${6 / zoom}`}", "style={{ fontSize: 12 / zoom }}"];
   const px = [/(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \(?(L \* )?(views\.get\(\)\.zoom|zoom\b)/, /zoom\)? < \d+(\.\d+)?(?! \* reach)\b/, /(?<![\w.)*] ?)\b\d+ \/ L \/ views\.get\(\)\.zoom/,
     /(?<![\w.)*] ?)\b\d+(\.\d+)? \/ \((?:[^()]|\(\))*zoom/];
   const bare = editor.split("\n").filter((l) => px.some((r) => r.test(l)) && !l.includes("reach.current") && !NOT_HITS.some((n) => l.includes(n)));
@@ -521,6 +523,13 @@ const H = 350;
   assert.match(drop, /tieAt\(m, q, marks, \(x, p\) => still\(atomAt\(x, p, atomReach\(\)\)\), \(x, p\) => \{ const k = bondAt\(x, p, bondReach\(\)\);.*\}, atomReach\(\)\);/, "a curved arrow's end ties with the reach");
   const electron = editor.slice(editor.indexOf("const electronAt"), editor.indexOf("\n  };", editor.indexOf("const electronAt")));
   assert.match(electron, /const r = atomReach\(\), near = .*\.filter\(\(x\) => markIn\(x\.d, r, doc\.atoms\[x\.e\.atom\]\?\.location, p\)\)/, "a curved arrow starts on a lone pair with the reach");
+  // The atom or bond a tool lands on (hitAt) takes the reach. The Measure tool's end goes on the atom hitAt finds (or
+  // the one the pointer's move found), and a free end within 4 px of the last, times the reach, is that end again.
+  assert.match(editor, /const hitAt = \(p: P\): Hover => \{\n\s*const t = reach\.current === 1 \? hitIn\(doc, p\) : hitIn\(doc, p, atomReach\(\), bondReach\(\)\);/, "hitAt takes the reach");
+  assert.match(editor, /const nextEnd = \(ends: End\[\], p: P\) => \{ const h = measureHit\.current, on = h && h\.at === p && h\.doc === doc \? h\.atom : hitAt\(p\)\.atom; return placeEnd\(ends, measureChoice, on, p, \(4 \* reach\.current\) \/ L \/ views\.get\(\)\.zoom\); \};/, "a Measure end takes the reach");
+  // A right-click, a long press and the side button open the menu through one openMenu, which stops a measurement
+  // under way as the right-click does.
+  assert.match(editor, /function openMenu\(clientX: number, clientY: number\) \{\n\s*setMeasuring\(undefined\);\n\s*if \(drag \|\| writing\) return;/, "every menu stops a measurement under way");
   // The page never zooms with a pinch: the canvas takes raw touches, and the root pans only, so menus and cards on body
   // are covered too (touch-action is not inherited: the chain up to the root decides).
   const css = readFileSync(new URL("editor.css", import.meta.url), "utf8");

@@ -1,6 +1,6 @@
 // The body of an async function that scripts/look/webkit.swift runs in the app's page. It goes through the app (Home, a
-// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, a caption with the paste
-// offer, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
+// drawing, the Structure panel, its colour palette and picker, the nickname list, Export… with all pages, the spectrum panel with two tabs, the template library, the Pen tool's menu, the toolbar in two columns, a caption with the paste
+// offer, the Arrow menu's sizes, the Notes panel, every Settings page, the command palette, a Jablonski diagram with a level and a transition
 // picked) and lets the app's own watch (src/lookwatch.ts) measure each one.
 // It returns JSON: the places it reached, and every "look:" line the watch wrote. Add a place here when the app gets
 // a new panel, dialog or page. ?look-pointer=coarse measures it as a tablet with its keyboard off shows it (main.tsx),
@@ -76,9 +76,14 @@ await measure("the nickname list", !!(await until(() => document.querySelector("
 key({ key: "Escape" });
 await wait(600);
 
-// The Properties panel: its foot (Add to drawing, Copy report, the Names toggle and Decimals) in one row.
-labelled("Show the Properties panel")?.click();
+// The Properties panel (a row in the Actions panel): its foot (Add to drawing, Copy report, With names and Decimals)
+// in one row, then its Hazards tab.
+(labelled("Show the Properties panel") ?? [...document.querySelectorAll(".action")].find((b) => b.textContent.includes("Show the Properties panel")))?.click();
 await measure("the Properties panel", !!(await until(() => document.querySelector(".properties .prop-foot"), 4000)));
+[...document.querySelectorAll(".properties .prop-tabs button")].find((b) => b.textContent.trim() === "Hazards")?.click();
+await measure("the Properties panel's Hazards tab", !!(await until(() => document.querySelector(".properties .prop-hazards"), 3000)));
+[...document.querySelectorAll(".properties .prop-tabs button")].find((b) => b.textContent.trim() === "Properties")?.click();
+await wait(300);
 document.querySelector(".properties .panel-controls button[aria-label='Close']")?.click();
 await wait(600);
 
@@ -123,6 +128,23 @@ await measure("two spectrum tabs", !!second && document.querySelectorAll(".spect
 await wait(900);
 await measure("a minimised panel's pill", !!document.querySelector(".pill"));
 
+// The Arrow tool's menu, with its Large, Medium and Small across the top: Large chosen, the fill come to rest on it,
+// in light and in dark.
+const arrowTool = [...document.querySelectorAll(".tool")].find((t) => /arrow/i.test(t.getAttribute("aria-label") ?? ""));
+arrowTool?.click(); await wait(500); arrowTool?.click();
+const sizes = await until(() => document.querySelector('.strip[data-tool="arrow"] .menu-segments .segmented'), 3000);
+[...(sizes?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Large")?.click();
+await wait(600);
+const fillOn = () => { const on = sizes?.querySelector('[aria-checked="true"]'), fill = sizes?.querySelector(".seg-thumb"); if (!on || !fill) return false; const a = on.getBoundingClientRect(), b = fill.getBoundingClientRect(); return Math.abs(a.left - b.left) < 1 && Math.abs(a.width - b.width) < 1 && on.textContent.trim() === "Large"; };
+await measure("the Arrow menu's sizes", !!sizes && fillOn());
+document.documentElement.dataset.theme = "dark";
+await measure("the Arrow menu's sizes, dark", !!sizes && fillOn());
+delete document.documentElement.dataset.theme;
+[...(sizes?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Small")?.click();
+await wait(300);
+key({ key: "Escape" });
+await wait(400);
+
 // The template library, from the ring tool's menu.
 const ring = [...document.querySelectorAll(".tool")].find((t) => /benzene|ring/i.test(t.getAttribute("aria-label") ?? ""));
 ring?.click(); await wait(500); ring?.click();
@@ -137,6 +159,16 @@ const template = [...document.querySelectorAll(".tool")].find((t) => /templates$
 template?.click(); await wait(500); template?.click();
 await measure("the template library's Attach by", !!(await until(() => document.querySelector(".library-attach .attach-hit"), 4000)));
 key({ key: "Escape" });
+await wait(600);
+// The Pen tool's menu (Pen and Edit curve), then the toolbar in two columns, and back to one.
+const pen = [...document.querySelectorAll(".palette > .slot > .tool")].find((t) => /^(pen|edit curve)$/i.test(t.getAttribute("aria-label") ?? ""));
+pen?.click(); await wait(500); pen?.click();
+await measure("the Pen tool's menu", !!(await until(() => document.querySelectorAll('.strip[data-tool="pen"] .variant').length === 2, 3000)));
+key({ key: "Escape" });
+await wait(600);
+labelled("Two columns")?.click();
+await measure("the toolbar in two columns", !!(await until(() => document.querySelector(".palette.wide"), 3000)));
+labelled("One column")?.click();
 await wait(600);
 
 // A caption, and the offer that comes when a reference is pasted into it with its formatting.
