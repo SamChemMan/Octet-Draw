@@ -1671,8 +1671,9 @@ export default function Editor() {
   // What Export sends the app for `mol` in f.format, its picture `svg` (pictureOf) as the format saves it: only what the
   // format needs. A PDF, PNG or EMF carries the CDXML, so it opens and pastes back as the drawing.
   // A picture has no notes, nor has the CDXML in it (annotate.ts); a drawing file keeps them.
-  // Export refuses a drawing file (.oct, CDXML, CDX) larger than 64 MB with Save's words (oct.ts within); Copy leaves
-  // such a form out. A CDX that formatOf could not make is made again, so the notice says why.
+  // Export refuses a drawing file (.oct, CDXML, CDX) larger than 64 MB with Save's words (oct.ts within); Copy has no
+  // such refusal and leaves out only a CDX that large. A CDX that formatOf could not make is made again, so the notice
+  // says why.
   const exportRequest = (all: Mol, svg: string | undefined, f: ExportSettings & { width?: number }) => {
     const mol = PICTURES.includes(f.format) || f.format === "bmp" ? withoutNotes(all) : all;
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
