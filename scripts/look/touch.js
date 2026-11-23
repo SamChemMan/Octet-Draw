@@ -701,6 +701,29 @@ if (part("palm")) {
 // webkit.swift) it checks that every menu still fits.
 async function coarseSection() {
   const px = (el) => el?.getBoundingClientRect();
+  const same = (a, b) => a && b && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5;
+  // The toolbar's section (Pen, then Measure, between two lines) and the tools after it: the active mark sits on each,
+  // in one column and in two. The Pen and Measure menus' options are the size of an option (size).
+  const sectionLooks = async (name, size) => {
+    const mark = document.querySelector(".palette .indicator");
+    for (const wide of [false, true]) {
+      if (wide) { document.querySelector(".palette-toggle")?.click(); await wait(700); }
+      const off = [];
+      for (const slot of [11, 12, 13, 14, 15, 16]) {
+        await pickSlot(slot); await wait(400);
+        const t = slotTool(slot);
+        if (!same(px(t), px(mark))) off.push(`${t?.getAttribute("aria-label")}: ${JSON.stringify([px(t), px(mark)])}`);
+      }
+      check(`${name}: ${wide ? "two columns" : "one column"}, the active mark is on Pen, Measure and the tools before and after them`, !off.length, off.join("; "));
+      if (wide) { document.querySelector(".palette-toggle")?.click(); await wait(700); }
+    }
+    for (const [tool, slot] of [["Pen", 12], ["Measure", 13]]) {
+      await pickSlot(slot); slotTool(slot)?.click(); await wait(500);
+      const cells = [...document.querySelectorAll(".palette .strip:not(.leaving) .variant")].filter((v) => v.offsetHeight);
+      check(`${name}: the options in the ${tool} menu are ${size} px`, cells.length >= 2 && cells.every((v) => v.offsetHeight === size), cells.map((v) => v.offsetHeight).join(" "));
+      await escape();
+    }
+  };
   const coarseLooks = async (theme) => {
     const root = document.documentElement;
     root.dataset.theme = theme;
@@ -709,7 +732,6 @@ async function coarseSection() {
     check(`coarse ${theme}: every tool is 44 px`, tools.length > 5 && tools.every((t) => t.offsetHeight === 44 && t.offsetWidth === 44), tools.map((t) => `${t.offsetWidth}x${t.offsetHeight}`).join(" "));
     await wait(400);
     const on = document.querySelector(".palette .tool[aria-pressed='true']"), mark = document.querySelector(".palette .indicator");
-    const same = (a, b) => a && b && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5;
     check(`coarse ${theme}: the active mark is on the active tool`, same(px(on), px(mark)), JSON.stringify([px(on), px(mark)]));
     // The tool's own menu (a second click on the tool in hand).
     on?.click(); await wait(500);
@@ -753,6 +775,8 @@ async function coarseSection() {
       `${swatches.length}: ${[...new Set(swatches.map((v) => `${v.offsetWidth}x${v.offsetHeight}`))].join(" ")} ${JSON.stringify(shelf)}`);
     await escape();
     await wait(300);
+    await sectionLooks(`coarse ${theme}`, 44);
+    await pick(/bond$/i);
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await wait(1300);
   };
@@ -778,6 +802,8 @@ async function coarseSection() {
     const swatches = [...(document.querySelector("body > div > .strip.list")?.querySelectorAll(".swatch-cell") ?? [])].filter((v) => v.offsetHeight);
     check("fine again: a colour palette's swatches are 24 px", swatches.length > 4 && swatches.every((v) => v.offsetHeight === 24), swatches.map((v) => v.offsetHeight).join(" "));
     await escape();
+    await sectionLooks("fine again", 36);
+    await pick(/bond$/i);
   }
 }
 if (part("coarse")) await coarseSection();

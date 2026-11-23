@@ -578,6 +578,8 @@ type PaletteProps = {
 };
 
 const DRAG_PX = 6; // an option pressed and moved this far is being dragged to the toolbar
+// From one tool to the next: a tool and the gap after it (tokens, so a coarse pointer's larger tools step right too).
+const STEP = "(var(--size-tool) + var(--space-1))";
 
 export function Palette(p: PaletteProps) {
   // ?strip=ring opens a strip on load (dev only, for checking its layout).
@@ -758,13 +760,13 @@ export function Palette(p: PaletteProps) {
   tools.push({ id: special, name: SPECIAL_TOOLS[special].name, icon: SPECIAL_TOOLS[special].icon });
   const active = tools.findIndex((t) => t.id === p.tool);
   // Where each tool sits, for the indicator: a line comes before the section's first tool and after its last, and in
-  // two columns the tool after a line starts a row. A line takes 13 px: its 1 px, its margins and one more gap
-  // (editor.css, .palette hr).
+  // two columns the tool after a line starts a row. A tool steps by STEP (larger for a coarse pointer); a line takes
+  // 13 px: its 1 px, its margins and one more gap (editor.css, .palette hr).
   let row = 0, col = 0, lines = 0;
   const place = tools.map((t, i) => {
     const line = i > 0 && SECTION.includes(t.id) !== SECTION.includes(tools[i - 1].id);
     if (line) { lines++; if (col) { row++; col = 0; } }
-    const at = { line, col, x: col * 36, y: row * 36 + lines * 13 };
+    const at = { line, col, x: `calc(${col} * ${STEP})`, y: `calc(${row} * ${STEP} + ${lines * 13}px)` };
     if (wide && !col) col = 1; else { row++; col = 0; }
     return at;
   });
@@ -864,7 +866,7 @@ export function Palette(p: PaletteProps) {
 
   return (
     <nav ref={nav} className={["palette", wide && "wide", carry?.over && "dropping", landed && "rippling"].filter(Boolean).join(" ")} aria-label="Tools" data-tips="right">
-      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : `translate(${place[active]?.x ?? 0}px, ${place[active]?.y ?? 0}px)`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
+      <span ref={indicator} className="indicator" style={{ transform: lit && litAt ? `translate(${litAt[0]}px, ${litAt[1]}px)` : `translate(${place[active]?.x ?? 0}, ${place[active]?.y ?? 0})`, opacity: active < 0 && !lit ? 0 : 1 }} aria-hidden />
       {tools.map((t, i) => {
         const group = SPECIAL.includes(t.id);
         const strip = group ? SPECIAL : isStrip(t.id) ? options(t.id) : t.id === "text" ? [] : undefined; // the Text tool's is its periodic table

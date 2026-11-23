@@ -546,6 +546,9 @@ const H = 350;
   // The toolbar's active mark and the menus' heights come from the tokens, not from a fixed 32 or 36 px.
   const tools = readFileSync(new URL("tools.tsx", import.meta.url), "utf8"), menu = readFileSync(new URL("Menu.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(tools, /\* 36\}px/);
+  // In the toolbar's section (Pen and Measure between two lines) too: each tool steps by a tool and a gap, a line by 13 px.
+  assert.doesNotMatch(tools, /(col|row) \* 36\b/);
+  assert.match(tools, /const at = \{ line, col, x: `calc\(\$\{col\} \* \$\{STEP\}\)`, y: `calc\(\$\{row\} \* \$\{STEP\} \+ \$\{lines \* 13\}px\)` \};/);
   assert.doesNotMatch(menu, /\.length \* 32 \+/);
   assert.match(css, /\.indicator \{[^}]*width: var\(--size-tool\);\n\s*height: var\(--size-tool\);/);
   // main.tsx follows the main pointer.
