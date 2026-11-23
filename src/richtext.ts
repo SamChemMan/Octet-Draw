@@ -1,6 +1,6 @@
 // Rich text in captions: a caption's text as runs, each with its own style (as ChemDraw's text runs, and CDXML's
 // <s> elements). A caption without runs is one run in the caption's own style.
-export type RunStyle = { bold?: true; italic?: true; underline?: true; script?: "sub" | "super"; font?: string; size?: number; colour?: string };
+export type RunStyle = { bold?: true; italic?: true; underline?: true; script?: "sub" | "super"; font?: string; size?: number; colour?: string; halo?: string }; // halo: a highlight behind the characters
 export type TextRun = RunStyle & { text: string };
 // A text's length at most, in UTF-16 units: what Octet's readers take and what the text box keeps
 // (docs/plans/long-text.md). CDX keeps a text's styles at 16-bit byte offsets, and 20,000 units are at most 60,000
@@ -32,7 +32,7 @@ export function typedIn(was: string, now: string, max: number): { text: string; 
   return { text: now.slice(0, p) + put + now.slice(now.length - s), at: p + put.length };
 }
 
-const KEYS = ["bold", "italic", "underline", "script", "font", "size", "colour"] as const;
+const KEYS = ["bold", "italic", "underline", "script", "font", "size", "colour", "halo"] as const;
 export const sameStyle = (a: RunStyle, b: RunStyle) => KEYS.every((k) => a[k] === b[k]);
 export const styleOf = (r: TextRun): RunStyle => Object.fromEntries(KEYS.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])) as RunStyle;
 export const plainOf = (runs: TextRun[]) => runs.map((r) => r.text).join("");

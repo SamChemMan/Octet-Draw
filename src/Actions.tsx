@@ -85,7 +85,7 @@ export type Context = ({ annotate?: true }) & (
   | { kind: "selection"; count: number; name?: string; atoms: boolean; width?: number; joinable?: boolean; risk?: boolean; chart?: ChartLook; charges?: { circled: boolean }; values?: "shown" | "hidden"; places?: string } // width: lines picked together (no structures or text); joinable: Join applies (atoms or bonds in two structures); values, places: as a caption's
   | { kind: "structure"; text?: LabelText; atoms: number; structures: number; next: string; nameable: boolean; joinable?: boolean; charges?: { circled: boolean }; pairs?: "shown" | "hidden"; stereo?: "absolute" | "racemic" | "relative" | "mixed"; depth?: boolean; fischer?: boolean; opacity?: number; cip?: boolean; numbers?: boolean; roman?: boolean; circles?: boolean; halo?: string; fill?: string; hydrogens?: boolean; properties?: boolean; generic?: boolean; values?: "shown" | "hidden"; places?: string } // values, places: live values among the text picked with it (⌘A), as a caption's
   // mode: picked captions, the text being typed, or the style the next text starts with (Text tool in hand).
-  | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
+  | { kind: "caption"; chart?: ChartLook; mode: "picked" | "typing" | "next"; halo?: string; convertible: boolean; count: number; colour: string; bold: boolean; italic: boolean; underline: boolean; size: number; align: "left" | "centre" | "right" | "justify"; attached: boolean; attachable: boolean;
       // labelable: Octet can read a picked caption as an atom label (Make element). chemical: their Interpret chemically,
       // shown when the document's is on and one of them reads as chemistry.
       // field: one picked caption that is a data field's text (datafields.ts).
@@ -531,7 +531,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       else if (context.conditions) items.push(it(<LinkBreak size={18} />, "Un-tie from arrow", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
       else if (context.tieArrow) items.push(it(<LinkSimple size={18} />, "Tie to arrow", "caption.attach"));
-      items.push(...warnings(), small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, inWindow, ...order, keep, del);
+      items.push(...warnings(), small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, inWindow, ...order, ...(context.mode === "picked" ? frames : []), keep, del);
       break;
     case "reaction":
       items.push(it(<Broom size={18} />, "Clean up reaction", "clean_reaction", !context.clean),
@@ -1313,7 +1313,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
           {chart?.kind === "energy" && chart.whole && chart.paths.length > 1 && chart.paths.map((p, i) => (
             <ColourPick strip key={i} label={p.name} value={p.colour} presets={COLOURS} {...colours} onPick={(hex, live) => run(`chart.colour.${i}.${hex}${live ? ".drag" : ""}`)} />
           ))}
-          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond") && <ColourPick strip label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
+          {(context.kind === "structure" || context.kind === "atom" || context.kind === "bond" || context.kind === "caption") && <ColourPick strip label="Highlight" none value={context.halo ?? "none"} presets={HIGHLIGHT_COLOURS} {...colours} onPick={(v, live) => run(`halo.${v}${live ? ".drag" : ""}`)} />}
           {(context.kind === "structure" || context.kind === "atom" || (context.kind === "bond" && context.ring)) && <ColourPick strip label="Ring fill" none value={context.fill ?? "none"} presets={RING_FILLS} {...colours} onPick={(v, live) => run(`ringfill.${v}${live ? ".drag" : ""}`)} />}
         </div>
         </Fold>

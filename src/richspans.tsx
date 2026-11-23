@@ -6,7 +6,8 @@ import type { TextRun } from "./richtext";
 export const inkOn = (dark: boolean, c: string) => (dark && /^#(000000|0f172a)$/i.test(c) ? "#FFFFFF" : c);
 // A line of rich text as tspans: each run in its style, a subscript 0.212 em down and a superscript 0.33 em up at
 // 75% size (as atom labels), each run starting from where the last one left the baseline. A run's own colour draws as
-// the rest of the drawing does on dark paper (inkOn).
+// the rest of the drawing does on dark paper (inkOn). A run's highlight (halo) is a band behind its characters: a wide
+// stroke under the fill at 40%, as an atom's highlight is.
 export function richSpans(runs: TextRun[], size: number, PT: number, dark: boolean) {
   let shift = 0;
   return runs.map((r, k) => {
@@ -14,7 +15,8 @@ export function richSpans(runs: TextRun[], size: number, PT: number, dark: boole
     shift = to;
     const px = r.size ? r.size * PT : size;
     return (
-      <tspan key={k} dy={dy || undefined} fill={r.colour && inkOn(dark, r.colour)} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
+      <tspan key={k} dy={dy || undefined} fill={r.colour && inkOn(dark, r.colour)}
+        {...(r.halo ? { stroke: r.halo, strokeOpacity: 0.4, strokeWidth: px * 0.6, strokeLinejoin: "round" as const, paintOrder: "stroke" } : {})} style={{ fontSize: r.script ? px * 0.75 : px, fontWeight: r.bold ? "bold" : undefined, fontStyle: r.italic ? "italic" : undefined, fontFamily: r.font ? fontStack(r.font) : undefined, textDecoration: r.underline ? "underline" : undefined }}>
         {r.text}
       </tspan>
     );
