@@ -599,12 +599,33 @@ const samePlaced = (a: Placed, b: Placed) => a === b || (a.id === b.id && a.size
   && a.lines.every((l, j) => l.text === b.lines[j].text && l.x === b.lines[j].x && l.y === b.lines[j].y && l.spacing === b.lines[j].spacing && JSON.stringify(l.runs) === JSON.stringify(b.lines[j].runs)));
 // fill: the caption's own colour, or the drawing's ink (var(--ink)) when it has none. dark: dark paper.
 type CaptionProps = { c: Placed; fill: string; font: string; reagent: boolean; pt: number; dark: boolean };
-const CaptionText = memo(({ c, fill, font, reagent, pt, dark }: CaptionProps) => (
-  <text className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
-    transform={c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined}>
-    {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt, dark) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
-  </text>
-), (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && a.dark === b.dark && samePlaced(a.c, b.c));
+// A highlight on part of a caption (a run's halo) is one rounded box behind each highlighted stretch of a line, at 40%,
+// as an atom's or a group's highlight is: the stretches are measured once drawn, and touching ones of one colour join.
+const CaptionText = memo(({ c, fill, font, reagent, pt, dark }: CaptionProps) => {
+  const ref = useRef<SVGTextElement>(null), haloed = c.lines.some((l) => l.runs?.some((r) => r.halo));
+  const [boxes, setBoxes] = useState<{ x: number; y: number; w: number; h: number; c: string }[]>([]);
+  useLayoutEffect(() => {
+    if (!haloed || !ref.current) return void (boxes.length && setBoxes([]));
+    const out: { x: number; y: number; w: number; h: number; c: string }[] = [], pad = c.size * 0.12;
+    for (const t of ref.current.querySelectorAll<SVGTSpanElement>("tspan[data-halo]")) {
+      const b = t.getBBox(), last = out[out.length - 1], colour = t.dataset.halo!;
+      if (!b.width) continue;
+      if (last && last.c === colour && Math.abs(last.y - (b.y - pad / 2)) < c.size * 0.5 && b.x <= last.x + last.w + 1) { last.w = Math.max(last.w, b.x + b.width + pad - last.x); continue; }
+      out.push({ x: b.x - pad, y: b.y - pad / 2, w: b.width + 2 * pad, h: b.height + pad, c: colour });
+    }
+    setBoxes(out);
+  }, [c, font, pt, haloed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const turn = c.angle && c.pivot ? `rotate(${-c.angle} ${c.pivot[0]} ${c.pivot[1]})` : undefined;
+  return (
+    <>
+      {boxes.map((b, k) => <rect key={k} className="caption-halo" x={b.x} y={b.y} width={b.w} height={b.h} rx={c.size * 0.25} fill={b.c} fillOpacity={0.4} transform={turn} />)}
+      <text ref={ref} className="caption" textAnchor={c.anchor} textDecoration={c.underline ? "underline" : undefined} fill={fill} style={{ font: `${c.italic ? "italic " : ""}${c.bold ? "bold " : ""}${c.size}px ${font}` }}
+        transform={turn}>
+        {c.lines.map((l, j) => <tspan key={j} x={l.x} y={l.y} style={l.spacing ? { wordSpacing: l.spacing } : undefined}>{l.runs ? richSpans(l.runs, c.size, pt, dark) : reagent ? formula(l.text, c.size) : l.text}</tspan>)}
+      </text>
+    </>
+  );
+}, (a: CaptionProps, b: CaptionProps) => a.fill === b.fill && a.font === b.font && a.reagent === b.reagent && a.pt === b.pt && a.dark === b.dark && samePlaced(a.c, b.c));
 
 // The file on disk and the drawing as last saved (undoing back to it makes the drawing clean again). lost: what
 // Octet could not hold from the file, so Save asks before it writes over the file (REL-11). name: a drawing with no
