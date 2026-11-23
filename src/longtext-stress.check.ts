@@ -884,6 +884,8 @@ it("L29 a drawing larger than 64 MB loses no work: Save, Save As, Save Copy As, 
   assert.match(editor, /setNotice\(failure\(`Octet cannot update \$\{o\.host\}\.`, e\)\);/);
   assert.match(src("./App.tsx"), /this\.setState\(\{ note: failure\("Octet cannot save this drawing\.", e\) \}\);/);
   assert.match(src("../src-tauri/src/objects.rs"), /return Err\("This drawing is larger than 64 MB\. Octet cannot update the document with it\."\.into\(\)\);/);
+  // Save's own refusal (main.rs save_drawing) has the words the page's writers give.
+  assert.ok(src("../src-tauri/src/main.rs").includes(`return Err("${TOO_LARGE}".into());`), "main.rs save_drawing");
 });
 
 it("L30 the JSON reader counts the notes of a group of one thing, which it leaves out, as the CDXML reader does", () => {
