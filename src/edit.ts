@@ -5,7 +5,7 @@ import { keepAngles, mapBranches, type Cycle } from "./cycle.ts";
 import { anchorElement, chemicalText, isElement, labelSmiles, standsIn } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
-import { edited, plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
+import { cutText, edited, plainOf, runsFor, styleOf, styled, whole, without, type TextRun } from "./richtext.ts";
 import { OCENES } from "./metals.ts";
 import { retie } from "./arrowlink.ts";
 import { keepHands } from "./cip.ts";
@@ -100,8 +100,20 @@ function makeBond(atoms: [number, number], spec: BondSpec): Bond {
 }
 function withBond(m: Mol, i: number, j: number, spec: BondSpec = SINGLE): Mol {
   if (i === j || bondIndex(m, i, j) >= 0) return m;
-  return { ...m, bonds: [...m.bonds, makeBond([i, j], spec)] };
+  return { ...m, bonds: withBonds(m.bonds, [makeBond([i, j], spec)]) };
 }
+// A list of bonds made from another, which its first bonds join as that one's do, with more added at its end (withBonds)
+// or one bond's order, style or side changed (withBondAt), and the list it was made from (held weakly, so the lists an
+// edit makes on its way are not kept): limits.ts takes the structures of the drawing before an edit and joins only what
+// was added.
+declare const WeakRef: { new <T extends object>(target: T): { deref(): T | undefined } };
+export const bondsMadeFrom = new WeakMap<Bond[], { deref(): Bond[] | undefined }>();
+const madeFrom = (out: Bond[], bonds: Bond[]) => { bondsMadeFrom.set(out, new WeakRef(bonds)); return out; };
+const withBonds = (bonds: Bond[], more: Bond[]): Bond[] => madeFrom([...bonds, ...more], bonds);
+const withBondAt = (bonds: Bond[], i: number, bond: (b: Bond) => Bond): Bond[] => {
+  const out = bonds.map((b, k) => (k === i ? bond(b) : b)), [p, q] = bonds[i]?.atoms ?? [], [x, y] = out[i]?.atoms ?? [];
+  return (x === p && y === q) || (x === q && y === p) ? madeFrom(out, bonds) : out;
+};
 
 // Direction for a new bond from atom i: 30° on a lone atom, a zig-zag off a chain end,
 // away from both bonds at a degree-2 atom, otherwise into the widest gap.
@@ -298,7 +310,7 @@ export function addChain(m: Mol, from: number | P, n: number): { mol: Mol; last:
 const setAtom = (m: Mol, i: number, change: Partial<Atom>): Mol => ({ ...m, atoms: m.atoms.map((a, k) => (k === i ? { ...a, ...change } : a)) });
 // Marks drawn on an atom that do not change what it is: H dot or hash, attachment squiggle, polymer bead.
 export const setAtomMarks = (m: Mol, i: number, change: Pick<Partial<Atom>, "hmark" | "attach" | "bead">) => setAtom(m, i, change);
-const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...b, ...change } : b)) });
+const setBondAt = (m: Mol, i: number, change: Partial<Bond>): Mol => ({ ...m, bonds: withBondAt(m.bonds, i, (b) => ({ ...b, ...change })) });
 
 export const setElement = (m: Mol, i: number, label: string) => setAtom(m, i, { label, text: undefined, runs: undefined, shown: undefined, implicitHCount: undefined });
 // ChemDraw's c key, or C typed as a label: a carbon whose label shows with its hydrogens (CH3, CH2, CH).
@@ -335,9 +347,14 @@ export function withValence(a: Atom, valence: number, used: number): Atom {
 // (helm.ts linkResidues); the editor's hook says why not, and gives the drawing back unchanged.
 export const labelHooks: { relabel?: (m: Mol, i: number, text: string) => Mol | undefined; link?: (m: Mol, i: number, j: number) => Mol | undefined } = {};
 const portedAt = (m: Mol, i: number) => !!m.atoms[i]?.inner?.atoms.length && m.bonds.some((b) => b.ports && b.atoms.some((k, e) => k === i && b.ports![e] >= 0));
+// A label's length at most, as Octet's files hold it (file.ts, cdxml.ts). A label holds no < or >, and no control
+// character but a line break.
+export const MAX_LABEL = 40;
+// A label's text as Octet keeps it: its lines (Option-Return as it is typed), each trimmed, empty ones left out, a tab
+// a space, < and > and other control characters left out, and at most MAX_LABEL characters (docs/plans/long-text.md).
+export const keptLabel = (text: string) => cutText(text.replace(/\t/g, " ").replace(/[<>\u0000-\u0009\u000b-\u001f]/g, "").split("\n").map((s) => s.trim()).filter(Boolean).join("\n"), MAX_LABEL).trimEnd();
 export function setLabel(m: Mol, i: number, text: string): Mol {
-  // A label of more than one line (Option-Return as it is typed) keeps its lines, each trimmed, empty ones left out.
-  const t = text.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+  const t = keptLabel(text);
   if (portedAt(m, i) && t !== m.atoms[i].text) {
     const r = labelHooks.relabel?.(m, i, t);
     if (r) return r;
@@ -626,7 +643,7 @@ export function toggleLonePairs(m: Mol, atoms: number[], bars = false): Mol {
 // highlight. A new bond style replaces a query bond type (Any, S/D); the bond's topology and reaction centre stay.
 const respec = (m: Mol, i: number, spec: BondSpec): Mol => {
   const was = m.bonds[i].type;
-  m = { ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) } : b)) };
+  m = { ...m, bonds: withBondAt(m.bonds, i, (b) => ({ ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) })) };
   return spec.type === 3 && was !== 3 ? straighten(m, i) : m;
 };
 // A triple bond's atoms are sp, so linear (Sam, 2 November 2026). When bond k becomes triple, an atom of it with one
@@ -700,8 +717,7 @@ function pointedAt(m: Mol, k: number, spec: BondSpec, at?: P): Mol {
   return wideAtI ? flipBond(r, k) : r;
 }
 // A double bond's second line with a new style, on the side it was.
-const restyle = (m: Mol, k: number, display?: Bond["display"]) => ({ ...m, bonds: m.bonds.map((b, n) => {
-  if (n !== k) return b;
+const restyle = (m: Mol, k: number, display?: Bond["display"]) => ({ ...m, bonds: withBondAt(m.bonds, k, (b) => {
   const { display: _, ...rest } = b;
   return display ? { ...rest, display } : rest;
 }) });
@@ -1053,18 +1069,21 @@ export function remapKept<T extends Caption | Shape>(x: T, to: (i: number) => nu
 // cannot be seen or picked alone. `before` is the bonds before the edit: an atom that had none (a label such as hν or
 // RA1•+ from ChemDraw, a lone methane) is not this edit's, and stays.
 function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
-  const had = new Set(before.flatMap((b) => b.atoms));
+  // The atoms with a bond before the edit, and after it (one flag an atom).
+  const bonded = (l: Bond[]) => { const on = new Uint8Array(m.atoms.length); for (const b of l) { on[b.atoms[0]] = 1; on[b.atoms[1]] = 1; } return on; };
+  const had = bonded(before);
   let bonds = m.bonds;
   for (let size = -1; size !== gone.size;) {
     size = gone.size;
     bonds = m.bonds.filter((b) => !gone.has(b.atoms[0]) && !gone.has(b.atoms[1]));
-    const used = new Set(bonds.flatMap((b) => b.atoms));
+    const used = bonded(bonds);
     m.atoms.forEach((a, i) => {
-      if (a.centre ? a.centre.atoms.filter((j) => !gone.has(j)).length < 2 : !used.has(i) && had.has(i) && ((a.label === "C" && !a.charge && !a.text && !a.shown) || a.hidden)) gone.add(i);
+      if (a.centre ? a.centre.atoms.filter((j) => !gone.has(j)).length < 2 : !used[i] && had[i] && ((a.label === "C" && !a.charge && !a.text && !a.shown) || a.hidden)) gone.add(i);
     });
   }
-  const map = new Map<number, number>();
-  m.atoms.forEach((_, i) => { if (!gone.has(i)) map.set(i, map.size); });
+  // Each atom's new number, in a map and (for the data fields' lists, one look-up an atom) an array: -1 when it goes.
+  const map = new Map<number, number>(), to = new Int32Array(m.atoms.length).fill(-1);
+  m.atoms.forEach((_, i) => { if (!gone.has(i)) { to[i] = map.size; map.set(i, map.size); } });
   const atoms = m.atoms.filter((_, i) => !gone.has(i)).map((a) => renumberCentre(a, map));
   // Captions under a structure follow its atoms' new numbers, and go when all of its atoms go. Kept ChemDraw data (a
   // live property) follows its atoms too, and goes when they all go. A measurement goes when any of its atoms goes.
@@ -1078,7 +1097,7 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   // A cycle keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.map((c) => ({ ...keepAngles(m, mapBranches(c, (i) => map.get(i))), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }));
   const keptCycles = new Set(cycles?.map((c) => c.id));
-  const out = tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
+  const out = tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [to[b.atoms[0]], to[b.atoms[1]]] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
     shapes: m.shapes?.map(kept),
     // A curved arrow's end tied to an atom follows its new number; an end whose atom went lets go where it is.
     arrows: retie(m.arrows, (i) => map.get(i)),
@@ -1087,7 +1106,7 @@ function removeAtoms(m: Mol, gone: Set<number>, before = m.bonds): Mol {
   // Data fields follow their atoms too, and go when they all go. One whose text went with its structure, and that is
   // on another structure too (a split), holds its value there (datafields.ts).
   const left = new Set(out.captions?.map((c) => c.id));
-  return { ...out, data: remapData(m.data, (i) => map.get(i), (id) => (left.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) };
+  return { ...out, data: remapData(m.data, (i) => (to[i] >= 0 ? to[i] : undefined), (id) => (left.has(id) ? id : undefined), (id) => m.captions?.find((c) => c.id === id)?.text) };
 }
 // Ring fills follow their atoms' new numbers; a fill goes when one of its atoms goes.
 const refill = (fills: Mol["fills"], map: Map<number, number>) => {
@@ -1379,7 +1398,7 @@ export function merge(m: Mol, frag: Mol, offset: P): Mol {
   return {
     ...m,
     atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
-    bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))],
+    bonds: withBonds(m.bonds, frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))),
     ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
     // Its data fields come too, not shown (its text does not come).
     ...(frag.data?.length ? { data: [...(m.data ?? []), ...remapData(frag.data, (i) => i + base, () => undefined, (id) => frag.captions?.find((c) => c.id === id)?.text) ?? []] } : {}),
@@ -1452,8 +1471,12 @@ export function labelPlacer(m: Mol, i: number, frag: Mol, way?: P): (q: [number,
 // The group stays with the label (inner), so Expand Label gives it back whatever the label says. A group bonded to the
 // rest more than once (a residue in a chain: its N on one side, its C=O on the other) keeps each bond, moved onto the
 // label with the kept atom it joins (its port), as a residue label is drawn (sequence.ts).
-export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
-  const order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
+// A label keeps a group of at most 256 atoms and 512 bonds, as a ChemDraw file's (file.ts innerIn). A larger group is
+// not contracted: the drawing comes back unchanged, and the caller says why (groupTooBig).
+export const groupTooBig = (m: Mol, group: Set<number>) => group.size > 256 || m.bonds.filter((b) => group.has(b.atoms[0]) && group.has(b.atoms[1])).length > 512;
+export function contractLabel(m: Mol, keep: number, group: Set<number>, given: string): Mol {
+  if (groupTooBig(m, group)) return m;
+  const text = keptLabel(given), order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
   const inner: Mol = {
     atoms: order.map((k) => { const { inner: _, text: __, ...a } = m.atoms[k]; return a; }),
     bonds: m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })),
@@ -2251,7 +2274,10 @@ export function nearestOnCurve(c: Curve, p: P): { seg: number; t: number; d: num
 }
 // A point added on segment seg at t, splitting it (de Casteljau) so the curve keeps its shape. A straight segment
 // gets a corner point and stays straight.
+// A curve holds up to MAX_CURVE points, as Octet's files do (file.ts readCurve): neither adds one past it.
+export const MAX_CURVE = 1000;
 export function splitCurve(c: Curve, seg: number, t: number): Curve {
+  if (c.points.length >= MAX_CURVE) return c;
   const n = c.points.length, a = c.points[seg], b = c.points[(seg + 1) % n], [p0, p1, p2, p3] = segment(c, seg);
   const pts = c.points.map((q) => ({ ...q }));
   let mid: CurvePoint;
@@ -2284,7 +2310,7 @@ export function moveCurvePoint(c: Curve, i: number, part: "at" | "c1" | "c2", p:
 }
 // A point taken out (a curve keeps at least two), or one added at the end (a straight segment to it).
 export const removeCurvePoint = (c: Curve, i: number): Curve => (c.points.length <= 2 ? c : { ...c, points: c.points.filter((_, k) => k !== i), ...(c.points.length <= 3 ? { closed: undefined } : {}) });
-export const appendCurvePoint = (c: Curve, p: P): Curve => ({ ...c, points: [...c.points, { at: p }] });
+export const appendCurvePoint = (c: Curve, p: P): Curve => (c.points.length >= MAX_CURVE ? c : { ...c, points: [...c.points, { at: p }] });
 // A curve arrow with new points: its ends follow its first and last points.
 export const withCurve = (c: Curve): Partial<Arrow> => ({ curve: c, from: c.points[0].at, to: c.points[c.points.length - 1].at });
 export function addShape(m: Mol, sh: Omit<Shape, "id">): [Mol, number] {
@@ -2674,10 +2700,13 @@ export function clearTable(sh: Shape): Partial<Shape> {
   const runs = keep && was ? cells.map((_, r) => cells[r].map((_x, c) => (c === 0 ? was[r]?.[0] ?? null : null))) : undefined;
   return { table: { ...table, cells: cells.map((r) => r.map((x, c) => (keep && c === 0 ? x : ""))), ...(runs?.some((r) => r[0]) ? { runs } : {}) } };
 }
-// A table with one cell's text set, with its runs (none: plain), its box grown to fit the text if it no longer does.
-// A cell holds at most 500 characters (file.ts readTable refuses more): the rest is cut off, with its styles.
+// A table cell's text at most, as Octet's files hold it (file.ts and cdxml.ts readTable), with no tab.
+export const MAX_CELL = 500;
+// A table with one cell's text set, with its runs (none: plain), its box grown to fit the text if it no longer does. A
+// tab or other control character but a line break is a space, and a cell holds MAX_CELL characters at most: the rest
+// is cut off, with its styles.
 export function setTableCell(sh: Shape, r: number, c: number, typed: string, measure?: Measure, caption?: number, kept?: TextRun[]): Partial<Shape> {
-  const text = typed.length > 500 ? typed.slice(0, 500).replace(/[\ud800-\udbff]$/, "") : typed, own = kept && text !== typed ? edited(kept, text) : kept;
+  const text = cutText(typed.replace(/[\u0000-\u0009\u000b-\u001f]/g, " "), MAX_CELL), own = kept && text !== typed ? edited(kept, text) : kept;
   const { runs: was, ...rest } = sh.table ?? { cells: [[""]] };
   const cells = rest.cells.map((row, i) => (i === r ? row.map((x, j) => (j === c ? text : x)) : row));
   const runs = was || own ? cells.map((row, i) => row.map((_, j) => (i === r && j === c ? own ?? null : was?.[i]?.[j] ?? null))) : undefined;
@@ -3130,7 +3159,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     ...m,
     // A copy is a new structure: it is in no spectrum session (Editor.tsx), whatever the original is in.
     atoms: [...m.atoms, ...add.atoms.map(({ session: _, ...a }) => renumberCentre(unlink({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }), at))],
-    bonds: [...m.bonds, ...add.bonds.map((b) => unlink({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))],
+    bonds: withBonds(m.bonds, add.bonds.map((b) => unlink({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))),
     arrows: [...(m.arrows ?? []), ...(retie(add.arrows, at) ?? []).map(plain).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
     shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],

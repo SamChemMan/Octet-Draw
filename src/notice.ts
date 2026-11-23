@@ -31,13 +31,20 @@ export class DamagedFile extends Error {}
 // own RangeErrors such as a stack overflow, a fault), which keeps the general words.
 export const refusal = (e: unknown) => (((e instanceof RangeError && /^It (has|takes) /.test(e.message)) || e instanceof DamagedFile) && reason(e)) || undefined;
 
-// A failure's notice: what Octet could not do, then why. A reason that says what Octet cannot do goes alone. The raw
-// error goes to the console.
+// A failure's notice: what Octet could not do, then why. A reason that says what Octet cannot do goes alone, and so
+// does a drawing too large to write (main.rs MAX_BYTES, oct.ts TOO_LARGE: Save, Save As, Export; objects.rs: Update),
+// with what to do. A drawing too large to open (recovery.rs, windows.rs) keeps the general words. The raw error goes
+// to the console.
+const TOO_LARGE = /^This drawing is larger than 64 MB\. Octet cannot (save it|update the document with it)\.$/;
 export function failure(what: string, e: unknown): string {
   console.error(e);
   const why = reason(e);
+  if (TOO_LARGE.test(why)) return `${why} Delete part of it, or copy part of it to a new drawing and save that.`;
   return !why ? what : why.startsWith("Octet cannot") ? why : `${what} ${why}`;
 }
+
+// What Octet says when it cuts text typed or pasted at a limit (docs/plans/long-text.md): what: "A text", "A label".
+export const cutNotice = (what: string, most: number) => `${what} holds up to ${most.toLocaleString("en-GB")} characters. Octet left out the rest.`;
 
 // A saved file's name, from its path on any system.
 export const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;

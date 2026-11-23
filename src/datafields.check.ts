@@ -182,7 +182,7 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   // S10: hostile lists. Bad entries are left out and counted, and the drawing opens.
   const file = (data: unknown) => JSON.stringify({ ...JSON.parse(serialize(withFields)), data });
   const bad = [{ name: "ok", atoms: [0], value: "v" }, { name: "", atoms: [0], value: "v" }, { name: "x".repeat(201), atoms: [0], value: "v" }, { name: "a", atoms: [99], value: "v" },
-    { name: "a", atoms: [], value: "v" }, { name: "a", atoms: [0], caption: 7 }, { name: "a", atoms: [0], value: 5 }, { name: "a", atoms: [0], value: "v", caption: 0 }, { name: "a", atoms: [0], value: "z".repeat(10_001) }, null, "x"];
+    { name: "a", atoms: [], value: "v" }, { name: "a", atoms: [0], caption: 7 }, { name: "a", atoms: [0], value: 5 }, { name: "a", atoms: [0], value: "v", caption: 0 }, { name: "a", atoms: [0], value: "z".repeat(D.MAX_VALUE + 1) }, null, "x"];
   const read = readOct(file(bad));
   // (The shown field's text keeps its attached-data property, so it is a field again.)
   assert.deepEqual([read.mol.data, read.lost], [[{ name: "ok", atoms: [0], value: "v" }, { name: "mp", atoms: P, caption: 1 }], { "data field": bad.length - 1 }]);
@@ -190,7 +190,8 @@ const withFields = D.setRows(D.setRows(base, P, [{ name: "ID", value: "OCT-001",
   assert.deepEqual(parse(file({ not: "a list" })).data, [{ name: "mp", atoms: P, caption: 1 }]);
   let t = performance.now();
   const many = parse(file(Array.from({ length: 100_000 }, (_, k) => ({ name: `f${k}`, atoms: [k % 6], value: "v" }))));
-  assert.equal(many.data!.length, D.MAX_DATA);
+  // A structure holds MAX_EACH (limits.ts withinEach): the drawing has two.
+  assert.equal(many.data!.length, 2 * D.MAX_EACH);
   assert.ok(performance.now() - t < 1500, "100,000 entries read in under a second and a half");
   t = 0;
 }

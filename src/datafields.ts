@@ -6,12 +6,13 @@
 // cleaners and limits, a structure's fields, the dialog's rows, Select Linked Objects, the SD data reader and writer,
 // and the forms the files keep.
 import { addCaption, deleteGraphics, fragments } from "./edit.ts";
+import { MAX_TEXT } from "./richtext.ts";
 import type { Caption, DataField, Mol } from "./render.ts";
 
-// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to 10,000
-// characters; one over 2,000 cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000
-// fields and a drawing up to 10,000.
-export const MAX_NAME = 200, MAX_VALUE = 10_000, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
+// A name is 1 to 200 characters on one line (the longest property name Octet 1.1.2 keeps). A value is up to MAX_TEXT
+// (20,000) characters, as a text, so a shown value whose Show is turned off keeps what its text kept; one over 2,000
+// cannot be shown (the longest caption Octet 1.1.2 reads). A structure has up to 1,000 fields and a drawing up to 10,000.
+export const MAX_NAME = 200, MAX_VALUE = MAX_TEXT, MAX_SHOWN = 2_000, MAX_EACH = 1_000, MAX_DATA = 10_000;
 // A field from a file with no name.
 export const NO_NAME = "Data";
 // ChemDraw's attached data: a live property of type 23, its Name the field's name.
@@ -36,6 +37,33 @@ export function cleanValue(s: string): string | undefined {
 export const fieldCaptions = (m: Pick<Mol, "data">) => new Set((m.data ?? []).flatMap((f) => (f.caption === undefined ? [] : [f.caption])));
 // The field a caption shows, by its place in the list; -1 when it shows none.
 export const fieldOfCaption = (m: Pick<Mol, "data">, id: number) => m.data?.findIndex((f) => f.caption === id) ?? -1;
+// A shown field read from any file whose text is over MAX_SHOWN is not shown, as Attach Data turns its Show off: the
+// field keeps the whole text as its value (one over MAX_VALUE is left out whole, as any field's value is, and its text
+// stays on the page as plain text), and the text goes from the page (docs/plans/long-text.md). off: the fields no
+// longer shown, said when the drawing opens (SHOWN_OFF); left: the fields left out; notes: the notes that went with the
+// texts (their own, and those of a group that held a text and is no longer a group).
+export function longShown(m: Mol): { mol: Mol; off: number; left: number; notes: number } {
+  if (!m.data?.some((f) => f.caption !== undefined)) return { mol: m, off: 0, left: 0, notes: 0 };
+  const byId = new Map((m.captions ?? []).map((c) => [c.id, c])), gone = new Set<number>();
+  let left = 0, notes = 0;
+  const data = m.data.flatMap((f): DataField[] => {
+    const c = f.caption === undefined ? undefined : byId.get(f.caption);
+    if (!c || c.text.length <= MAX_SHOWN) return [f];
+    const value = cleanValue(c.text);
+    if (value === undefined) { left++; return []; }
+    gone.add(c.id);
+    notes += c.notes?.length ?? 0;
+    return [{ name: f.name, atoms: f.atoms, value }];
+  });
+  if (!gone.size && !left) return { mol: m, off: 0, left: 0, notes: 0 };
+  const mol = { ...m, data: data.length ? data : undefined }, out = gone.size ? deleteGraphics(mol, gone) : mol;
+  const groupNotes = (x: Mol) => (x.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0);
+  return { mol: out, off: gone.size, left, notes: notes + groupNotes(m) - groupNotes(out) };
+}
+// What a reader gives in its count of what it left out (oct.ts lostNotice) for a field whose Show it turned off
+// (longShown): said when the drawing opens, but nothing is lost, so Save does not ask before it replaces the file.
+export const SHOWN_OFF = "shown data field";
+export const shownOffText = (n: number) => `A shown value holds up to ${MAX_SHOWN.toLocaleString("en-GB")} characters. Octet turned off Show for ${n === 1 ? "1 data field" : `${n.toLocaleString("en-GB")} data fields`}.`;
 // A field's value: its caption's text when it is shown.
 export const valueOf = (m: Pick<Mol, "captions">, f: DataField) => (f.caption === undefined ? f.value ?? "" : m.captions?.find((c) => c.id === f.caption)?.text ?? "");
 // The fields of a structure (any of its atoms), by their places in the list, in list order.
@@ -77,14 +105,17 @@ export const rowsOf = (m: Mol, atoms: Iterable<number>): DataRow[] => fieldsOn(m
 // shown row's value is its caption's text: a new one is tied under the structure, in the document's caption style; a
 // row no longer shown loses its caption. A field the structure shares with another (it was split) is first copied, so
 // the other keeps it as it was. A value too long to show is not shown. The same drawing comes back when nothing changes.
+// No row is left out for being past MAX_EACH: the editor refuses a structure with more (limits.ts overLimit), and says so.
 export function setRows(m: Mol, structure: number[], rows: DataRow[]): Mol {
   const s = new Set(structure);
   const clean = rows.flatMap((r) => {
     const name = cleanName(r.name).slice(0, MAX_NAME), value = cleanValue(r.value) ?? cleanValue(r.value.slice(0, MAX_VALUE)) ?? "";
     return name ? [{ ...r, name, value, show: r.show && value.length <= MAX_SHOWN }] : [];
-  }).slice(0, MAX_EACH);
+  });
+  // A value as it is cleaned is the same value: a shown text that ends in a line break is not changed by Save.
+  const same = (value: string, was: string) => value === was || value === cleanValue(was);
   const now = rowsOf(m, s);
-  if (clean.length === now.length && clean.every((r, k) => r.key === now[k].key && r.name === now[k].name && r.value === now[k].value && r.show === now[k].show)) return m;
+  if (clean.length === now.length && clean.every((r, k) => r.key === now[k].key && r.name === now[k].name && same(r.value, now[k].value) && r.show === now[k].show)) return m;
   const data = [...(m.data ?? [])], mine = fieldsOn(m, s), at = mine.length ? mine[0] : data.length;
   const captions = new Map((m.captions ?? []).map((c) => [c.id, c]));
   // Each field of this structure as this structure's own: a field it shares with another structure stays there (with
@@ -105,7 +136,7 @@ export function setRows(m: Mol, structure: number[], rows: DataRow[]): Mol {
     const base = { name: r.name, atoms: was?.atoms ?? atoms };
     if (!r.show) { made.push({ ...base, value: r.value }); continue; }
     if (was?.caption !== undefined && captions.has(was.caption)) {
-      if (captions.get(was.caption)!.text !== r.value) out = { ...out, captions: out.captions!.map((c) => (c.id === was.caption ? withText(c, r.value) : c)) };
+      if (!same(r.value, captions.get(was.caption)!.text)) out = { ...out, captions: out.captions!.map((c) => (c.id === was.caption ? withText(c, r.value) : c)) };
       made.push({ ...base, caption: was.caption });
       continue;
     }
@@ -140,7 +171,8 @@ export function withProperties(m: Mol): Mol {
   return { ...m, captions: m.captions?.map((c) => { const f = shown.get(c.id); return f ? { ...c, property: { attrs: { ChemicalPropertyType: ATTACHED, Name: f.name }, atoms: f.atoms } } : c; }) };
 }
 // As read from a file: a caption with an attached-data property is a shown field (one no field names comes after the
-// others), and the property itself is the field's, so the caption loses it. A field's text is never chemistry.
+// others), and the property itself is the field's, so the caption loses it. A field's text is never chemistry. A text
+// too long to show is turned into a value by longShown, after.
 export function fromProperties(m: Mol): Mol {
   const attached = (c: Caption) => c.property?.attrs.ChemicalPropertyType === ATTACHED;
   if (!m.captions?.some(attached)) return m;
@@ -163,19 +195,23 @@ export function writeData(m: Mol, captions: Caption[]): ({ name: string; atoms: 
   });
 }
 // Octet's own file's fields, read as hostile: an entry that is not sound is left out (and counted), and the drawing
-// opens. At most MAX_DATA. captions: the drawing's captions as read, in the file's order.
+// opens. At most MAX_DATA. captions: the drawing's captions as read, in the file's order. A shown field's text too
+// long to show is turned into a value by longShown, after.
 export function readData(v: unknown, atoms: number, captions: Caption[]): { data?: DataField[]; left: number } {
   if (!Array.isArray(v)) return { left: v === undefined ? 0 : 1 };
   const data: DataField[] = [], taken = new Set<number>();
-  let left = Math.max(0, v.length - MAX_DATA);
+  let left = Math.max(0, v.length - MAX_DATA), last: number[] = [];
   for (const x of v.slice(0, MAX_DATA) as Record<string, unknown>[]) {
     const name = typeof x?.name === "string" && x.name.length <= MAX_NAME ? cleanName(x.name) : "", list = x?.atoms;
     const sound = name && Array.isArray(list) && list.length && list.length <= atoms && list.every((i) => Number.isInteger(i) && i >= 0 && i < atoms);
-    const value = typeof x?.value === "string" ? cleanValue(x.value) : undefined, at = x?.caption;
-    const shown = Number.isInteger(at) && (at as number) >= 0 && (at as number) < captions.length && !taken.has(at as number) && captions[at as number].text.length <= MAX_SHOWN;
+    const value = typeof x?.value === "string" ? cleanValue(x.value) : undefined, at = x?.caption as number;
+    const shown = Number.isInteger(at) && at >= 0 && at < captions.length && !taken.has(at);
     if (!sound || (value === undefined) === !shown) { left++; continue; }
-    const ids = [...new Set(list as number[])];
-    if (shown) { taken.add(at as number); data.push({ name, atoms: ids, caption: captions[at as number].id }); } else data.push({ name, atoms: ids, value });
+    // Fields of the same atoms share their list, as Attach Data makes them (an edit renumbers it once).
+    let ids = [...new Set(list as number[])];
+    if (ids.length === last.length && ids.every((i, k) => i === last[k])) ids = last;
+    last = ids;
+    if (shown) { taken.add(at); data.push({ name, atoms: ids, caption: captions[at].id }); } else data.push({ name, atoms: ids, value });
   }
   return { ...(data.length ? { data } : {}), left };
 }
@@ -265,10 +301,15 @@ export function fieldsFromRecords(records: SdRecord[], mols: { atoms: number; it
   return { ...(data.length ? { data } : {}), left: all - data.length };
 }
 
-// What a reader left out, by the drawing it read: said as "Octet left out 3 data fields." (oct.ts lostText).
-const leftOut = new WeakMap<Mol, number>();
-export const markLeft = (m: Mol, n: number) => { if (n > 0) leftOut.set(m, n); return m; };
-export const leftOf = (m: Mol): Record<string, number> => { const n = leftOut.get(m); return n ? { "data field": n } : {}; };
+// What a reader left out, by the drawing it read: said as "Octet left out 3 data fields." (oct.ts lostText). n: the
+// data fields, or each thing by its name ("character").
+const leftOut = new WeakMap<Mol, Record<string, number>>();
+export const markLeft = (m: Mol, n: number | Record<string, number>) => {
+  const lost = Object.fromEntries(Object.entries(typeof n === "number" ? { "data field": n } : n).filter(([, k]) => k > 0));
+  if (Object.keys(lost).length) leftOut.set(m, lost);
+  return m;
+};
+export const leftOf = (m: Mol): Record<string, number> => ({ ...leftOut.get(m) });
 
 // An AI app's change to a structure's fields (mcp.ts edit's data), checked whole before anything changes: a name sets
 // the first field of that name (a new field when there is none) with its value and whether it is shown; remove takes

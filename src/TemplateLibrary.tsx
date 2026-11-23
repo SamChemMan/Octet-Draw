@@ -32,7 +32,8 @@ import { MY_SET, ownId, TEMPLATE_SIZES, templateKind, type FloatingPalette, type
 // is that tool's.
 export type { TemplateTool };
 // What the library does with the user's sets (Editor.tsx keeps them in Settings).
-export type TemplateSetActions = { add: (name: string) => void; rename: (from: string, to: string) => void; remove: (name: string) => void; move: (id: string, set: string) => void };
+// add: false when no set is added (the user has as many as Octet keeps), so the library stays on the set it shows.
+export type TemplateSetActions = { add: (name: string) => boolean; rename: (from: string, to: string) => void; remove: (name: string) => void; move: (id: string, set: string) => void };
 // What a template's menu (right-click, in the library or a floating palette) does. onEdit: Edit for one of the user's
 // templates, Edit a copy for a built-in one. onPlace: a template of the user's put before another of its set (before
 // unset: at the end). onKeepOpen: a set torn off into a floating palette.
@@ -410,7 +411,8 @@ export function LibraryPanel(p: TemplateActions & {
     const n = naming;
     setNaming(undefined);
     if (!keep || !n || !n.value.trim()) return;
-    if (n.from) p.onSets?.rename(n.from, n.value); else p.onSets?.add(n.value);
+    if (n.from) p.onSets?.rename(n.from, n.value);
+    else if (!p.onSets?.add(n.value)) return;
     setCategory(n.value.trim().slice(0, 40));
   };
   const nameField = (

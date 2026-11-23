@@ -130,10 +130,11 @@ const drawing = (): Mol => ({ atoms: [C], bonds: [], annotations: withDetails([{
 {
   const has = (src: string, re: RegExp) => assert.ok(re.test(src), String(re));
   const editor = read("Editor.tsx"), home = read("Home.tsx"), settings = read("SettingsWindow.tsx"), rs = read("../src-tauri/src/recent.rs");
-  has(editor, /const out = stamped\(doc, systemName\)/);
+  // Within the notes limits (annotate.ts stampedWithin: longtext-stress L20).
+  has(editor, /const out = stampedWithin\(doc, systemName\)/);
   has(editor, /contents: writeOct\(\{ \.\.\.out, guides \}/);
   has(editor, /if \(path && out !== doc && now\.current === doc\) \{ lastSet\.current = out; dispatch\(\{ type: "amend", mol: out \}\); \}\n\s*if \(path\) setFile\(\{ path, saved: out \}\);/);
-  has(editor, /const contents = writeOct\(\{ \.\.\.stamped\(doc, systemName\), guides \}/);
+  has(editor, /const out = stampedWithin\(doc, systemName\), contents = writeOct\(\{ \.\.\.out, guides \}/);
   has(editor, /invoke\("recent_thumb", \{ path, svg: svg \?\? null, title: about\.title \?\? null, author: about\.author \?\? null \}\)/);
   has(home, /shown = d\.title \|\| d\.name/);
   has(home, /\[d\.when, d\.author\]\.filter\(Boolean\)\.join\(" · "\)/);
