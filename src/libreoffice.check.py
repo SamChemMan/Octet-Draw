@@ -12,7 +12,6 @@ import tempfile
 import time
 import types
 import atexit
-import shutil
 
 # Every folder the extension makes goes in a temporary folder of this check's own, removed at the end.
 tempfile.tempdir = tempfile.mkdtemp(prefix="octet-check-")
@@ -695,7 +694,7 @@ od.read_picture = real_read
 od.look(s)
 od.look(s)
 assert put == [pdf], "read once"
-os.replace(os.path.join(folder, "b.emf"), s.path + ".new")
+shutil.copyfile(os.path.join(folder, "b.emf"), s.path + ".new")  # the run folder can be on another drive (CI)
 os.replace(s.path + ".new", s.path)
 od.look(s)
 assert put == [pdf, octet_emf], "Update renames a new file over it"

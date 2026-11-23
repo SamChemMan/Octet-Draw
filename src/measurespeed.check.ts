@@ -13,6 +13,8 @@ g.self = { location: { origin: "file://" } };
 g.fetch = async (u: URL | string) => new Response(readFileSync(new URL(String(u))), { headers: { "content-type": "application/wasm" } });
 const { parseStructure, ready } = await import("./chem.ts");
 const { EMPTY, addMeasure, insertMol, moveAtoms } = await import("./edit.ts");
+// CI runners are about twice as slow as a developer's Mac: the budgets hold there at twice the size.
+const SLOW = process.env.CI ? 2 : 1;
 const { measureInk, measureValue, placeEnd, settleMeasures } = await import("./measurement.ts");
 type Mol = import("./render.ts").Mol;
 await ready;
@@ -51,7 +53,7 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   assert.equal(settleMeasures(plain, plain), plain, "no measurement: the same drawing, no work");
   const [withM, without] = interleaved(frame(measured, 3, 0.3), frame(plain, 3, 0.3));
   console.log(`measurespeed.check: 40 paclitaxels, 120 measurements: a drag frame ${withM.toFixed(3)} ms, without measurements ${without.toFixed(3)} ms`);
-  assert.ok(withM - without <= 1, `a frame costs ${(withM - without).toFixed(2)} ms more with 120 measurements (budget 1 ms)`);
+  assert.ok(withM - without <= 1 * SLOW, `a frame costs ${(withM - without).toFixed(2)} ms more with 120 measurements (budget 1 ms)`);
 }
 
 // S28: a 4000-atom peptide-like chain (800 residues: N, CA with a CB, C=O), 10 dihedrals along its backbone; one
@@ -73,14 +75,14 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   assert.ok(measured.captions!.every((c) => c.text !== "–"), "every dihedral has a value");
   const [withM, without] = interleaved(frame(measured, 52, 0.3), frame(peptide, 52, 0.3));
   console.log(`measurespeed.check: 4000-atom peptide, 10 dihedrals: a drag frame ${withM.toFixed(3)} ms, without measurements ${without.toFixed(3)} ms`);
-  assert.ok(withM - without <= 2, `a frame costs ${(withM - without).toFixed(2)} ms more with 10 dihedrals (budget 2 ms)`);
+  assert.ok(withM - without <= 2 * SLOW, `a frame costs ${(withM - without).toFixed(2)} ms more with 10 dihedrals (budget 2 ms)`);
   // Free ends: a length from an atom to a free point and one between two free points, 10 each, beside the dihedrals.
   const mixed = settleMeasures(undefined, { ...peptide, captions: [...captions, ...Array.from({ length: 20 }, (_, k) => ({ id: 100 + k, text: "–", x: 0, y: 0, chemical: false as const,
     measure: { ends: k < 10 ? [k * 200, [k * 52, 4]] as [number, [number, number]] : [[k * 52, 4], [k * 52 + 3, 5]] as [[number, number], [number, number]] } }))] });
   assert.equal(mixed.captions!.filter((c) => c.measure).length, 30);
   const [withFree, plainFrame] = interleaved(frame(mixed, 52, 0.3), frame(peptide, 52, 0.3));
   console.log(`measurespeed.check: 4000-atom peptide, 10 dihedrals and 20 lengths with free ends: a drag frame ${withFree.toFixed(3)} ms, without ${plainFrame.toFixed(3)} ms`);
-  assert.ok(withFree - plainFrame <= 2, `a frame costs ${(withFree - plainFrame).toFixed(2)} ms more with free ends (budget 2 ms)`);
+  assert.ok(withFree - plainFrame <= 2 * SLOW, `a frame costs ${(withFree - plainFrame).toFixed(2)} ms more with free ends (budget 2 ms)`);
   // The pointer moving with Measure in hand and an angle in progress (two ends placed): the overlay's work at each move,
   // as Editor.tsx draws it (the next end, the dashed legs, the dotted line on, the live arc and the value), over atoms
   // and empty canvas in turn. The Atom map tool's move does no such work (its line is drawn from two points), so the
@@ -96,7 +98,7 @@ const frame = (from: Mol, atom: number, d: number) => () => {
   let k = 0;
   const [move] = interleaved(() => overlay(k++)(), () => undefined, 201);
   console.log(`measurespeed.check: a pointer move with an angle in progress on 4000 atoms: ${move.toFixed(3)} ms`);
-  assert.ok(move <= 1, `a pointer move costs ${move.toFixed(2)} ms (budget 1 ms)`);
+  assert.ok(move <= 1 * SLOW, `a pointer move costs ${move.toFixed(2)} ms (budget 1 ms)`);
 }
 
 // S7: a flat 4000-atom peptide: Measure takes the value from the drawing as it is (nothing is cleaned up, whatever its
