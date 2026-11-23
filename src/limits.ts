@@ -6,8 +6,9 @@ import { capNotes, MAX_ANNOTATIONS, MAX_NOTES } from "./annotate.ts";
 import { MAX_DATA, MAX_EACH } from "./datafields.ts";
 import { bondsMadeFrom, deleteGraphics } from "./edit.ts";
 import { MAX_GRIDS, stamped } from "./experiment.ts";
+import { formulaCaption } from "./labels.ts";
 import { MOST_OWN_MONOMERS, type OwnMonomer } from "./monomers.ts";
-import type { Annotation, Caption, DataField, Grid, Group, Mol, Shape } from "./render.ts";
+import type { Annotation, Caption, DataField, Grid, Group, Mol, Shape, Table } from "./render.ts";
 
 export const MAX_ATOMS = 100_000;
 // Texts, arrows, shapes, cycles, ring fills and groups, each. A text's length is MAX_TEXT (richtext.ts).
@@ -15,20 +16,31 @@ export const MAX_OBJECTS = 10_000;
 
 // --- Text ---------------------------------------------------------------------------------------------------------------
 // The text a drawing holds: what MAX_TEXT and MAX_VALUE let grow, the characters of its texts, notes, data fields,
-// table cells and their style runs, risk assessment texts, reagent tables and a sequence's own monomers. Each counts
-// as the most bytes it takes in any form Octet writes (.oct, .cdx, CDXML, the recovery copy), in characters of 9 bytes
-// (" in a .oct takes 8.7, the most): a style run counts RUN (309 bytes with a size of 19 digits) and its font's name,
-// as a text's own font does (4 bytes a character at most), a table cell's character and a shown field's name's 2 (16
-// and 11 bytes), a table cell's style run CELL_RUN (370 bytes with every style), and a monomer's code, name and SMILES 2
-// a character (a file's may hold a control character, which JSON writes as \u0001: 14 bytes in a .oct) and its record
-// MONOMER (120 bytes). A field not shown is written in each structure it is on, so its name and value and its record
-// (FIELD, 88 bytes) count once for each. So text takes 45 MB at most: a drawing of text alone saves within 64 MB
-// (main.rs MAX_BYTES), with 10,000 texts that have every style, each with a note and a shown data field
-// (longtext-stress L19). The rest of a drawing (structures, curves, pictures, spectra, a table's own cells) is not
-// counted: Save refuses a drawing larger than 64 MB, as before, and the recovery copy kept last stays
-// (docs/plans/long-text.md).
+// table cells and their style runs, risk assessments, reagent tables and a sequence's own monomers. Each counts as the
+// most bytes it takes in any form Octet writes (.oct, .cdx, CDXML, the recovery copy), in characters of 9 bytes (" in a
+// .oct takes 8.7, the most): a style run counts RUN (410 bytes with every style, a colour and a font of its own, and a
+// size of 19 digits) and its font's name, as a text's own font does (4 bytes a character at most), a table cell's
+// character and a shown field's name's 2 (16 and 11 bytes). Each table cell counts its record (EMPTY, 89 bytes in a
+// table of one column), and one with text the text Octet writes for it (CELL, 230 bytes) and its style runs (CELL_RUN,
+// 400 bytes with every style); a table's column widths and row heights count SIZE each (52 bytes). Text written as a
+// formula (a table cell, an arrow's conditions, a cycle's text) has each count in it as a subscript: each digit counts
+// two more style runs (SPAN, 55 bytes each). A risk assessment and a reagent table count each character of their
+// record's JSON (substances, codes and runs too: 9.7 bytes for a ", which JSON writes as two). A monomer's code, name
+// and SMILES count 2 a character (a file's may hold a control character, which JSON writes as \u0001: 14 bytes in a
+// .oct) and its record MONOMER (120 bytes). A field not shown is written in each structure it is on, so its name and
+// value and its record (FIELD, 88 bytes) count once for each. So text takes 45 MB at most: a drawing of text alone
+// saves within 64 MB (main.rs MAX_BYTES), with 10,000 texts that have every style, each with a note and a shown data
+// field, or with tables of short cells, runs in colours and fonts of their own, or risk assessments (longtext-stress
+// L19). The rest of a drawing (structures, curves, pictures, spectra) is not counted: Save refuses a drawing larger
+// than 64 MB, as before, and the recovery copy kept last stays (docs/plans/long-text.md).
 export const MAX_CHARACTERS = 5_000_000;
-const RUN = 35, FIELD = 12, CELL_RUN = 42, MONOMER = 14;
+const RUN = 46, FIELD = 12, CELL_RUN = 46, CELL = 31, EMPTY = 11, SIZE = 7, SPAN = 7, MONOMER = 14;
+// A text written as a formula (labels.ts formulaRuns): its characters, and two style runs more for each digit.
+function formulaText(t: string): number {
+  let n = t.length;
+  for (let i = 0; i < t.length; i++) { const c = t.charCodeAt(i); if (c >= 48 && c <= 57) n += 2 * SPAN; }
+  return n;
+}
 // A list's text, kept for the list: an edit that makes no new list costs nothing, and one that does a pass over it.
 function part<T>(f: (x: T) => number) {
   const done = new WeakMap<T[], number>();
@@ -44,11 +56,13 @@ const noteText = (a: Annotation) => a.keyword.length + a.content.length;
 const notesOf = part<Annotation>(noteText);
 const runsText = (l: { text: string; font?: string }[]) => l.reduce((n, r) => n + r.text.length + RUN + (r.font?.length ?? 0), 0);
 const tables = new WeakMap<NonNullable<Shape["table"]>, number>(), risks = new WeakMap<NonNullable<Group["risk"]>, number>(), grids = new WeakMap<Grid, number>();
-const captionText = (c: Caption) => (c.runs ? runsText(c.runs) : c.text.length) + (c.font?.length ?? 0);
+// A text's own runs, else its text: as a formula where Octet writes it so (cdxml.ts, labels.ts formulaCaption).
+const captionText = (c: Caption) => (c.runs?.length ? runsText(c.runs) : formulaCaption(c) ? formulaText(c.text) : c.text.length) + (c.font?.length ?? 0);
 const captionsText = part<Caption>((c) => captionText(c) + notesOf(c.notes));
 const arrowsText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes)), cyclesText = part<{ notes?: Annotation[] }>((x) => notesOf(x.notes));
-const shapesText = part<Shape>((s) => notesOf(s.notes) + (s.table ? kept(tables, s.table, (t) => t.cells.reduce((n, row, r) => n + row.reduce((k, c, j) => k + 2 * c.length + CELL_RUN * (t.runs?.[r]?.[j]?.length ?? 0), 0), 0)) : 0));
-const groupsText = part<Group>((g) => notesOf(g.annotations) + (g.risk?.texts ? kept(risks, g.risk, (r) => Object.values(r.texts!).reduce((n, l) => n + runsText(l), 0)) : 0));
+const cellsText = (t: Table) => t.cells.reduce((n, row, r) => n + row.reduce((k, c, j) => k + EMPTY + (c ? CELL + c.length + formulaText(c) + CELL_RUN * (t.runs?.[r]?.[j]?.length ?? 0) : 0), 0), SIZE * ((t.widths?.length ?? 0) + (t.heights?.length ?? 0)));
+const shapesText = part<Shape>((s) => notesOf(s.notes) + (s.table ? kept(tables, s.table, cellsText) : 0));
+const groupsText = part<Group>((g) => notesOf(g.annotations) + (g.risk ? kept(risks, g.risk, (r) => JSON.stringify(r).length) : 0));
 const gridsText = part<Grid>((g) => kept(grids, g, (x) => JSON.stringify(x).length));
 // A sequence's own monomers (issue 27): 500 of 2,092 characters (a code of 12, a name of 80, SMILES of 2,000) take up to
 // 14 MB in a .oct, so they count.
@@ -271,10 +285,10 @@ export function withinEach(m: Mol): { mol: Mol; left: number } {
 // The drawing read with at most MAX_CHARACTERS of text: when it has more, notes are left out (the last first), then
 // texts, then data fields, each counted (lose), and only what brings it within: when leaving out every note and text
 // would not be enough, data fields go (the last first) until it is within, and the notes and texts stay; when leaving
-// out every note would not, texts go and the notes stay. A shown field's text that goes leaves its value
-// (datafields.ts remapData), so what is still past the limit then goes as texts, then fields. Text of other kinds
-// (table cells, risk texts, reagent tables, monomers) stays: when leaving out every note, text and field would not
-// bring the drawing within, nothing is left out, and the editor takes no edit that adds text.
+// out every note would not, texts go and the notes stay. A shown field's text that goes leaves its value (datafields.ts
+// remapData), so what is still past the limit then goes as texts, then fields. Text of other kinds (table cells, risk
+// assessments, reagent tables, monomers) stays: when leaving out every note, text and field would not bring the drawing
+// within, nothing is left out, and the editor takes no edit that adds text.
 export function withinText(m: Mol, lose: (what: string, n: number) => void): Mol {
   const over = (x: Mol) => textOf(x) - MAX_CHARACTERS;
   if (over(m) <= 0) return m;

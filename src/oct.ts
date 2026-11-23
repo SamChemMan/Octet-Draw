@@ -42,18 +42,33 @@ export function writeOct(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}, cdx
   return `${body}${MARK}${hash(body)} ${toBase64(new TextEncoder().encode(own(mol, style)))}-->\n`;
 }
 
+// A drawing file larger than 64 MB (main.rs MAX_BYTES): Save, Export and the CDX Save makes refuse it with these
+// words, Save's own (main.rs save_drawing). The readers' TOO_BIG is for a file to open.
+export const TOO_LARGE = "This drawing is larger than 64 MB. Octet cannot save it.";
+const MAX_BYTES = 64 * 1024 * 1024;
+// A file Octet writes, or TOO_LARGE when it is larger than 64 MB: a text's UTF-8 bytes, counted only when they could be.
+export function within<T extends string | Uint8Array>(file: T): T {
+  let n = file.length;
+  if (typeof file === "string" && n <= MAX_BYTES && 3 * n > MAX_BYTES) for (let i = 0; i < file.length; i++) { const c = file.charCodeAt(i); if (c >= 0x80) n += c < 0x800 || (c >= 0xd800 && c < 0xe000) ? 1 : 2; }
+  if (n > MAX_BYTES) throw new Error(TOO_LARGE);
+  return file;
+}
+// The CDX of a CDXML Octet wrote: one larger than 64 MB, which the reader takes no larger (cdxml.ts parseXml), is
+// TOO_LARGE.
+export const cdxOf = (cdxml: string) => within(xmlToCdx(parseXml(within(cdxml))));
+
 // The drawing as a .cdx file: ChemDraw's binary form of the CDXML, with Octet's drawing in a user property (tag
 // 0x4F43, "OC") first in the document, as the hash of the file without it, a space, and the JSON.
 const OWN = 0x4f43;
 export function writeCdx(mol: Mol, style: DocStyle, opts: CdxmlOptions = {}): Uint8Array {
-  const body = xmlToCdx(parseXml(toCdxml(mol, style, opts))), json = new TextEncoder().encode(`${hashBytes(body)} ${own(mol, style)}`);
+  const body = cdxOf(toCdxml(mol, style, opts)), json = new TextEncoder().encode(`${hashBytes(body)} ${own(mol, style)}`);
   const head = json.length >= 0xffff ? 8 : 4, out = new Uint8Array(body.length + head + json.length), d = new DataView(out.buffer);
   out.set(body.subarray(0, 28));
   d.setUint16(28, OWN, true);
   if (head === 8) { d.setUint16(30, 0xffff, true); d.setUint32(32, json.length, true); } else d.setUint16(30, json.length, true);
   out.set(json, 28 + head);
   out.set(body.subarray(28), 28 + head + json.length);
-  return out;
+  return within(out);
 }
 // What readOct and readCdx give. fallback: the file has Octet's own drawing for the CDXML or CDX it has, unchanged,
 // but Octet cannot read it, so the drawing is the CDXML's (docs/plans/long-text.md); `lost` then counts it as a

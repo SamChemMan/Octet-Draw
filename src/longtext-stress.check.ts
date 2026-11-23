@@ -21,10 +21,10 @@ const { followCharts, followLeaders, followLevels } = await import("./pageplot.t
 const { settleMeasures } = await import("./measurement.ts");
 const { showWarnedHydrogens } = await import("./check.ts");
 const { onTop } = await import("./order.ts");
-const { FALLBACK, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } = await import("./oct.ts");
+const { FALLBACK, TOO_LARGE, cdxOf, lostNotice, lostText, readCdx, readOct, replaceNote, within, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
 const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
-const { cutNotice } = await import("./notice.ts");
+const { cutNotice, failure } = await import("./notice.ts");
 const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve, withMonomers } = await import("./edit.ts");
 const { MAX_STEPS, addStop } = await import("./cycle.ts");
 const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("./charts.ts");
@@ -46,6 +46,7 @@ const { widthOf } = await import("./arial.ts");
 type Mol = import("./render.ts").Mol;
 type Caption = import("./render.ts").Caption;
 type TextRun = import("./richtext.ts").TextRun;
+type Shape = import("./render.ts").Shape;
 
 const cases: [string, () => unknown][] = [];
 const it = (name: string, run: () => unknown) => cases.push([name, run]);
@@ -572,7 +573,17 @@ const ATOM_PROPS = { charge: -3, radical: 2, isotope: 235, pairs: 3, circled: tr
   query: { subst: { kind: "exactly", n: 3 }, noH: true, rings: "fusion", unsat: "present", change: true, stereo: "retention", translation: "broad", abundance: "nonnatural", valence: true }, scale: 1.2345, ox: 3, implicitHCount: 3 };
 const CAPTION_PROPS = { bold: true, italic: true, underline: true, size: 13.5, align: "justify", colour: "#123456", angle: 123.456, font: "Times New Roman", order: 1234, width: 12.3456, lineHeight: 13.5, chemical: false, auto: true };
 // A style run with every style.
-const allStyles = (text: string, k: number, font = "Times New Roman", size = 13.5) => ({ text, bold: true, italic: true, underline: true, script: k % 2 ? "sub" as const : "super" as const, ...(font ? { font } : {}), size, colour: "#123456" });
+const allStyles = (text: string, k: number, font = "Times New Roman", size = 13.5, colour = "#123456") => ({ text, bold: true, italic: true, underline: true, script: k % 2 ? "sub" as const : "super" as const, ...(font ? { font } : {}), size, colour });
+// The kth colour and font of their own (two characters of 3 bytes): a run in each adds to the file's tables.
+const ownColour = (k: number) => `#${((k + 1) & 0xffffff).toString(16).padStart(6, "0")}`, ownFont = (k: number) => String.fromCharCode(0x4e00 + (k % 0x5000), 0x4e00 + Math.floor(k / 0x5000));
+// A table of these cells, at a place and scale of many digits and in every style, so each cell writes the most.
+const table = (cells: string[][], more: Partial<NonNullable<Shape["table"]>> = {}): Shape => ({ id: 1, kind: "table", from: [123456.123456, -123456.123456], to: [123556.123456, -123756.123456], colour: "#123456", scale: 1.2345678901234567, size: 13.33333333333, bold: true, italic: true, font: "Times New Roman", table: { cells, align: Array(20).fill("right"), weight: 1.23456789, ...more } });
+// n cells of t in rows of 20, and a column of n cells of t.
+const cellRows = (n: number, t: string) => Array.from({ length: Math.ceil(n / 20) }, (_, r) => Array.from({ length: Math.min(20, n - 20 * r) }, () => t));
+const column = (n: number, t: string) => Array.from({ length: n }, () => [t]);
+// A risk assessment's substance with every field at its longest, of t (codes of 60 characters and every pictogram).
+const substance = (id: number, t: string) => ({ id, key: t.repeat(300), name: t.repeat(300), formula: t.repeat(200), role: "reactant" as const, signal: t.repeat(20), found: true as const,
+  pictograms: ["GHS01", "GHS02", "GHS03", "GHS04", "GHS05", "GHS06", "GHS07", "GHS08", "GHS09"], codes: Array.from({ length: 60 }, (_, k) => `H${100 + k}${"+H300".repeat(11)}`) });
 // The costliest font name a text or a run takes (64 characters of 3 bytes, Text > Font > Other Font…), and the most
 // digits a size takes (19, as a scale gives).
 const FONT64 = "€".repeat(64), SIZE19 = 0.30000000000000004;
@@ -591,12 +602,21 @@ it("L19 a drawing holds MAX_CHARACTERS of text, which saves within 64 MB: each k
   const singles = (k: number): Mol => ({ atoms: Array.from({ length: k }, (_, i) => ({ label: "C", location: spot(i) })), bonds: [] });
   const grid = (key: string): Mol => ({ ...ETHANOL, arrows: [{ id: 3, kind: "reaction", from: [3, 0], to: [6, 0] }], grids: [{ arrow: 3, typed: { [key]: { mass: 1.5 } }, limiting: key, roles: { [key]: "reactant" }, text: { name: { [key]: "n" } } }] });
   const cellRuns = (t: string): TextRun[] => [...t].map((c, k) => ({ text: c, bold: true, italic: true, underline: true, script: k % 2 ? "sub" : "super" }));
-  const risk = (texts: TextRun[]): Mol => ({ ...ETHANOL, groups: [{ id: 9, atoms: [], items: [], risk: { substances: [], ticks: [], texts: { "head:waste": texts } } }] });
+  // A risk assessment as Octet makes one: a group of what it draws (here a text and a line), which every form writes.
+  const risk = (texts: TextRun[], more: Partial<NonNullable<NonNullable<Mol["groups"]>[number]["risk"]>> = {}): Mol => ({ ...ETHANOL, captions: [{ id: 1, x: 0, y: -3, text: "Risk" }], arrows: [{ id: 2, kind: "line", from: [0, -4], to: [3, -4] }],
+    groups: [{ id: 9, atoms: [], items: [1, 2], integral: true, risk: { substances: [], ticks: [], texts: { "head:waste": texts }, ...more } }] });
+  const condition = (text: string): Mol => ({ ...ETHANOL, arrows: [{ id: 2, kind: "reaction", from: [3, 0], to: [6, 0] }], captions: [{ id: 1, x: 4, y: 0.5, text, on: { arrow: 2, side: "above" } }] });
+  const tables = (...list: Shape[]): Mol => ({ atoms: [], bonds: [], shapes: list.map((t, k) => ({ ...t, id: k + 1 })) });
   const kinds: [string, (n: number) => Mol, number][] = [
     ['a text of "', (n) => withTexts(q(n)), 2000], ["a text of €", (n) => withTexts(eu(n)), 2000],
     ["style runs", (n) => withTexts({ text: "ab".repeat(n), runs: Array.from({ length: 2 * n }, (_, k) => allStyles("ab"[k % 2], k)) }), 200],
     ["style runs with a font of 64 characters and a size of 19 digits", (n) => withTexts({ text: "ab".repeat(n), runs: Array.from({ length: 2 * n }, (_, k) => allStyles("ab"[k % 2], k, FONT64, SIZE19)) }), 200],
     ["style runs with no font and a size of 19 digits", (n) => withTexts({ text: "ab".repeat(n), runs: Array.from({ length: 2 * n }, (_, k) => allStyles("ab"[k % 2], k, "", SIZE19)) }), 200],
+    // Each run in a colour and a font of its own adds to the file's tables of colours and fonts.
+    ["style runs in a colour and a font of their own", (n) => withTexts({ text: q(n), runs: Array.from({ length: n }, (_, k) => allStyles('"', k, ownFont(k), SIZE19, ownColour(k))) }), 2000],
+    ["style runs in a colour of their own", (n) => withTexts({ text: q(n), runs: Array.from({ length: n }, (_, k) => allStyles('"', k, "", SIZE19, ownColour(k))) }), 2000],
+    // An arrow's conditions are written as a formula: each count a style run of its own.
+    ["conditions written as a formula", (n) => condition("C1".repeat(n / 2)), 2000],
     ["a text's own font", (n) => withTexts({ text: "a", font: "€".repeat(n) }), 64],
     ["a note on the drawing", (n) => ({ ...ETHANOL, annotations: note(q(n)) }), 2000], ["a note's keyword", (n) => ({ ...ETHANOL, annotations: note("x", q(n)) }), 200],
     ["a note on a text", (n) => withTexts({ text: "a", notes: note(q(n)) }), 2000],
@@ -609,10 +629,19 @@ it("L19 a drawing holds MAX_CHARACTERS of text, which saves within 64 MB: each k
     ["a field on many structures", (n) => ({ ...singles(2000), data: [{ name: "F", atoms: Array.from({ length: n }, (_, i) => i), value: "" }] }), 2000],
     ["a shown field's name", (n) => setRows(ETHANOL, [0, 1, 2], [{ name: q(n), value: "v", show: true }]), 200],
     ["a table cell", (n) => ({ atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [8, -8], table: { cells: [[q(n), "b"], ["c", eu(n)]] } }] }), MAX_CELL],
+    // A cell's record and the text Octet writes for it cost more than its characters: short cells, empty cells in a
+    // column with a run in another and a height for each row, and a cell of a formula, each count a subscript.
+    ['short table cells of "', (n) => tables(table(cellRows(n, '"'))), 2000], ["short table cells of €", (n) => tables(table(cellRows(n, "€"))), 2000],
+    ["short table cells with a run each", (n) => tables(table(cellRows(n, '"'), { runs: cellRows(n, '"').map((r) => r.map(() => cellRuns('"'))) })), 2000],
+    ["empty table cells in a column", (n) => tables(table([["ab"], ...column(n, "")], { runs: [[cellRuns("ab")], ...column(n, "").map(() => [null])], heights: Array(n + 1).fill(1.2345678901234567) })), 99],
+    ["a table cell of a formula", (n) => tables(table([["C1".repeat(n / 2)]])), MAX_CELL],
     // A table cell's and a reagent table's text styles (release-1.1.3): a run for each character, with every style.
     ["a table cell's runs", (n) => ({ atoms: [], bonds: [], shapes: [{ id: 1, kind: "table", from: [0, 0], to: [8, -8], table: { cells: [[q(n), "b"], ["c", eu(n)]], runs: [[cellRuns(q(n)), null], [null, cellRuns(eu(n))]] } }] }), MAX_CELL],
     ["a reagent table's runs", (n) => { const m = grid("r1"); return { ...m, grids: [{ ...m.grids![0], text: { name: { r1: q(n) } }, runs: { name: { r1: cellRuns(q(n)) } } }] }; }, 200],
-    ["a risk text", (n) => risk([{ text: eu(n) }]), 2000], ["a risk text's runs", (n) => risk(Array.from({ length: n }, (_, k) => allStyles("ab"[k % 2], k))), 200],
+    ["a risk text", (n) => risk([{ text: eu(n) }]), 2000], ['a risk text of "', (n) => risk([{ text: q(n) }]), 2000], ["a risk text's runs", (n) => risk(Array.from({ length: n }, (_, k) => allStyles("ab"[k % 2], k))), 200],
+    // A risk assessment's substances (each field at its longest, of " and of €) and the parts the user removed.
+    ['risk substances of "', (n) => risk([], { substances: Array.from({ length: n }, (_, k) => substance(k + 1, '"')) }), 40], ["risk substances of €", (n) => risk([], { substances: Array.from({ length: n }, (_, k) => substance(k + 1, "€")) }), 40],
+    ["a risk's removed parts", (n) => risk([], { removed: Array.from({ length: n }, (_, k) => `sub:${k}`.padEnd(60, "x")) }), 300],
     ["a risk text's runs with a font of 64 characters", (n) => risk(Array.from({ length: n }, (_, k) => allStyles("ab"[k % 2], k, FONT64, SIZE19))), 200],
     ['a reagent table\'s key of "', (n) => grid(`r:"${q(n)}"`), 2000], ["a reagent table's key of €", (n) => grid(`r:"${eu(n)}"`), 2000],
   ];
@@ -653,6 +682,26 @@ it("L19 a drawing holds MAX_CHARACTERS of text, which saves within 64 MB: each k
   const oct = Buffer.byteLength(writeOct(runs, style));
   assert.ok(oct <= 64 * 2 ** 20, `.oct of ${oct} bytes`);
   console.log(`longtext-stress: L19 text at MAX_CHARACTERS in runs with a font of 64 characters: .oct ${(oct / 2 ** 20).toFixed(1)} MB`);
+  // So do drawings of tables of short cells (with a run each, and empty in columns with a height for each row), of
+  // runs in a colour and a font of their own, and of risk assessments with every substance at its longest, each at
+  // MAX_CHARACTERS: a unit more is refused.
+  const shortCells = (n: number) => tables(...Array.from({ length: Math.ceil(n / 2000) }, (_, k) => { const c = cellRows(Math.min(2000, n - 2000 * k), '"'); return table(c, { runs: c.map((r) => r.map(() => cellRuns('"'))) }); }));
+  const emptyCells = (n: number) => tables(...Array.from({ length: n }, () => table([["ab"], ...column(99, "")], { runs: [[cellRuns("ab")], ...column(99, "").map(() => [null])], heights: Array(100).fill(1.2345678901234567) })));
+  const ownRuns = (n: number): Mol => ({ atoms: [], bonds: [], captions: Array.from({ length: Math.ceil(n / MAX_TEXT) }, (_, k) => {
+    const m = Math.min(MAX_TEXT, n - MAX_TEXT * k);
+    return { id: k + 1, x: 0, y: -3 * k, text: q(m), runs: Array.from({ length: m }, (_, j) => allStyles('"', j, ownFont(MAX_TEXT * k + j), SIZE19, ownColour(MAX_TEXT * k + j))) };
+  }) });
+  const risks = (n: number): Mol => ({ atoms: [], bonds: [], captions: Array.from({ length: 2 * n }, (_, k) => ({ id: k + 1, x: k, y: 0, text: "Risk" })),
+    groups: Array.from({ length: n }, (_, k) => ({ id: 2 * n + k + 1, atoms: [], items: [2 * k + 1, 2 * k + 2], integral: true as const, risk: { substances: Array.from({ length: 40 }, (_, j) => substance(j + 1, '"')), ticks: [] } })) });
+  for (const [name, make] of [["tables of short cells", shortCells], ["tables of empty cells", emptyCells], ["runs in a colour and a font of their own", ownRuns], ["risk assessments", risks]] as const) {
+    // n units (a cell, a run, a table, a risk assessment), each counting the same.
+    const n = Math.floor((MAX_CHARACTERS - textOf(make(0))) / (textOf(make(1)) - textOf(make(0)))), m = make(n);
+    assert.equal(overLimit(m), undefined, name);
+    assert.equal(overLimit(make(n + 1), m), TOO_MUCH, name);
+    const sized = { oct: Buffer.byteLength(writeOct(m, style)), cdx: writeCdx(m, style).length, cdxml: Buffer.byteLength(toCdxml(m, style)), recovery: Buffer.byteLength(serialize({ ...m, style })) };
+    for (const [form, size] of Object.entries(sized)) assert.ok(size <= 64 * 2 ** 20, `${name}, ${form}: ${size} bytes`);
+    console.log(`longtext-stress: L19 text at MAX_CHARACTERS in ${name}, MB: ${Object.entries(sized).map(([f, v]) => `${f} ${(v / 2 ** 20).toFixed(1)}`).join(", ")}`);
+  }
   // A ChemDraw file with more: the texts past MAX_CHARACTERS are left out, the last first, and counted.
   const r = fromCdxml(theirs(texts(400, prose(MAX_TEXT))));
   const kept = r.mol.captions!.length;
@@ -791,7 +840,7 @@ it("L28 a data field's value holds MAX_TEXT characters, as a text: not shown, an
   assert.deepEqual([cd.mol.data, cd.lost], [undefined, { "data field": 1 }]);
 });
 
-it("L29 a drawing larger than 64 MB loses no work: Save refuses it and says what to do, and the recovery copy Octet kept last stays", () => {
+it("L29 a drawing larger than 64 MB loses no work: Save, Save As, Save Copy As, a new drawing's first Save, Export and Update refuse it and say what to do, and the recovery copy Octet kept last stays", () => {
   const rs = src("../src-tauri/src/recovery.rs"), editor = src("./Editor.tsx");
   // recovery.rs write: a copy over MAX_BYTES is refused before anything is written, so the copy kept last stays.
   const write = rs.slice(rs.indexOf("fn write("), rs.indexOf("fn list("));
@@ -800,9 +849,44 @@ it("L29 a drawing larger than 64 MB loses no work: Save refuses it and says what
   // The editor clears its copy only when the drawing is clean (saved, or Don't Save): a refused write or Save leaves it.
   assert.equal(editor.match(/keep\("recovery_clear"\)/g)?.length, 2);
   assert.match(editor, /if \(!mainDirty\) \{ if \(keeper\.kept\) \{ keeper\.kept = false; keep\("recovery_clear"\)\.catch\(keepFailed\(\)\); \} return; \}/);
-  // Save and Save Copy As say what to do.
-  assert.match(editor, /const TOO_LARGE = "This drawing is larger than 64 MB\. Octet cannot save it\. Delete part of it, or copy part of it to a new drawing and save that\.";/);
-  assert.equal(editor.match(/setNotice\(saveFailed\(e\)\);/g)?.length, 2, "Save and Save Copy As");
+  // Every write of a drawing larger than 64 MB says Save's words and what to do (notice.ts failure). The CDX that a
+  // new drawing's first Save, Save As and Save Copy As make (writeCdx) said "This file is too large to open.", the
+  // readers' words (cdxml.ts TOO_BIG), with no word on what to do.
+  const DO = "Delete part of it, or copy part of it to a new drawing and save that.", SAVE = `This drawing is larger than 64 MB. Octet cannot save it. ${DO}`;
+  const big = withTexts('"'.repeat(11_200_000)), refused = (f: () => unknown) => { try { f(); } catch (e) { return e; } assert.fail("not refused"); };
+  const e = refused(() => writeCdx(big, style)), logged = console.error;
+  assert.equal((e as Error).message, TOO_LARGE);
+  console.error = () => {}; // (failure writes each error to the console)
+  try {
+    for (const what of ["Octet cannot save this drawing.", "Octet cannot export this drawing."]) {
+      assert.equal(failure(what, e), SAVE, what);
+      assert.equal(failure(what, new Error("This drawing is larger than 64 MB. Octet cannot save it.")), SAVE, `${what} (main.rs save_drawing)`);
+    }
+    assert.equal(failure("Octet cannot update Word.", new Error("This drawing is larger than 64 MB. Octet cannot update the document with it.")), `This drawing is larger than 64 MB. Octet cannot update the document with it. ${DO}`);
+    assert.equal(failure("Octet cannot open this file.", new Error("This file is larger than 64 MB. Octet cannot open it.")), "Octet cannot open this file. This file is larger than 64 MB. Octet cannot open it.", "a file to open is not a drawing to save");
+    // A drawing too large to open in a new window (windows.rs) or from Home (recovery.rs): no word on what to save.
+    assert.equal(failure("Octet cannot open a new window.", new Error("This drawing is larger than 64 MB. Octet cannot open it.")), "Octet cannot open a new window. This drawing is larger than 64 MB. Octet cannot open it.", "a drawing to open is not one to save");
+  } finally { console.error = logged; }
+  // within: a file's bytes past 64 MB, as UTF-8 for a text.
+  const MB64 = 64 * 2 ** 20;
+  for (const [file, ok] of [["x".repeat(MB64), true], ["x".repeat(MB64 + 1), false], ["€".repeat(Math.floor(MB64 / 3)), true], ["€".repeat(Math.floor(MB64 / 3) + 1), false], ["😀".repeat(MB64 / 4), true], ["😀".repeat(MB64 / 4) + "x", false], [new Uint8Array(MB64 + 1), false]] as const) {
+    assert.equal(ok ? within(file) === file : (refused(() => within(file)) as Error).message === TOO_LARGE, true, `${file.length}`);
+  }
+  assert.equal((refused(() => cdxOf("<CDXML>" + "x".repeat(MB64) + "</CDXML>")) as Error).message, TOO_LARGE);
+  // The editor's writes: Save and Save Copy As, Export of a .oct, CDXML or CDX (its file, or the CDX made again for
+  // its reason), Update, and the Save As of the drawing kept after an error (App.tsx).
+  assert.doesNotMatch(editor, /saveFailed|TOO_BIG/);
+  assert.equal(editor.match(/setNotice\(failure\("Octet cannot save this drawing\.", e\)\);/g)?.length, 2, "Save and Save Copy As");
+  assert.match(editor, /const cdx = as \|\| !file\.path \|\| \/\\\.cdx\$\/i\.test\(file\.path\) \? toBase64\(writeCdx\(/, "Save makes the CDX with writeCdx");
+  assert.match(editor, /: f === "cdx" \? cdxml && toBase64\(cdxOf\(cdxml\)\)/, "Export's and Copy's CDX");
+  assert.match(editor, /const s = formatOf\(mol, pf\), x = !s && pf === "cdx" && formatOf\(mol, "cdxml"\);\n\s+if \(x\) cdxOf\(x\);\n\s+return s && pf !== "cdx" \? within\(s\) : s;/, "Export");
+  assert.match(editor, /oct: file\("oct"\), svg: pic\?\.svg, cdxml: file\("cdxml"\) \?\? make\("cdxml", \.\.\.CARRY_CDXML\), cdx: file\("cdx"\),/, "Export's .oct, CDXML and CDX");
+  assert.match(editor, /setNotice\(failure\("Octet cannot export this drawing\.", e\)\);/);
+  assert.match(editor, /setNotice\(failure\(`Octet cannot update \$\{o\.host\}\.`, e\)\);/);
+  assert.match(src("./App.tsx"), /this\.setState\(\{ note: failure\("Octet cannot save this drawing\.", e\) \}\);/);
+  assert.match(src("../src-tauri/src/objects.rs"), /return Err\("This drawing is larger than 64 MB\. Octet cannot update the document with it\."\.into\(\)\);/);
+  // Save's own refusal (main.rs save_drawing) has the words the page's writers give.
+  assert.ok(src("../src-tauri/src/main.rs").includes(`return Err("${TOO_LARGE}".into());`), "main.rs save_drawing");
 });
 
 it("L30 the JSON reader counts the notes of a group of one thing, which it leaves out, as the CDXML reader does", () => {

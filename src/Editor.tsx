@@ -74,9 +74,9 @@ import { isNmredata, nmredataDrawing, writeNmredata, type Written } from "./nmre
 import { BRUKER, SPC, isJcamp, isSpectrum, readBrukerText as brukerOf, readJcamp, readSpcText, type JcampSpectrum } from "./jcamp";
 import { rings } from "./rings";
 import { NumberField, Segmented, Switch } from "./Fields";
-import { fromCdxml, parseXml, toCdxml, union, type CdxmlOptions } from "./cdxml";
-import { isDrawingText, losses, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } from "./oct";
-import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
+import { fromCdxml, toCdxml, union, type CdxmlOptions } from "./cdxml";
+import { cdxOf, isDrawingText, losses, lostNotice, lostText, readCdx, readOct, replaceNote, within, writeCdx, writeOct } from "./oct";
+import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64 } from "./cdx";
 import { About } from "./About";
 import { WhatsNew } from "./WhatsNew";
 import { notesFor } from "./releases";
@@ -155,7 +155,7 @@ import { glidePlan, type GlidePart, type PartIn } from "./glideplan";
 import { GlideLayer } from "./GlideLayer";
 import { copyOf, domTween, type DomTween } from "./domtween";
 import { Tooltips } from "./Tooltip";
-import { cutNotice, failure, fileName, reason, refusal, type NoticeKind } from "./notice";
+import { cutNotice, failure, fileName, refusal, type NoticeKind } from "./notice";
 import { decodePicture, placeReadings, readStructures, startReader, stopReader, type ModelSource } from "./recognise";
 import { history, type History } from "./history";
 import { followArrows, MARK_KEY, tieable, tieAt, withTies } from "./arrowlink";
@@ -622,10 +622,6 @@ function keep<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   keeper.queue = run.catch(() => {});
   return run;
 }
-// Save refuses a drawing larger than 64 MB (main.rs MAX_BYTES), and the recovery copy kept last stays (recovery.rs):
-// the notice says what to do (docs/plans/long-text.md).
-const TOO_LARGE = "This drawing is larger than 64 MB. Octet cannot save it. Delete part of it, or copy part of it to a new drawing and save that.";
-const saveFailed = (e: unknown) => (/^This drawing is larger than 64 MB\./.test(reason(e)) ? TOO_LARGE : failure("Octet cannot save this drawing.", e));
 // The copy, written now: the error boundary keeps the drawing as last drawn before the window can close.
 export function keepNow() {
   clearTimeout(keeper.timer);
@@ -1606,7 +1602,7 @@ export default function Editor() {
     let out: string | undefined;
     try {
       out = (f === "cdxml" ? toCdxml(part, savedStyle(), cdxmlOptions()) : f === "oct" ? cdxml && writeOct(part, savedStyle(), cdxmlOptions(), cdxml)
-        : f === "cdx" ? cdxml && toBase64(xmlToCdx(parseXml(cdxml)))
+        : f === "cdx" ? cdxml && toBase64(cdxOf(cdxml))
         : loaded ? ((m) => (m.atoms.length ? chemistryOf(m, f, part === doc) : undefined))(withCaptionAtoms(part, style.interpret).mol) : undefined) || undefined;
     } catch { out = undefined; }
     return (kept.formats[f] = out);
@@ -1721,11 +1717,20 @@ export default function Editor() {
   // What Export sends the app for `mol` in f.format, its picture `svg` (pictureOf) as the format saves it: only what the
   // format needs. A PDF, PNG or EMF carries the CDXML, so it opens and pastes back as the drawing.
   // A picture has no notes, nor has the CDXML in it (annotate.ts); a drawing file keeps them.
+  // Export refuses a drawing file (.oct, CDXML, CDX) larger than 64 MB with Save's words (oct.ts within); Copy has no
+  // such refusal and leaves out only a CDX that large. A CDX that formatOf could not make is made again, so the notice
+  // says why.
   const exportRequest = (all: Mol, svg: string | undefined, f: ExportSettings & { width?: number }) => {
     const mol = PICTURES.includes(f.format) || f.format === "bmp" ? withoutNotes(all) : all;
     const make = (pf: PartFormat, ...fs: ExportFormat[]) => (fs.includes(f.format) ? formatOf(mol, pf) : undefined);
+    const file = (pf: "oct" | "cdxml" | "cdx") => {
+      if (f.format !== pf) return undefined;
+      const s = formatOf(mol, pf), x = !s && pf === "cdx" && formatOf(mol, "cdxml");
+      if (x) cdxOf(x);
+      return s && pf !== "cdx" ? within(s) : s;
+    };
     const pic = svg ? pictureAs(svg, f, pageColour(style)) : undefined;
-    return { format: f.format, oct: make("oct", "oct"), svg: pic?.svg, cdxml: make("cdxml", "cdxml", ...CARRY_CDXML), cdx: make("cdx", "cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) };
+    return { format: f.format, oct: file("oct"), svg: pic?.svg, cdxml: file("cdxml") ?? make("cdxml", ...CARRY_CDXML), cdx: file("cdx"), mdl: MDL.includes(f.format) ? formatOf(mol, f.format as PartFormat) : undefined, smiles: make("smiles", "smi"), inchi: make("inchi", "inchi"), dpi: f.dpi, transparent: pic?.transparent, quality: f.quality, info: detailsOf(doc.annotations, PROPERTIES) };
   };
   // An export to the Save dialog: the request is made in the try, so a failure while it is made says so too. The file
   // saved says so (saved, with text's words when it gives some). The path saved, if any.
@@ -1930,7 +1935,9 @@ export default function Editor() {
       if (path && path !== file.path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(saveFailed(e));
+      // A drawing larger than 64 MB (main.rs MAX_BYTES, oct.ts TOO_LARGE): the notice says what to do, and the
+      // recovery copy kept last stays (recovery.rs, docs/plans/long-text.md).
+      setNotice(failure("Octet cannot save this drawing.", e));
       return false;
     }
   }
@@ -1988,7 +1995,7 @@ export default function Editor() {
       if (path) saved(path);
       return !!path;
     } catch (e) {
-      setNotice(saveFailed(e));
+      setNotice(failure("Octet cannot save this drawing.", e));
       return false;
     }
   };
