@@ -2,6 +2,7 @@
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
 import { MAX_TEXT, normalise, plainOf, readTableRuns, type TextRun } from "./richtext.ts";
+import { readMonomers } from "./monomers.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
 import { capNotes, isNote, MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, noteCount } from "./annotate.ts";
@@ -99,7 +100,7 @@ export function serialize(input: Mol): string {
   const groups = (mol.groups ?? []).map((g) => ({ atoms: g.atoms, items: g.items.map(ref).filter(Boolean), ...(g.integral ? { integral: true } : {}), ...(g.annotations?.length ? { annotations: g.annotations } : {}), ...(g.plot ? { plot: g.plot } : {}), ...(g.risk ? { risk: g.risk } : {}) }));
   // Stoichiometry grids name their arrow by its place in the list above.
   const grids = (mol.grids ?? []).map((g) => ({ ...g, arrow: arrowList.findIndex((a) => a.id === g.arrow) })).filter((g) => g.arrow >= 0);
-  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}), ...(mol.data?.length ? { data: writeData(mol, captionList) } : {}) }, null, 1) + "\n";
+  return JSON.stringify({ format: FORMAT, version: VERSION, app: pkg.version, structure: { atoms, bonds }, ...(arrows.length ? { arrows } : {}), ...(cycles.length ? { cycles } : {}), ...(shapes.length ? { shapes } : {}), ...(captions.length ? { captions } : {}), ...(groups.length ? { groups } : {}), ...(grids.length ? { grids } : {}), ...(mol.fills?.length ? { fills: mol.fills } : {}), ...(mol.annotations?.length ? { annotations: mol.annotations } : {}), ...(mol.style ? { style: mol.style } : {}), ...(mol.guides ? { guides: mol.guides } : {}), ...(mol.fields ? { fields: true } : {}), ...(mol.spectra?.length ? { spectra: mol.spectra.map(writeMeasured) } : {}), ...(mol.data?.length ? { data: writeData(mol, captionList) } : {}), ...(mol.monomers?.length ? { monomers: mol.monomers } : {}) }, null, 1) + "\n";
 }
 const round = (n: number) => Math.round(n * 1e4) / 1e4;
 // An object's notes (annotate.ts), saved when it has some. Octet 1.1.2 leaves them out.
@@ -185,7 +186,7 @@ export function parse(text: string): Mol {
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("This file is not an Octet drawing."); }
   notesCut = 0;
-  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown; data?: unknown };
+  const d = data as { format?: unknown; version?: unknown; app?: unknown; structure?: { atoms?: unknown; bonds?: unknown }; captions?: unknown; arrows?: unknown; style?: unknown; cycles?: unknown; shapes?: unknown; groups?: unknown; grids?: unknown; fills?: unknown; annotations?: unknown; guides?: unknown; fields?: unknown; spectra?: unknown; data?: unknown; monomers?: unknown };
   if (d?.format !== FORMAT) throw new Error("This file is not an Octet drawing.");
   if (typeof d.version !== "number" || d.version > VERSION) throw new Error("This drawing comes from a newer version of Octet. Update Octet to open it.");
   const atoms = d.structure?.atoms, bonds = d.structure?.bonds;
@@ -297,6 +298,10 @@ export function parse(text: string): Mol {
   if (d.style !== undefined) out.style = readStyle(d.style);
   if (d.guides !== undefined) out.guides = readGuides(d.guides);
   if (d.fields === true) out.fields = true;
+  // The user's monomers the drawing uses (issue 27), each checked as a defined one; never added to the user's own.
+  // Those left out (past MOST_OWN_MONOMERS, or not of a defined one's form) are counted.
+  let monomersLeft = 0;
+  if (d.monomers !== undefined) { const own = readMonomers(d.monomers); if (own.length) out.monomers = own; monomersLeft = Array.isArray(d.monomers) ? d.monomers.length - own.length : 0; }
   // Arrows take ids after the captions'.
   const captionCount = Array.isArray(d.captions) ? d.captions.length : 0;
   if (d.arrows !== undefined) {
@@ -425,7 +430,7 @@ export function parse(text: string): Mol {
   // most 10,000 notes (annotate.ts capNotes) and MAX_CHARACTERS of text (limits.ts): a file from before the editor kept
   // those limits. What goes is counted.
   const groupNotes = (m: Mol) => (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0);
-  const lost: Record<string, number> = { "data field": fields.left + shown.left + each.left, annotation: notesCut + shown.notes + groupNotes(migrated) - groupNotes(tidy), [SHOWN_OFF]: shown.off };
+  const lost: Record<string, number> = { "data field": fields.left + shown.left + each.left, annotation: notesCut + shown.notes + groupNotes(migrated) - groupNotes(tidy), [SHOWN_OFF]: shown.off, monomer: monomersLeft };
   const lose = (what: string, n: number) => { lost[what] = (lost[what] ?? 0) + n; };
   const capped = capNotes(each.mol);
   lose("annotation", noteCount(each.mol) - noteCount(capped));

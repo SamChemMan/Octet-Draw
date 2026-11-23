@@ -9,7 +9,7 @@ import { bondedTo, chairHydrogens, fragments, groupTooBig, insertMol, labelPlace
 import { graphOf, type Graph } from "./naming.ts";
 import { clean2d } from "./clean2d.ts";
 import { chainLayout } from "./chain.ts";
-import { labelLayout } from "./sequence.ts";
+import { chainEnds, END_GROUPS, labelLayout } from "./sequence.ts";
 import { kekulise } from "./rings.ts";
 import { counts as formulaCounts } from "./mass.ts";
 import { hasQuery, polymerBrackets, polymerLabel, repeatCount } from "./query.ts";
@@ -1236,6 +1236,14 @@ function labelGroup(text: string): Mol | undefined {
   labelGroups.set(text, frag);
   return frag;
 }
+// A peptide's end label's group (sequence.ts END_GROUPS), read once.
+const endGroups = new Map<string, Mol>();
+function endGroup(text: string): Mol | undefined {
+  const smiles = END_GROUPS.get(text);
+  if (!smiles) return undefined;
+  if (!endGroups.has(text)) { try { endGroups.set(text, parseStructure(smiles)); } catch { return undefined; } }
+  return endGroups.get(text);
+}
 // Written labels (OMe, CO2Et, Ph) as real atoms, for chemistry. Each label's group is read by Indigo and joined
 // where the label atom was. A label Octet cannot read (or Indigo cannot) stays as a pseudo-atom ("*"), so no label
 // text can stop the drawing's chemistry.
@@ -1298,6 +1306,8 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
   const ported = new Set<number>();
   let joined: Uint8Array | undefined;
   for (const b of mol.bonds) if (b.ports) for (let e = 0; e < 2; e++) { const k = b.atoms[e]; if (b.ports[e] >= 0 && mol.atoms[k]?.inner?.atoms.length) ported.add(k); }
+  // A peptide's Ac, OH and NH2 end labels are Octet's ends, whatever the user's nicknames say (sequence.ts chainEnds).
+  const ends = ported.size ? chainEnds(mol) : undefined;
   mol.atoms.forEach((a, i) => {
     // A multi-centre point (an η ligand's) is not an atom: it and its bond are left out.
     if (a.centre) { out.atoms[i] = { ...out.atoms[i], removed: true } as Mol["atoms"][number]; return; }
@@ -1309,7 +1319,7 @@ export function expandWithOrigins(mol: Mol, bonded = false): { mol: Mol; from: n
     const text = chemicalText(a.text, a.runs)!;
     // A label Octet has no reading for that keeps its group (a nickname of another user's, read from a file) is read
     // as that group, joined by its first atom.
-    const own = ported.has(i), frag = own ? a.inner : a.chemical === false ? undefined : labelGroup(text) ?? a.inner;
+    const own = ported.has(i), frag = own ? a.inner : a.chemical === false ? undefined : (ends?.has(i) ? endGroup(a.text) : undefined) ?? labelGroup(text) ?? a.inner;
     if (!frag?.atoms.length) { out.atoms[i] = { ...out.atoms[i], label: "*", text: undefined }; return; }
     // A residue's kept atoms go where they were drawn, moved so its first atom is on the label: its stereocentres stay
     // as drawn.

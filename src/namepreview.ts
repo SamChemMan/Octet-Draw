@@ -8,6 +8,7 @@ import { fullMol, quickMol, smilesAtoms } from "./chem.ts";
 import { looksLikeSmiles } from "./names.ts";
 import type { Mol } from "./render.ts";
 import { isSeqText, seqBuilt, type SeqAsk } from "./helm.ts";
+import type { Own } from "./monomers.ts";
 
 // Above this many atoms Octet no longer tidies a layout without stereochemistry (chem.ts MOST_TIDIED).
 export const PREVIEW_ATOMS = 100;
@@ -27,10 +28,13 @@ export function laterSmiles(text: string, smiles: string | undefined): string | 
   return smiles ? (big(smiles) ? smiles : undefined) : looksLikeSmiles(s) && big(s) ? s : undefined;
 }
 
-// One worker, started when first needed. It does one job at a time, and Return's full layout (fullLayout) goes before
+// One worker, started when first needed. It does one job at a time, and Return's jobs (fullLayout, seqLayout) go before
 // any preview. Only the newest preview waits: one that has not started when another comes is dropped (resolves
-// undefined), and the caller drops an answer it no longer wants.
-type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk; done: (answer?: unknown) => void };
+// undefined), and the caller drops an answer it no longer wants. A preview never drops Return's job or goes before it.
+// key: a sequence's, so a request for one already on its way shares that job (seqLayout). calls: each request sharing
+// it (seqLayout), so one can go without the others.
+type Call = { to: (answer?: unknown) => void; preview: boolean };
+type Job = { ask: { smiles: string } | { pieces: string[]; ions: boolean } | SeqAsk; key?: string; done: (answer?: unknown) => void; calls?: Call[] };
 
 let worker: Worker | undefined, running: Job | undefined, preview: Job | undefined, full: Job | undefined;
 const start = () => (worker ??= new Worker(new URL("./layout.worker.ts", import.meta.url), { type: "module" }));
@@ -72,11 +76,19 @@ export function fullLayout(pieces: string[], ions: boolean): { result: Promise<M
   };
   return { result, cancel };
 }
-// The field's sequence, built in the worker, for its preview and for Return alike (one path): the structure, or a
-// problem, or undefined when it does not build. The last few are kept, so Return after the preview draws at once.
+// The field's sequence, built in the worker, for its preview (asPreview, which waits as quickLayout's does) and for
+// Return alike (one path): the structure, or a problem, or undefined when it does not build. The last few are kept, so
+// Return after the preview draws at once. A request for a sequence already being built, or waiting to be, gets that
+// job's answer: Return during its preview builds it once, and a preview after Return waits for Return's. Return takes a
+// waiting preview of the same sequence as its own job, so no newer preview drops it. A request that shares a job drops
+// an older preview waiting for another sequence, as a new preview does. cancel (Return's) takes back only Return's
+// request: a job a preview shares goes on for the preview (as a preview again, if it waits), and one nobody else wants
+// is dropped. own: the monomers its codes may name besides Octet's (the document's, then the user's); only those it
+// names go.
 const builtSeqs = new Map<string, Mol | { problem: string } | undefined>();
-export function seqLayout(text: string, labels: boolean): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
-  const ask: SeqAsk = { build: text.trim(), labels }, key = JSON.stringify(ask);
+export function seqLayout(text: string, labels: boolean, own: Own = [], asPreview = false): { result: Promise<Mol | { problem: string } | undefined>; cancel: () => void } {
+  const used = own.filter((m) => text.includes(`[${m.code}]`));
+  const ask: SeqAsk = { build: text.trim(), labels, ...(used.length ? { own: used } : {}) }, key = JSON.stringify(ask);
   const keep = (m: Mol | { problem: string } | undefined) => { if (builtSeqs.size >= 8) builtSeqs.delete(builtSeqs.keys().next().value!); builtSeqs.set(key, m); return m; };
   if (builtSeqs.has(key)) return { result: Promise.resolve(builtSeqs.get(key)), cancel: () => {} };
   if (typeof Worker === "undefined") {
@@ -84,14 +96,30 @@ export function seqLayout(text: string, labels: boolean): { result: Promise<Mol 
     try { m = seqBuilt(ask); } catch { m = undefined; }
     return { result: Promise.resolve(keep(m)), cancel: () => {} };
   }
-  let job: Job;
+  let job: Job, call: Call;
   const result = new Promise<Mol | { problem: string } | undefined>((done) => {
-    full?.done();
-    job = full = { ask, done: (m) => done(m === undefined ? undefined : keep(m as Mol | { problem: string })) };
+    call = { to: (m) => done(m as Mol | { problem: string } | undefined), preview: asPreview };
+    const same = [running, full, preview].find((j) => j?.key === key);
+    if (same) {
+      job = same;
+      same.calls!.push(call);
+      if (preview && preview !== same) { preview.done(); preview = undefined; }
+      if (same === preview && !asPreview) { preview = undefined; full?.done(); full = same; }
+      return;
+    }
+    const j: Job = { ask, key, calls: [call], done: (m) => { const a = m === undefined ? undefined : keep(m as Mol | { problem: string }); for (const c of j.calls!) c.to(a); } };
+    job = j;
+    if (asPreview) { preview?.done(); preview = j; } else { full?.done(); full = j; }
     next();
   });
   const cancel = () => {
-    if (full === job) { full = undefined; job.done(); }
+    const rest = job.calls!.filter((c) => c !== call);
+    if (rest.length && (full === job || running === job)) {
+      job.calls = rest;
+      call.to();
+      // Only previews wait for it now: it waits as a preview, unless a newer preview waits (the newest goes).
+      if (full === job && rest.every((c) => c.preview)) { full = undefined; if (preview) job.done(); else preview = job; }
+    } else if (full === job) { full = undefined; job.done(); }
     else if (running === job) { worker?.terminate(); worker = undefined; running = undefined; job.done(); next(); }
   };
   return { result, cancel };

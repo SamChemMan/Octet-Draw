@@ -53,7 +53,7 @@ export function peptideSmiles(text: string): string | undefined {
 export const residueSmiles = (k: string) => (k === "G" ? "NCC(=O)" : k === "P" ? "N1CCC[C@H]1C(=O)" : `N[C@@H](${SIDES[k]})C(=O)`);
 
 // Text that starts "peptide:": its three-letter sequence or its problem (none yet when no codes are typed, as when
-// Insert Peptide… opens the field). Undefined for any other text.
+// Sequence > Peptide… opens the field). Undefined for any other text.
 export function peptideText(text: string): { sequence: string } | { problem: string } | undefined {
   if (!PEPTIDE.test(text)) return undefined;
   return threeLetter(text.replace(PEPTIDE, "")) ?? { problem: "" };

@@ -25,7 +25,7 @@ const { FALLBACK, TOO_LARGE, cdxOf, lostNotice, lostText, readCdx, readOct, repl
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
 const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
 const { cutNotice, failure } = await import("./notice.ts");
-const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve } = await import("./edit.ts");
+const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve, withMonomers } = await import("./edit.ts");
 const { MAX_STEPS, addStop } = await import("./cycle.ts");
 const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("./charts.ts");
 const { MAX_CONTENT, NOTE } = await import("./annotate.ts");
@@ -40,6 +40,7 @@ const { MAX_NOTES, noteCount } = await import("./annotate.ts");
 const { nicknameProblem } = await import("./labels.ts");
 const { readNicknames } = await import("./nicknames.ts");
 const { readGrid } = await import("./stoich.ts");
+const { CODE_MOST, codeProblem, MOST_OWN_MONOMERS, OWN_ATOMS, OWN_BONDS, OWN_SMILES, readHelmLibrary, readMonomers, smilesLinks } = await import("./monomers.ts");
 const { placeCaptions } = await import("./render.ts");
 const { widthOf } = await import("./arial.ts");
 type Mol = import("./render.ts").Mol;
@@ -1058,6 +1059,102 @@ it("L24 the settings and a reagent table keep what their readers keep: New set a
   // A reagent table's texts typed over its cells: 400 (stoich.ts readCells).
   assert.match(src("./stoich.ts"), /function readCells<T>\(x: unknown, read: \(v: unknown\) => T \| undefined, most = 400\)[^]*?n\+\+ < most/);
   assert.match(editor, /typedOver >= 400\) return setNotice\("A reagent table holds up to 400 typed cells\.", "info"\);/);
+});
+
+it("L34 a sequence's monomers (issue 27) keep what a file holds: a residue label's atoms and bonds, 500 in a drawing, codes as labels, every library entry counted", () => {
+  // A monomer of N side-chain carbons, each bonded to the one two along and the first extra to the one three along (ring
+  // closures): Indigo reads 512 bonds for N 250 and 9 extra, the most a residue label keeps (file.ts innerIn).
+  const dense = (N: number, extra: number) => {
+    let body = "";
+    for (let i = 0; i < N; i++) body += `C${i >= 2 ? ((i + 1) % 3) + 1 : ""}${i >= 3 && i - 3 < extra ? ((i + 1) % 4) + 4 : ""}${i < N - 2 ? (i % 3) + 1 : ""}${i < extra && i < N - 3 ? (i % 4) + 4 : ""}`;
+    return `[*:1]N[C@@H](${body})C([*:2])=O`;
+  };
+  const most = dense(250, 9), over = dense(250, 10), far = dense(240, 300);
+  assert.deepEqual([smilesLinks(most)?.atoms, smilesLinks(most)?.bonds, smilesLinks(over)?.bonds, smilesLinks(far)?.bonds], [OWN_ATOMS, OWN_BONDS, OWN_BONDS + 1, 720]);
+  assert.equal(smilesLinks("[*:1]N[C@@H](Cc1ccc%10cc1.C%10)C([*:2])=O")?.bonds, 15, "%nn closures count as digits do");
+  // Every reader of the user's monomers (a drawing's, the settings', a HELM library) takes the one at the limit and
+  // refuses one past it, so a chain drawn with its residue labels never makes a drawing a file refuses.
+  assert.equal(readMonomers([{ code: "Dense", smiles: most }]).length, 1);
+  for (const smiles of [over, far]) {
+    assert.deepEqual(readMonomers([{ code: "Dense", smiles }]), []);
+    assert.deepEqual(readHelmLibrary(JSON.stringify([{ symbol: "Dense", smiles }])), { monomers: [], left: 1 });
+  }
+  assert.match(src("./seqbuild.ts"), /if \(smilesProblem\(smiles\)\) return \{ problem: "Octet cannot read this structure as a monomer\." \};/, "Define Monomer asks the readers' check");
+  // A residue label whose kept atoms are at that limit comes back in every form; one bond more and Octet's own copy is
+  // refused.
+  const kept = (bonds: number): Mol => {
+    const atoms = Array.from({ length: OWN_ATOMS }, (_, k) => ({ label: "C", location: [k % 16, Math.floor(k / 16), 0] as [number, number, number] }));
+    const all = [1, 2, 3, 4].flatMap((d) => Array.from({ length: OWN_ATOMS - d }, (_, k) => ({ atoms: [k, k + d] as [number, number], type: 1 })));
+    return { atoms, bonds: all.slice(0, bonds) };
+  };
+  const residue = (inner: Mol): Mol => ({ atoms: [{ label: "C", location: [0, 0, 0], text: "Dense", inner, align: "centre" }, { label: "C", location: [2.6, 0, 0], text: "Gly", inner: kept(1), align: "centre" }], bonds: [{ atoms: [0, 1], type: 1, ports: [3, 0] }] });
+  for (const [name, read] of Object.entries(forms)) {
+    const r = read(residue(kept(OWN_BONDS)));
+    assert.deepEqual([r.mol.atoms[0].inner?.atoms.length, r.mol.atoms[0].inner?.bonds.length, r.lost, !!r.fallback], [OWN_ATOMS, OWN_BONDS, {}, false], name);
+  }
+  assert.throws(() => parse(serialize(residue(kept(OWN_BONDS + 1)))), /This drawing is damaged\./);
+  // A drawing keeps MOST_OWN_MONOMERS of them. A paste brings every monomer it uses (withMonomers), so the editor's
+  // overLimit refuses one past it, with the words it says.
+  const KAC = "[*:1]N[C@@H](CCCCNC(C)=O)C([*:2])=O", list = (n: number, from = 0) => Array.from({ length: n }, (_, k) => ({ code: `Q${from + k}`, smiles: KAC }));
+  const full: Mol = { ...ETHANOL, monomers: list(MOST_OWN_MONOMERS) };
+  assert.equal(overLimit(full), undefined);
+  assert.equal(withMonomers(full, { atoms: [], bonds: [], monomers: list(1, MOST_OWN_MONOMERS) }).monomers?.length, MOST_OWN_MONOMERS + 1);
+  assert.equal(overLimit(insertMol(full, { ...ETHANOL, monomers: list(1, MOST_OWN_MONOMERS) }).mol), "A drawing holds up to 500 monomers.");
+  assert.equal(overLimit(insertMol(full, { ...ETHANOL, monomers: list(1) }).mol), undefined, "a code the drawing has adds none");
+  // A file with more, or with one not of a defined one's form, opens with what fits, and counts the rest.
+  const more: Mol = { ...ETHANOL, monomers: [...list(MOST_OWN_MONOMERS + 5), { code: "Ala", smiles: KAC }] };
+  for (const [name, read] of Object.entries(forms)) {
+    const r = read(more);
+    assert.deepEqual([r.mol.monomers?.length, name === "json" ? leftOf(r.mol) : r.lost], [MOST_OWN_MONOMERS, { monomer: 6 }], name);
+  }
+  const cdxml = fromCdxml(toCdxml(more, style));
+  assert.deepEqual([cdxml.mol.monomers?.length, cdxml.lost], [MOST_OWN_MONOMERS, { monomer: 6 }]);
+  assert.equal(lostNotice({ monomer: 6 }, "opened"), "Octet left out 6 monomers.");
+  // A code is a residue label: up to CODE_MOST letters, digits or _, so a label keeps it whole, with no < or >.
+  assert.ok(CODE_MOST <= MAX_LABEL);
+  for (const code of ["x".repeat(CODE_MOST + 1), "A<b", "A>b", "Ab\u0007", "A b", "A-b"]) assert.ok(codeProblem(code), JSON.stringify(code));
+  assert.equal(keptLabel("Q".repeat(CODE_MOST)), "Q".repeat(CODE_MOST));
+  // A HELM monomer library: every entry it does not add is counted, the ones past the 20,000th looked at too.
+  const big = readHelmLibrary(JSON.stringify(list(25_000).map((m) => ({ symbol: m.code, polymerType: "PEPTIDE", smiles: m.smiles }))));
+  assert.ok("monomers" in big && big.monomers.length === MOST_OWN_MONOMERS && big.left === 25_000 - MOST_OWN_MONOMERS, JSON.stringify("left" in big && big.left));
+});
+
+it("L35 a sequence's monomers (issue 27) count in the text a drawing holds (MAX_CHARACTERS): each counts at least what it writes, the most monomers with texts up to MAX_CHARACTERS save within 64 MB, and each limit holds on its own", () => {
+  // A file's monomer may hold any character in its name and SMILES (readMonomers): the costliest is a control
+  // character, which JSON writes as \u0001 (14 bytes in a .oct). 500 of 2,092 characters take up to 14 MB, so a drawing
+  // of text at MAX_CHARACTERS (54 MB as a .oct, L19) and the most monomers would not save if they did not count.
+  const own = (ch: string, n: number) => Array.from({ length: n }, (_, k) => ({ code: `Q${k}`.padEnd(CODE_MOST, "_"), name: ch.repeat(Math.floor(80 / ch.length)), smiles: "[*:1]C[*:2]" + ch.repeat(Math.floor((OWN_SMILES - 11) / ch.length)) }));
+  const chars = ['"', "\u0001", "€", "🧪", "<", "&", "a"];
+  for (const ch of chars) assert.equal(readMonomers(own(ch, 3)).length, 3, JSON.stringify(ch));
+  // Each counts at least the bytes it adds in every form Octet writes, 9 a character: monomers of each character, and
+  // monomers with the least text (their record).
+  const least = Array.from({ length: 50 }, (_, k) => ({ code: `Q${k}`, smiles: "[*:1]C[*:2]" }));
+  assert.equal(readMonomers(least).length, 50);
+  const kinds: [string, Mol][] = [...chars.map((ch): [string, Mol] => [`monomers of ${JSON.stringify(ch)}`, { ...ETHANOL, monomers: own(ch, 50) }]), ["monomers with the least text", { ...ETHANOL, monomers: least }]];
+  const none = written(ETHANOL), base = textOf(ETHANOL);
+  assert.deepEqual(kinds.flatMap(([name, m]) => { const w = written(m) - none, t = 9 * (textOf(m) - base); return w > t ? [`${name}: ${w} bytes written, ${t} counted`] : []; }), []);
+  // At the limit: the most monomers a drawing holds, of the costliest character, and texts of " up to MAX_CHARACTERS
+  // save in every form within 64 MB. One more text is refused, and so is the 501st monomer, each with its own words. A
+  // drawing past MAX_CHARACTERS already takes an edit that makes it no larger.
+  const monomers = own("\u0001", MOST_OWN_MONOMERS), t = '"'.repeat(MAX_TEXT);
+  const texts = (n: number): Mol => ({ ...ETHANOL, monomers, captions: Array.from({ length: n }, (_, k) => ({ id: k + 1, text: t, x: k % 100, y: -2 - Math.floor(k / 100) })) });
+  const n = Math.floor((MAX_CHARACTERS - textOf(texts(0))) / MAX_TEXT), full = texts(n);
+  assert.ok(textOf(texts(0)) - textOf({ ...texts(0), monomers: undefined }) > 2 * MOST_OWN_MONOMERS * OWN_SMILES, "the monomers count");
+  assert.equal(overLimit(full), undefined);
+  assert.equal(overLimit(texts(n + 1), full), TOO_MUCH);
+  assert.equal(overLimit({ ...full, monomers: [...monomers, { code: "Extra", smiles: "[*:1]C[*:2]" }] }, full), "A drawing holds up to 500 monomers.");
+  assert.equal(overLimit({ ...texts(n + 1), monomers: monomers.slice(1) }, texts(n + 1)), undefined, "a monomer taken out");
+  // With text to MAX_CHARACTERS and 499 monomers, a monomer more is refused for its text.
+  const less: Mol = { ...full, monomers: monomers.slice(1) }, topped: Mol = { ...less, captions: [...less.captions!] };
+  for (let r = MAX_CHARACTERS - textOf(less), id = 90_000; r > 0; r -= MAX_TEXT, id++) topped.captions!.push({ id, text: '"'.repeat(Math.min(r, MAX_TEXT)), x: id % 100, y: 30 });
+  assert.deepEqual([textOf(topped), overLimit(topped)], [MAX_CHARACTERS, undefined]);
+  assert.equal(overLimit({ ...topped, monomers: [...topped.monomers!, { code: "Extra", smiles: "[*:1]C[*:2]" }] }, topped), TOO_MUCH);
+  const sizes = { oct: Buffer.byteLength(writeOct(full, style)), cdx: writeCdx(full, style).length, cdxml: Buffer.byteLength(toCdxml(full, style)), recovery: Buffer.byteLength(serialize({ ...full, style })) };
+  for (const [form, size] of Object.entries(sizes)) assert.ok(size <= 64 * 2 ** 20, `${form}: ${size} bytes`);
+  console.log(`longtext-stress: L35 500 monomers of 2,092 control characters and texts to MAX_CHARACTERS, MB: ${Object.entries(sizes).map(([k, v]) => `${k} ${(v / 2 ** 20).toFixed(1)}`).join(", ")}`);
+  // A reader keeps the monomers and leaves out the texts past MAX_CHARACTERS, counted, so the drawing that opens saves.
+  const r = readOct(serialize({ ...texts(n + 20), style }));
+  assert.deepEqual([r.mol.monomers?.length, r.lost, textOf(r.mol) <= MAX_CHARACTERS], [MOST_OWN_MONOMERS, { text: 20 }, true]);
 });
 
 // --- H1 to H6: hostile files at the new limits read fast and in bounded memory -----------------------------------------

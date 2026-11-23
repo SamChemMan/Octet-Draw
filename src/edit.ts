@@ -1392,11 +1392,17 @@ export function addRing(m: Mol, n: number, aromatic: boolean, target: { bond?: n
   return o.circle ? { ...m, atoms: m.atoms.map((a, i) => (ids.includes(i) ? { ...a, circle: true } : a)) } : m;
 }
 
+// A drawing with the monomers a part brings (a paste, a sequence built from the user's, issue 27): a code the drawing
+// has keeps its own structure. The editor makes no drawing with more than a file keeps (file.ts overLimit).
+export function withMonomers(m: Mol, add: Mol): Mol {
+  const extra = (add.monomers ?? []).filter((x) => !m.monomers?.some((d) => d.code === x.code));
+  return extra.length ? { ...m, monomers: [...(m.monomers ?? []), ...extra] } : m;
+}
 // Adds a fragment (from a paste) shifted by offset.
 export function merge(m: Mol, frag: Mol, offset: P): Mol {
   const base = m.atoms.length;
   return {
-    ...m,
+    ...withMonomers(m, frag),
     atoms: [...m.atoms, ...frag.atoms.map((a) => renumberCentre({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }, (i) => i + base))],
     bonds: withBonds(m.bonds, frag.bonds.map((b) => ({ ...b, atoms: [b.atoms[0] + base, b.atoms[1] + base] as [number, number] }))),
     ...(frag.fills?.length ? { fills: [...(m.fills ?? []), ...frag.fills.map((f) => ({ ...f, atoms: f.atoms.map((i) => i + base) }))] } : {}),
@@ -3156,7 +3162,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
   for (const x of [...(add.captions ?? []), ...(add.arrows ?? []), ...(add.shapes ?? []), ...(add.cycles ?? []), ...(add.groups ?? [])]) ids.set(x.id, id++);
   const by = (q: [number, number]): [number, number] => [q[0] + offset[0], q[1] + offset[1]];
   const mol: Mol = {
-    ...m,
+    ...withMonomers(m, add),
     // A copy is a new structure: it is in no spectrum session (Editor.tsx), whatever the original is in.
     atoms: [...m.atoms, ...add.atoms.map(({ session: _, ...a }) => renumberCentre(unlink({ ...a, location: [a.location[0] + offset[0], a.location[1] + offset[1], a.location[2] ?? 0] as [number, number, number] }), at))],
     bonds: withBonds(m.bonds, add.bonds.map((b) => unlink({ ...b, atoms: [at(b.atoms[0]), at(b.atoms[1])] as [number, number] }))),
