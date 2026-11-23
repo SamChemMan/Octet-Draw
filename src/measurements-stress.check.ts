@@ -59,7 +59,8 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.end
   assert.equal(r.mol.atoms, flat.atoms, "the atoms as they were: nothing cleaned up");
   assert.equal(measures(r.mol).length, 1);
   assert.equal(JSON.stringify(flat), was, "the drawing before is unchanged");
-  assert.ok(Math.abs(values(r.mol)[0]) < 0.1, `a flat ring's dihedral as drawn: ${values(r.mol)[0]}`);
+  // A flat ring is measured where 3D Clean Up would put it (a chair), so its dihedral is a chair's, not 0.
+  assert.ok(Math.abs(Math.abs(values(r.mol)[0]) - 57) < 5, `a flat ring's dihedral from its 3D model: ${values(r.mol)[0]}`);
   truthful(r.mol, "S6");
   console.log("measurements-stress: S6 ok");
 }
@@ -191,7 +192,7 @@ const values = (m: Mol) => measures(m).map((c) => measureValue(m, c.measure!.end
 {
   const r = made(addMeasure(addRing(EMPTY, 6, false, { point: [0, 0] }), [0, 1, 2, 3]));
   const flat = settleMeasures(r.mol, flattenAtoms(r.mol, all(r.mol)));
-  assert.ok(Math.abs(values(flat)[0]) < 0.1, `flattened ring dihedral ${values(flat)[0]}`);
+  assert.ok(Math.abs(Math.abs(values(flat)[0]) - 57) < 5, `flattened ring reads its chair's dihedral ${values(flat)[0]}`);
   truthful(flat, "Flatten");
   const again = settleMeasures(flat, clean3d(flat, [...all(flat)]));
   assert.ok(Math.abs(Math.abs(values(again)[0]) - 55) < 12, `cleaned up again ${values(again)[0]}`);
