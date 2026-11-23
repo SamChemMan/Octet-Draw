@@ -30,7 +30,7 @@ export type ModuleId = "general" | "ai" | "document" | "drawing" | "keys" | "app
 // How the drawing tools draw (ChemDraw's Object > Fixed Lengths and Fixed Angles, and its Building/Display setting),
 // and ChemDraw's other preferences that change the drawing or what opening a file gives (settings.ts, CH-34).
 export type DrawingPrefs = {
-  fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; pairBars: boolean;
+  fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean; clickTriple: boolean; clickTripleChosen?: boolean; pairBars: boolean;
   autoMap: boolean; stereoParens: boolean; hideAbs: boolean; mdlFlags: boolean; aromaticOnOpen: "" | "kekule" | "circles"; massUnit: "g" | "mg";
   dlNames: boolean; steroidNames: boolean; unsetMark: "" | "?" | "Ξ";
   riskNew: boolean; // a new experiment page gets a risk assessment (riskassess.ts)
@@ -554,7 +554,7 @@ export function SettingsWindow(p: Props) {
       d("drawing", "Bonds", "Fixed lengths", "fixed length bond drag one bond length option", <Switch on={p.drawing.fixedLengths} label="Fixed lengths" onChange={(on) => p.onDrawing({ fixedLengths: on })} />),
       d("drawing", "Bonds", "Fixed angles", "fixed angle bond drag 15 degrees steps option", <Switch on={p.drawing.fixedAngles} label="Fixed angles" onChange={(on) => p.onDrawing({ fixedAngles: on })} />),
       d("drawing", "Symbols", "Lone pairs as bars", "lone pair pairs bar bars line lines dash dots electrons lewis structure", <Switch on={p.drawing.pairBars} label="Lone pairs as bars" onChange={(on) => p.onDrawing({ pairBars: on })} />),
-      d("drawing", "Bonds", "Clicks make triple bonds", "click bond order triple double single cycle raise", <Switch on={p.drawing.clickTriple} label="Clicks make triple bonds" onChange={(on) => p.onDrawing({ clickTriple: on })} />),
+      d("drawing", "Bonds", "Clicks make triple bonds", "click bond order triple double single cycle raise", <Switch on={p.drawing.clickTriple} label="Clicks make triple bonds" onChange={(on) => p.onDrawing({ clickTriple: on, clickTripleChosen: true })} />),
       d("drawing", "Rings", "Sprout rings on a click", "ring tool click atom sprout spiro bond option", <Switch on={p.drawing.sproutRings} label="Sprout rings on a click" onChange={(on) => p.onDrawing({ sproutRings: on })} />),
       d("drawing", "Reactions", "Map the rest of a reaction", "automatic reaction mapping atom map tool auto map pair", <Switch on={p.drawing.autoMap} label="Map the rest of a reaction" onChange={(on) => p.onDrawing({ autoMap: on })} />),
       d("drawing", "Stereochemistry", "Parentheses round R and S", "include parentheses stereochemistry show stereo cip labels r s e z brackets", <Switch on={p.drawing.stereoParens} label="Parentheses round R and S" onChange={(on) => p.onDrawing({ stereoParens: on })} />),
