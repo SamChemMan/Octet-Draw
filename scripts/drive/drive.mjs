@@ -246,6 +246,8 @@ const steps = [
   }],
   ["Edit > Select All, then Edit > Copy puts Octet's formats on the clipboard", async () => {
     system.menu("Edit", "Select All");
+    // The menu reaches the page as a message: a moment for the selection, as a user takes, before Copy.
+    await sleep(500);
     system.menu("Edit", "Copy");
     await until(`${OCTET} on the clipboard`, () => system.formats().includes(OCTET), 10_000);
     const have = system.formats(), missing = FORMATS.filter((f) => !have.includes(f));

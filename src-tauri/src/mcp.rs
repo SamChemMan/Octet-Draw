@@ -1473,6 +1473,13 @@ mod tests {
     fn run(relay: &Arc<Relay>, line: &str) {
         relay.handle(line, &serde_json::from_str(line).unwrap());
     }
+    // A test's Octet reads the whole request before it answers: a socket closed with a body unread is reset on Linux,
+    // and the relay can lose the answer (a flaky the_relay_keeps_octets_tools on CI, 23 November 2026).
+    fn drain_body(r: &mut std::io::BufReader<TcpStream>, head: &str) {
+        let n = header(&head.lines().map(String::from).collect::<Vec<_>>(), "content-length").and_then(|n| n.parse().ok()).unwrap_or(0);
+        let mut body = vec![0; n];
+        r.read_exact(&mut body).unwrap();
+    }
 
     // Home asks for the server each time it opens: the one that runs stays, with its sessions and port. A new key, or
     // off, is a change.
@@ -1556,6 +1563,7 @@ mod tests {
             let mut head = String::new();
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            drain_body(&mut r, &head);
             let body = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"draw"},{"name":"read"}]}}"#;
             write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", proof_line(&head, "k"), body.len()).unwrap();
         });
@@ -1590,6 +1598,7 @@ mod tests {
             let mut head = String::new();
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            drain_body(&mut r, &head);
             write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: text/event-stream\r\n\r\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{{\"progress\":1}}}}\n\nevent: message\ndata: {{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}\n\n", proof_line(&head, "k3y")).unwrap();
             head
         });
@@ -1619,6 +1628,7 @@ mod tests {
             let mut head = String::new();
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            drain_body(&mut r, &head);
             std::thread::sleep(Duration::from_millis(300));
             let _ = write!(s, "HTTP/1.1 200 OK\r\n{}Content-Type: application/json\r\n\r\n{{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{{}}}}", proof_line(&head, "k3y"));
         });
@@ -1765,6 +1775,7 @@ mod tests {
             let mut head = String::new();
             let mut r = std::io::BufReader::new(s.try_clone().unwrap());
             while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+            drain_body(&mut r, &head);
             let body = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"evil"}]}}"#;
             let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len());
             head
