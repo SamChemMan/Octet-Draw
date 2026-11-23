@@ -8,9 +8,10 @@
 // double tap does what the mouse's double-click does, and a finger leaves no hover behind on any tool. The mouse's
 // double-click on a handle or a reaction arrow does what a finger's double tap does, a long press opens one menu, two
 // fingers' pan keeps the zoom, and after a pen a finger's double tap, and a palm's, does nothing. With Measure and the
-// Pen, a finger's and a pen's taps place what the mouse's clicks on the point place, from further away. It prints
-// one line of JSON, as webkit.swift does. CHROME=path picks the browser. OCTET_STRESS_URL=<url> node
-// src/touch.check.ts runs it too.
+// Pen, a finger's and a pen's taps place what the mouse's clicks on the point place, from further away. A long press
+// and the side button a little off an atom open the atom's menu after the mouse, and the mouse's right-click soon after
+// a finger's or a pen's tap opens its menu. It prints one line of JSON, as webkit.swift does. CHROME=path picks the
+// browser. OCTET_STRESS_URL=<url> node src/touch.check.ts runs it too.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -431,6 +432,41 @@ try {
   report("finger: Edit curve, a drag from 14 px off an anchor moves the anchor", editFinger === editOn && editMouse !== editOn,
     `the mouse on it ${JSON.stringify(editOn)}, 14 px off ${JSON.stringify(editMouse)}, a finger ${JSON.stringify(editFinger)}`);
 
+  // The Actions menu opens with the reach of the pointer that opened it, whatever pointer went before, and the mouse's
+  // right-click opens its menu soon after a finger's or a pen's tap. Each case: ethane, Select in hand, and the mouse
+  // at rest on the canvas; then the step, given the first atom and a point a little off it, past the mouse's reach and
+  // within a pen's and a finger's (in whole px, as the browser's menu event has them). What it opens (its options and
+  // what is picked) must be what the mouse's right-click on the atom opens. The pen's cases are after the pen's strokes.
+  const menuNow = () => run("return [...document.querySelectorAll('.context-menu .variant')].filter((v) => v.offsetHeight).map((v) => v.textContent.trim()).join(', ') + `; picked ${document.querySelectorAll('svg.canvas .selection-marks > *').length}`;");
+  const rightClick = async ([x, y]) => {
+    for (const [type, o] of [["mouseMoved", {}], ["mousePressed", { button: "right", buttons: 2, clickCount: 1 }], ["mouseReleased", { button: "right", buttons: 0, clickCount: 1 }]]) {
+      await call("Input.dispatchMouseEvent", { type, x, y, pointerType: "mouse", ...o });
+      await frame();
+    }
+  };
+  const offAtom = Math.round((reach.mouse + reach.pen) / 2);
+  const menuAfter = async (step) => {
+    const [a] = await ethane();
+    await fresh(0, "", true);
+    await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: 400, y: 250, pointerType: "mouse" });
+    await sleep(150);
+    await step(a, [Math.round(a[0]) - offAtom, Math.round(a[1])]);
+    await sleep(500);
+    const got = await menuNow();
+    await escape(); await escape();
+    return got;
+  };
+  const atomMenu = await menuAfter((a) => rightClick(a)), offMenu = await menuAfter((a, q) => rightClick(q));
+  const held = await menuAfter(async (a, q) => {
+    await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: q[0], y: q[1], id: 1 }] });
+    await sleep(600);
+    await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  });
+  report(`finger: a long press ${offAtom} px off an atom, after the mouse, opens the atom's menu`, held === atomMenu && /picked [1-9]/.test(atomMenu) && offMenu !== atomMenu,
+    `the mouse's right-click on the atom ${JSON.stringify(atomMenu)}, off it ${JSON.stringify(offMenu)}; the finger's long press ${JSON.stringify(held)}`);
+  const afterTap = await menuAfter(async (a) => { await touch([[700, 300]]); await sleep(300); await rightClick(a); });
+  report("mouse: a right-click on an atom 300 ms after a finger's tap opens its menu", afterTap === atomMenu, `got ${JSON.stringify(afterTap)}, the mouse alone ${JSON.stringify(atomMenu)}`);
+
   for (const [kind, act] of [["mouse", byMouse], ["finger", touch], ["pen", mouse("pen")]]) {
     for (const [name, start, stroke] of CASES) {
       await fresh();
@@ -479,6 +515,19 @@ try {
       report(`${held ? "palm: a double tap while the pen is held" : "finger: after a pen, a double tap"} on ${name} with Select does nothing`, now === was, `before ${JSON.stringify(was)}, after ${JSON.stringify(now)}`);
       await escape(); await escape();
     }
+  }
+  // The pen's side button a little off an atom, after the mouse (the pen hovered there first): the atom's menu. The
+  // mouse's right-click on the atom 300 ms after a pen's tap opens its menu.
+  {
+    const side = await menuAfter(async (a, q) => {
+      await pen("mouseMoved", q); await frame();
+      await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: 400, y: 250, pointerType: "mouse" }); await sleep(100);
+      await pen("mousePressed", q, { button: "right", buttons: 2, clickCount: 1 }); await frame();
+      await pen("mouseReleased", q, { button: "right", buttons: 0, clickCount: 1 });
+    });
+    report(`pen: the side button ${offAtom} px off an atom, after the mouse, opens the atom's menu`, side === atomMenu, `got ${JSON.stringify(side)}, the mouse's right-click on the atom ${JSON.stringify(atomMenu)}`);
+    const afterPen = await menuAfter(async (a) => { await mouse("pen")([[700, 300]]); await sleep(300); await rightClick(a); });
+    report("mouse: a right-click on an atom 300 ms after a pen's tap opens its menu", afterPen === atomMenu, `got ${JSON.stringify(afterPen)}, the mouse alone ${JSON.stringify(atomMenu)}`);
   }
 
   out.errors = await run("return __errs.slice(0, 10);");

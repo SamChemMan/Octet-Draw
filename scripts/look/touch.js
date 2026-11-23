@@ -702,21 +702,33 @@ if (part("palm")) {
 async function coarseSection() {
   const px = (el) => el?.getBoundingClientRect();
   const same = (a, b) => a && b && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5;
+  // The active mark slides to the tool in hand, the tools glide between one column and two, and a menu or list stays on
+  // screen for its exit. A loaded or covered window plays those late, so each step waits until they have landed or gone
+  // (up to 5 s) rather than a fixed time.
+  const exited = () => until(() => !document.querySelector(".leaving"), 5000);
+  const markOn = async (t) => { const mark = document.querySelector(".palette .indicator"); await until(() => same(px(t), px(mark)), 5000); return [px(t), px(mark)]; };
+  // The toggle between one column and two, then the first two tools where the toolbar's columns put them.
+  const toggle = async () => {
+    document.querySelector(".palette-toggle")?.click();
+    const two = document.querySelector(".palette")?.classList.contains("wide");
+    await until(() => { const a = px(slotTool(0)), b = px(slotTool(1)); return a && b && (two ? Math.abs(a.top - b.top) < 0.5 && b.left > a.left : Math.abs(a.left - b.left) < 0.5 && b.top > a.top); }, 5000);
+  };
+  // A Menu.tsx list on body, not one still leaving (it stays on screen for its exit), once it has what has().
+  const listWith = (has) => until(() => [...document.querySelectorAll("body > div > .strip.list:not(.leaving)")].find((l) => l.querySelector(has)), 5000);
   // The toolbar's section (Pen, then Measure, between two lines) and the tools after it: the active mark sits on each,
   // in one column and in two. The Pen and Measure menus' options are the size of an option (size), and the Arrow
   // menu's size switch is a control that size, with its segments one size and its fill on the size chosen.
   const sectionLooks = async (name, size) => {
-    const mark = document.querySelector(".palette .indicator");
     for (const wide of [false, true]) {
-      if (wide) { document.querySelector(".palette-toggle")?.click(); await wait(700); }
+      if (wide) await toggle();
       const off = [];
       for (const slot of [11, 12, 13, 14, 15, 16]) {
-        await pickSlot(slot); await wait(400);
-        const t = slotTool(slot);
-        if (!same(px(t), px(mark))) off.push(`${t?.getAttribute("aria-label")}: ${JSON.stringify([px(t), px(mark)])}`);
+        await pickSlot(slot);
+        const t = slotTool(slot), at = await markOn(t);
+        if (!same(...at)) off.push(`${t?.getAttribute("aria-label")}: ${JSON.stringify(at)}`);
       }
       check(`${name}: ${wide ? "two columns" : "one column"}, the active mark is on Pen, Measure and the tools before and after them`, !off.length, off.join("; "));
-      if (wide) { document.querySelector(".palette-toggle")?.click(); await wait(700); }
+      if (wide) await toggle();
     }
     for (const [tool, slot] of [["Pen", 12], ["Measure", 13]]) {
       await pickSlot(slot); slotTool(slot)?.click(); await wait(500);
@@ -738,9 +750,8 @@ async function coarseSection() {
     await pick(/bond$/i);
     const tools = [...document.querySelectorAll(".palette .tool")];
     check(`coarse ${theme}: every tool is 44 px`, tools.length > 5 && tools.every((t) => t.offsetHeight === 44 && t.offsetWidth === 44), tools.map((t) => `${t.offsetWidth}x${t.offsetHeight}`).join(" "));
-    await wait(400);
-    const on = document.querySelector(".palette .tool[aria-pressed='true']"), mark = document.querySelector(".palette .indicator");
-    check(`coarse ${theme}: the active mark is on the active tool`, same(px(on), px(mark)), JSON.stringify([px(on), px(mark)]));
+    const on = document.querySelector(".palette .tool[aria-pressed='true']"), at = await markOn(on);
+    check(`coarse ${theme}: the active mark is on the active tool`, same(...at), JSON.stringify(at));
     // The tool's own menu (a second click on the tool in hand).
     on?.click(); await wait(500);
     const cells = [...document.querySelectorAll(".palette .strip:not(.list) .variant")].filter((v) => v.offsetHeight);
@@ -748,9 +759,10 @@ async function coarseSection() {
     check(`a pinch on the toolbar or its menu does not zoom the window (${theme})`, !!cells[0] && !pinchable(cells[0]) && !pinchable(on));
     await escape();
     // Two columns: the mark still sits on the tool in hand.
-    document.querySelector(".palette-toggle")?.click(); await wait(700);
-    check(`coarse ${theme}: two columns, the active mark is on the active tool`, same(px(document.querySelector(".palette .tool[aria-pressed='true']")), px(mark)));
-    document.querySelector(".palette-toggle")?.click(); await wait(700);
+    await toggle();
+    const wideAt = await markOn(document.querySelector(".palette .tool[aria-pressed='true']"));
+    check(`coarse ${theme}: two columns, the active mark is on the active tool`, same(...wideAt), JSON.stringify(wideAt));
+    await toggle();
     // The Actions menu: 44 px rows, and in the window. Its sub-menu (an option with more) too.
     svg.dispatchEvent(new MouseEvent("contextmenu", { clientX: 630, clientY: 700, bubbles: true, cancelable: true, button: 2 }));
     await wait(500);
@@ -766,23 +778,24 @@ async function coarseSection() {
       `${more?.textContent}: ${subRows.map((v) => v.offsetHeight).join(" ")} ${JSON.stringify(sub)}`);
     await escape(); await escape();
     // A list from a button in the Actions panel (Pick: the Colour list for the structures).
-    key({ key: "a", code: "KeyA", metaKey: true }); await wait(500);
-    const button = [...document.querySelectorAll('.actions button[aria-haspopup="menu"]')].find((b) => b.offsetHeight);
-    button?.click(); await wait(500);
-    const list = document.querySelector("body > div > .strip.list"), items = list ? [...list.querySelectorAll(".variant")].filter((v) => v.offsetHeight) : [], box = px(list);
+    await exited();
+    key({ key: "a", code: "KeyA", metaKey: true });
+    const button = await until(() => [...document.querySelectorAll('.actions button[aria-haspopup="menu"]')].find((b) => b.offsetHeight), 5000);
+    button?.click();
+    const list = await listWith(".variant"), items = list ? [...list.querySelectorAll(".variant")].filter((v) => v.offsetHeight) : [], box = px(list);
     check(`coarse ${theme}: a list menu's options are 44 px and in the window`, items.length > 1 && items.every((v) => v.offsetHeight === 44) && !!box && box.bottom <= innerHeight - 8 + 0.5 && box.top >= 8 - 0.5,
       `${button?.getAttribute("aria-label")}: ${items.map((v) => v.offsetHeight).join(" ")} ${JSON.stringify(box)}`);
     check(`a pinch on a list menu or the Actions panel does not zoom the window (${theme})`, !!items[0] && !pinchable(items[0]) && !!button && !pinchable(button));
     await escape();
     if (document.querySelector(".strip.list:not(.leaving)")) button?.click();
-    await wait(300);
+    await exited();
     // A colour row's palette (every colour as a swatch, a Menu.tsx list): its swatches are 44 px too, and it is in the window.
-    document.querySelector(".colour-row .colour-more")?.click(); await wait(500);
-    const palette = document.querySelector("body > div > .strip.list"), swatches = palette ? [...palette.querySelectorAll(".swatch-cell")].filter((v) => v.offsetHeight) : [], shelf = px(palette);
+    (await until(() => document.querySelector(".colour-row .colour-more"), 5000))?.click();
+    const palette = await listWith(".swatch-cell"), swatches = palette ? [...palette.querySelectorAll(".swatch-cell")].filter((v) => v.offsetHeight) : [], shelf = px(palette);
     check(`coarse ${theme}: a colour palette's swatches are 44 px and the palette is in the window`, swatches.length > 4 && swatches.every((v) => v.offsetHeight === 44 && v.offsetWidth === 44) && !!shelf && shelf.bottom <= innerHeight - 8 + 0.5 && shelf.top >= 8 - 0.5,
       `${swatches.length}: ${[...new Set(swatches.map((v) => `${v.offsetWidth}x${v.offsetHeight}`))].join(" ")} ${JSON.stringify(shelf)}`);
     await escape();
-    await wait(300);
+    await exited();
     await sectionLooks(`coarse ${theme}`, 44);
     await pick(/bond$/i);
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
@@ -805,9 +818,10 @@ async function coarseSection() {
     const rows = [...document.querySelectorAll(".context-menu .variant")].filter((v) => v.offsetHeight);
     check("fine again: the Actions menu's rows are 30 px", rows.length > 1 && rows.every((v) => v.offsetHeight === 30), rows.map((v) => v.offsetHeight).join(" "));
     await escape();
-    key({ key: "a", code: "KeyA", metaKey: true }); await wait(500);
-    document.querySelector(".colour-row .colour-more")?.click(); await wait(500);
-    const swatches = [...(document.querySelector("body > div > .strip.list")?.querySelectorAll(".swatch-cell") ?? [])].filter((v) => v.offsetHeight);
+    await exited();
+    key({ key: "a", code: "KeyA", metaKey: true });
+    (await until(() => document.querySelector(".colour-row .colour-more"), 5000))?.click();
+    const swatches = [...((await listWith(".swatch-cell"))?.querySelectorAll(".swatch-cell") ?? [])].filter((v) => v.offsetHeight);
     check("fine again: a colour palette's swatches are 24 px", swatches.length > 4 && swatches.every((v) => v.offsetHeight === 24), swatches.map((v) => v.offsetHeight).join(" "));
     await escape();
     await sectionLooks("fine again", 36);

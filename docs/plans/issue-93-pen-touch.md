@@ -248,8 +248,11 @@ events and does what it returns: pass, press, erase, cancel, view, ring, unring,
   Tolerances in bond lengths get a floor of 6 px x reach, capped (atoms 0.4, bonds 0.5 of a bond). With reach 1 every
   function returns its 515ed13 value. Hit order is unchanged.
 - **Side button.** One openMenu for right-click, side button and long press. A side-button press waits 100 ms after
-  release for the browser's contextmenu; if none came, the gate opens the menu. A contextmenu within 800 ms of a touch,
-  or while a pen tip is held, is ignored, so a menu never opens twice and a held pen is hold-to-Select.
+  release for the browser's contextmenu; if none came, the gate opens the menu. A pen's or a finger's contextmenu
+  within 800 ms of a touch, or while a pen tip is held, is ignored, so a menu never opens twice and a held pen is
+  hold-to-Select. onContextMenu takes the contextmenu as the event of the pointer that pressed last on the canvas, so
+  the mouse's right-click always opens its menu. Each menu opens with the reach of the pointer that opened it (a long press a finger's, the side
+  button a pen's), whatever pointer moved last.
 - **Eraser end.** It goes first in the pen path, before handles and selection: the tool goes to `spring`, the Eraser
   takes the press a frame later, and release gives the tool back.
 - **Coarse targets.** src/main.tsx sets `data-pointer` from `matchMedia("(pointer: coarse)")` and follows its change.

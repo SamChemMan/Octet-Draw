@@ -6,6 +6,8 @@
 // - One finger acts as the mouse while no pen has been used in the window. Its press waits until it moves SLOP.touch
 //   or lifts, so two fingers that land a moment apart never draw. Held still for the hold time, it opens the Actions
 //   menu. Two fingers pan and zoom about their midpoint.
+// - Each Actions menu opens with the reach of the pointer that opened it. The mouse's right-click opens its menu as
+//   before, whatever a pen or a finger did just before it.
 // - Palm rejection: touches do nothing while a pen is down or was seen in the last PALM_MS. After a pen is used, a
 //   finger only moves the view.
 // Pressure, tilt, twist and contact size are never read. No React and no DOM here, so node checks drive it.
@@ -21,7 +23,7 @@ export const REACH: Record<Kind, number> = { mouse: 1, pen: 1.5, touch: 2.5 };
 export const SLOP: Record<Kind, number> = { mouse: 4, pen: 6, touch: 10 };
 export const PALM_MS = 500; // touches after the pen was last seen that are a palm
 export const SIDE_MS = 100; // the wait for the browser's own menu after the side button lets go
-export const MENU_GAP_MS = 800; // a browser menu this soon after a touch or a pen's hold is the gesture's, not a new one
+export const MENU_GAP_MS = 800; // a pen's or a finger's browser menu this soon after a touch or a pen's hold is the gesture's
 
 // What the gate reads from a pointer event.
 export type In = { id: number; type: string; x: number; y: number; button: number; buttons: number; primary: boolean; t: number };
@@ -34,7 +36,7 @@ export type Act =
   | { act: "view"; dx: number; dy: number; by: number; x: number; y: number; n?: number }
   | { act: "ring"; x: number; y: number }
   | { act: "unring" }
-  | { act: "menu"; x: number; y: number }
+  | { act: "menu"; x: number; y: number; kind: Kind } // the Actions menu at x, y, with the reach of the pointer that opened it
   | { act: "timer"; key: "hold" | "side"; n: number; ms: number }; // call timer(key, n) after ms
 
 type Pt = readonly [number, number];
@@ -130,17 +132,19 @@ export class Gate {
     const f = this.fingers[0];
     if (key === "hold" && this.state === "wait" && f) {
       this.state = "menu";
-      return [{ act: "unring" }, { act: "menu", x: f.x0, y: f.y0 }];
+      return [{ act: "unring" }, { act: "menu", x: f.x0, y: f.y0, kind: "touch" }];
     }
     if (key === "side" && this.side && !this.side.opened) {
       this.side.opened = true;
-      return [{ act: "menu", x: this.side.x, y: this.side.y }];
+      return [{ act: "menu", x: this.side.x, y: this.side.y, kind: "pen" }];
     }
     return [];
   }
   // The browser's own context menu event (a right-click, a pen's side button, a held finger or pen): whether to open
-  // the Actions menu for it. A long press is the gate's own, and the side button's menu opens once.
-  contextMenu(t: number): boolean {
+  // the Actions menu for it. kind: the pointer pressed last on the canvas, whose event it is. The mouse's right-click
+  // always opens it. A long press is the gate's own, and the side button's menu opens once.
+  contextMenu(t: number, kind: Kind): boolean {
+    if (kind === "mouse") return true;
     if (this.fingers.length || this.others.size || t - this.touchSeen < MENU_GAP_MS) return false;
     const s = this.side;
     if (s && (s.up === undefined || t - s.up < MENU_GAP_MS)) {
