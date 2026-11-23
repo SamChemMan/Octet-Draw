@@ -1,7 +1,7 @@
 // Octet's own file format: versioned, human-readable JSON. Treat every file as hostile: check it fully on read.
 import { fontName, readGuides, readStyle } from "./docstyle.ts";
 import { readGap } from "./conditions.ts";
-import { MAX_TEXT, normalise, plainOf, readTableRuns, type TextRun } from "./richtext.ts";
+import { MAX_TEXT, normalise, plainOf, readTableRuns, runsOf, styleRange, type TextRun } from "./richtext.ts";
 import { readMonomers } from "./monomers.ts";
 import { rings } from "./rings.ts";
 import { LIVE_ATTRS, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData, readPlasmid, readPlate } from "./cdxml.ts";
@@ -51,6 +51,19 @@ function innerIn(v: unknown): Mol | undefined {
   return atoms.every(Boolean) && bonds.every(Boolean) ? { atoms: atoms as Mol["atoms"], bonds: bonds as Mol["bonds"] } : undefined;
 }
 
+// A caption's highlights (a run's halo) are saved beside its runs, as [start, end, "#rrggbb"], not in them: Octet 1.1.2
+// refuses a run with a key it does not know, so it opens the drawing with the text and its other styles, unhighlighted.
+function haloesOut(runs: TextRun[]): { runs: TextRun[]; highlights?: [number, number, string][] } {
+  const highlights: [number, number, string][] = [];
+  let at = 0;
+  for (const r of runs) { if (r.halo) highlights.push([at, at + r.text.length, r.halo]); at += r.text.length; }
+  return { runs: highlights.length ? normalise(runs.map(({ halo: _, ...r }) => r)) : runs, ...(highlights.length ? { highlights } : {}) };
+}
+function haloesIn(v: unknown, text: string): [number, number, string][] {
+  if (!Array.isArray(v) || v.length > MAX_TEXT) return [];
+  return v.filter((h): h is [number, number, string] => Array.isArray(h) && h.length === 3 && Number.isInteger(h[0]) && Number.isInteger(h[1]) && h[0] >= 0 && h[0] < h[1] && h[1] <= text.length
+    && typeof h[2] === "string" && /^#[0-9a-f]{6}$/i.test(h[2]));
+}
 export function serialize(input: Mol): string {
   // A shown data field's text carries ChemDraw's attached-data property, which Octet 1.1.2 keeps (datafields.ts).
   const mol = withProperties(input);
@@ -85,7 +98,7 @@ export function serialize(input: Mol): string {
   const captions = [...(mol.captions ?? [])].sort((a, b) => a.id - b.id).map((c) => ({
     text: c.text, x: round(c.x), y: round(c.y), ...(c.bold ? { bold: true } : {}), ...(c.italic ? { italic: true } : {}), ...(c.underline ? { underline: true } : {}),
     ...(c.size ? { size: c.size } : {}), ...(c.align ? { align: c.align } : {}), ...(c.under ? { under: c.under } : {}), ...(c.colour ? { colour: c.colour } : {}),
-    ...(c.font ? { font: c.font } : {}), ...(c.runs ? { runs: c.runs } : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { ends: c.measure.ends.map((e) => (typeof e === "number" ? e : e.map(round))), ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
+    ...(c.font ? { font: c.font } : {}), ...(c.runs ? haloesOut(c.runs) : {}), ...(c.property ? { property: c.property } : {}), ...(c.angle ? { angle: round(c.angle) } : {}), ...(c.order ? { order: c.order } : {}), ...(c.lineHeight ? { lineHeight: c.lineHeight } : {}), ...(c.width ? { width: round(c.width) } : {}), ...(c.chemical === false ? { chemical: false } : {}), ...(c.auto ? { auto: true } : {}), ...(c.field ? { field: c.field } : {}), ...(c.measure ? { measure: { ends: c.measure.ends.map((e) => (typeof e === "number" ? e : e.map(round))), ...(c.measure.at ? { at: c.measure.at.map(round) } : {}) } } : {}),
     ...(c.on ? { on: { arrow: arrowList.findIndex((a) => a.id === c.on!.arrow), side: c.on.side, ...(c.on.gap !== undefined ? { gap: c.on.gap } : {}) } } : {}),
     ...(c.on && c.placed ? { placed: { at: c.placed.at.map(round), arrow: c.placed.arrow.map(round) } } : {}),
     ...(c.cycle ? { cycle: { cycle: cycleList.findIndex((x) => x.id === c.cycle!.cycle), step: c.cycle.step, side: c.cycle.side, ...(c.cycle.branch !== undefined ? { branch: c.cycle.branch } : {}), ...(c.cycle.at !== undefined ? { at: c.cycle.at } : {}), ...(c.cycle.reach !== undefined ? { reach: c.cycle.reach } : {}), ...(c.cycle.off ? { off: c.cycle.off } : {}) } } : {}),
@@ -482,6 +495,8 @@ function readCaptions(raw: unknown, out: Mol) {
     if (c.size !== undefined) caption.size = c.size as number;
     copySet(caption, c, ["align", "colour", "font"]);
     if (c.runs) caption.runs = readRuns(c.runs, c.text);
+    const haloes = haloesIn(c.highlights, c.text);
+    if (haloes.length) caption.runs = normalise(haloes.reduce((r, [a, b, hex]) => styleRange(r, a, b, (st) => ({ ...st, halo: hex })), runsOf(caption)));
     if (c.angle) caption.angle = c.angle as number;
     if (c.property) caption.property = readKept(c.property, [...PROPERTY_ATTRS, ...LIVE_ATTRS], out.atoms.length);
     Object.assign(caption, orderOf(c.order));

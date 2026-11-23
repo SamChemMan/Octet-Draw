@@ -23,7 +23,7 @@ export const RELEASES: Release[] = [
       "Measure, angles, and dihedrals: Lengths, angles and dihedrals between atoms or any point on the page, with real 3D values on a flat drawing.",
       "LaTeX. Copy structures and whole reaction schemes as chemfig code.",
       "NMReDATA. Saving and and open NMR assignments has been added. They can be swapped back and forth with MestReNova (tested).",
-      "Jablonski diagrams. Object > Add Chart > Jablonski Diagram.",
+      "Jablonski diagrams. Pick one from the Photochemistry templates, and edit it on the page.",
       "Work from 43 of your GitHub issues.",
     ],
     signoff: [
@@ -92,7 +92,7 @@ export const RELEASES: Release[] = [
         "Hide property names shows a live value with no labels, and it stays live. (#77)",
       ] },
       { title: "Charts and spectra", items: [
-        "Energy diagrams: Object > Add Chart > Energy Diagram… draws a reaction energy profile. Paste the numbers straight from a spreadsheet, or type over a level on the page.",
+        "Energy diagrams: pick Energy diagram from the Photochemistry templates to draw a reaction energy profile. Paste the numbers straight from a spreadsheet, or type over a level on the page.",
         "Sensitivity screens: Object > Add Chart > Sensitivity Screen… draws a Glorius screen with the ten standard conditions.",
         "Jablonski diagrams can be edited: drag levels and transitions, and add singlets and triplets. (#43)",
         "Better ¹³C predictions around peroxides. (#83)",

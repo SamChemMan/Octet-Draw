@@ -7814,7 +7814,7 @@ export default function Editor() {
     if (writing) {
       const st = { ...(writing.id !== undefined ? doc.captions?.find((c) => c.id === writing.id) : undefined), ...writing.style };
       const range = richApi.current?.range() ?? [writing.value.length, writing.value.length], at = writing.pending ?? common(writing.runs ?? [{ text: writing.value }], range[0], range[1]);
-      return { kind: "caption", mode: "typing", convertible: false, colour: at.colour ?? st.colour ?? style.colour, count: 1, bold: !!(at.bold ?? st.bold), italic: !!(at.italic ?? st.italic), underline: !!(at.underline ?? st.underline),
+      return { kind: "caption", mode: "typing", convertible: false, halo: at.halo, colour: at.colour ?? st.colour ?? style.colour, count: 1, bold: !!(at.bold ?? st.bold), italic: !!(at.italic ?? st.italic), underline: !!(at.underline ?? st.underline),
         size: at.size ?? st.size ?? style.captionSize, align: st.align ?? "centre", attached: false, attachable: false, script: at.script, font: at.font ?? st.font ?? style.captionFont, fonts: fontList };
     }
     // An atom's charge picked alone (issue 164): a symbol of its kind, linked to its atom, in its own size and colour.
@@ -7896,7 +7896,7 @@ export default function Editor() {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
         // A data field's text is text only: it is never made an element or a structure, nor read as chemistry.
         const shows = fieldCaptions(doc), field = cs.some((x) => shows.has(x.id));
-        return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: !field && cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: !field && cs.some((x) => labelable(x) || standInCaption(x)), ...(field && cs.length === 1 ? { field: true } : {}),
+        return { kind: "caption", mode: "picked", halo: w.halo, colour: w.colour ?? style.colour, convertible: !field && cs.length === 1 && namesLoaded && !!(isSequence(c.text.trim()) || nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under || !!c.measure, attachable: !c.under && !c.measure && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: !field && cs.some((x) => labelable(x) || standInCaption(x)), ...(field && cs.length === 1 ? { field: true } : {}),
           ...(cs.length === 1 && isSide(c.cycle) && branchOf(doc, c.cycle!) ? { cycleSide: sideOf(branchOf(doc, c.cycle!)!.b, branchOf(doc, c.cycle!)!.c) } : {}),
           ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           ...(cs.every((x) => x.on && !x.cycle) ? { conditions: { gap: c.on!.gap ?? style.arrowGap ?? GAP_ARROW_PT, moved: cs.some((x) => placedAt(x, doc.arrows)) } } : {}),
@@ -9575,6 +9575,7 @@ export default function Editor() {
     // A bond alone takes its highlight without its atoms, as it takes a colour.
     if (command.startsWith("halo.") || command.startsWith("ringfill.")) {
       const value = command.split(".")[1], c = value === "none" ? undefined : value;
+      if (command.startsWith("halo.") && contextOf().kind === "caption") return runAction(`caption.halo.${value}`);
       const atoms = selection.size ? selection : new Set(doc.atoms.map((_, i) => i)), merge = command.endsWith(".drag") ? command.split(".")[0] : undefined;
       if (command.startsWith("halo.")) return set({ ...doc, atoms: contextOf().kind === "bond" ? doc.atoms : doc.atoms.map((a, i) => (atoms.has(i) ? { ...a, halo: c } : a)), bonds: doc.bonds.map((b) => (atoms.has(b.atoms[0]) && atoms.has(b.atoms[1]) ? { ...b, halo: c } : b)) }, true, merge);
       const targets = fillRings(doc, atoms), keys = new Set(targets.map(ringKey)), rest = (doc.fills ?? []).filter((f) => !keys.has(ringKey(f.atoms)));
@@ -9927,6 +9928,11 @@ export default function Editor() {
         return styleText((s) => ({ ...s, colour: arg.toLowerCase() === own.toLowerCase() ? undefined : arg }), what);
       }
       if (what === "colour") return restyle(() => ({ colour: arg.toLowerCase() === style.colour.toLowerCase() ? undefined : arg }));
+      // Highlight: while typing, on the characters selected (or the next ones typed); else on every character of the
+      // picked captions. none takes it off.
+      const halo = arg === "none" ? undefined : arg;
+      if (what === "halo" && writing) return styleText((s) => ({ ...s, halo }), what);
+      if (what === "halo") return set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) ? { ...c, runs: normalise(styleRange(runsOf(c), 0, c.text.length, (s) => ({ ...s, halo }))) } : c)) }, true);
       const id = [...picked][0];
       if (what === "edit" && id !== undefined) return startWriting({ id });
       if (what === "names" || (what === "places" && /^([0-8]|standard)$/.test(arg))) {
@@ -10079,7 +10085,9 @@ export default function Editor() {
       const m = free ? attachBeside(doc, atoms ? { atoms } : { text: t.caption }, { box: dropBox, bond: style.bond }) : doc;
       return m !== doc ? void set(m) : undefined;
     }
-    if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text") return; // a caption or cycle was picked, not drawn on
+    // A caption or cycle was picked, not drawn on. The Box tool's and Brackets' click on a caption frames it (below).
+    const frames = (tool === "shape" || (tool === "bracket" && !("mark" in bracketPick))) && t.caption !== undefined;
+    if ((t.caption !== undefined || t.cycle !== undefined) && tool !== "text" && !frames) return;
     if (tool === "table" && tableAt(at)) return openCell(tableAt(at)!, at);
     if ((tool === "tlc" || tool === "gel") && plateAt(at)) return spotAt(plateAt(at)!, at, false, false);
     // An arrow clicked with the Arrow tool, as in ChemDraw: one like the tool's, unchanged but for its ends, turns
@@ -10163,6 +10171,9 @@ export default function Editor() {
       return refused.current ? undefined : reselect(new Set(), new Set([id]));
     }
     if (tool === "template") {
+      // The Photochemistry set's Jablonski and energy diagrams are charts you can edit (charts.ts), not drawings.
+      if (templateVariant === "lib:Jablonski diagram") return applyChart(NEW_JABLONSKI);
+      if (templateVariant === "lib:Energy diagram") return setDialog({ kind: "chart", chart: NEW_ENERGY });
       const mol = templateMol(templateVariant);
       // The point goes too: a template with no bonds or no atoms (a lamp, a flask) goes where the click was.
       // Stamped beside a catalytic cycle, it joins it (⌘ keeps it free).

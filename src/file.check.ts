@@ -287,3 +287,18 @@ for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
   assert.equal(open([[null, [{ text: "B" }, { text: "" }, { text: "a" }, { text: "s" }, { text: "e", bold: true }]]]).runs, undefined);
   console.log("file.check: table cell styles ok");
 }
+
+// A highlight on part of a caption (halo on a run, 23 November 2026) saves and opens again; a bad one is dropped.
+{
+  const runs = [{ text: "Nucleophilic " }, { text: "radical", halo: "#3fa9f5" }];
+  const m = { atoms: [], bonds: [], captions: [{ id: 1, text: "Nucleophilic radical", x: 0, y: 0, runs }] } as unknown as Parameters<typeof serialize>[0];
+  const back = parse(serialize(m)) as typeof m;
+  assert.deepEqual(back.captions![0].runs, runs, "a highlighted word keeps its highlight");
+  // Saved beside the runs, so Octet 1.1.2's run reader (no halo key) still opens the drawing.
+  const json = JSON.parse(serialize(m));
+  assert.deepEqual(json.captions[0].highlights, [[13, 20, "#3fa9f5"]]);
+  assert.ok(json.captions[0].runs.every((r: object) => !("halo" in r)), "no halo in the saved runs");
+  const bad = parse(JSON.stringify({ ...json, captions: [{ ...json.captions[0], highlights: [[13, 99, "#3fa9f5"], [0, 3, "red"]] }] })) as typeof m;
+  assert.equal(bad.captions![0].text, "Nucleophilic radical", "bad highlights are left out, the text opens");
+  assert.ok(!bad.captions![0].runs?.some((r) => r.halo), "and nothing is highlighted");
+}

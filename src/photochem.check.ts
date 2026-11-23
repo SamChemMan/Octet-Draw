@@ -12,7 +12,7 @@ import type { Arrow, Caption, Mol } from "./render.ts";
 
 const more: { sets: { name: string; items: { name: string; also?: string; mol: Mol }[] }[] } = JSON.parse(readFileSync(new URL("./library-more.json", import.meta.url), "utf8"));
 const set = more.sets.find((c) => c.name === "Photochemistry")!.items;
-assert.deepEqual(set.map((t) => t.name), ["Jablonski diagram", "Light", "Photochemical step", "Thermal step", "Absorption", "Fluorescence", "Phosphorescence",
+assert.deepEqual(set.map((t) => t.name), ["Jablonski diagram", "Energy diagram", "Light", "Photochemical step", "Thermal step", "Absorption", "Fluorescence", "Phosphorescence",
   "Intersystem crossing", "Internal conversion", "Energy transfer", "Excited state", "Singlet oxygen", "Triplet oxygen", "Ground state", "Singlet excited state",
   "Triplet excited state", "Sensitiser", "Excited sensitiser"]);
 const item = (name: string) => set.find((t) => t.name === name)!.mol;
@@ -92,3 +92,12 @@ for (const { name, mol } of set) {
   assert.deepEqual(look(readOct(writeOct(placed, DEFAULT_STYLE)).mol), look(placed), `${name} through .oct`);
 }
 console.log(`photochem.check: ${set.length} Photochemistry templates in the document's style, placed whole and back the same from CDXML, CDX and .oct ok`);
+
+// The Jablonski and energy diagrams are placed as charts you can edit (charts.ts), not as their thumbnail drawings
+// (Sam, 23 November 2026); Object > Add Chart keeps only the sensitivity screen.
+{
+  const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), rust = readFileSync(new URL("../src-tauri/src/main.rs", import.meta.url), "utf8");
+  assert.match(editor, /if \(templateVariant === "lib:Jablonski diagram"\) return applyChart\(NEW_JABLONSKI\);/);
+  assert.match(editor, /if \(templateVariant === "lib:Energy diagram"\) return setDialog\(\{ kind: "chart", chart: NEW_ENERGY \}\);/);
+  assert.ok(!/item\("chart_(energy|jablonski)"/.test(rust), "not in Object > Add Chart");
+}
