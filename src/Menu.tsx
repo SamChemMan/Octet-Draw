@@ -153,10 +153,19 @@ export function Menu(p: Props) {
 // the next option that starts with it, Return picks, Escape closes. A list opened by the keyboard takes the focus; one
 // opened by a click leaves it where it was (in text being typed, say). A right-click on an option (or the Menu key)
 // opens the option's own menu, where the list has one (the user's own colours in a colour list).
-const ROW = 32; // px: a list option's height and the gap under it
-// The rows a group takes in a list: a grid of swatches is one row of SWATCHES for every SWATCHES of them, each row
-// shorter than an option.
-const rowsOf = (g: MenuItem[]) => (swatchGroup(g) ? (Math.ceil(g.length / SWATCHES) * 26) / ROW : g.length);
+// A size token in px. A list option is --size-row high and a swatch --size-control-sm, or --size-touch each with a
+// finger or a pen as the main pointer (editor.css).
+const coarse = () => document.documentElement.dataset.pointer === "coarse";
+const tokenPx = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+// px: a list option's height and the gap under it.
+const rowPx = () => tokenPx(coarse() ? "--size-touch" : "--size-row") + GAP || 32;
+// The rows of row px a group takes in a list: a grid of swatches has as many across as fit in an option's width
+// (SWATCHES, fewer at a finger's size), each row shorter than an option.
+const rowsOf = (g: MenuItem[], row: number) => {
+  if (!swatchGroup(g)) return g.length;
+  const size = tokenPx(coarse() ? "--size-touch" : "--size-control-sm") || 24;
+  return (Math.ceil(g.length / Math.max(1, Math.floor(CELL / size))) * (size + GAP)) / row;
+};
 export const listOpen = () => !!document.querySelector(".strip.list:not(.leaving), .colour-pop:not(.leaving), .eyedropper"); // a list, a colour picker or the eyedropper is open: its keys come first
 type PickProps = {
   label: string; // what the list chooses, read out and named on the button
@@ -249,7 +258,7 @@ export function Pick(p: PickProps) {
   };
   const place = (): React.CSSProperties => {
     // A list with a field keeps its height as the field narrows it.
-    const r = button.current!.getBoundingClientRect(), shown = own ? p.groups : groups, rows = all ? 12 : shown.reduce((n, g) => n + rowsOf(g), 0), want = rows * ROW + 2 * PAD + 2 + 8 * (shown.length - 1);
+    const ROW = rowPx(), r = button.current!.getBoundingClientRect(), shown = own ? p.groups : groups, rows = all ? 12 : shown.reduce((n, g) => n + rowsOf(g, ROW), 0), want = rows * ROW + 2 * PAD + 2 + 8 * (shown.length - 1);
     const below = innerHeight - r.bottom - 12, above = r.top - 12, down = above < Math.min(want, 6 * ROW + 2 * PAD + 2) && below > above;
     const across = r.right - menuWidth(1) < 8 ? { left: Math.max(8, r.left), right: "auto" } : { left: "auto", right: innerWidth - r.right };
     // Always inside the window, even for a button partly out of view.
@@ -324,6 +333,14 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     onClose();
     onChoose(key);
   };
+  // Lifting the finger whose hold opened the menu chooses nothing. The touch screen's click for that lift lands on the
+  // option under the finger, with no press in the menu before it. A tap on an option presses in the menu, and chooses.
+  const pressed = useRef(false);
+  const press = () => { pressed.current = true; };
+  const lift = (e: React.MouseEvent) => { if ((e.nativeEvent as PointerEvent).pointerType === "touch" && !pressed.current) { e.preventDefault(); e.stopPropagation(); } };
+  // An option with more opens its own menu when the pointer moves onto it. A menu that opens under the mouse at rest
+  // opens no other: Chromium sends a pointerover to what appears under it, as a long press's menu can.
+  const over = (e: React.PointerEvent) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } };
   useEffect(() => {
     const away = (e: Event) => { if (!main.current?.contains(e.target as Node) && !side.current?.contains(e.target as Node)) onClose(); };
     const gone = () => onClose();
@@ -359,16 +376,16 @@ export function ContextMenu({ label, at, keyboard, groups, sub, onChoose, onClos
     if (listKeys(e, (inSide ? side : main).current!)) return;
     e.stopPropagation(); // the menu's keys are its own
   };
-  const inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.reduce((n, g) => n + rowsOf(g), 0) * 32 + 24;
+  const row = rowPx(), inner = open && sub(open.key), rows = (list: MenuItem[][]) => list.reduce((n, g) => n + rowsOf(g, row), 0) * row + 24;
   return createPortal(
     <>
-      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()}
-        onPointerOver={(e) => { const key = (e.target as HTMLElement).closest<HTMLElement>("[data-item]")?.dataset.item; if (key && key !== open?.key) { if (opens(key)) show(key, false); else setOpen(undefined); } }}>
+      <div ref={main} tabIndex={-1} className="context-menu" onKeyDown={(e) => keys(e, false)} onContextMenu={(e) => e.preventDefault()} onPointerDownCapture={press} onClickCapture={lift}
+        onPointerMove={over}>
         <Menu label={label} className="list" placed columns={1} groups={groups.map((g) => g.map((i) => (i.more ? { ...i, checked: open?.key === i.key } : i)))} onChoose={choose}
           style={{ position: "fixed", left, top: Math.max(8, Math.min(at.y, innerHeight - 8 - Math.min(innerHeight - 16, rows(groups)))), maxHeight: innerHeight - 16, zIndex: 30, transformOrigin: "top left" }} />
       </div>
       <Exit>{open && inner && (
-        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()}>
+        <div ref={side} className="context-menu" onKeyDown={(e) => keys(e, true)} onContextMenu={(e) => e.preventDefault()} onPointerDownCapture={press} onClickCapture={lift}>
           <Menu label={inner.label} className="list" placed columns={1} groups={inner.groups} onChoose={choose}
             style={{ position: "fixed", left: subLeft, top: Math.max(8, Math.min(open.top, innerHeight - 8 - rows(inner.groups))), maxHeight: innerHeight - 16, zIndex: 31, transformOrigin: subLeft < left ? "top right" : "top left" }} />
         </div>

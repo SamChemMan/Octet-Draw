@@ -1,5 +1,5 @@
 // Loads a page in a WKWebView (the engine the Mac app runs in), runs a script in it and prints what the script
-// returns. scripts/look.mjs runs it: swift scripts/look/webkit.swift <url> <script.js>. The window is on screen but
+// returns. scripts/look.mjs runs it: swift scripts/look/webkit.swift <url> <script.js> [seconds]. The window is on screen but
 // clear and takes no clicks, so the page lays out and animates as it does in the app.
 import WebKit
 import AppKit
@@ -29,7 +29,8 @@ config.userContentController.addUserScript(WKUserScript(source: """
     addEventListener("error", (e) => window.__errors.push("uncaught: " + e.message));
   })();
   """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-let size = NSRect(x: 0, y: 0, width: 1440, height: 900)
+// 1440 x 900, or another height from LOOK_HEIGHT (a small laptop or a tablet: 768).
+let size = NSRect(x: 0, y: 0, width: 1440, height: Double(ProcessInfo.processInfo.environment["LOOK_HEIGHT"] ?? "") ?? 900)
 let web = WKWebView(frame: size, configuration: config)
 let window = NSWindow(contentRect: size, styleMask: [.borderless], backing: .buffered, defer: false)
 window.contentView = web
@@ -47,5 +48,12 @@ nav = Nav {
 }
 web.navigationDelegate = nav
 web.load(URLRequest(url: url))
-DispatchQueue.main.asyncAfter(deadline: .now() + 180) { print("TIMEOUT"); exit(2) }
+// The run stops after 180 s, or after the seconds given as a third argument.
+let limit = args.count >= 4 ? Double(args[3]) ?? 180 : 180
+// A script that keeps its result on window.__partial (touch.js) still reports what it reached.
+DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
+  web.evaluateJavaScript("window.__partial ? JSON.stringify({ ...window.__partial, timeout: true, look: window.__look, errors: window.__errors }) : ''") { value, _ in
+    print("TIMEOUT"); if let v = value as? String, !v.isEmpty { print(v) }; exit(2)
+  }
+}
 app.run()

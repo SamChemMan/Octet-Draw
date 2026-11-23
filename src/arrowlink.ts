@@ -16,6 +16,9 @@ export const tieable = (a: Pick<Arrow, "kind">) => a.kind === "curved" || a.kind
 export const tied = (a: Pick<Arrow, "fromOn" | "toOn">) => !!(a.fromOn || a.toOn);
 // A lone pair's or radical dot's key, as the renderer numbers an atom's marks.
 export const MARK_KEY = /^(pair[0-3]|radical[01])$/;
+// A lone pair or radical dot d bond lengths from p is in reach r: within the mouse's 0.3 always, and further (a pen's or
+// a finger's reach) only when p is nearer it than its atom at a, so a press on the atom still takes the atom.
+export const markIn = (d: number, r: number, a: readonly number[] | undefined, p: P) => d < 0.3 || (d < r && !!a && d < Math.hypot(a[0] - p[0], a[1] - p[1]));
 
 // Whether a tie's target is in the drawing: the atom; its lone pair or radical dot; or a bond between the two atoms.
 export function holds(m: Mol, on: ArrowEnd): boolean {
@@ -127,10 +130,10 @@ export function followArrows(before: Mol, after: Mol): Mol {
   return changed ? { ...after, arrows } : after;
 }
 
-// What an end at p would tie to: a lone pair or radical dot within 0.3 bond lengths (marks: where the renderer drew
-// them, in bond lengths, y up), else an atom, else a bond (atomAt and bondAt, as the pointer finds them).
-export function tieAt(m: Mol, p: P, marks: { atom: number; at: P; key?: string }[], atomAt: (m: Mol, p: P) => number | undefined, bondAt: (m: Mol, p: P) => number | undefined): ArrowEnd | undefined {
-  const near = marks.filter((e) => e.key && MARK_KEY.test(e.key)).map((e) => ({ e, d: Math.hypot(e.at[0] - p[0], e.at[1] - p[1]) })).filter((x) => x.d < 0.3).sort((x, y) => x.d - y.d)[0];
+// What an end at p would tie to: a lone pair or radical dot in reach (markIn; marks: where the renderer drew them, in
+// bond lengths, y up), else an atom, else a bond (atomAt and bondAt, as the pointer finds them).
+export function tieAt(m: Mol, p: P, marks: { atom: number; at: P; key?: string }[], atomAt: (m: Mol, p: P) => number | undefined, bondAt: (m: Mol, p: P) => number | undefined, r = 0.3): ArrowEnd | undefined {
+  const near = marks.filter((e) => e.key && MARK_KEY.test(e.key)).map((e) => ({ e, d: Math.hypot(e.at[0] - p[0], e.at[1] - p[1]) })).filter((x) => markIn(x.d, r, m.atoms[x.e.atom]?.location, p)).sort((x, y) => x.d - y.d)[0];
   if (near && near.e.atom < m.atoms.length) return { atom: near.e.atom, pair: near.e.key };
   const i = atomAt(m, p);
   if (i !== undefined) return { atom: i };

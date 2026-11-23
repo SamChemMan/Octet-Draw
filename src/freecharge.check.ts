@@ -123,7 +123,7 @@ console.log("freecharge.check: stepping and Circle the charge ok");
   assert.match(editor, /charges: chargesOf\(doc, \[\], picked\)/);
   // A charge clicked on an atom's charge sign (outside the atom's own hit) adds to that atom, as on the atom: the click
   // finds the sign with markNear, as Select does. The sign of a carbocation, a circled N+ and an O− is found there.
-  assert.match(editor, /const sign = \/\^\(plus\|minus\|circledPlus\|circledMinus\)\$\/\.test\(symbolKind\) \? markNear\(drawing\.electrons, doc, at, L\) : undefined;\s*if \(sign\?\.mark === "charge"\) return set\(addSymbol\(doc, sign\.atom, symbolKind\)\);/);
+  assert.match(editor, /const sign = \/\^\(plus\|minus\|circledPlus\|circledMinus\)\$\/\.test\(symbolKind\) \? markNear\(drawing\.electrons, doc, at, L, markReach\(\)\) : undefined;\s*if \(sign\?\.mark === "charge"\) return set\(addSymbol\(doc, sign\.atom, symbolKind\)\);/);
   const { render } = await import("./render.ts"), { addSymbol, markNear } = await import("./edit.ts");
   const fs = frameStyle(S, (S.bond * 4) / 3), L = fs.bond, ms = (t: string) => ({ width: 0.556 * fs.size * t.length, ascent: 0.716 * fs.size, outline: [] as P[] });
   for (const a of [{ label: "C", charge: 1 }, { label: "N", charge: 1, circled: true as const }, { label: "O", charge: -1 }]) {

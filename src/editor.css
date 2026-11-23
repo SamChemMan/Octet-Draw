@@ -1,5 +1,10 @@
 /* Editor chrome. Every value comes from brand/tokens.css. */
 
+/* A finger scrolls the panels but never zooms the window (two fingers zoom the canvas: touch.ts). On the root, so
+   menus, Home's carried card and the print view, which are on body, are covered too. */
+:root {
+  touch-action: pan-x pan-y;
+}
 /* Here, not in index.html: the CSP allows no inline styles (REL-31). */
 body {
   margin: 0;
@@ -553,6 +558,22 @@ rect.mark {
   isolation: isolate;
   z-index: var(--z-palette); /* above notices, the tutorial card and the panels, so its strips open over them */
 }
+/* A finger or a pen as the main pointer (main.tsx sets data-pointer from pointer: coarse): the toolbar's tools and
+   the options of every menu (Menu.tsx: the toolbar's menus, lists from a button, right-click menus) are touch
+   targets. Every control of one kind in them stays one size. */
+:root[data-pointer="coarse"] .palette,
+:root[data-pointer="coarse"] .strip {
+  --size-tool: var(--size-touch);
+  --size-cell: var(--size-touch);
+  --size-row: var(--size-touch);
+}
+/* A colour menu's swatches too, fewer across (Menu.tsx rowsOf), and a menu's size switch (the Arrow menu's). */
+:root[data-pointer="coarse"] .strip .menu-group.swatches {
+  --size-control-sm: var(--size-touch);
+}
+:root[data-pointer="coarse"] .strip .menu-segments {
+  --size-control: var(--size-touch);
+}
 
 /* The active tool's background slides between tools, so a switch reads as one move. */
 .indicator {
@@ -560,8 +581,8 @@ rect.mark {
   top: var(--space-1);
   left: var(--space-1);
   z-index: -1;
-  width: 32px;
-  height: 32px;
+  width: var(--size-tool);
+  height: var(--size-tool);
   border-radius: var(--radius-sm);
   background: var(--brand-mist);
   pointer-events: none;
@@ -867,8 +888,8 @@ button.variant.add {
 }
 /* The gap that opens where a dragged option will land. */
 .pin-slot {
-  width: 32px;
-  height: 32px;
+  width: var(--size-tool);
+  height: var(--size-tool);
   box-sizing: border-box;
   border: 1.5px dashed var(--brand-bright);
   border-radius: var(--radius-sm);
@@ -977,7 +998,7 @@ button.variant.add {
    tool's options open past the right-hand column. */
 .palette.wide {
   display: grid;
-  grid-template-columns: repeat(2, 32px);
+  grid-template-columns: repeat(2, var(--size-tool));
   gap: var(--space-1);
 }
 .palette.wide hr,

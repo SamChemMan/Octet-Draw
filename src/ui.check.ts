@@ -38,8 +38,9 @@ const inKeyframes = (r: Rule) => r.media.some((m) => m.startsWith("@keyframes"))
 const has = (r: Rule, ...names: string[]) => names.some((n) => r.parts.some((p) => p.includes(n)));
 
 // 1. Sizes. A control's height is a size token. A height typed by hand that equals a token is a control that missed
-// it; the marks below are not controls (a knob, a swatch, a thumbnail, a ring round a tool).
-const NOT_CONTROLS = [".search-clear", ".switch", ".swatch", ".library-rename", ".command-icon", ".paper-choice", ".halo", ".hold-ring", ".indicator", ".carry", ".pin-slot", ".name-recent.show-all", ".library-head", ".name-thumb", ".floating-head", ".page-option-thumb", ".library-set-name", ".char-map .char", ".eyedropper", ".fold-title", ".palette-toggle", ".badge", ".spectrum-swatches", ".home-name-field", ".home-carry-count", ".ghs", ".remove-bin", ".segmented.purposes"];
+// it; the marks below are not controls (a knob, a swatch, a thumbnail, a ring round a tool, a recent name's row as
+// high as its thumbnail).
+const NOT_CONTROLS = [".search-clear", ".switch", ".swatch", ".library-rename", ".command-icon", ".paper-choice", ".halo", ".hold-ring", ".indicator", ".carry", ".pin-slot", ".name-recent.show-all", ".library-head", ".name-thumb", ".floating-head", ".page-option-thumb", ".library-set-name", ".char-map .char", ".eyedropper", ".fold-title", ".palette-toggle", ".badge", ".spectrum-swatches", ".home-name-field", ".home-carry-count", ".ghs", ".remove-bin", ".segmented.purposes", ".name-recent"];
 for (const r of rules) {
   if (inKeyframes(r) || has(r, ...NOT_CONTROLS)) continue;
   const h = /^(\d+)px$/.exec(r.props.get("height") ?? "");

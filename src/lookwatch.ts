@@ -30,16 +30,18 @@ export function measureLook(root: ParentNode = document) {
     const first = segments[0];
     if (first && segments.some((s) => s.offsetWidth !== first.offsetWidth || s.offsetHeight !== first.offsetHeight))
       say(`the segments of "${name(control)}" are not one size: ${segments.map((s) => `${s.offsetWidth}x${s.offsetHeight}`).join(", ")}`);
-    // A segment is the control's height less its edge and its 2 px of room, top and bottom: 22 px in every control.
-    const inner = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--size-control")) - 6;
+    // A segment is the control's height less its edge and its 2 px of room, top and bottom: 22 px in every control
+    // (38 px in a menu's size switch with a finger or a pen as the main pointer: --size-control read at the control).
+    const inner = parseFloat(getComputedStyle(control).getPropertyValue("--size-control")) - 6;
     if (first && first.offsetHeight !== inner) say(`the segments of "${name(control)}" are ${first.offsetHeight}px high, not ${inner}px`);
   }
-  // Each kind of control is as high as its size token.
-  const tokens = getComputedStyle(document.documentElement);
+  // Each kind of control is as high as its size token, read at the control: the toolbar and every menu (a colour
+  // menu's swatches too) set theirs to --size-touch with a finger or a pen as the main pointer (editor.css).
   for (const [token, selectors] of Object.entries(SIZE_OF)) {
-    const height = parseFloat(tokens.getPropertyValue(`--${token}`));
     for (const el of root.querySelectorAll<HTMLElement>(selectors.join(", "))) {
-      if (el.offsetHeight && el.offsetHeight !== height && !el.matches(OWN_HEIGHT) && (token === "size-control-sm" || !el.matches(SWATCH))) say(`"${name(el)}" (${el.className}) is ${el.offsetHeight}px high, not --${token} (${height}px)`);
+      if (!el.offsetHeight || el.matches(OWN_HEIGHT) || (token !== "size-control-sm" && el.matches(SWATCH))) continue;
+      const height = parseFloat(getComputedStyle(el).getPropertyValue(`--${token}`));
+      if (el.offsetHeight !== height) say(`"${name(el)}" (${el.className}) is ${el.offsetHeight}px high, not --${token} (${height}px)`);
     }
   }
 }

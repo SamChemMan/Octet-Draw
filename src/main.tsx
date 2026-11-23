@@ -11,6 +11,13 @@ import App from "./App";
 import { watchErrors } from "./crashlog";
 
 watchErrors();
+// A finger or a pen as the main pointer (a tablet with its keyboard off): the toolbar and every menu take touch-sized
+// targets (editor.css, --size-touch). It follows the keyboard going on and off.
+{
+  const coarse = matchMedia("(pointer: coarse)"), mark = () => { document.documentElement.dataset.pointer = coarse.matches ? "coarse" : "fine"; };
+  mark();
+  coarse.addEventListener("change", mark);
+}
 // In development the app measures its own controls and says so in the console when they do not match (lookwatch.ts).
 if (import.meta.env.DEV) void import("./lookwatch").then((m) => m.watchLook());
 
