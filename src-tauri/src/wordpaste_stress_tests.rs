@@ -766,14 +766,16 @@ fn tree_has_tiny_text(tree: &usvg::Tree) -> bool {
 fn ole_stress_gdiplus_draws_every_drawing() {
     use super::windows::*;
     let cases: Vec<_> = all_drawings().into_iter().filter(|(n, ..)| !n.contains("poster") && !n.contains("200 structures")).collect();
-    each(&cases, |_, tree, _| {
+    each(&cases, |name, tree, _| {
         let (w, h) = px(tree, 2.0);
         let (plain, office) = (make_emf(tree, Some(X), None), make_office_emf(tree, Some(X)));
         let plus = render(&office, w, h, true)?;
         // GDI's own play of a very long dash list fails (as 1.1.2's EMF does); Word draws the EMF+ records, which
         // play. GDI+ draws no glyph under about a pixel where GDI draws a dot, so the 0.05 pt label is left out.
         let Ok(gdi) = render(&plain, w, h, false) else { return Ok(()) };
-        if tree_has_tiny_text(tree) { return Ok(()); }
+        // A zero-length line with round caps is a dot to GDI and nothing to GDI+. Octet draws no such line in a copy
+        // (the Measure tool's dotted line is on the screen only), so the case is left out here.
+        if tree_has_tiny_text(tree) || name.starts_with("a zero-length line") { return Ok(()); }
         match (gdi.ink(200), plus.ink(200)) {
             (None, None) => Ok(()),
             (Some(a), Some(b)) => need(a.iter().zip(b).all(|(p, q)| near(*p, q)), || format!("GDI's ink box {a:?}, GDI+'s {b:?}")),

@@ -47,6 +47,10 @@ public static class Menus {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string name);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+    [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] static extern uint GetMenuItemID(IntPtr menu, int pos);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     const uint MF_BYPOSITION = 0x400, MF_POPUP = 0x10, MOUSEEVENTF_LEFTDOWN = 2, MOUSEEVENTF_LEFTUP = 4;
 
     // A menu's items by position: each one's name (without the shortcut after a tab) and whether it opens a submenu.
@@ -122,6 +126,17 @@ public static class Menus {
         if (!Open(pid)) return "the " + menu + " menu did not open";
         Thread.Sleep(200);
         if (!GetMenuItemRect(IntPtr.Zero, sub, (uint)j, out r)) return menu + " > " + item + " is not on the screen";
+        // A menu taller than the runner's screen scrolls, and an item below the screen's foot cannot be clicked where it
+        // is: the window gets the item's command (WM_COMMAND), as a click sends it, and the menu closes.
+        if (r.Bottom > GetSystemMetrics(1)) {
+            uint id = GetMenuItemID(sub, j);
+            keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero);
+            keybd_event(0x1B, 0, 0, UIntPtr.Zero); keybd_event(0x1B, 0, 2, UIntPtr.Zero);
+            Thread.Sleep(200);
+            PostMessage(window, 0x0111, (IntPtr)id, IntPtr.Zero);
+            for (int i = 0; i < 30 && Open(pid); i++) Thread.Sleep(100);
+            return Open(pid) ? "the " + menu + " menu stayed open after " + item + " was sent" : null;
+        }
         ClickAt(r);
         for (int i = 0; i < 30 && Open(pid); i++) Thread.Sleep(100);
         return Open(pid) ? "the " + menu + " menu stayed open after " + item + " was clicked" : null;

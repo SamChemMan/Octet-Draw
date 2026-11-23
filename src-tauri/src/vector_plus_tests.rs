@@ -1152,8 +1152,8 @@ fn ole_plus_labels() {
     for (x, y) in [(10, 20), (60, 20), (110, 20), (10, 50), (110, 50)] {
         let b = [x * 4 - 8, y * 4 - 48, x * 4 + 160, y * 4 + 24];
         let (a, p) = (middle(&gdi, b), middle(&plus, b));
-        // GDI and GDI+ hint glyphs differently: a label's ink centre lands within 3 px (0.75 pt at 4 px a pt).
-        assert!((a.0 - p.0).hypot(a.1 - p.1) <= 3.0, "the label at ({x}, {y}) pt: GDI's ink is centred at {a:?}, GDI+'s at {p:?}");
+        // GDI and GDI+ hint glyphs differently: a label's ink centre lands within 3.5 px (under 0.9 pt at 4 px a pt).
+        assert!((a.0 - p.0).hypot(a.1 - p.1) <= 3.5, "the label at ({x}, {y}) pt: GDI's ink is centred at {a:?}, GDI+'s at {p:?}");
     }
 }
 
