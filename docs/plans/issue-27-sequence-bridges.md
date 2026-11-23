@@ -347,7 +347,7 @@ HELM and field text up to 20,000 characters; up to 50 polymers; up to 1,000 unit
 to 500 links; unit numbers of up to 4 digits; R1 to R3 only; brackets and parentheses nested at most 32 deep; an
 inline SMILES up to 2,000 characters and 256 atoms; a code up to 40 characters when read (12 when defined). A
 document's monomers: up to 500, each checked as a defined one, read lazily and never added to the user's monomers
-by opening a file.
+by opening a file. A monomer has at most 256 atoms and 512 bonds, as a residue label keeps (long-text.md, L18).
 
 ## 10. Cut from 1.2
 
@@ -487,3 +487,104 @@ by opening a file.
   (chem.ts chainsDrawnOut), as Sequences > Atoms draws it, in the same undo step. A chain with a label left keeps its
   places.
 - Stress cases N34 to N36.
+
+## 17. The rest of #27 (19 November 2026, afternoon)
+
+Built on this branch after the 1.1.3 hand-over (5bea9cb), each with its checks: `monomers.check.ts`,
+`seqextras.check.ts`, stress cases N37 to N39 and U9, and S19 (ChemDraw 22.2, run by AppleScript, passed).
+
+- **Custom monomers (J10) are back**, with the review's faults mended. A code has 1 to 12 letters, digits or _ (no
+  "-", which the field reads as an end) and is no code or residue label of Octet's in any case (Ala, D-Phe, NH2, rA,
+  Aib, Boc). A residue is named by its kept atoms, never its text. Contract Label and Copy As HELM try only the monomers
+  whose elements (but O and H, which caps add) match the residue (`monomers.ts smilesKey`), so a file's 500 monomers cost
+  no time. A built sequence carries the monomers it uses (`Mol.monomers`); `edit.ts withMonomers` merges them into the
+  drawing on every insert, paste and Return, the drawing's own code first. .oct, CDXML and CDX keep them in Octet's
+  root data. The menu item, the right-click item (its own icon), the dialog and Settings > Dictionary > Monomers are as
+  J10 planned. The AI apps' `define_monomer` is not back (the AI apps are off in 1.1.3).
+- **HELM monomer libraries.** Settings > Dictionary > Monomers > Export… writes the user's monomers as a HELM library
+  (JSON, `[*:n]` SMILES, a cap for each R); Import… reads one (up to 4 MB; `[*:n]` or ChemAxon's `|$…_R1…$|`), keeps
+  peptide monomers that are α-amino acids and new codes, up to 500, and says how many it left out. Rust: an
+  `import_monomers` command and a "json" export format (left out of `--convert`).
+- **Non-natural amino acids**, by the codes that IUPAC and the HELM library (monomerLib2.0) share, each L and checked
+  against the library's structure: Abu, Aib, Cha, Cit, Dab, Hcy, Hse, Hyp, Nle, Nva, Orn, Pen, Phg, Sar; R3 on Dab, Orn
+  (N), Hcy and Pen (S), as the library has it. FASTA writes the library's natural analogue (Nle L, Orn K) or X.
+- **A peptide's ends**: Boc-, Cbz- (Z- reads as Cbz-), Fmoc-, Bz-, Biotin- and -OMe, -OtBu, -OBn, -NHMe, -NHEt, by the
+  HELM library's codes ([Boc], [Cbz], [fmoc], [Bz], [-OMe], [OtBu], [-OBn], [NHMe], [NHEt]). Biotin has no library code:
+  HELM writes D-biotin's SMILES and Octet reads that back as Biotin. In the field they are typed as words; the two
+  choices under the field stay N-acetyl and C-amide. As residue labels an end is a label with its atoms. A dipeptide
+  drawn as atoms with such an end stays a small molecule, as aspartame (Asp-Phe-OMe) does.
+- **Modified nucleotides**: the library's sugars mR, fR, MOE and LR (LNA) with any base, 5meC on any sugar, and sP. In
+  the words a modified nucleotide is its label in brackets ([mA], [fU], [moeG], [LT], [d5mC], [r5mC]) and * between two
+  nucleotides is a phosphorothioate. A modified sugar goes with ribose or 2-deoxyribose (gapmers); ribose and
+  2-deoxyribose still not together. The chain reader finds an LNA's C5' by its O5', which bonds to no ring atom.
+- **Structure > Sequence** holds Peptide…, DNA… and RNA… in place of the three Insert items. Settings > Keyboard
+  shortcuts lists them under Structure › Sequence and the Sequence tool under Tools, with no default key (ChemDraw has
+  none).
+- **A drawn chain back in the field**: the Sequence tool's click on a chain, or Structure > Sequence with a chain
+  selected, opens the field with its sequence (words, or HELM), and Return draws the field's text in its place
+  (`helm.ts inPlaceOf`): centre, scale, caption and group kept, one undo step. A residue is put in or taken out by typing.
+
+Cut, for a later stage: deleting a residue on the page closing the gap (ChemDraw's Removing Residues), a menu of ends
+under the field, renaming a residue label to a non-natural or user's code, custom RNA/DNA monomers, the AI apps'
+`define_monomer`, and Schramm's display asks (residues per line, termini style).
+
+## 18. Review fixes (19 November 2026, evening)
+
+Each with its check: stress cases N41, N42 and U11, `nicknames.check.ts` and `monomers.check.ts`.
+
+- **A chain opened in the field and changed before Return** (the Residue labels chip, an undo, a move) is found again
+  (`helm.ts markChain`, `chainAgain`): its own atoms while they are drawn as they were, else the structure with the
+  same sequence nearest to where it was. Return draws one structure in its place. A chain that is gone gives way to a
+  new one, placed as any name is, with no notice. Settings takes the focus, so the field closes and nothing more is
+  drawn.
+- **A peptide's Ac, OH and NH2 end labels** keep no atoms. In a structure with residue labels they are read by their
+  place as Octet's ends (`sequence.ts chainEnds`), never by the user's nicknames: in the InChI, Expand Label and CDXML.
+  Define Nickname refuses Octet's end and residue labels (OH, NH2, Boc, OMe, Ala, D-Phe, Aib, rA). A nickname an older
+  Octet kept stays in the settings and still reads on a label that is no chain's end.
+- **Import… of a HELM library** keeps only monomers Octet can use (`seqbuild.ts usableMonomer`: an α-amino acid whose
+  SMILES reads whole, each atom an element), asked of at most 2,000; the rest are counted as left out.
+- **One nucleotide as a residue label** is a chain, as one amino acid is: HELM, FASTA and the field's words.
+- Define nickname… is in every right-click menu that has Define monomer…. The command palette names the items of
+  Structure > Sequence Peptide sequence…, DNA sequence… and RNA sequence…. The Define monomer dialog says when the
+  drawing has its own monomer by that code, which comes first in that drawing.
+
+## 19. Review fixes, second round (19 November 2026, night)
+
+Each with its check: stress cases N43, N44, U11 and U12, `nicknames.check.ts` and `monomers.check.ts`.
+
+- **One nucleotide is a chain only as a residue label** (rA, dG, mA): `chain.ts chainRead` reads one nucleotide only
+  where the structure has a nucleotide's residue label. A nucleotide drawn as atoms (ATP, ADP, NAD+, CoA, FAD,
+  UDP-glucose, sofosbuvir) stays a small molecule, as in Octet 1.1.2: no HELM, no FASTA, no field text, and Copy As
+  HELM and FASTA give a peptide, RNA or DNA beside it alone. A sweep of 103 molecules drawn as atoms (nucleotides,
+  cofactors, peptides, sugars, nucleosides, drugs) and 24 chains beside a nucleotide reads as on a2d143b9.
+- **A chain opened in the field is the same chain** only by its own atoms or its own bonds at the same numbers (a move
+  keeps the bonds, a colour the atoms or the bonds), else by its sequence when the structure's centre is in the box the
+  chain had (one bond length larger each way). A chain taken out of the history, or deleted with an alike chain added,
+  gives way to a new one; the alike chain elsewhere is left alone.
+- **Edit > Undo with the field open** undoes the field's typing, never the drawing (U11 runs it as the menu does).
+- **Define nickname…** for a label an older Octet kept as a nickname and refused now (OH, OMe) shows the refusal alone,
+  and its button is Define, off.
+- **Import… of a HELM library** keeps a monomer only when Octet names it back (`helm.ts importableMonomer`: drawn as a
+  residue label and read again, it is a monomer, never its SMILES). A side chain with an amino acid of its own, an N+
+  its SMILES gives too few H and a ring with no Kekulé form are left out. It is asked of at most 600 monomers (the 500
+  Octet keeps and 100 more): a hostile library of 20,000 that each read but none names back takes about 1.5 s.
+
+## 20. Review fixes, third round (19 November 2026, night)
+
+Each with its check: stress cases N45, N46 and U13 (WebKit), and `monomers.check.ts`.
+
+- **A residue drawn in full keeps each stereocentre as residue labels** (`seqbuild.ts buildLabels`). It is placed along
+  its row and may be turned over twice: its side chain to the other side, and the row read right to left (dir -1: a lone
+  residue linked to another chain, or a residue in the second, fourth … row of a long chain, which runs back). Its
+  wedges and hashes are swapped only when it is turned over once. Before, they followed the side chain alone, so
+  saquinavir's decahydroisoquinoline and hydroxyethylamine (5 centres) and pepstatin's statines and Ala came out as
+  their mirror images under Sequences > Residue labels. A residue in full at units 10 to 19 of a 30-mer did too, on
+  release-1.1.3 as well. A sweep of 68 molecules drawn as atoms (peptide drugs, protease inhibitors, ACE inhibitors,
+  β-lactams, nucleotides, cofactors, sugars) keeps every InChI under Residue labels and back to Atoms.
+- **A chain opened in the field is found again** (`helm.ts chainAgain`) when it is a lone residue label moved any length
+  or coloured (its kept atoms are the same), and by its compound (InChI) in its box when its sequence reads otherwise:
+  one residue drawn as atoms (rA as adenosine, H-Ala-OH as alanine) has none, and pepstatin as labels reads as other
+  chains. Return then draws one structure in its place. A lone residue label stays one way: drawn as atoms it is a small
+  molecule (N41, N43), so Residue labels leaves adenosine or alanine as drawn.
+- **Import…** in Settings > Dictionary (Names and Monomers) reads Importing… and is off while the file is read; the
+  label is painted before the work starts (a HELM library of 600 monomers takes about 1.4 s).

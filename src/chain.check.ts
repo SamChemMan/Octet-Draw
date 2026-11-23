@@ -107,7 +107,7 @@ assert.deepEqual(readSequence("PEPTIDE1{I.C.E.C.R.E.A.M.S.A.N.D.W.I.C.H}$$$$"), 
 assert.deepEqual(readSequence("PEPTIDE1{[ac].A.C.[am]}$$$$V2.0"), { text: "peptide: Ac-AC-NH2" });
 assert.deepEqual(readSequence("RNA1{P.R(A)P.R(C)P.R(G)}$$$$"), { text: "rna: pACG" });
 assert.deepEqual(readSequence("RNA1{[dR](A)P.[dR](T)P}$$$$V2.0"), { text: "dna: ATp" });
-assert.deepEqual(readSequence("PEPTIDE1{A.[Aib].C}$$$$"), { problem: "Octet does not know the HELM monomer [Aib]." });
+assert.deepEqual(readSequence("PEPTIDE1{A.[Xyz].C}$$$$"), { problem: "Octet does not know the HELM monomer [Xyz]." });
 assert.deepEqual(readSequence("PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$"), { text: "PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$" }, "a disulfide opens as HELM");
 assert.ok("problem" in readSequence("RNA1{R(A)P.[dR](T)}$$$$")!, "RNA and DNA in one chain");
 assert.deepEqual(readSequence("RNA1{R(A)P.R(T)}$$$$"), { problem: "Octet does not know the HELM monomer R(T)." }, "ribothymidine is not rU");
@@ -127,13 +127,13 @@ for (const text of ["peptide: Ac-ACDEFGHIKLMNPQRSTVWY-NH2", "peptide: GPG", "rna
 }
 assert.equal(toHelm(drawn("rna: AC"), chem.toInchi, chem.toSmiles), "RNA1{R(A)P.R(C)}$$$$V2.0");
 // A residue Octet does not know (N-methylalanine) is written as SMILES with its links, its stereocentre kept, and an
-// end it does not know (a methyl ester) joins its residue. FASTA has X for each.
+// end it does not know (an ethyl ester; a methyl ester is [-OMe]) joins its residue. FASTA has X for each.
 {
-  const m = chem.fullMol("CC(=O)N[C@@H](C)C(=O)N(C)[C@@H](C)C(=O)NCC(=O)OC");
+  const m = chem.fullMol("CC(=O)N[C@@H](C)C(=O)N(C)[C@@H](C)C(=O)NCC(=O)OCC");
   const helm = toHelm(m, chem.toInchi, chem.toSmiles)!, own = /^PEPTIDE1\{\[ac\]\.A\.\[(.*?)\]\.\[(.*)\]\}\$\$\$\$V2\.0$/.exec(helm);
   assert.ok(own, helm);
   assert.equal(chem.toInchi(own[1].replace("[*:1]", "[H]").replace("[*:2]", "O")), chem.toInchi("CN[C@@H](C)C(=O)O"), "N-methyl-L-alanine");
-  assert.equal(chem.toInchi(own[2].replace("[*:1]", "[H]")), chem.toInchi("NCC(=O)OC"), "glycine methyl ester");
+  assert.equal(chem.toInchi(own[2].replace("[*:1]", "[H]")), chem.toInchi("NCC(=O)OCC"), "glycine ethyl ester");
   assert.equal(toFasta(m, chem.toInchi), "AXX");
 }
 assert.equal(toHelm(chem.parseStructure("Cn1cnc2c1c(=O)n(C)c(=O)n2C"), chem.toInchi, chem.toSmiles), undefined, "caffeine is no chain");
@@ -144,7 +144,7 @@ const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), men
 assert.equal(editor.match(/if \(text && pasteSequence\(text\)\) return/g)?.length, 2, "both paste paths");
 assert.match(editor, /onPaste=\{\(e\) => \{ if \(pasteSequence\(e\.clipboardData\.getData\("text\/plain"\), true\)\) e\.preventDefault\(\); \}\}/);
 assert.match(editor, /el === nameField\.current && pasteSequence\(c\.text, true\)/, "Edit > Paste on Linux too");
-assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m\) \?\? ""\]/);
+assert.match(editor, /helm: \["HELM", \(m\) => toHelm\(m, undefined, undefined, ownMonomers\) \?\? ""\], fasta: \["FASTA", \(m\) => toFasta\(m, undefined, ownMonomers\) \?\? ""\]/);
 assert.match(menu, /item\("copy_helm", "HELM", if cfg!\(target_os = "macos"\) \{ "Alt\+CmdOrCtrl\+E" \} else \{ "" \}\)/);
 assert.match(menu, /item\("copy_fasta", "FASTA", ""\)/);
 

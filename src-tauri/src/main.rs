@@ -619,6 +619,22 @@ async fn import_structure(app: AppHandle, ct: Option<bool>) -> Result<Option<(St
     Ok(Some((name, text)))
 }
 
+// Settings > Dictionary > Monomers > Import… (issue 27): a HELM monomer library the user picks. Returns its name and
+// text; the page reads it (src/monomers.ts readHelmLibrary) as a file that may be hostile.
+#[tauri::command]
+async fn import_monomers(app: AppHandle) -> Result<Option<(String, String)>, String> {
+    let Some(file) = app.dialog().file().add_filter("HELM Monomer Library", &["json"]).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > 4 * 1024 * 1024 {
+        return Err("This file is larger than 4 MB. Octet reads monomer libraries of up to 4 MB.".into());
+    }
+    let text = fs::read_to_string(&path).map_err(|_| "This file is not a HELM monomer library.".to_string())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some((name, text)))
+}
+
 // File > More Formats > Open CIF or mmCIF…: a crystal structure's file. Returns its name and text, read as Finder's
 // open reads it (open::read: bytes that are not UTF-8 replaced). It is not a drawing to save over.
 #[tauri::command]
@@ -935,6 +951,14 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("stereo_or", "Create Or Group", "")?,
         &item("stereo_and", "Create And Group", "")?,
     ])?;
+    // Structure > Sequence (issue 27): the name field opens with a peptide's, DNA's or RNA's codes, as the Sequence tool
+    // does. Each takes a shortcut in Settings > Keyboard shortcuts; ChemDraw gives them none.
+    section.replace("Structure › Sequence".into());
+    let sequence = Submenu::with_items(app, "Sequence", true, &[
+        &item("insert_peptide", "Peptide…", "")?,
+        &item("insert_dna", "DNA…", "")?,
+        &item("insert_rna", "RNA…", "")?,
+    ])?;
     section.replace("Structure › Measure".into());
     let measure = Submenu::with_items(app, "Measure", true, &[
         &item("measure_distance", "Length", "")?,
@@ -989,11 +1013,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("dictionary_add", "Add Structure to Dictionary…", "")?,
         // ChemDraw's Define Nickname…: the selected group kept by a label of the user's own (PR #146).
         &item("define_nickname", "Define Nickname…", "")?,
+        // A structure with R1 and R2 labels as a peptide monomer of the user's own (issue 27).
+        &item("define_monomer", "Define Monomer…", "")?,
         &item("name_to_structure", "Convert Name to Structure", "CmdOrCtrl+Shift+N")?,
-        // One-letter peptide, RNA and DNA codes, drawn through Name to Structure (issue 27).
-        &item("insert_peptide", "Insert Peptide…", "")?,
-        &item("insert_rna", "Insert RNA…", "")?,
-        &item("insert_dna", "Insert DNA…", "")?,
+        &sequence,
         &item("structure_to_name", "Convert Structure to Name", "Alt+CmdOrCtrl+N")?,
     ])?;
     // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
@@ -1453,7 +1476,7 @@ fn main() {
         .manage(TemplateSets::default())
         .manage(mcp::Mcp::default())
         .manage(MoreFormats::default())
-        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, pubchem::pubchem_suppliers, pubchem::pubchem_stop, open_link, feedback_off, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
+        .invoke_handler(tauri::generate_handler![user_name, recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, file_changed, recent::experiment_note, recent::experiment_list, recent::experiment_remove, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, pubchem::pubchem_cas, pubchem::pubchem_hazards, pubchem::pubchem_key, pubchem::pubchem_suppliers, pubchem::pubchem_stop, open_link, feedback_off, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, set_more_formats, import_structure, import_monomers, open_cif, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, objects::ole_update, objects::ole_close, #[cfg(target_os = "macos")] word::word_edit, #[cfg(target_os = "macos")] word::set_word_click, libreoffice::add_to_libreoffice, #[cfg(target_os = "linux")] cursor_size, export::export_file, export::export_bytes, export::system_fonts, eyedropper::pick_colour, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, open::insert_file, windows::open_window, windows::close_window, windows::window_start, windows::window_info, windows::window_empty, windows::window_list, windows::window_show, windows::show_home, arrange::arrange_windows, mcp::mcp_set, mcp::mcp_status, mcp::mcp_reply, mcp::mcp_png, mcp::mcp_ready, mcp::mcp_unready, mcp::mcp_got, mcp::mcp_target, mcp::mcp_close, mcp::mcp_brief, mcp::mcp_progress, mcp::mcp_cancelled, mcp::mcp_elicit, mcp::mcp_changed, aiapps::ai_apps, aiapps::ai_connect, aiapps::ai_disconnect, recognise::recognise_models, recognise::recognise_model, recognise::recognise_install, recognise::recognise_download, recognise::recognise_cancel])
         .setup(move |app| {
             let handle = app.handle();
             // Octet Drawing objects: the class object goes up first, before any window shows, so Word's wait for an

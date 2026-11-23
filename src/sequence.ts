@@ -6,34 +6,41 @@ import type { Mol } from "./render.ts";
 import { pickAtoms } from "./edit.ts";
 import { CODES, residueSmiles } from "./peptide.ts";
 import { PHOSPHATE, unit } from "./nucleic.ts";
-import { D_CODES } from "./monomers.ts";
+import { C_ENDS, D_CODES, elementKey, endOfWord, N_ENDS } from "./monomers.ts";
 
 type P = [number, number];
 
 export type SeqKind = "peptide" | "rna" | "dna";
-// start: N-acetyl (peptide) or a 5'-phosphate; end: C-amide or a 3'-phosphate.
-export type SeqParts = { kind: SeqKind; codes: string; start: boolean; end: boolean };
-export const SEQ_ENDS: Record<SeqKind, [start: string, end: string]> = {
-  peptide: ["N-acetyl", "C-amide"], rna: ["5′-phosphate", "3′-phosphate"], dna: ["5′-phosphate", "3′-phosphate"],
+// start and end: each end's word, "" for the usual one. A peptide's: Ac, Boc, Cbz (or Z), Fmoc, Bz or Biotin before
+// (monomers.ts N_ENDS), NH2, OMe, OtBu, OBn, NHMe or NHEt after (C_ENDS); RNA's and DNA's: "p", a phosphate.
+export type SeqParts = { kind: SeqKind; codes: string; start: string; end: string };
+// The ends the choices under the field give: N-acetyl and C-amide, or a 5'- and 3'-phosphate. The others are typed.
+export const SEQ_ENDS: Record<SeqKind, [start: [word: string, name: string], end: [word: string, name: string]]> = {
+  peptide: [["Ac", "N-acetyl"], ["NH2", "C-amide"]], rna: [["p", "5′-phosphate"], ["p", "3′-phosphate"]], dna: [["p", "5′-phosphate"], ["p", "3′-phosphate"]],
 };
+const START = new RegExp(`^(H|${N_ENDS.map((e) => e.word).join("|")}|Z)-`, "i"), FINISH = new RegExp(`-(OH|${C_ENDS.map((e) => e.word).join("|")})\\s*$`, "i");
 
 export function sequenceParts(text: string): SeqParts | undefined {
   const m = /^\s*(peptide|rna|dna)\s*:\s*([\s\S]*)$/i.exec(text);
   if (!m) return undefined;
   const kind = m[1].toLowerCase() as SeqKind;
   if (kind === "peptide") {
-    const p = /^(H-|Ac-)?([\s\S]*?)(-OH|-NH2)?\s*$/i.exec(m[2])!;
-    return { kind, codes: p[2], start: /^ac/i.test(p[1] ?? ""), end: /nh2/i.test(p[3] ?? "") };
+    let rest = m[2].trimEnd();
+    const a = START.exec(rest), b = FINISH.exec(rest.slice(a ? a[0].length : 0));
+    if (a) rest = rest.slice(a[0].length);
+    if (b) rest = rest.slice(0, rest.length - b[0].length);
+    const start = a && a[1].toLowerCase() !== "h" ? endOfWord(N_ENDS, a[1])!.word : "", end = b && b[1].toLowerCase() !== "oh" ? endOfWord(C_ENDS, b[1])!.word : "";
+    return { kind, codes: rest, start, end };
   }
   const n = /^(?:5'-?)?(p-?)?([\s\S]*?)(-?p)?(?:-?3')?\s*$/i.exec(m[2].replace(/[’′]/g, "'"))!;
-  return { kind, codes: n[2], start: !!n[1], end: !!n[3] };
+  return { kind, codes: n[2], start: n[1] ? "p" : "", end: n[3] ? "p" : "" };
 }
 
 // The text for the parts, and where the caret goes: after the codes, before the end.
 export function sequenceText(s: SeqParts): { text: string; caret: number } {
-  const codes = s.codes.trim(), head = `${s.kind}: ${s.start ? (s.kind === "peptide" ? "Ac-" : "p") : ""}${codes}`;
+  const codes = s.codes.trim(), head = `${s.kind}: ${s.start ? (s.kind === "peptide" ? `${s.start}-` : "p") : ""}${codes}`;
   // With no codes yet, a 3' phosphate is "-p", so it is not read as a 5' one.
-  const tail = !s.end ? "" : s.kind === "peptide" ? "-NH2" : codes ? "p" : "-p";
+  const tail = !s.end ? "" : s.kind === "peptide" ? `-${s.end}` : codes ? "p" : "-p";
   return { text: head + tail, caret: head.length };
 }
 
@@ -46,8 +53,9 @@ export function sequenceText(s: SeqParts): { text: string; caret: number } {
 // the free compound has it (OH on a C=O or a phosphate's P, H on an N or O) against each amino acid's, nucleoside's
 // and phosphate's. The labels are the ones the Sequence tool draws.
 // A link's cap (monomers.ts): OH on an acyl carbon or a P, H anywhere else. more: other residues to try (the D amino
-// acids), each as SMILES with its links capped so, and its label.
-export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly [string, string][] = []): string | undefined {
+// acids, the user's monomers; seqbuild.ts monomerRefs), each tried only when its residue has as many heavy atoms.
+// plain: try the natural residues, nucleosides and phosphate first (false: only more).
+export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string) => string | undefined, more: readonly { label: string; key: string; smiles: () => string | undefined }[] = [], plain = true): string | undefined {
   const caps = new Map<number, string>();
   const acyl = (i: number) => m.atoms[i].label === "P" || (m.atoms[i].label === "C" && m.bonds.some((b) => b.type === 2 && b.atoms.includes(i) && m.atoms[b.atoms[0] === i ? b.atoms[1] : b.atoms[0]].label === "O"));
   for (const b of m.bonds) {
@@ -63,7 +71,10 @@ export function residueName(m: Mol, group: Set<number>, inchi: (x: Mol | string)
   const seen = residueInchis.get(inchi) ?? residueInchis.set(inchi, new Map()).get(inchi)!;
   if (seen.size > 2000) seen.clear();
   const want = seen.has(key) ? seen.get(key) : seen.set(key, inchi(capped)).get(key);
-  return want ? [...residueTexts(), ...more].find(([smiles]) => (refs.has(smiles) ? refs : refs.set(smiles, inchi(smiles))).get(smiles) === want)?.[1] : undefined;
+  if (!want) return undefined;
+  const same = (smiles: string | undefined) => !!smiles && (refs.has(smiles) ? refs : refs.set(smiles, inchi(smiles))).get(smiles) === want;
+  const elements = elementKey([...group].map((i) => m.atoms[i]));
+  return (plain ? residueTexts().find(([smiles]) => same(smiles))?.[1] : undefined) ?? more.find((x) => x.key === elements && same(x.smiles()))?.label;
 }
 // Each residue's InChI, read once (Copy As HELM reads every residue of a chain), and each drawn residue's.
 const refs = new Map<string, string | undefined>(), residueInchis = new WeakMap<object, Map<string, string | undefined>>();
@@ -201,12 +212,33 @@ export function portRole(inner: Mol, k: number): 0 | 1 | 2 | 3 {
   }
   return 3;
 }
+const START_LABELS = new Set(["H", ...N_ENDS.map((e) => e.label)]), END_LABELS = new Set([...START_LABELS, "OH", ...C_ENDS.map((e) => e.label)]);
+// A peptide's end labels that keep no atoms (Ac-, -OH and -NH2, as the sequence builder and Octet 1.1.2 draw them),
+// each as its group's SMILES from the atom that joins the chain. In a chain they mean Octet's ends: they are read by
+// their place there (chainEnds), never by the user's nicknames, so a nickname OH or NH2 kept by an older Octet does not
+// change a peptide drawn as residue labels.
+export const END_GROUPS: ReadonlyMap<string, string> = new Map([["Ac", "C(C)=O"], ["OH", "O"], ["NH2", "N"]]);
+// The atoms of m that are such ends: an Ac, OH or NH2 label with no kept atoms and one bond, in a structure with a
+// residue label (a label that a bond joins at one of its kept atoms). Linear in the drawing.
+export function chainEnds(m: Mol): Set<number> {
+  const ends = new Set<number>(), n = m.atoms.length;
+  const maybe = m.atoms.flatMap((a, i) => (!a.inner?.atoms.length && a.text && a.chemical !== false && END_GROUPS.has(a.text) ? [i] : []));
+  if (!maybe.length || !m.bonds.some((b) => b.ports?.some((p) => p >= 0))) return ends;
+  const up = Array.from({ length: n }, (_, i) => i), root = (i: number): number => { while (up[i] !== i) i = up[i] = up[up[i]]; return i; };
+  const degree = new Uint32Array(n);
+  for (const b of m.bonds) { degree[b.atoms[0]]++; degree[b.atoms[1]]++; up[root(b.atoms[0])] = root(b.atoms[1]); }
+  const residues = new Set<number>();
+  for (const b of m.bonds) if (b.ports) b.atoms.forEach((k, e) => { if (b.ports![e] >= 0 && m.atoms[k]?.inner?.atoms.length && m.atoms[k].text) residues.add(root(k)); });
+  for (const i of maybe) if (degree[i] === 1 && residues.has(root(i))) ends.add(i);
+  return ends;
+}
 // The chains of residue labels in a structure (frag), each in order from its N or 5' end, or undefined when it is not
 // one: every atom a label, each bond between two of them along a chain (a residue's C=O to the next one's N, an end
 // label) or a link. A ring of residues is cut at its bracket, else before its label with the lowest number.
 export function labelChains(m: Mol, frag: number[]): number[][] | undefined {
   if (frag.length < 2) return undefined;
-  const isEnd = (i: number) => !m.atoms[i].inner && ((m.atoms[i].label === "H" && !m.atoms[i].text) || ["OH", "Ac", "NH2"].includes(m.atoms[i].text ?? ""));
+  // A peptide's ends: H, OH, Ac and NH2 with no atoms kept, and the others (Boc, OMe) as labels that keep theirs.
+  const isEnd = (i: number) => (!m.atoms[i].inner && ((m.atoms[i].label === "H" && !m.atoms[i].text) || ["OH", "Ac", "NH2"].includes(m.atoms[i].text ?? ""))) || (!!m.atoms[i].inner?.atoms.length && END_LABELS.has(m.atoms[i].text ?? ""));
   if (frag.some((i) => !isEnd(i) && !(m.atoms[i].text && m.atoms[i].inner?.atoms.length))) return undefined;
   const inside = new Set(frag), next = new Map<number, number>(), prev = new Map<number, number>(), bonds: number[] = [];
   const role = (i: number, port: number | undefined): number => (isEnd(i) ? -1 : port === undefined || port < 0 ? 3 : portRole(m.atoms[i].inner!, port));
@@ -216,7 +248,7 @@ export function labelChains(m: Mol, frag: number[]): number[][] | undefined {
     const [p, q] = b.atoms, rp = role(p, b.ports?.[0]), rq = role(q, b.ports?.[1]);
     // Along the chain: from a C=O side (2, or an end label or a P) to an N side (1, or an end label or a P).
     const out = (r: number) => r === 2 || r === 0 || r === -1, into = (r: number) => r === 1 || r === 0 || r === -1;
-    const [from, to] = out(rp) && into(rq) && !(rp === -1 && rq === -1) && !(rp === 0 && rq === 0) ? (rq === -1 && rp !== -1 && isEnd(q) && ["H", "Ac"].includes(m.atoms[q].text ?? "H") ? [q, p] : [p, q]) : out(rq) && into(rp) ? [q, p] : [undefined, undefined];
+    const [from, to] = out(rp) && into(rq) && !(rp === -1 && rq === -1) && !(rp === 0 && rq === 0) ? (rq === -1 && rp !== -1 && isEnd(q) && START_LABELS.has(m.atoms[q].text ?? "H") ? [q, p] : [p, q]) : out(rq) && into(rp) ? [q, p] : [undefined, undefined];
     if (from === undefined || to === undefined || next.has(from) || prev.has(to)) continue;
     next.set(from, to);
     prev.set(to, from);

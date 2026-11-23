@@ -17,7 +17,7 @@ const ZIG = Math.sqrt(3) / 2;
 // by links, as insulin's), the longest first; a ring of residues (a head-to-tail cyclic peptide) is cut before its
 // residue with the lowest atom number, or at the bond drawn as a bracket. Undefined when there is no chain long enough.
 type Backbone = { paths: number[][]; flat: Set<number>; bases: [number, number][] };
-function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: number) => number, least = LEAST_PEPTIDE): Backbone | undefined {
+function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: number) => number, least = LEAST_PEPTIDE, one = false): Backbone | undefined {
   const el = (i: number) => (m.atoms[i].inner ? "" : m.atoms[i].label);
   // The longest run of units, each followed by exactly one other.
   const longest = <T>(units: T[], next: (u: T) => T[]): T[] => {
@@ -85,13 +85,22 @@ function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: 
     for (const [c1, c4] of [at[o4], [...at[o4]].reverse()]) for (const c2 of at[c1]) for (const c3 of at[c2]) {
       const ring = [o4, c1, c2, c3, c4];
       if (new Set(ring).size !== 5 || !ring.slice(1).every((i) => el(i) === "C") || !at[c3].includes(c4) || out(c1, ring, "N") === undefined) continue;
-      const c5 = out(c4, ring, "C"), o5 = c5 === undefined ? undefined : at[c5].find((j) => j !== c4 && el(j) === "O"), o3 = out(c3, ring, "O");
+      // C5' and its O5', which bonds to no ring atom (an LNA's 2'-O,4'-C bridge is a CH2 on C4' too).
+      let c5: number | undefined, o5: number | undefined;
+      for (const c of at[c4]) {
+        if (ring.includes(c) || el(c) !== "C" || order(c4, c) !== 1) continue;
+        const o = at[c].find((j) => j !== c4 && el(j) === "O" && !at[j].some((x) => ring.includes(x)));
+        if (o !== undefined) { c5 = c; o5 = o; break; }
+      }
+      const o3 = out(c3, ring, "O");
       if (c5 !== undefined && o5 !== undefined && o3 !== undefined) units.push({ o5, c5, c4, c3, o3, c1, n: out(c1, ring, "N")! });
     }
   }
   const link = (o3: number, o5: number) => at[o3].find((p) => el(p) === "P" && at[p].includes(o5));
   const chain = longest(units, (u) => units.filter((v) => link(u.o3, v.o5) !== undefined));
-  if (chain.length < LEAST_NUCLEIC) return undefined;
+  // One nucleotide is a chain only when it is asked for (one: read where a nucleotide's residue label is, as rA alone),
+  // so a nucleotide drawn as atoms (ATP, NAD, CoA) stays a small molecule.
+  if (chain.length < (one ? 1 : LEAST_NUCLEIC)) return undefined;
   // A phosphate on either end is backbone too.
   const end = (o: number) => at[o].filter((p) => el(p) === "P").slice(0, 1);
   const path = end(chain[0].o5), flat = new Set<number>();
@@ -114,11 +123,11 @@ function backbone(m: Mol, frag: number[], at: number[][], order: (i: number, j: 
 type Group = { atoms: number[]; ends: number[]; via: number[]; half?: true };
 // A link: its cut bond (by index), the bond's atoms, and the places on the backbones each side bonds to.
 export type ChainLink = { bond: number; u: number; v: number; ends: [number, number] };
-function chainOf(m: Mol, frag: number[], least = LEAST_PEPTIDE) {
+function chainOf(m: Mol, frag: number[], least = LEAST_PEPTIDE, one = false) {
   const at = bondedTo(m), orders = new Map<number, number>(), n = m.atoms.length;
   for (const b of m.bonds) { orders.set(b.atoms[0] * n + b.atoms[1], b.type); orders.set(b.atoms[1] * n + b.atoms[0], b.type); }
   const order = (i: number, j: number) => orders.get(i * n + j) ?? 0;
-  const bb = backbone(m, frag, at, order, least);
+  const bb = backbone(m, frag, at, order, least, one);
   if (!bb) return undefined;
   const path = bb.paths.flat(), starts = bb.paths.map((_, p) => bb.paths.slice(0, p).reduce((t, q) => t + q.length, 0));
   const pathOf = path.map((_, k) => (starts.length > 1 && k >= starts[1] ? 1 : 0));
@@ -189,9 +198,10 @@ function chainOf(m: Mol, frag: number[], least = LEAST_PEPTIDE) {
 // has a link HELM cannot write (one on a backbone atom in the middle of a chain).
 export type ChainEnd = { chain: number; residue: number; r: 1 | 2 | 3 };
 export type ChainRead = { nucleic: boolean; chains: { residues: number[][]; start: number[]; end: number[] }[]; links: { a: ChainEnd; b: ChainEnd; bond: number }[] };
-export function chainRead(m: Mol, frag: number[]): ChainRead | undefined {
+// one: whether one nucleotide is a chain (the structure has a nucleotide's residue label).
+export function chainRead(m: Mol, frag: number[], one = false): ChainRead | undefined {
   // Read, a peptide of one or two residues is a chain too (it is laid out as a small molecule).
-  const c = chainOf(m, frag, 1);
+  const c = chainOf(m, frag, 1, one);
   if (!c) return undefined;
   const { path, groups, bases, starts, links } = c, last = (p: number) => (p + 1 < starts.length ? starts[p + 1] : path.length) - 1;
   if (bases.length) {

@@ -616,6 +616,9 @@ export type Mol = { atoms: Atom[]; bonds: Bond[]; captions?: Caption[]; arrows?:
   // An experiment page whose details are text on the page (Octet 1.1.2; experiment.ts withHeader). A page without it,
   // from Octet 1.1.1, gets that text when it opens.
   fields?: true;
+  // The user's own monomers the drawing's sequences use (monomers.ts, issue 27), so it opens the same on any computer. A
+  // code is looked up in the drawing first.
+  monomers?: { code: string; name?: string; smiles: string }[];
   // Data fields on structures (issue 68, datafields.ts), in their order.
   data?: DataField[] };
 // A data field (Object > Attach Data…): a name and a value on the structures that hold any of its atoms. Shown, its
