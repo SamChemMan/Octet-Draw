@@ -361,13 +361,17 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
   const boxText = (b: Box) => `${fmt(b[0])} ${fmt(b[1])} ${fmt(b[2])} ${fmt(b[3])}`;
   const colours = opts.tables?.colours ?? [...BASE_COLOURS];
   if (!colours.length) colours.push(...BASE_COLOURS);
+  // Each colour's and font's place in its table, by a map: a drawing within its text (limits.ts) can have a run in a
+  // colour and a font of its own for each of 100,000 runs.
+  const placeIn = (l: string[]) => { const at = new Map<string, number>(); l.forEach((x, k) => { if (!at.has(x)) at.set(x, k); }); return (x: string) => { let k = at.get(x); if (k === undefined) at.set(x, (k = l.push(x) - 1)); return k; }; };
+  const colourAt = placeIn(colours);
   const colour = (c?: string) => {
     if (!c) return undefined;
     const u = c.toUpperCase();
-    return u === "#000000" ? 0 : u === "#FFFFFF" ? 1 : (colours.includes(u) ? colours.indexOf(u) : colours.push(u) - 1) + 2;
+    return u === "#000000" ? 0 : u === "#FFFFFF" ? 1 : colourAt(u) + 2;
   };
   const fonts = opts.tables?.fonts ?? [];
-  const font = (name: string) => (fonts.includes(name) ? fonts.indexOf(name) : fonts.push(name) - 1) + 1;
+  const fontAt = placeIn(fonts), font = (name: string) => fontAt(name) + 1;
   font(style.labelFont);
   font(style.captionFont);
   const priv = (o: Record<string, unknown>) => {
