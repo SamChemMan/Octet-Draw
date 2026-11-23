@@ -952,7 +952,8 @@ for (let i = 0; i <= 40; i++) { const f = i / 40; box.push([9.6 * f, 0], [9.6 * 
 const INK = () => ({ width: 9.6, ascent: 9.5, outline: box });
 const pts = page.atoms.slice(0, 200).map((a) => [a.location[0] + 0.37, a.location[1] + 0.21]);
 const runs = { render: (x) => x.render.render(page, STYLE, INK), "hit test (200 points)": (x) => pts.forEach((q) => x.edit.bondAt(page, q)), "structure check": (x) => x.check.problems(page) };
-const out = {}, med = (v) => v.sort((p, q) => p - q)[v.length >> 1];
+// The fastest of 11 each: a shared CI runner's noise only ever adds time.
+const out = {}, med = (v) => Math.min(...v);
 for (const [name, f] of Object.entries(runs)) {
   const t = (x) => { const t0 = performance.now(); f(x); return performance.now() - t0; }, a = [], b = [];
   t(now); t(before);
@@ -960,7 +961,7 @@ for (const [name, f] of Object.entries(runs)) {
   out[name] = [med(a), med(b)];
 }
 console.log(JSON.stringify(out));`;
-await check("N29", "No speed regression on 40 paclitaxels (no brackets): render, hit test and the structure check against 1.1.2, interleaved medians", () => {
+await check("N29", "No speed regression on 40 paclitaxels (no brackets): render, hit test and the structure check against 1.1.2, interleaved, fastest of 11", () => {
   if (typeof old === "string") return old;
   const dir = mkdtempSync(join(tmpdir(), "octet-speed27-")), script = join(dir, "speed.mjs"), json = join(dir, "page.json");
   try {

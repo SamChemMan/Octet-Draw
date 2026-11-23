@@ -45,7 +45,7 @@ assert.ok(ms < 1000, `the formula took ${Math.round(ms)} ms`);
 assert.equal((found as chem.Analysis)[0].formula, "C36H84Si5");
 // A call that reads stereochemistry stops at Indigo's timeout (10 seconds) and fails, so the window is free again.
 const [smiles, smilesMs] = timed(() => chem.toSmiles(busy));
-assert.ok(smiles instanceof RangeError, "SMILES past the ceiling fails");
+assert.ok(smiles instanceof RangeError, `SMILES past the ceiling fails (got ${smiles instanceof Error ? smiles.constructor.name + ": " + smiles.message : "a SMILES"} after ${Math.round(smilesMs)} ms)`);
 assert.ok(smilesMs < 11_000, `the SMILES took ${Math.round(smilesMs)} ms`);
 
 // Depth still sets stereochemistry where it is read: L-alanine in 3D is L-alanine.

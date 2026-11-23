@@ -45,6 +45,7 @@ export const onRestart = (f: (e: unknown) => void) => { restarts.add(f); return 
 // abbreviation and CAS number, which read the depth, stop the window for 10 seconds each time it changes. If that
 // matters, give the InChI library the depth itself (a molfile read with skip-3d-chirality).
 const MOST_MS = 10_000;
+const late = () => new RangeError(`It takes more than ${MOST_MS / 1000} seconds to work out.`);
 function watched(m: IndigoModule): IndigoModule {
   const out: IndigoModule = {};
   for (const [k, f] of Object.entries(m)) out[k] = typeof f !== "function" ? f : function (...a: unknown[]) {
@@ -52,8 +53,9 @@ function watched(m: IndigoModule): IndigoModule {
     for (const x of a) if (x instanceof m.MapStringString) (x as { set(k: string, v: string): void }).set("timeout", String(MOST_MS));
     const t = performance.now();
     let r: unknown;
-    try { r = new.target ? Reflect.construct(f, a) : f(...a); } catch (e) { failed(e); throw e; }
-    if (performance.now() - t >= MOST_MS) throw new RangeError(`It takes more than ${MOST_MS / 1000} seconds to work out.`);
+    // Indigo's own timeout can throw before the call returns: the same reason to show either way.
+    try { r = new.target ? Reflect.construct(f, a) : f(...a); } catch (e) { failed(e); throw performance.now() - t >= MOST_MS ? late() : e; }
+    if (performance.now() - t >= MOST_MS) throw late();
     return r;
   };
   return out;
