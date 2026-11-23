@@ -139,6 +139,9 @@ const once = async (url, scenario, rate) => {
     // A button in a folded set of the Actions panel: open the set first, as a user does.
     const fold = button.closest('[inert]')?.previousElementSibling ?? button.closest('section')?.querySelector('.fold-title[aria-expanded="false"]');
     if (fold && button.closest('[inert]')) { fold.click(); await new Promise((r) => setTimeout(r, 400)); button = find(); }
+    // A button below the panel's fold: scroll it into view, as a user does.
+    button.scrollIntoView({ block: "center" });
+    await new Promise((r) => setTimeout(r, 200));
     const b = button.getBoundingClientRect();
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };`);
   if (!at) return { missing: true };

@@ -288,10 +288,12 @@ for (const perox of [true, false]) {
   if (perox) assert.equal(peroxides(envOf(g))!.pairs.length, 50);
   for (const n of ["1H", "13C"] as Nucleus[]) {
     // A time over the line is measured once more, best of 10, before it counts (the machine may be busy).
+    // A shared CI runner is about twice as slow as a laptop (as in measurespeed.check.ts).
+    const line = 100 * (process.env.CI ? 2 : 1);
     let best = Infinity, p;
-    for (let k = 0; k < 13 && (k < 3 || best >= 100); k++) { const t = performance.now(); p = predict(g, n); best = Math.min(best, performance.now() - t); }
+    for (let k = 0; k < 13 && (k < 3 || best >= line); k++) { const t = performance.now(); p = predict(g, n); best = Math.min(best, performance.now() - t); }
     assert.ok(p!.signals.every((s) => Number.isFinite(s.shift) && Number.isFinite(s.sd)), `${n} finite`);
-    assert.ok(best < 100, `${perox ? "50 O–O" : "no O–O"}: ${n} took ${best.toFixed(1)} ms at 500 atoms`);
+    assert.ok(best < line, `${perox ? "50 O–O" : "no O–O"}: ${n} took ${best.toFixed(1)} ms at 500 atoms`);
   }
 }
 console.log("nmrperoxide.check: ok");

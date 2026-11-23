@@ -323,8 +323,9 @@ await check("S10", "40 paclitaxels and one bridged 30-mer, Clean Up all: no slow
   if (typeof old === "string") return old;
   const page = insertMol(taxols, atoms(H30), [0, -30]).mol;
   const here: number[] = [], before: number[] = [];
-  for (let k = 0; k < 3; k++) { here.push(time(() => chem.cleanUp(taxols), 1)); before.push(time(() => old.chem.cleanUp(taxols), 1)); }
-  const a = here.sort((p, q) => p - q)[1], b = before.sort((p, q) => p - q)[1];
+  // The best of 5 interleaved runs each: a shared CI runner's noise only ever adds time.
+  for (let k = 0; k < 5; k++) { here.push(time(() => chem.cleanUp(taxols), 1)); before.push(time(() => old.chem.cleanUp(taxols), 1)); }
+  const a = Math.min(...here), b = Math.min(...before);
   assert.ok(a <= b * 1.15 + 20, `Clean Up of 40 paclitaxels: ${a.toFixed(0)} ms here, ${b.toFixed(0)} ms in 1.1.2`);
   const cleaned = chem.cleanUp(page);
   assert.equal(inchi(cleaned), inchi(page), "Clean Up keeps every compound");
