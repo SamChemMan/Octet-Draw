@@ -12,6 +12,7 @@ import tempfile
 import time
 import types
 import atexit
+import shutil
 
 # Every folder the extension makes goes in a temporary folder of this check's own, removed at the end.
 tempfile.tempdir = tempfile.mkdtemp(prefix="octet-check-")

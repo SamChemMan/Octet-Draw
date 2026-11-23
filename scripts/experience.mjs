@@ -133,8 +133,12 @@ const once = async (url, scenario, rate) => {
     await new Promise((r) => setTimeout(r, 1500));`);
   const at = await run(`
     const name = ${JSON.stringify(scenario.button)};
-    const button = document.querySelector('[aria-label="' + name + '"]') ?? [...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(name));
+    const find = () => document.querySelector('[aria-label="' + name + '"]') ?? [...document.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(name));
+    let button = find();
     if (!button) return undefined;
+    // A button in a folded set of the Actions panel: open the set first, as a user does.
+    const fold = button.closest('[inert]')?.previousElementSibling ?? button.closest('section')?.querySelector('.fold-title[aria-expanded="false"]');
+    if (fold && button.closest('[inert]')) { fold.click(); await new Promise((r) => setTimeout(r, 400)); button = find(); }
     const b = button.getBoundingClientRect();
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };`);
   if (!at) return { missing: true };

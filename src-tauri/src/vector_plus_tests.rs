@@ -960,7 +960,7 @@ fn ole_plus_ink_box_and_gdi_pixels() {
         match (gdi.ink(200), plus.ink(200)) {
             (None, None) => assert_eq!(name, "an empty drawing"),
             // GDI and GDI+ place text a little apart (their hinting differs): within 3 px and 1 % of the box.
-            (Some(a), Some(b)) => assert!(a.iter().zip(b).all(|(p, q)| (p - q).abs() <= 3 + p.max(q) / 100), "{name}: GDI's ink box {a:?}, GDI+'s {b:?}"),
+            (Some(a), Some(b)) => assert!(a.iter().zip(b).all(|(p, q)| (p - q).abs() <= 3 + (*p).max(q) / 100), "{name}: GDI's ink box {a:?}, GDI+'s {b:?}"),
             (a, b) => panic!("{name}: GDI's ink box {a:?}, GDI+'s {b:?}"),
         }
     }

@@ -776,7 +776,7 @@ fn ole_stress_gdiplus_draws_every_drawing() {
         if tree_has_tiny_text(tree) { return Ok(()); }
         match (gdi.ink(200), plus.ink(200)) {
             (None, None) => Ok(()),
-            (Some(a), Some(b)) => need(a.iter().zip(b).all(|(p, q)| near(*p, *q)), || format!("GDI's ink box {a:?}, GDI+'s {b:?}")),
+            (Some(a), Some(b)) => need(a.iter().zip(b).all(|(p, q)| near(*p, q)), || format!("GDI's ink box {a:?}, GDI+'s {b:?}")),
             (a, b) => Err(format!("GDI's ink box {a:?}, GDI+'s {b:?}")),
         }
     });

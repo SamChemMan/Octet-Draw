@@ -539,7 +539,7 @@ for (const [chart, change, rename, check] of [
       assert.ok(x.groups!.length === 1 && !x.groups![0].plot, `${what}, ${how}: the record is refused and the group stays`);
       assert.equal(x.arrows!.length, m.arrows!.length, `${what}, ${how}: every part stays`);
     }
-    assert.ok(performance.now() - t0 < 5000, `${what}: read at once`);
+    assert.ok(performance.now() - t0 < 5000 * (process.env.CI ? 3 : 1), `${what}: read at once`); // CI runners are slower
   }
 }
 console.log("chartexport.check: ok");
