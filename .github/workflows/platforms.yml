@@ -344,9 +344,13 @@ jobs:
       # the old one. The keys must be there after the update alone, before Octet starts.
       - name: An update from 1.1.0 writes the keys
         shell: pwsh
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Octet's updater quits Octet before the installer runs. An octet.exe left from the harness above makes the
+          # installer ask to close it, and in passive mode nobody answers (a 53-minute hang on 23 November 2026).
+          Get-Process octet -ErrorAction SilentlyContinue | Stop-Process -Force
           $old = Join-Path $env:RUNNER_TEMP old
           gh release download v1.1.0 -R $env:GITHUB_REPOSITORY -p '*_x64-setup.exe' -D $old
           $oldSetup = Get-ChildItem "$old\*_x64-setup.exe" | Select-Object -First 1
@@ -356,6 +360,7 @@ jobs:
           $clsid = 'HKCU:\Software\Classes\CLSID\{211EF98F-E45E-42C8-9D49-A10D2D394DB2}'
           if (Test-Path $clsid) { throw "keys before the update" }
           $setup = Get-ChildItem src-tauri/target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Get-Process octet -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Process $setup.FullName -ArgumentList '/P', '/UPDATE' -Wait
           $server = (Get-ItemProperty "$clsid\LocalServer32").'(default)'
           Write-Output "LocalServer32 after the update: $server"
