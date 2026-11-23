@@ -97,7 +97,7 @@ Each kind of control has one look, on every page and in every panel. The values 
 | `size-row` | 30px | A row in a list (Actions, Settings' sidebar, a list menu), and the chips in the Actions panel |
 | `size-tool` | 32px | Toolbar tools, the Actions panel's icon buttons, the pills on the canvas (Export, Feedback, Actions) |
 | `size-cell` | 36px | A menu option and a command palette row |
-| `size-touch` | 44px | With a finger or a pen as the main pointer (`pointer: coarse`): the toolbar's tools and the options of every menu (Menu.tsx) |
+| `size-touch` | 44px | With a finger or a pen as the main pointer (`pointer: coarse`): the toolbar's tools, and the options and size switch of every menu (Menu.tsx) |
 
 Controls in one row have one height. A new control takes the height of its kind from this table.
 

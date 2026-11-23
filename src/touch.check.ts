@@ -540,6 +540,8 @@ const H = 350;
   const coarse = /:root\[data-pointer="coarse"\] \.palette,\n:root\[data-pointer="coarse"\] \.strip \{([^}]*)\}/.exec(css);
   assert.ok(coarse, "the coarse rule covers the toolbar and every menu");
   for (const size of ["tool", "cell", "row"]) assert.match(coarse[1], new RegExp(`--size-${size}: var\\(--size-touch\\);`));
+  // A menu's size switch (the Arrow menu's segments) is a control of that size too.
+  assert.match(css, /:root\[data-pointer="coarse"\] \.strip \.menu-segments \{\n\s*--size-control: var\(--size-touch\);/);
   const tokens = readFileSync(new URL("../brand/tokens.css", import.meta.url), "utf8"), json = readFileSync(new URL("../brand/tokens.json", import.meta.url), "utf8");
   assert.match(tokens, /--size-touch: 44px;/);
   assert.match(json, /"name": "size-touch", "value": "44px"/);

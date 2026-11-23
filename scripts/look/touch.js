@@ -703,7 +703,8 @@ async function coarseSection() {
   const px = (el) => el?.getBoundingClientRect();
   const same = (a, b) => a && b && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5;
   // The toolbar's section (Pen, then Measure, between two lines) and the tools after it: the active mark sits on each,
-  // in one column and in two. The Pen and Measure menus' options are the size of an option (size).
+  // in one column and in two. The Pen and Measure menus' options are the size of an option (size), and the Arrow
+  // menu's size switch is a control that size, with its segments one size and its fill on the size chosen.
   const sectionLooks = async (name, size) => {
     const mark = document.querySelector(".palette .indicator");
     for (const wide of [false, true]) {
@@ -723,6 +724,13 @@ async function coarseSection() {
       check(`${name}: the options in the ${tool} menu are ${size} px`, cells.length >= 2 && cells.every((v) => v.offsetHeight === size), cells.map((v) => v.offsetHeight).join(" "));
       await escape();
     }
+    await pickSlot(8); slotTool(8)?.click(); await wait(500);
+    const seg = document.querySelector(".palette .strip:not(.leaving) .menu-segments .segmented"), segs = seg ? [...seg.querySelectorAll(":scope > button")] : [], on = segs.find((b) => b.getAttribute("aria-checked") === "true");
+    const control = size === 44 ? 44 : 28;
+    check(`${name}: the Arrow menu's size switch is ${control} px, its segments one size, and its fill on the size chosen`,
+      seg?.offsetHeight === control && segs.length === 3 && segs.every((b) => b.offsetHeight === control - 6 && b.offsetWidth === segs[0].offsetWidth) && same(px(on), px(seg?.querySelector(".seg-thumb"))),
+      `${seg?.offsetHeight}: ${segs.map((b) => `${b.offsetWidth}x${b.offsetHeight}`).join(" ")} ${JSON.stringify([px(on), px(seg?.querySelector(".seg-thumb"))])}`);
+    await escape();
   };
   const coarseLooks = async (theme) => {
     const root = document.documentElement;

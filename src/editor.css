@@ -567,9 +567,12 @@ rect.mark {
   --size-cell: var(--size-touch);
   --size-row: var(--size-touch);
 }
-/* A colour menu's swatches too, fewer across (Menu.tsx rowsOf). */
+/* A colour menu's swatches too, fewer across (Menu.tsx rowsOf), and a menu's size switch (the Arrow menu's). */
 :root[data-pointer="coarse"] .strip .menu-group.swatches {
   --size-control-sm: var(--size-touch);
+}
+:root[data-pointer="coarse"] .strip .menu-segments {
+  --size-control: var(--size-touch);
 }
 
 /* The active tool's background slides between tools, so a switch reads as one move. */
