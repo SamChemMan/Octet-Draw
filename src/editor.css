@@ -7802,6 +7802,31 @@ div.suppliers-none p {
   margin: 0 0 var(--space-3) !important;
   color: var(--ink-muted);
 }
+/* Find a change: the menus' search field, over the notes. Searching shows every change that has the words, under its
+   section's name, each match marked in the brand's mist. */
+.notes-find {
+  margin-bottom: var(--space-3);
+}
+.notes mark {
+  border-radius: var(--radius-xs);
+  background: var(--brand-mist);
+  color: inherit;
+}
+.notes-found + .notes-found {
+  margin-top: var(--space-3);
+}
+.notes-found ul {
+  padding-left: var(--space-4);
+}
+.notes-none {
+  padding: var(--space-4) 0;
+  color: var(--ink-muted);
+  text-align: center;
+}
+.notes-fold li strong,
+.notes-found li strong {
+  font-weight: 600;
+}
 .notes-donate .dialog-button {
   display: inline-flex;
   align-items: center;

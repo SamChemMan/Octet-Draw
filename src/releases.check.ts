@@ -35,3 +35,16 @@ assert.match(whatsNew, /className="fold-title" aria-expanded=\{open\.includes\(s
 assert.match(whatsNew, /className="fold-body" data-open=/);
 assert.match(native, /"donate" => "https:\/\/buymeacoffee\.com\/chemmansam"\.to_string\(\)/, "the donation link is the one fixed address");
 console.log("releases.check: ok");
+
+// What's New draws a line's name bold (Sam, 23 November 2026): the words before ": " or ". " when short, and after a
+// full stop only when a sentence follows. A search field finds changes in every section.
+{
+  const src = readFileSync(new URL("WhatsNew.tsx", import.meta.url), "utf8");
+  const body = /export function named\(line: string\): \{ name\?: string; text: string \} \{([\s\S]*?)\n\}/.exec(src)![1];
+  const named = new Function("line", body) as (line: string) => { name?: string; text: string };
+  assert.deepEqual(named("Energy diagrams: pick Energy diagram from the Photochemistry templates."), { name: "Energy diagrams", text: "pick Energy diagram from the Photochemistry templates." });
+  assert.deepEqual(named("LaTeX. Copy structures and whole reaction schemes as chemfig code."), { name: "LaTeX.", text: "Copy structures and whole reaction schemes as chemfig code." });
+  assert.deepEqual(named("Export every page of a document as one PDF. (#156)"), { text: "Export every page of a document as one PDF. (#156)" });
+  assert.deepEqual(named("Work from 43 of your GitHub issues."), { text: "Work from 43 of your GitHub issues." });
+  assert.match(src, /placeholder="Find a change"/);
+}
