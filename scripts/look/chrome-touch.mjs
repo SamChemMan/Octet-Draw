@@ -7,7 +7,8 @@
 // text field leaves the focus there, lifting a finger whose hold opened the Actions menu chooses nothing, a finger's
 // double tap does what the mouse's double-click does, and a finger leaves no hover behind on any tool. The mouse's
 // double-click on a handle or a reaction arrow does what a finger's double tap does, a long press opens one menu, two
-// fingers' pan keeps the zoom, and after a pen a finger's double tap, and a palm's, does nothing. It prints
+// fingers' pan keeps the zoom, and after a pen a finger's double tap, and a palm's, does nothing. With Measure and the
+// Pen, a finger's and a pen's taps place what the mouse's clicks on the point place, from further away. It prints
 // one line of JSON, as webkit.swift does. CHROME=path picks the browser. OCTET_STRESS_URL=<url> node
 // src/touch.check.ts runs it too.
 import { spawn } from "node:child_process";
@@ -126,17 +127,48 @@ try {
   ];
   const drawn = {}, byMouse = mouse("mouse");
   const report = (name, ok, why) => (ok ? out.reached : out.missed).push(`Chrome, ${name}${ok ? "" : `: ${why}`}`);
+  const textAt = (text) => run(`const e = [...document.querySelectorAll('svg.canvas text')].find((t) => t.textContent.trim() === ${JSON.stringify(text)}); if (!e) throw new Error('no text ${text}'); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];`);
+  // A mouse double-click at q, then the mouse off the canvas (onto the toolbar).
+  const mouseDouble = async (q) => {
+    const at = (type, o = {}) => call("Input.dispatchMouseEvent", { type, x: q[0], y: q[1], pointerType: "mouse", ...o });
+    await at("mouseMoved");
+    await frame();
+    for (const clickCount of [1, 2]) { await at("mousePressed", { button: "left", buttons: 1, clickCount }); await frame(); await at("mouseReleased", { button: "left", buttons: 0, clickCount }); await sleep(80); }
+    const [x, y] = await run("const r = document.querySelector('.palette').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];");
+    await call("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, pointerType: "mouse" });
+    await sleep(150);
+  };
+  // Benzene to benzene with a reaction arrow at 600, 400, by the mouse; then Select in hand, with the drawing.
+  const reaction = async () => {
+    await fresh(3); await byMouse([[450, 400]]); await settled(); await byMouse([[750, 400]]); await settled();
+    await fresh(8, "", true); await byMouse(line([540, 400], [660, 400])); await settled(); await fresh(0, "", true);
+  };
+  // The reaction picked whole (a double-click on its arrow) and its reagent table made (Analyse stoichiometry).
+  const stoichiometry = async () => {
+    await mouseDouble([600, 400]);
+    await sleep(400);
+    await run("const b = [...document.querySelectorAll('.actions .action')].find((a) => /Analyse stoichiometry/.test(a.getAttribute('aria-label') || a.textContent)); if (!b) throw new Error('no Analyse stoichiometry'); b.click();");
+    await sleep(800);
+  };
+  // The reactant's cell in a reagent table's row (by the row's name): under the reactant's formula, across from the name.
+  const gridCell = (row) => run(`const t = [...document.querySelectorAll('svg.canvas text')], r = (e) => e?.getBoundingClientRect();
+    const name = t.find((e) => e.textContent.trim() === ${JSON.stringify(row)}), formula = t.find((e) => e.textContent.trim() === 'C6H6');
+    if (!name || !formula) throw new Error('no reagent table');
+    return [r(formula).left + r(formula).width / 2, r(name).top + r(name).height / 2];`);
 
   // A finger's tap that opens a text field leaves the focus in it, as the mouse's click does, and what is typed there
   // goes in where the finger tapped. The finger's press goes in at the lift, and Chromium sends its mousedown for the
   // tap after that: in this page before the field opens, and in a page just loaded after it, where it took the focus.
   // So no mousedown may come at all. The Sequence tool's name field (Peptide), on the canvas and on
-  // an atom; a new table's first cell; and a tap away from a caption being typed, which closes it and starts the next
-  // as the mouse's click does. Each case: its setup and its step, both by the pointer under test.
+  // an atom; a new table's first cell, a cell of a table, and a reagent table's Mass cell with Text (each cell a
+  // RichBox); and a tap away from a caption being typed, which closes it and starts the next as the mouse's click does.
+  // Each case: its setup and its step, both by the pointer under test.
   const FIELDS = [
     ["Peptide: a tap, ACDE and Return", () => fresh(5), async (act) => { await act([[600, 400]]); await sleep(500); await typeText("ACDE"); await enter(); }],
     ["Peptide: a tap on an atom", async (act) => { await fresh(); await act([[600, 400]]); await settled(); await fresh(5, "", true); }, (act) => act([[600, 400]])],
     ["Table: a tap", () => fresh(16, "table"), (act) => act([[600, 400]])],
+    ["Table: a tap in a cell of a table", async () => { await fresh(16, "table"); await byMouse([[600, 400]]); await sleep(400); await typeText("ab"); await fresh(16, "table", true); }, async (act) => act([await textAt("ab")])],
+    ["Reagent table: a tap in the Mass cell with Text", async () => { await reaction(); await stoichiometry(); await fresh(14, "", true); }, async (act) => act([await gridCell("Mass")])],
     ["Text: a tap away from a caption being typed", async (act) => { await fresh(14); await act([[600, 400]]); await sleep(300); await typeText("THF"); }, (act) => act([[800, 500]])],
   ];
   const typed = {};
@@ -222,7 +254,6 @@ try {
     for (const clickCount of [1, 2]) { await at("mousePressed", { button: "left", buttons: 1, clickCount }); await frame(); await at("mouseReleased", { button: "left", buttons: 0, clickCount }); await sleep(80); }
     await leaveCanvas();
   };
-  const textAt = (text) => run(`const e = [...document.querySelectorAll('svg.canvas text')].find((t) => t.textContent.trim() === ${JSON.stringify(text)}); if (!e) throw new Error('no text ${text}'); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2];`);
   const DOUBLES = [
     ["an atom", async () => { await fresh(); await byMouse([[600, 400]]); await settled(); await fresh(0, "", true); return [600, 400]; }],
     // Butane's middle bond, in the middle of its box: away from the handles a picked structure shows.
@@ -318,6 +349,88 @@ try {
       `${f.left} marks left; o then gave ${JSON.stringify(f.now)}, after the mouse ${JSON.stringify(m.now)}`);
   }
 
+  // Measure and the Pen: a finger's and a pen's taps place what the mouse's clicks on the point place, from further
+  // away (touch.ts REACH). Measure length on ethane: each end tapped a little off an atom, past the mouse's reach (the
+  // mouse's tap there measures to a free point) and within the finger's or the pen's. Its dotted line follows the
+  // pointer from the end placed: a pen hovering, and a finger's press and drag, as the mouse hovering. The Pen: a tap a
+  // little off the first point closes the curve. Edit curve: a drag from a little off an anchor moves the anchor. The
+  // finger's here, the pen's after the pen's strokes below (after a pen a finger only pans).
+  // Ethane drawn level by the mouse from 600, 420, and its atoms on screen: its box for screen readers is the bond's,
+  // in drawing units (its element on screen has a margin).
+  const ethane = async () => {
+    await fresh(); await byMouse(line([600, 420], [660, 420], 6)); await settled();
+    const v = await view(), [x, y, w, h] = await run("const s = document.querySelector('[data-object]').style; return ['--x', '--y', '--w', '--h'].map((k) => Number(s.getPropertyValue(k)));");
+    const z = Number(v.zoom), at = (dx) => [v.x + z * (x + dx), v.y + z * (y + h / 2)];
+    return [at(0), at(w)];
+  };
+  // How far an atom reaches on screen (px) for each pointer (touch.ts reachIn: 0.3 of a bond for the mouse; at least
+  // 6 px times the reach, within 0.4 of a bond, for a pen and a finger).
+  const reaches = async () => { const [a, b] = await ethane(), bond = b[0] - a[0], r = (k) => Math.min(0.4, Math.max(0.3, (6 * k) / bond)) * bond; return { mouse: 0.3 * bond, finger: r(2.5), pen: r(1.5) }; };
+  const measureBy = async (act, off) => {
+    const [a, b] = await ethane();
+    await fresh(13, "distance", true);
+    await act([[a[0] - off, a[1]]]); await settled();
+    await act([[b[0], b[1] - off]]);
+    return settled(true);
+  };
+  const liveLine = () => run("const l = document.querySelector('svg.canvas .measuring line.live'); return l ? ['x1', 'y1', 'x2', 'y2'].map((k) => Number(l.getAttribute(k)).toFixed(2)).join(' ') : 'none';");
+  // The dotted line from an end on an atom to 720, 360: by hovering (the mouse, a pen), or a finger's press at 700, 380
+  // dragged there. Then let go there, the length is placed. (Mass spec analysis's panel, open since HOVERS, is lower.)
+  const followBy = async (kind) => {
+    const [a] = await ethane();
+    await fresh(13, "distance", true);
+    if (kind === "finger") {
+      await touch([a]); await settled();
+      await call("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 700, y: 380, id: 1 }] });
+      for (const [x, y] of line([700, 380], [720, 360], 6).slice(1)) { await frame(); await call("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y, id: 1 }] }); }
+      await sleep(200);
+      const shown = await liveLine();
+      await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      return `${shown}\n${await settled(true)}`;
+    }
+    const at = (type, q, o = {}) => call("Input.dispatchMouseEvent", { type, x: q[0], y: q[1], pointerType: kind, ...o });
+    await at("mouseMoved", a); await frame();
+    await at("mousePressed", a, { button: "left", buttons: 1, clickCount: 1 }); await frame();
+    await at("mouseReleased", a, { button: "left", buttons: 0, clickCount: 1 }); await settled();
+    for (const q of line([700, 380], [720, 360], 6)) { await at("mouseMoved", q); await frame(); }
+    await sleep(200);
+    const shown = await liveLine();
+    await at("mousePressed", [720, 360], { button: "left", buttons: 1, clickCount: 1 }); await frame();
+    await at("mouseReleased", [720, 360], { button: "left", buttons: 0, clickCount: 1 }); await frame();
+    await at("mouseMoved", [1020, 680]);
+    return `${shown}\n${await settled(true)}`;
+  };
+  const CURVE = [[560, 420], [640, 380], [720, 420]];
+  const penClose = async (act, off) => {
+    await fresh(12, "pen");
+    for (const q of CURVE) { await act([q]); await sleep(150); }
+    await act([[CURVE[0][0], CURVE[0][1] + off]]); await sleep(300);
+    return settled(true);
+  };
+  // An open curve by the mouse, picked with Edit curve; then a drag from off its middle anchor to 60 px above it.
+  const curveEdit = async (act, off) => {
+    await fresh(12, "pen");
+    for (const q of CURVE) { await byMouse([q]); await sleep(150); }
+    await enter(); await sleep(300);
+    await fresh(12, "pen-edit", true);
+    await byMouse([CURVE[2]]); await sleep(300);
+    await act(line([CURVE[1][0], CURVE[1][1] - off], [CURVE[1][0], CURVE[1][1] - 60], 8)); await sleep(300);
+    return settled(true);
+  };
+  const reach = await reaches(), offFinger = (reach.mouse + reach.finger) / 2, offPen = (reach.mouse + reach.pen) / 2;
+  const onAtoms = await measureBy(byMouse, 0), mouseOffAtoms = await measureBy(byMouse, offFinger), fingerOffAtoms = await measureBy(touch, offFinger);
+  report(`finger: Measure length, a tap ${offFinger.toFixed(1)} px off each atom measures between the atoms`, onAtoms === fingerOffAtoms && /Length/.test(onAtoms) && mouseOffAtoms !== onAtoms,
+    `on the atoms by the mouse ${JSON.stringify(onAtoms)}; off them by the mouse ${JSON.stringify(mouseOffAtoms)}; by a finger ${JSON.stringify(fingerOffAtoms)}`);
+  const followMouse = await followBy("mouse"), followFinger = await followBy("finger");
+  report("finger: Measure's dotted line follows a finger's press and drag, as it follows the mouse, and its lift places the end", followFinger === followMouse && !followMouse.startsWith("none") && /Length/.test(followMouse),
+    `the mouse ${JSON.stringify(followMouse)}, a finger ${JSON.stringify(followFinger)}`);
+  const closedOn = await penClose(byMouse, 0), closedMouse = await penClose(byMouse, 14), closedFinger = await penClose(touch, 14);
+  report("finger: the Pen, a tap 14 px off the first point closes the curve", closedFinger === closedOn && /Closed curve/.test(closedOn) && closedMouse !== closedOn,
+    `the mouse on it ${JSON.stringify(closedOn)}, 14 px off ${JSON.stringify(closedMouse)}, a finger ${JSON.stringify(closedFinger)}`);
+  const editOn = await curveEdit(byMouse, 0), editMouse = await curveEdit(byMouse, 14), editFinger = await curveEdit(touch, 14);
+  report("finger: Edit curve, a drag from 14 px off an anchor moves the anchor", editFinger === editOn && editMouse !== editOn,
+    `the mouse on it ${JSON.stringify(editOn)}, 14 px off ${JSON.stringify(editMouse)}, a finger ${JSON.stringify(editFinger)}`);
+
   for (const [kind, act] of [["mouse", byMouse], ["finger", touch], ["pen", mouse("pen")]]) {
     for (const [name, start, stroke] of CASES) {
       await fresh();
@@ -329,6 +442,18 @@ try {
       const ok = Boolean(was) && now === was;
       (ok ? out.reached : out.missed).push(`Chrome, ${kind}: ${name}${ok ? "" : `: drew ${JSON.stringify(now || "nothing")}, the mouse ${JSON.stringify(was || "nothing")}`}`);
     }
+  }
+  // The pen's Measure and Pen checks (above), now that the pen has been used.
+  {
+    const byPen = mouse("pen"), mouseOff = await measureBy(byMouse, offPen), penOff = await measureBy(byPen, offPen);
+    report(`pen: Measure length, a tap ${offPen.toFixed(1)} px off each atom measures between the atoms`, penOff === onAtoms && mouseOff !== onAtoms,
+      `on the atoms by the mouse ${JSON.stringify(onAtoms)}; off them by the mouse ${JSON.stringify(mouseOff)}; by a pen ${JSON.stringify(penOff)}`);
+    const followPen = await followBy("pen");
+    report("pen: Measure's dotted line follows a pen hovering, as it follows the mouse", followPen === followMouse && /Length/.test(followMouse), `the mouse ${JSON.stringify(followMouse)}, a pen ${JSON.stringify(followPen)}`);
+    const closedMouse10 = await penClose(byMouse, 10), closedPen = await penClose(byPen, 10);
+    report("pen: the Pen, a tap 10 px off the first point closes the curve", closedPen === closedOn && closedMouse10 !== closedOn, `the mouse 10 px off ${JSON.stringify(closedMouse10)}, a pen ${JSON.stringify(closedPen)}`);
+    const editMouse10 = await curveEdit(byMouse, 10), editPen = await curveEdit(byPen, 10);
+    report("pen: Edit curve, a drag from 10 px off an anchor moves the anchor", editPen === editOn && editMouse10 !== editOn, `the mouse 10 px off ${JSON.stringify(editMouse10)}, a pen ${JSON.stringify(editPen)}`);
   }
   // After a pen a finger only moves the view (the palm rule), and its double tap does nothing either: on a text, an atom
   // and a table cell with Select, Chromium still sends a dblclick. A palm's double tap while the pen is held on the
