@@ -43,6 +43,7 @@ export const RELEASES: Release[] = [
         "The Arrow menu now has a Large, Medium and Small option at the top.",
         "For a double bond, the Actions panel gives you an option to place it inside or outside of the ring / on the LHS / RHS of the molecule.",
         "Templates menu has been organised a lot better.",
+        "Text boxes can now be framed: click one with the Box tool, or use Add frame in the menu. A single word can be highlighted, like a bond.",
       ] },
       { title: "Charges", items: [
         "Charges can now be dragged away from an atom, and given a different colour and size. (#164)",
