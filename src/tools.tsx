@@ -530,6 +530,7 @@ type PaletteProps = {
   canRedo: boolean;
   keys: (command: string) => string | undefined; // a command's shortcut, for its tooltip
   canAddSelection: boolean; // something is selected that could become a template
+  canAttach: boolean; // the drawing has atoms a template could attach to (the Attach point picker shows only then)
   reveal?: { tool: TemplateTool; set: string; id?: string; n: number }; // a library to open (on a set, with a new template's name to type)
   preview: (name: string) => Mol | undefined; // the structure for a name, if it is one
   named: (kind: string) => Mol | undefined; // the structure of a "name:" kind (a name or abbreviation the library found)
@@ -668,7 +669,7 @@ export function Palette(p: PaletteProps) {
   // Add with nothing selected starts a pick on the canvas: the library closes out of its way.
   const own = (tool: TemplateTool) => ({ ...actions(tool), tool, reveal: p.reveal?.tool === tool ? p.reveal : undefined, size: p.librarySize, onSize: p.onLibrarySize,
     onAdd: (set: string) => { if (!p.canAddSelection) setOpen(undefined); p.onAdd(set, tool); },
-    onRename: p.onRename, find: p.findNamed, attach: attachFor(p.variants[tool]) });
+    onRename: p.onRename, find: p.findNamed, attach: p.canAttach ? attachFor(p.variants[tool]) : undefined });
   // The template in hand, drawn large under the library's templates to choose the atom or bond it attaches by: none
   // for a plain ring, or a template of one atom.
   const attachFor = (kind: string) => {

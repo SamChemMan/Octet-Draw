@@ -12525,6 +12525,7 @@ export default function Editor() {
         pinned={settings.pinned}
         onPinned={(pinned) => { if (pinned.length > settings.pinned.length) saw("pin"); setSettings((s) => ({ ...s, pinned })); }}
         canAddSelection={selection.size > 0 || picked.size > 0}
+        canAttach={doc.atoms.length > 0}
         reveal={reveal}
         preview={(name) => structureFor(name) ?? (() => { const s = suggestName(name, false); return s ? structureFor(s) : undefined; })()}
         onAddName={(typed) => {

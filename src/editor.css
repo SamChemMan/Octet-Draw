@@ -3617,27 +3617,78 @@ div.facts {
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
 }
-/* The template in hand, large, under the templates: its atoms and bonds take a click (TemplateLibrary AttachPicker). */
+/* The template in hand, large, under the templates: its atoms and bonds take a click (TemplateLibrary AttachPicker).
+   Shut at first to a one-line bar; open, the picture slides up out of the bar over the foot of the list. */
 .library-attach {
   position: relative;
-  display: flex;
   flex: none;
-  justify-content: center;
-  height: 112px;
-  padding: var(--space-2);
   border-top: 1px solid var(--hairline);
+  background: var(--surface-raised);
   color: var(--ink);
 }
-.library-attach svg {
-  height: 100%;
-  overflow: visible;
-}
-.library-attach-name {
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-3);
+.library-attach-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
   color: var(--ink-muted);
   font: 600 11px/14px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .library-attach-head:hover {
+    color: var(--ink);
+  }
+}
+.library-attach-head:focus-visible {
+  outline: 2px solid var(--focus, var(--link));
+  outline-offset: -2px;
+}
+.library-attach-head svg {
+  flex: none;
+  transition: transform var(--motion-slow) var(--ease-out);
+}
+.library-attach[data-open] .library-attach-head svg {
+  transform: rotate(180deg);
+}
+.library-attach-body {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--motion-slow) var(--ease-out), transform var(--motion-slow) var(--ease-out);
+}
+.library-attach[data-open] .library-attach-body {
+  pointer-events: auto;
+  opacity: 1;
+  transform: none;
+}
+.library-attach svg[role="radiogroup"] {
+  height: 96px;
+  margin: 0 var(--space-2) var(--space-2);
+  overflow: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-attach-head svg,
+  .library-attach-body {
+    transition: none;
+  }
+  .library-attach-body {
+    transform: none;
+  }
 }
 .attach-ink {
   pointer-events: none;
