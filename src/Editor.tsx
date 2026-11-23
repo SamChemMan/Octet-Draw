@@ -47,7 +47,7 @@ import { pickColour } from "./ColourPicker";
 import { elementColoursOn, OWN_MOST } from "./colours";
 import { SELECT_DEFAULT, selectTints } from "./selectcolour";
 import { ContextMenu, Menu, menuWidth, type MenuItem } from "./Menu";
-import { Gate, gated, kindOf as pointerKind, pinchView, REACH, reachIn, viewAfter, type Act, type In, type PinchFrom } from "./touch";
+import { Gate, gated, kindOf as pointerKind, pinchView, REACH, reachIn, viewAfter, type Act, type In, type Kind, type PinchFrom } from "./touch";
 import { ACTIONS, ARRANGE, DIALOGS, MEASURE_TOOLS, MENU_READ, PEN_TOOLS, RING_TOOLS, menuKeysVersion, actionFor, addsToSelection, controlTakes, copyDrag, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, optionCommand, platformLabel, registerMenu, showsOnly, skipsCycle, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, formula as subscripts, SearchGlyph, type Context } from "./Actions";
 import { onTop, reorder } from "./order";
@@ -1227,8 +1227,9 @@ export default function Editor() {
   const pointer = useRef<P>(undefined);
   // Pen and touch (touch.ts). reach: the reach of the last pointer event, by which every hit tolerance in px is
   // multiplied (the mouse's is 1, so its values stay exact). owner: the pen or finger whose press the editor has now;
-  // the mouse waits until it lets go. passOn: an event the gate sends on to the editor's own code.
-  const reach = useRef(1), owner = useRef<number>(undefined), passOn = useRef(false);
+  // the mouse waits until it lets go. passOn: an event the gate sends on to the editor's own code. pressedBy: the
+  // pointer pressed last on the canvas. The browser's menu event after a press is that pointer's (onContextMenu).
+  const reach = useRef(1), owner = useRef<number>(undefined), passOn = useRef(false), pressedBy = useRef<Kind>("mouse");
   const [gate] = useState(() => new Gate(HOLD_MS));
   // What the last edit added (its first new atom, or else its last new object), for Space.
   const added = useRef<{ mol: Mol; at: Hover }>(undefined), before = useRef<Mol>(undefined);
@@ -6118,11 +6119,14 @@ export default function Editor() {
   // the cycle is picked, and its actions go on that step; on the arc of a cycle picked already, the step is picked (as
   // a second click picks it); on a side arrow, the side arrow.
   // A finger held still and a pen's side button open it too (touch.ts): the browser's own menu event for those opens it
-  // only once.
+  // only once. The menu opens with the reach of the pointer that opened it.
   function onContextMenu(e: React.MouseEvent<SVGSVGElement>) {
     e.preventDefault();
     if (noMenu.current) { noMenu.current = false; return; }
-    if (gate.contextMenu(performance.now())) openMenu(e.clientX, e.clientY);
+    const kind = pressedBy.current;
+    if (!gate.contextMenu(performance.now(), kind)) return;
+    reach.current = REACH[kind];
+    openMenu(e.clientX, e.clientY);
   }
   function openMenu(clientX: number, clientY: number) {
     setMeasuring(undefined);
@@ -10473,6 +10477,7 @@ export default function Editor() {
   function onDown(e: React.PointerEvent<SVGSVGElement>) {
     if (passOn.current) return onPointerDown(e);
     fingerDown.current = e.pointerType === "touch" ? { id: e.pointerId, pressed: false } : undefined;
+    pressedBy.current = pointerKind(e.pointerType);
     if (gated(e.pointerType)) {
       // A finger's press goes in when the gate says, often at the lift. Chromium sends its mousedown for a tap after
       // that, where it would take the focus from a field the tap opened. So a finger sends no mousedown, and its press
@@ -10609,6 +10614,7 @@ export default function Editor() {
           setHolding(undefined);
           break;
         case "menu":
+          reach.current = REACH[a.kind];
           openMenu(a.x, a.y);
           break;
         case "timer": {

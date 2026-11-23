@@ -62,33 +62,34 @@ const H = 350;
   const timer = up[0] as Extract<Act, { act: "timer" }>;
   assert.equal(timer.key, "side");
   assert.equal(timer.ms, SIDE_MS);
-  assert.deepEqual(g.timer("side", timer.n), [{ act: "menu", x: 200, y: 120 }], "no menu event: the gate opens it");
-  assert.equal(g.contextMenu(clock + 50), false, "a menu event after it does not open a second");
+  assert.deepEqual(g.timer("side", timer.n), [{ act: "menu", x: 200, y: 120, kind: "pen" }], "no menu event: the gate opens it, with the pen's reach");
+  assert.equal(g.contextMenu(clock + 50, "pen"), false, "a menu event after it does not open a second");
   // With the browser's own menu event before the wait ends.
   const h = new Gate(H);
   h.down(ev("pen", 6, 10, 10, { button: 2, buttons: 2 }));
   const t = h.up(ev("pen", 6, 10, 10, { button: 2, buttons: 0 }))[0] as Extract<Act, { act: "timer" }>;
-  assert.equal(h.contextMenu(clock + 5), true, "the menu event opens it");
+  assert.equal(h.contextMenu(clock + 5, "pen"), true, "the menu event opens it");
   assert.deepEqual(h.timer("side", t.n), [], "and the wait opens nothing");
-  assert.equal(h.contextMenu(clock + 10), false, "once");
+  assert.equal(h.contextMenu(clock + 10, "pen"), false, "once");
   // The event on the press (Mac and Linux send it on the press).
   const k = new Gate(H);
   k.down(ev("pen", 6, 10, 10, { button: 2, buttons: 2 }));
-  assert.equal(k.contextMenu(clock + 1), true);
+  assert.equal(k.contextMenu(clock + 1, "pen"), true);
   assert.deepEqual(k.up(ev("pen", 6, 10, 10, { button: 2, buttons: 0 })), [], "released after its menu opened: nothing to wait for");
-  // Long after, a mouse right-click opens its menu as ever.
-  assert.equal(k.contextMenu(clock + MENU_GAP_MS + 100), true);
+  // A mouse right-click opens its menu at once; long after, the side button's does again.
+  assert.equal(k.contextMenu(clock + 2, "mouse"), true);
+  assert.equal(k.contextMenu(clock + MENU_GAP_MS + 100, "pen"), true);
 }
 {
   // A pen held still is hold-to-Select: the system's own right-click for a held pen does not open the menu as well.
   const g = new Gate(H);
   g.down(ev("pen", 7, 10, 10));
-  assert.equal(g.contextMenu(clock + 400), false);
+  assert.equal(g.contextMenu(clock + 400, "pen"), false);
   g.up(ev("pen", 7, 10, 10, { buttons: 0 }));
-  assert.equal(g.contextMenu(clock + 300), false);
-  assert.equal(g.contextMenu(clock + MENU_GAP_MS + 1), true);
+  assert.equal(g.contextMenu(clock + 300, "pen"), false);
+  assert.equal(g.contextMenu(clock + MENU_GAP_MS + 1, "pen"), true);
   // A mouse right-click with no pen or finger about.
-  assert.equal(new Gate(H).contextMenu(1e6), true);
+  assert.equal(new Gate(H).contextMenu(1e6, "mouse"), true);
 }
 {
   // A pen's cancel (the system takes the pen) stops its press; a cancel with no press does nothing.
@@ -124,11 +125,11 @@ const H = 350;
   const g = new Gate(H);
   const t = g.down(ev("touch", 13, 50, 60))[1] as Extract<Act, { act: "timer" }>;
   g.move(ev("touch", 13, 53, 62));
-  assert.deepEqual(g.timer("hold", t.n), [{ act: "unring" }, { act: "menu", x: 50, y: 60 }]);
+  assert.deepEqual(g.timer("hold", t.n), [{ act: "unring" }, { act: "menu", x: 50, y: 60, kind: "touch" }], "with the finger's reach");
   assert.equal(acts(g.move(ev("touch", 13, 200, 300))), "");
   assert.equal(acts(g.up(ev("touch", 13, 200, 300))), "");
   // The browser's own menu for the held finger does not open a second.
-  assert.equal(g.contextMenu(clock + 10), false);
+  assert.equal(g.contextMenu(clock + 10, "touch"), false);
   // A hold timer from a finger that moved off, or lifted, does nothing.
   const h = new Gate(H), n = (h.down(ev("touch", 14, 0, 0))[1] as Extract<Act, { act: "timer" }>).n;
   h.move(ev("touch", 14, 20, 0));
@@ -294,14 +295,28 @@ const H = 350;
   assert.equal(acts(g.down(ev("touch", 89, 0, 0))), "ring timer");
 }
 {
-  // A finger's touch then a right-click: the browser's menu event for the touch is the gate's; long after, the mouse's
-  // opens its menu.
+  // A finger's touch: the browser's menu event for the touch is the gate's; long after it, a menu event after a touch
+  // (the Menu key) opens the menu.
   const g = new Gate(H);
   g.down(ev("touch", 91, 0, 0));
-  assert.equal(g.contextMenu(clock + 1), false);
+  assert.equal(g.contextMenu(clock + 1, "touch"), false);
   g.up(ev("touch", 91, 0, 0));
-  assert.equal(g.contextMenu(clock + MENU_GAP_MS - 1), false);
-  assert.equal(g.contextMenu(clock + MENU_GAP_MS + 1), true);
+  assert.equal(g.contextMenu(clock + MENU_GAP_MS - 1, "touch"), false);
+  assert.equal(g.contextMenu(clock + MENU_GAP_MS + 1, "touch"), true);
+}
+{
+  // The mouse's right-click opens its menu at once after a pen's tap or a finger's touch, as before pen and touch: only
+  // a pen's or a finger's own menu event waits out MENU_GAP_MS.
+  const g = new Gate(H);
+  g.down(ev("pen", 93, 0, 0));
+  g.up(ev("pen", 93, 0, 0, { buttons: 0 }));
+  assert.equal(g.contextMenu(clock + 300, "pen"), false);
+  assert.equal(g.contextMenu(clock + 300, "mouse"), true, "a right-click 300 ms after a pen's tap");
+  const h = new Gate(H);
+  h.down(ev("touch", 94, 0, 0));
+  h.up(ev("touch", 94, 0, 0));
+  assert.equal(h.contextMenu(clock + 300, "touch"), false);
+  assert.equal(h.contextMenu(clock + 300, "mouse"), true, "a right-click 300 ms after a finger's tap");
 }
 
 // ——— Pinch maths ———
@@ -573,6 +588,11 @@ const H = 350;
   // A finger's double tap whose press the gate kept from the editor (after a pen, or a palm's) does nothing: each press
   // on the canvas says whether it was a finger's, and the gate's press for that finger marks it pressed.
   assert.match(down, /if \(passOn\.current\) return onPointerDown\(e\);\n\s*fingerDown\.current = e\.pointerType === "touch" \? \{ id: e\.pointerId, pressed: false \} : undefined;/, "each press on the canvas says whether it is a finger's");
+  // Each Actions menu opens with the reach of the pointer that opened it: the browser's menu event with that of the
+  // last press on the canvas, and the gate's (a long press, the side button with no menu event) with its own.
+  assert.match(down, /fingerDown\.current = .*\n\s*pressedBy\.current = pointerKind\(e\.pointerType\);/, "each press on the canvas says which pointer it is");
+  assert.match(editor, /const kind = pressedBy\.current;\n\s*if \(!gate\.contextMenu\(performance\.now\(\), kind\)\) return;\n\s*reach\.current = REACH\[kind\];\n\s*openMenu\(e\.clientX, e\.clientY\);/, "the browser's menu event takes its pointer's reach");
+  assert.match(editor, /case "menu":\n\s*reach\.current = REACH\[a\.kind\];\n\s*openMenu\(a\.x, a\.y\);/, "the gate's menu takes its pointer's reach");
   assert.match(editor, /reach\.current = REACH\.touch;\n\s*if \(fingerDown\.current\?\.id === a\.id\) fingerDown\.current\.pressed = true;\n\s*send\("pointerdown", a\.id/, "a finger's press marks it pressed");
   // Chromium sends no dblclick for a second click on an element its press redrew (a resize handle): the canvas sends one
   // after a second release with none, for the mouse and the pen.
