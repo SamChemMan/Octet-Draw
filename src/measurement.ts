@@ -1,14 +1,14 @@
 // Measurements (issue 85): the length between two ends, the angle at three and the dihedral across four atoms, each a
 // text that belongs to its ends (a caption with measure). An end is an atom or a free point on the page. The value
 // comes from the ends as drawn now, every time the drawing changes: in 3D (x, y and depth) when every end is an atom,
-// on the page plane when one is a free point. Measuring never changes the drawing. The text in a file is only a copy
+// on the page plane when one is a free point. A structure drawn flat is measured on its 3D model (inSpace). Measuring never changes the drawing. The text in a file is only a copy
 // for other programs. Dashed lines join the ends that no bond joins, and an angle has an arc at its vertex (measureInk).
 //
 // The Å scale is 3D Clean Up's own unit (clean3d.ts): a bond's real length over a C–C single bond's (its ratio), so
 // a structure's median of (length / ratio) is the length of a 1.52 Å bond. For a measurement with an atom end, scaling
 // the drawing or changing the style never changes a value, and a bond reads the length 3D Clean Up gives it. With no
 // atom end, the document's bond length is 1.52 Å, so scaling the drawing changes the value (D14).
-import { bondRatios } from "./clean3d.ts";
+import { bondRatios, clean3d, MOST_3D } from "./clean3d.ts";
 import { widthOf } from "./arial.ts";
 import { DEFAULT_STYLE, type DocStyle } from "./docstyle.ts";
 import { ASCENT, DESCENT, HBOND, type Atom, type Bond, type Caption, type End, type Measure, type Mol } from "./render.ts";
@@ -131,11 +131,35 @@ export function middleOf(v: number[]): number {
   }
   return v[want];
 }
+// The structure of these atoms in 3D, as 3D Clean Up makes it, when it is drawn flat; undefined when it has depth
+// already, or the atoms are in two structures (3D Clean Up places no structure against another, so those read as
+// drawn). Kept with the structure's chemistry (its bonds and elements), so a drag or a turn, which moves atoms only,
+// builds it no more: the values are the chemistry's, not the page's.
+// ponytail: a drag that moves one atom across a wedge's plane keeps the model's old hand until the bonds change.
+const models = new WeakMap<Known, Map<number, { ids: number[]; model?: Mol }>>();
+function inSpace(m: Mol, atoms: number[]): Mol | undefined {
+  const k = chemistry(m), c = k.comp[atoms[0]];
+  if (atoms.some((i) => k.comp[i] !== c)) return undefined;
+  const had = models.get(k) ?? new Map<number, { ids: number[]; model?: Mol }>();
+  models.set(k, had);
+  let s = had.get(c);
+  if (!s) had.set(c, (s = { ids: m.atoms.flatMap((_, i) => (k.comp[i] === c ? [i] : [])) }));
+  // ponytail: past 3D Clean Up's own limit (MOST_3D atoms) a structure reads as drawn.
+  if (s.ids.length > MOST_3D) return undefined;
+  let lo = Infinity, hi = -Infinity;
+  for (const i of s.ids) { const z = m.atoms[i].location[2] ?? 0; lo = Math.min(lo, z); hi = Math.max(hi, z); }
+  if (hi - lo > 1e-6) return undefined;
+  return (s.model ??= clean3d(m, s.ids));
+}
 // A measurement's value: Å for a length, degrees for an angle (0 to 180) and a dihedral (−180 to 180, by IUPAC's
 // sign: positive when the near bond turns clockwise onto the far one, seen along the middle bond). Undefined for an
 // angle with a leg of no length, and a dihedral across three atoms in a line. Every end an atom: in 3D, from the
 // atoms' depth too. A free end: on the page plane, with no depth for any end.
 export function measureValue(m: Mol, ends: End[], unit = unitFor(m, ends)): number | undefined {
+  // Atoms of a structure drawn flat have no real geometry: they are measured where 3D Clean Up puts them (the drawing
+  // does not change), so acetone's C=O reads about 1.24 Å, not the 1.52 Å of a drawn bond.
+  const model = ends.every(isAtom) ? inSpace(m, ends) : undefined;
+  if (model) { m = model; unit = unitFor(m, ends); }
   const flat = !ends.every(isAtom), p = ends.map((e): V => (isAtom(e) && !flat ? at3(m, e) : [...endAt(m, e), 0]));
   if (p.length === 2) return (len3(sub3(p[1], p[0])) * CC) / unit;
   if (p.length === 3) {
