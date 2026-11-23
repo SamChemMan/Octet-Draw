@@ -433,3 +433,16 @@ async function penStress(short: boolean, dark: boolean) {
   out.errors = ((window as any).__errors ?? []).slice(0, 10);
   return JSON.stringify(out);
 }
+
+// Settings > Drawing > Clicks make triple bonds is on for a new user and for a user who updates: 1.1.2 saved the old
+// default (off) in every copy, so only a false the user set with the switch (clickTripleChosen) turns it off.
+{
+  const settings = readFileSync(new URL("settings.ts", import.meta.url), "utf8");
+  assert.match(settings, /\bclickTriple: true, clickTripleChosen: false,/, "on for a new user");
+  const load = /clickTriple: (saved\.clickTripleChosen[^,]+), clickTripleChosen:/.exec(settings);
+  assert.ok(load, "found how clickTriple loads; update this check");
+  const clickTriple = new Function("saved", `return ${load[1]};`) as (saved: object) => unknown;
+  assert.equal(clickTriple(JSON.parse(SAVED_112)), true, "1.1.2's saved default does not count");
+  assert.equal(clickTriple({ clickTriple: false, clickTripleChosen: true }), false, "the user turned it off");
+  assert.equal(clickTriple({ clickTriple: true, clickTripleChosen: true }), true);
+}

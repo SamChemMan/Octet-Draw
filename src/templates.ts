@@ -167,7 +167,9 @@ export const ringed = <S extends Kept & { libraryRings: string[] }>(s: S, next: 
 };
 // A name a new set can take: not empty, not My templates, not one the user has.
 export const freeSetName = (s: Kept, name: string) => { const n = setName(name); return !!n && n !== MY_SET && !s.templateSets.includes(n); };
-export const addSet = <S extends Kept>(s: S, name: string): S => (freeSetName(s, name) && s.templateSets.length < 50 ? { ...s, templateSets: [...s.templateSets, setName(name)] } : s);
+// The settings keep MOST_SETS sets (settings.ts): no set is added past it, and the editor says so (FULL_SETS).
+export const MOST_SETS = 50, FULL_SETS = `You have ${MOST_SETS} template sets, the most Octet keeps. Remove a set first.`;
+export const addSet = <S extends Kept>(s: S, name: string): S => (freeSetName(s, name) && s.templateSets.length < MOST_SETS ? { ...s, templateSets: [...s.templateSets, setName(name)] } : s);
 // A name for a set that is free: the name, or the name and the first number that makes it free ("Aromatics 2").
 export const freeName = (s: Kept, name: string) => {
   const base = setName(name) || "Templates";
@@ -188,7 +190,7 @@ export const removeSet = <S extends Kept>(s: S, name: string): S =>
 // The templates of a file (a ChemDraw template document) as a new set, named after the file (with a number when the
 // user has a set of that name), in order. No set when the user has as many sets as Octet keeps.
 export const addSetOf = <S extends Kept>(s: S, name: string, list: { name: string; mol: Mol }[]): { kept: S; set?: string } => {
-  if (s.templateSets.length >= 50) return { kept: s };
+  if (s.templateSets.length >= MOST_SETS) return { kept: s };
   const set = freeName(s, name), added = addSet(s, set);
   return { kept: { ...added, templates: [...added.templates, ...list.map((t) => newTemplate(t.name, t.mol, set))] }, set };
 };

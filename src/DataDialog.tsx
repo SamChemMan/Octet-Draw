@@ -10,7 +10,8 @@ import { Dialog } from "./Dialog";
 import { spare } from "./charts";
 import { MAX_EACH, MAX_NAME, MAX_SHOWN, MAX_VALUE, type DataRow } from "./datafields";
 
-const MOST: [number, number] = [MAX_EACH + 1, 3];
+// A structure holds MAX_EACH fields (Save adds none past it), so the grid has as many rows at most.
+const MOST: [number, number] = [MAX_EACH, 3];
 const LIMITS = [MAX_NAME, MAX_VALUE, 1];
 
 // focus: the row of the field whose text was picked (Edit attached data…).

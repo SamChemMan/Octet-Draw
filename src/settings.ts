@@ -12,6 +12,7 @@
 // selection. A new user has every section open.
 import { keepOwnRings, readPalettes, readSize, type FloatingPalette, type SavedTemplate, type TemplateSize } from "./templates";
 import type { OwnName } from "./names";
+import { readMonomers, type OwnMonomer } from "./monomers";
 import { readNicknames, type OwnNickname } from "./nicknames";
 import type { TemplateAnchor } from "./edit";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
@@ -73,6 +74,7 @@ export type Settings = {
   librarySize: TemplateSize; // the size of the templates in the template library (each floating palette has its own)
   dictionary: OwnName[]; // the user's own names for structures (Structure > Add Structure to Dictionary), in the order added
   nicknames: OwnNickname[]; // the user's own nicknames (Structure > Define Nickname…), up to 500, in the order defined
+  monomers: OwnMonomer[]; // the user's own peptide monomers (Structure > Define Monomer…), up to 500, in the order defined
   templateSets: string[]; // the user's named template sets, in order (My templates is always first and not listed)
   nameHistory: { name: string; smiles: string }[]; // names drawn with Name to structure, newest first (50 at most), each with its structure
   paletteWide: boolean; // the toolbar in two columns
@@ -100,7 +102,8 @@ export type Settings = {
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
   // 15° step (Option frees it while it is held). sproutRings: ChemDraw's "Sprout Rings Instead of Spiro When Clicking".
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean;
-  clickTriple: boolean; // a bond tool's click on a plain double bond makes it triple, and on a triple single (ChemDraw's clicks move the second line)
+  clickTriple: boolean; // a bond tool's click on a plain double bond makes it triple, and on a triple single (ChemDraw's clicks move the second line); on unless the user turns it off
+  clickTripleChosen: boolean; // the user set clickTriple with the switch: up to 1.1.2 a saved false was only the old default
   // ChemDraw's preferences (CH-34). autoMap: Automatic Reaction Mapping (a pair mapped with the Atom map tool maps the
   // rest of its reaction). stereoParens: Include Parentheses When Showing Stereochemistry. hideAbs: Hide Absolute
   // Stereoflags. mdlFlags: Show Stereoflags When Opening MDL Format Files (the chiral flag as abs or &1 flags).
@@ -118,7 +121,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", pen: "pen", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: true, wordChosen: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", sequence: "peptide", shape: "box-plain", bracket: "brackets", pen: "pen", measure: "distance", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, experimentNoted: false, riskNew: true, riskNoted: false, seenNotes: "", homeLayout: readLayout([], []), updates: true, mcp: true, mcpChosen: false, aiShown: false, aiApps: [], wordClick: true, wordChosen: false, warnings: true, warningTypes: {}, checkCopy: false, pairBars: false, outlines: true, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], ringOwnKept: true, palettes: [], librarySize: "medium", dictionary: [], nicknames: [], monomers: [], templateSets: [], anchors: {}, nameHistory: [], paletteWide: false, palette: [], colourPins: {}, elementColours: {}, properties: false, notesPanel: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, nmrLabels: "auto", massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, moreFormats: false, feedbackButton: true, chemfigCompact: false, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: true, clickTripleChosen: false, interpretation: false, autoMap: true, stereoParens: true, dlNames: false, steroidNames: false, unsetMark: "", hideAbs: false, mdlFlags: false, aromaticOnOpen: "", massUnit: "g", cursor: "auto", selectColour: SELECT_DEFAULT, sequenceLabels: false };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -143,6 +146,7 @@ export function loadSettings(): Settings {
       dictionary: list<OwnName>(saved.dictionary, (n) => typeof n === "object" && n !== null && typeof (n as OwnName).name === "string" && !!(n as OwnName).name.trim() && (n as OwnName).name.length <= 80
         && typeof (n as OwnName).smiles === "string" && !!(n as OwnName).smiles && (n as OwnName).smiles.length <= 4000 && ((n as OwnName).inchi === undefined || typeof (n as OwnName).inchi === "string")).slice(0, 2000),
       nicknames: readNicknames(saved.nicknames),
+      monomers: readMonomers(saved.monomers),
       nameHistory: (Array.isArray(saved.nameHistory) ? saved.nameHistory : []).flatMap((k: unknown) =>
         typeof k === "string" ? [{ name: k, smiles: "" }] : typeof k === "object" && k && typeof (k as { name?: unknown }).name === "string" && typeof (k as { smiles?: unknown }).smiles === "string" ? [k as { name: string; smiles: string }] : [],
       ).filter((k: { name: string; smiles: string }) => k.name.length <= 300 && k.smiles.length <= 2000).slice(0, 50),
@@ -171,7 +175,7 @@ export function loadSettings(): Settings {
       ...(saved.nmrDecouple && typeof saved.nmrDecouple === "object" ? { nmrDecouple: Object.fromEntries(["1H", "13C", "19F", "31P"].filter((n) => typeof (saved.nmrDecouple as Record<string, unknown>)[n] === "boolean").map((n) => [n, (saved.nmrDecouple as Record<string, boolean>)[n]])) } : {}),
       ...(typeof saved.stripHeight === "number" && saved.stripHeight >= 100 && saved.stripHeight <= 4000 ? { stripHeight: Math.round(saved.stripHeight) } : {}),
       massSpec: readMsPrefs(saved.massSpec),
-      fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true, clickTriple: saved.clickTriple === true,
+      fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true, clickTriple: saved.clickTripleChosen === true ? saved.clickTriple !== false : true, clickTripleChosen: saved.clickTripleChosen === true,
       autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, dlNames: saved.dlNames === true, steroidNames: saved.steroidNames === true, unsetMark: saved.unsetMark === "?" || saved.unsetMark === "Ξ" ? saved.unsetMark : "", hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,
       aromaticOnOpen: saved.aromaticOnOpen === "kekule" || saved.aromaticOnOpen === "circles" ? saved.aromaticOnOpen : "",
       massUnit: saved.massUnit === "mg" ? "mg" : "g",

@@ -115,7 +115,7 @@ impl Session {
 
     fn write(&self, label: &str, name: &str, contents: &str) -> Result<(), String> {
         if contents.len() as u64 > MAX_BYTES {
-            return Err("This drawing is too large to keep.".into());
+            return Err("This drawing is larger than 64 MB. Octet cannot keep a copy of it for recovery.".into());
         }
         let dir = self.dir()?;
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -267,6 +267,22 @@ mod tests {
         assert!(third.list().is_empty());
         drop(fourth);
         assert_eq!(third.list().len(), 1, "the drawing that was open is still kept");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // A drawing larger than 64 MB is not kept, and the copy kept before it stays: after a crash, Home offers that one
+    // (docs/plans/long-text.md).
+    #[test]
+    fn a_drawing_too_large_keeps_the_last_copy() {
+        let dir = std::env::temp_dir().join(format!("octet-recovery-large-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let session = Session::start_in(Some(dir.clone()));
+        session.write("draw-1", "Scheme", "<CDXML/>").unwrap();
+        let big = "x".repeat(MAX_BYTES as usize + 1);
+        assert_eq!(session.write("draw-1", "Scheme", &big), Err("This drawing is larger than 64 MB. Octet cannot keep a copy of it for recovery.".to_string()));
+        let id = copy_id(&session.id, "draw-1");
+        assert_eq!(fs::read_to_string(dir.join(format!("{id}.oct"))).unwrap(), "<CDXML/>");
+        drop(session);
         let _ = fs::remove_dir_all(&dir);
     }
 }

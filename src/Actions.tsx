@@ -6,7 +6,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   ListChecks, SealWarning, ShieldSlash, ShieldWarning, NotePencil,
-  AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, CaretUpDown, Graph,
+  AlignCenterHorizontal, Scan, AlignCenterVertical, Flask, Palette, Table, Repeat, ArrowsInSimple, ArrowsClockwise, ArrowsDownUp, CaretDown, CaretRight, ArrowsLeftRight, ArrowsHorizontal, ArrowsOutSimple, Atom, BookmarkSimple, BookOpenText, PuzzlePiece, CaretUpDown, Graph,
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ArrowUUpLeft, ClipboardText, CopySimple, CodeBlock, Quotes, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, Signature, TextAlignCenter, TextAlignLeft,
@@ -370,13 +370,13 @@ const KIND_OF: Record<string, string> = {
   "bond.auto": "position", "bond.left": "position", "bond.centre": "position", "bond.right": "position", structure_to_name: "analysis", properties: "analysis", show_stereo: "marks", add_multicentre: "query", add_variable: "query", define_rgroup: "query", predict_1h: "analysis", predict_13c: "analysis", predict_19f: "analysis", predict_31p: "analysis", mass_spec: "analysis",
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", redraw_stereo: "depth", invert_here: "depth", to_fischer: "depth", to_wedges: "depth", measure_distance: "depth", measure_angle: "depth", measure_dihedral: "depth", rotate_dialog: "turn", scale_dialog: "turn",
-  pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks", define_nickname: "marks",
+  pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
   "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   attach_data: "marks",
   frame_brackets: "frame", frame_parens: "frame", frame_braces: "frame", frame_box: "frame", frame_rounded: "frame", frame_box_shadow: "frame", frame_rounded_shadow: "frame",
-  copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", more_chemfig_copy: "library", more_sln: "library", "template.add": "library", "dictionary.add": "library", delete: "delete",
+  copy_smiles: "library", copy_inchi: "library", copy_inchikey: "library", more_chemfig_copy: "library", more_sln: "library", "template.add": "library", "dictionary.add": "library", define_nickname: "library", define_monomer: "library", delete: "delete",
 };
 const kindOf = (command: string) => KIND_OF[command] ?? "other";
 const setOf = (command: string) => SET_FOR[kindOf(command)];
@@ -448,6 +448,10 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const keep = small(it(<BookmarkSimple size={18} />, "Add to templates", "template.add"));
   // A structure kept in the user's own dictionary by a name they give (ChemDraw's Add Structure to Dictionary).
   const dict = small(it(<BookOpenText size={18} />, "Add to dictionary…", "dictionary.add"));
+  // ChemDraw's Define Nickname…: the selected group kept by a label of the user's own (PR #146).
+  const nickname = small(it(<Signature size={18} />, "Define nickname…", "define_nickname"));
+  // A structure with R1 and R2 labels as a peptide monomer of the user's own (issue 27).
+  const monomer = small(it(<PuzzlePiece size={18} />, "Define monomer…", "define_monomer"));
   // On an atom or a bond: its whole structure (ChemDraw's Molecule > Select).
   const whole = small(it(<SelectionPlus size={18} />, "Select structure", "select_structure"));
   // ChemDraw's Explain This Warning and Display Warnings, for every selection with a warning marked or hidden on it.
@@ -471,7 +475,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "selection":
       if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"), it(<ShieldSlash size={18} />, "Remove risk assessment", "risk.remove"));
-      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3, redraw] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict] : []), del);
+      items.push(...join, ...(context.atoms ? [clean] : []), it(<CopySimple size={18} />, "Copy", "copy"), ...(context.values ? [small(names(context.values))] : []), ...circles(), ...warnings(), ...turnsAndFlips, ...(context.atoms ? [clean3, redraw] : []), ...objects, ...order, ...frames, keep, ...(context.atoms ? [dict, nickname, monomer] : []), del);
       break;
     case "structure":
       // Sam (17 October 2026): Clean up and Structure to name as rows; every turn, rotation and flip in one sub-menu;
@@ -483,7 +487,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
         small(it(<Hash size={18} />, context.numbers ? "Hide atom numbers" : "Show atom numbers", "atom_numbers")),
         ...warnings(),
         small(it(<Subtitles size={18} />, "Add a caption", "caption.add")), ...(context.structures === 1 ? [small(it(<Paperclip size={18} />, "Attach data…", "attach_data"))] : []), ...(context.values ? [small(names(context.values))] : []),
-        ...turnings, ...copies, ...searches, keep, dict, it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties"), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<Signature size={18} />, "Define nickname…", "define_nickname")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
+        ...turnings, ...copies, ...searches, keep, dict, nickname, monomer, it(<Flask size={18} />, context.properties ? "Hide the Properties panel" : "Show the Properties panel", "properties"), small(it(<span className="glyph-text">R/S</span>, context.cip ? "Hide stereochemistry" : "Show stereochemistry", "show_stereo")), small(it(<Palette size={18} />, "Colour by element", "colour_by_element")), small(it(<Circle size={18} />, context.circles ? "Show Kekulé bonds" : "Show aromatic circles", "aromatic_display")), ...(context.hydrogens ? [small(it(<EyeSlash size={18} />, "Toggle hydrogen display", "hydrogen_display"))] : []), small(it(<ArrowsInSimple size={18} />, "Contract label", "contract_label")), small(it(<span className="glyph-text">¹H</span>, "Predict ¹H-NMR shifts", "predict_1h")), small(it(<span className="glyph-text">¹³C</span>, "Predict ¹³C-NMR shifts", "predict_13c")), small(it(<span className="glyph-text">¹⁹F</span>, "Predict ¹⁹F-NMR shifts", "predict_19f")), small(it(<span className="glyph-text">³¹P</span>, "Predict ³¹P-NMR shifts", "predict_31p")), small(it(<MassSpecGlyph />, "Mass spec analysis", "mass_spec")));
       if (context.structures > 1) items.push(small(it(<ArrowsClockwise size={18} />, "Make a catalytic cycle", "cycle.make")), small(it(<DotsThree size={18} />, "Line up in a row", "align.row")),
         small(it(<DotsThreeVertical size={18} />, "Line up in a column", "align.column")), small(it(<SquareSplitHorizontal size={18} />, "Space evenly", "align.spread-row")));
       if (context.depth !== undefined) items.push(small(it(<Cube size={18} />, context.depth ? "Turn depth shading off" : "Turn depth shading on", "structure_perspective")), small(it(<Square size={18} />, "Flatten", "flatten")), small(it(<TriangleDashed size={18} />, "Convert to wedge drawing", "to_wedges")));
@@ -503,14 +507,14 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       items.push(it(<CursorText size={18} />, "Type a label", "atom.label"), ...(context.repeat ? [it(<Repeat size={18} />, `Repeat ${context.repeat}`, "repeat_label")] : []), it(<PlusCircle size={18} />, "Add a positive charge", "charge.plus"), it(<MinusCircle size={18} />, "Add a negative charge", "charge.minus"),
         ...(context.circled !== undefined ? [it(<span className="glyph-text">⊕</span>, context.circled ? "Remove the circle" : "Circle the charge", "charge.circled")] : []),
         ...((context.label.length > 2 || !/^[A-Z][a-z]?$/.test(context.label)) && context.text?.chemical !== false && !queryLabel(context.label) ? [it(<ArrowsOutSimple size={18} />, "Expand label", "expand_label")] : []), it(<Faders size={18} />, "Atom properties…", "atom_properties"), it(<Hash size={18} />, context.numbered ? "Hide atom number" : "Show atom number", "atom_numbers"),
-        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, ...(context.invertible ? [small(it(<ShuffleSimple size={18} />, "Invert configuration here", "invert_here"))] : []), del);
+        ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, ...(context.invertible ? [small(it(<ShuffleSimple size={18} />, "Invert configuration here", "invert_here"))] : []), del);
       break;
     case "bond":
       // A double bond's second line (ChemDraw's right-click Bond Position): in the panel, the Second line control under
       // the bond styles (Sam, 19 November 2026); in the right-click menu, its own sub-menu.
       if (context.double) items.push(small({ ...it(<span className="glyph-text">A</span>, "Second line placed automatically", "bond.auto"), short: "Automatic position" }), small(it(<span className="glyph-text">L</span>, "Second line on the left", "bond.left")), small(it(<span className="glyph-text">C</span>, "Centre the double bond", "bond.centre")), small(it(<span className="glyph-text">R</span>, "Second line on the right", "bond.right")));
       if (context.flippable) items.push(it(<ArrowUDownLeft size={18} />, "Point the other way", "bond.flip"));
-      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, clean3, redraw, length, del);
+      items.push(it(<FadersHorizontal size={18} />, "Bond properties…", "bond_properties"), ...warnings(true), ...order, ...(context.molecule ? [] : [whole]), inWindow, keep, dict, nickname, monomer, clean3, redraw, length, del);
       break;
     case "caption":
       if (context.mode !== "picked") break;
@@ -1405,14 +1409,15 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
 // Right-click (or Control-click, or the Menu key or Shift+F10): the Actions panel as a short menu at the pointer, so
 // nothing lives only here (Sam: no options buried under right-click). Its rows come first, then each set of small
 // actions as one row that opens the set beside it, then Add to templates (which opens My templates and the user's
-// sets), Add to dictionary…, Colour, a label's Alignment and Delete. An arrow's, a cycle's or a cycle's side arrow's picks
-// (Kind, Line, Start, End, Heads, Size, Fill and so on, as the panel shows them) come before Add to templates.
+// sets), Add to dictionary…, Define nickname…, Define monomer…, Colour, a label's Alignment and Delete. An arrow's, a
+// cycle's or a cycle's side arrow's picks (Kind, Line, Start, End, Heads, Size, Fill and so on, as the panel shows them)
+// come before Add to templates.
 type MenuProps = Pick<Props, "context" | "messy" | "hiddenWarnings" | "warned" | "grouping" | "layout" | "hint" | "run" | "colour" | "colours" | "online" | "more"> & { at: { x: number; y: number }; keyboard?: boolean; templateSets: string[]; onClose: () => void };
 export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warned, grouping, layout, hint, run, colour, colours, online, more, templateSets, onClose }: MenuProps) {
   const { rows, sets } = arrangedActions(context, messy, hiddenWarnings, warned, grouping, layout, online, more);
   const item = (i: Item): MenuItem => ({ key: i.command, name: i.short ?? i.name, icon: i.icon, hint: hint(i.command) });
-  const keep = (list: readonly Item[]) => list.filter((i) => i.command !== "template.add" && i.command !== "dictionary.add");
-  const all = [...rows, ...sets.flatMap(([, list]) => list)], kept = all.find((i) => i.command === "template.add"), dict = all.find((i) => i.command === "dictionary.add");
+  const keep = (list: readonly Item[]) => list.filter((i) => i.command !== "template.add" && i.command !== "dictionary.add" && i.command !== "define_nickname" && i.command !== "define_monomer");
+  const all = [...rows, ...sets.flatMap(([, list]) => list)], kept = all.find((i) => i.command === "template.add"), dict = all.find((i) => i.command === "dictionary.add"), nickname = all.find((i) => i.command === "define_nickname"), monomer = all.find((i) => i.command === "define_monomer");
   const del = sets.find(([s]) => s === "delete")?.[1] ?? [];
   // Selected atom labels: their alignment (the label chips' own, as a menu).
   const aligned = (context.kind === "atom" || context.kind === "structure") && context.text ? context.text.align ?? "auto" : undefined;
@@ -1422,7 +1427,7 @@ export function ActionsMenu({ at, keyboard, context, messy, hiddenWarnings, warn
   const pickRows: MenuItem[] = [...(kind ? [{ key: "pick:arrow.kind", name: "Kind", icon: kinds.find((o) => o.id === kind)?.glyph, more: true }] : []),
     ...picks.map((p) => ({ key: `pick:${p.command}`, name: p.label, icon: choices(p, context).find((o) => o.id === p.value)?.glyph, more: true }))];
   const groups: MenuItem[][] = [keep(rows).map(item), sets.filter(([s, list]) => s !== "delete" && keep(list).length).map(([s, list]) => ({ key: `set:${s}`, name: titleOf(s, context, list), icon: SET_ICONS[s], more: true })), pickRows,
-    [...(kept ? [{ key: "templates", name: kept.name, icon: kept.icon, more: true }] : []), ...(dict ? [item(dict)] : []), ...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []),
+    [...(kept ? [{ key: "templates", name: kept.name, icon: kept.icon, more: true }] : []), ...(dict ? [item(dict)] : []), ...(nickname ? [item(nickname)] : []), ...(monomer ? [item(monomer)] : []), ...(colour ? [{ key: "set:colour", name: "Colour", icon: <Palette size={18} />, more: true }] : []),
     ...(aligned ? [{ key: "set:align", name: "Alignment", icon: <TextAlignLeft size={18} />, more: true }] : []), ...del.map(item)]];
   // The open set's actions (Display and copy in its kinds' groups), the sets a template can go in, or the colours.
   const sub = (key: string) => {

@@ -56,7 +56,7 @@ assert.match(readFileSync(new URL("experiment.ts", import.meta.url), "utf8"), /c
 // an atom label (and one turned into a structure), a table cell, a stoichiometry grid cell and the experiment details.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 const body = (name: string) => { const at = editor.indexOf(`function ${name}(`); return editor.slice(at, editor.indexOf("\n  }\n", at)); };
-assert.match(body("commitWriting"), /const typed = expandRuns\(w\.runs \?\? \[\{ text: w\.value \}\], keptText\(doc\.captions\?\.find\(\(c\) => c\.id === w\.id\)\?\.text\)\), text = plainOf\(typed\)/);
+assert.match(body("commitWriting"), /const was = w\.id !== undefined \? doc\.captions\?\.find\(\(c\) => c\.id === w\.id\) : undefined, written = expandRuns\(w\.runs \?\? \[\{ text: w\.value \}\], keptText\(was\?\.text\)\);/);
 assert.match(body("commitCell"), /setTableCell\(cur, w\.r, w\.c, value,/);
 assert.match(body("commitCell"), /const typed = expandRuns\(w\.runs, keptText\(sh\.table\.cells\[w\.r\]\?\.\[w\.c\]\)\), value = plainOf\(typed\)/);
 assert.match(body("commitGridCell"), /kept = keptText\(gridEdit\?\.opened\), text = expandEscapes\(typed, kept\)/);

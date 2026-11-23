@@ -423,10 +423,10 @@ export function xmlToCdx(root: Xml): Uint8Array {
       if (!text) continue;
       const u = enc.encode(text);
       unicode.push([unicodeBytes.length, ...style]);
-      unicodeBytes.push(...u);
+      for (const b of u) unicodeBytes.push(b); // not push(...u): a call takes only so many arguments
       const bytes: number[] = [], cs = runCharset(fonts, style[0], el, root);
       for (const ch of text) { const b = legacyByte(ch, cs); if (b === undefined || b === 0) break; bytes.push(b); }
-      if (bytes.length) { legacy.push([legacyBytes.length, ...style]); legacyBytes.push(...bytes); }
+      if (bytes.length) { legacy.push([legacyBytes.length, ...style]); for (const b of bytes) legacyBytes.push(b); }
     }
     const pack = (rs: number[][], b: number[]) => new Uint8Array([...le(2, rs.length), ...rs.flatMap((r) => [...le(2, ...r)]), ...b]);
     if (legacy.length) put(0x0700, pack(legacy, legacyBytes));

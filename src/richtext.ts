@@ -2,6 +2,35 @@
 // <s> elements). A caption without runs is one run in the caption's own style.
 export type RunStyle = { bold?: true; italic?: true; underline?: true; script?: "sub" | "super"; font?: string; size?: number; colour?: string };
 export type TextRun = RunStyle & { text: string };
+// A text's length at most, in UTF-16 units: what Octet's readers take and what the text box keeps
+// (docs/plans/long-text.md). CDX keeps a text's styles at 16-bit byte offsets, and 20,000 units are at most 60,000
+// bytes of UTF-8.
+export const MAX_TEXT = 20_000;
+// The first n UTF-16 units of a text, never half a character.
+export const cutText = (t: string, n: number) => (t.length <= n ? t : t.slice(0, Math.max(0, n)).replace(/[\ud800-\udbff]$/, ""));
+// The first n UTF-16 units of some runs, never half a character.
+export function cutRuns(runs: TextRun[], n: number): TextRun[] {
+  const out: TextRun[] = [];
+  let left = n;
+  for (const r of runs) {
+    if (left <= 0) break;
+    out.push({ ...r, text: cutText(r.text, left) });
+    left -= r.text.length;
+  }
+  return normalise(out);
+}
+// An edit that made a text longer than max (typed, pasted, or put in by the Character Map): the text around the edit
+// stays, and what went in is cut to the room left, never half a character. at: the caret, after what went in.
+export function typedIn(was: string, now: string, max: number): { text: string; at: number } {
+  let p = 0, s = 0;
+  while (p < was.length && p < now.length && was[p] === now[p]) p++;
+  while (s < was.length - p && s < now.length - p && was[was.length - 1 - s] === now[now.length - 1 - s]) s++;
+  if (p && /[\ud800-\udbff]/.test(now[p - 1])) p--;
+  if (s && /[\udc00-\udfff]/.test(now[now.length - s])) s--;
+  if (p + s > max) { const text = cutText(now, max); return { text, at: text.length }; }
+  const put = cutText(now.slice(p, now.length - s), max - p - s);
+  return { text: now.slice(0, p) + put + now.slice(now.length - s), at: p + put.length };
+}
 
 const KEYS = ["bold", "italic", "underline", "script", "font", "size", "colour"] as const;
 export const sameStyle = (a: RunStyle, b: RunStyle) => KEYS.every((k) => a[k] === b[k]);

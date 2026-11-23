@@ -316,7 +316,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.match(editor, /const opened = withFields\(wholeGroups\(asOpened\(/);
   assert.match(editor, /\{!exporting && slots\.length > 0 && \(\n\s+<g className="fields">/);
   // Markup kept as typed (an escape, or Undo of the change) stays as typed when the caption is edited again.
-  assert.match(editor, /if \(!\(expPage && markupCaption\(old\)\)\) marked\(m, w\.id\);/);
+  assert.match(editor, /if \(!kept\(\)\) return false;\n\s+if \(!\(expPage && markupCaption\(old\)\)\) marked\(m, w\.id\);/);
 }
 
 // A reaction inserted on a new page (Name to Structure, paste, import) lands inside the Reaction scheme box, at its top
@@ -396,7 +396,7 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.ok(editor.indexOf("const riskFirst") < editor.indexOf("settings.experimentNoted || notice"), "the risk notice first");
   // The edit's own undo step; online, every substance not yet looked up is looked up, once a session for what it is
   // read as (Sam, 16 November 2026: Na2S2O8 was never looked up).
-  assert.match(editor, /const next = withRiskCas\(withSubstances\(m, list\.map\(\(\{ inchi: _, \.\.\.x \}\) => x\), s\), offlineCas\(list\), s\);\n\s+lastSet\.current = next;\n\s+dispatch\(\{ type: "amend", mol: next \}\);/);
+  assert.match(editor, /const next = withRiskCas\(withSubstances\(m, list\.map\(\(\{ inchi: _, \.\.\.x \}\) => x\), s\), offlineCas\(list\), s\);\n[^\n]*\n\s+if \(!overLimit\(next, m\)\) \{ lastSet\.current = next; dispatch\(\{ type: "amend", mol: next \}\); \}/);
   assert.match(editor, /const want = TAURI && settings\.onlineSearch \? list\.filter\(\(x\) => !had\.get\(x\.key\)\?\.found && !riskAsked\.current\.has\(`\$\{x\.key\} \$\{x\.inchi \?\? ""\}`\)\) : \[\];/);
   assert.match(editor, /if \(want\.length\) void riskOnline\(true, want, true\);/);
   assert.match(editor, /invoke<string \| null>\("pubchem_key", \{ text \}\)/, "a reagent nothing offline reads is read by PubChem, as a key");

@@ -2,7 +2,7 @@
 // Security: the box is built from text nodes and spans made here (textContent, never HTML), styles are read back from
 // each span's own data, and paste inserts plain text only (a citation's formatting can follow, from its runs: richpaste.ts).
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { browserStyle, edited, normalise, plainOf, styleOf, type RunStyle, type TextRun } from "./richtext";
+import { browserStyle, cutText, edited, normalise, plainOf, styleOf, typedIn, type RunStyle, type TextRun } from "./richtext";
 import { offerFor } from "./richpaste.ts";
 import { inMap } from "./CharMap";
 
@@ -23,6 +23,8 @@ type Props = {
   className?: string; // the box's look: a caption's (the default) or an atom label's
   label?: string; // its name for screen readers (Caption by default)
   onOffer?: (start: number, plain: string, runs: TextRun[]) => void; // a citation was pasted plain: its formatted runs
+  max?: number; // the most characters it holds (docs/plans/long-text.md): more typed or pasted is cut, and onCut says so
+  onCut?: () => void;
   singleLine?: boolean; // one line (a table cell): every Return goes to onKeyDown, and a pasted line break is a space
   base?: RunStyle; // the style of text typed outside the box's own spans (a cell's own look; none by default)
 };
@@ -111,6 +113,14 @@ export function RichBox(p: Props) {
     const r = p.api.current?.range(), old = plainOf(runs.current);
     if (r) p.onRuns(edited(runs.current, old.slice(0, r[0]) + text + old.slice(r[1]), p.pending), [r[0] + text.length, r[0] + text.length]);
   };
+  // The room left for text put in over the selection; text past it is cut, and onCut says so. A tab is a space, and
+  // no other control character but a line break goes in.
+  const fit = (raw: string) => {
+    const r = p.api.current?.range() ?? [0, 0], text = raw.replace(/\t/g, " ").replace(/[\u0000-\u0009\u000b-\u001f]/g, ""), room = (p.max ?? Infinity) - plainOf(runs.current).length + r[1] - r[0];
+    if (text.length <= room) return text;
+    p.onCut?.();
+    return cutText(text, room);
+  };
   const typed = () => {
     // One line: a line break or tab that came in (a paste from the Edit menu) is a space, and the box is built
     // again. A cell's text never holds one (a file with one is refused).
@@ -118,6 +128,13 @@ export function RichBox(p: Props) {
     const el = box.current!, all = read(el, p.base), got = p.singleLine && plainOf(all).endsWith("\n") ? edited(all, plainOf(all).slice(0, -1)) : all;
     const flat = !!p.singleLine && /[\u0000-\u001f]/.test(plainOf(got));
     const now = flat ? normalise(got.map((r) => ({ ...r, text: r.text.replace(/[\u0000-\u001f]/g, " ") }))) : got;
+    // Typed past the most it holds (the Character Map and Linux's Edit > Paste type too): what went in is cut to the
+    // room left, the text around it stays, and the box is built again with the caret after it.
+    if (p.max !== undefined && plainOf(now).length > p.max) {
+      p.onCut?.();
+      const { text, at } = typedIn(plainOf(runs.current), plainOf(now), p.max);
+      return p.onRuns(p.pending ? edited(runs.current, text, p.pending) : edited(now, text), [at, at]);
+    }
     // Kept here too: an owner may keep typed text without drawing again (a reagent table cell).
     if (!p.pending) { runs.current = now; return p.onRuns(now, flat ? p.api.current?.range() : undefined); }
     // Characters typed after a style was set with nothing selected take that style; the box is built again.
@@ -152,7 +169,7 @@ export function RichBox(p: Props) {
       onCompositionEnd={() => { if (p.pending) typed(); }}
       onPaste={(e) => {
         e.preventDefault();
-        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = p.singleLine ? lined.replace(/[\u0000-\u001f]/g, " ") : lined, start = p.api.current?.range()?.[0];
+        const lined = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n"), text = fit(p.singleLine ? lined.replace(/[\u0000-\u001f]/g, " ") : lined), start = p.api.current?.range()?.[0];
         if (text.includes("\n")) insert(text);
         else if (text) document.execCommand("insertText", false, text);
         const runs = p.onOffer && start !== undefined ? offerFor(text, e.clipboardData.getData("text/html")) : undefined;
@@ -164,7 +181,7 @@ export function RichBox(p: Props) {
         // Option- or Shift-Return; in one line, every Return is the box's owner's. The browser's own bold, italic and
         // underline are not used (Octet's are).
         if (e.key === "Enter" && p.singleLine) e.preventDefault();
-        else if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); insert("\n"); return; }
+        else if (e.key === "Enter" && (e.shiftKey || e.altKey || p.returnNewLine)) { e.preventDefault(); const t = fit("\n"); if (t) insert(t); return; }
         if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) e.preventDefault();
         p.onKeyDown(e);
       }}

@@ -140,12 +140,12 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const withText = addCaption(plain, { text: "hello", x: 0, y: 0 })[0];
   assert.equal(settleMeasures(plain, withText), withText);
   const r = made(addMeasure(plain, [0, 3]));
-  // Measuring never changes the drawing (D2): a flat structure stays flat, and reads its flat values.
+  // Measuring never changes the drawing (D2): a flat structure stays flat, and reads the values of its 3D model.
   assert.equal(r.mol.atoms, plain.atoms, "the atoms as they were");
   assert.equal(r.mol.bonds, plain.bonds);
   const ring = addRing(EMPTY, 6, false, { point: [0, 0] }), hexane = made(addMeasure(ring, [0, 1, 2]));
   assert.equal(hexane.mol.atoms, ring.atoms, "a flat ring stays flat");
-  assert.equal(caption(hexane.mol, hexane.id).text, "120.0°", "and reads its flat angle");
+  assert.equal(caption(hexane.mol, hexane.id).text, "109.5°", "and reads its chair's angle");
   const m = r.mol, c0 = caption(m, r.id);
   assert.match(c0.text, /^\d\.\d\d Å$/);
   assert.equal(c0.chemical, false, "Interpret Chemically off");
@@ -155,10 +155,10 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const fixed = settleMeasures(undefined, broken);
   assert.equal(caption(fixed, r.id).measure, undefined);
   assert.equal(caption(fixed, r.id).text, c0.text);
-  // A dragged atom: value and label follow.
+  // A dragged atom of a flat structure: the label follows, and the value stays the structure's own (its 3D model's).
   const dragged = { ...m, atoms: m.atoms.map((a, i) => (i === 3 ? { ...a, location: [a.location[0] + 2, a.location[1] + 1, a.location[2]] as [number, number, number] } : a)) };
   const after = settleMeasures(m, dragged), c1 = caption(after, r.id);
-  assert.notEqual(c1.text, c0.text, "the value follows");
+  assert.equal(c1.text, c0.text, "a drag on the page does not change the chemistry");
   assert.ok(Math.hypot(c1.x - c0.x, c1.y - c0.y) > 0.5, "the label follows");
   // The label moved alone: it stays there, and keeps its place in its frame through a turn of the structure.
   const moved = { ...after, captions: after.captions!.map((c) => (c.id === r.id ? { ...c, x: c.x + 1, y: c.y + 2 } : c)) };
@@ -307,7 +307,7 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   assert.equal(deleteAtoms(base, new Set([3])).captions!.filter((c) => c.measure).length, 0);
   const less = deleteAtoms(base, new Set([0]));
   assert.deepEqual(less.captions![0].measure!.ends, [0, 1, 2, 3], "renumbered");
-  assert.equal(settleMeasures(base, less).captions![0].text, m0.text, "the same value");
+  assert.match(settleMeasures(base, less).captions![0].text, /^1[78]\d\.\d°$/, "a value of the smaller chain (its own 3D model)");
   // S40: Contract Label over a measured atom ends that measurement; one on the label's own atom stays.
   const two = made(addMeasure(base, [0, 2])).mol;
   const contracted = contractLabel(two, 2, new Set([2, 3, 4]), "Pr");
@@ -407,8 +407,8 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const v0 = measureValue(r.mol, [5, 6])!;
   const up = settleMeasures(r.mol, placeCentres(moveAtoms(r.mol, new Set([0, 1, 2, 3, 4]), [0, 1])));
   assert.ok(Math.abs(up.atoms[6].location[1] - r.mol.atoms[6].location[1] - 1) < 1e-9, "the point follows its ring");
-  assert.ok(measureValue(up, [5, 6])! > v0, "and the distance with it");
-  assert.notEqual(up.captions![0].text, r.mol.captions![0].text);
+  assert.ok(Number.isFinite(v0) && Math.abs(measureValue(up, [5, 6])! - v0) < 0.01, "a drag on the page does not change the 3D model's distance");
+  assert.equal(up.captions![0].text, r.mol.captions![0].text);
   console.log("measurement.check: multi-centre ok");
 }
 
@@ -658,4 +658,17 @@ const chain = (n: number): Mol => ({ atoms: Array.from({ length: n }, (_, k) => 
   const cdx = writeCdx(fromCdxml(xml).mol, DEFAULT_STYLE);
   opened(readCdx(cdx).mol, "CDX");
   console.log("measurement.check: old form ok");
+}
+
+// A structure drawn flat is measured on its 3D model (3D Clean Up's, the drawing unchanged): acetone's C=O is not the
+// 1.52 Å of a drawn bond.
+{
+  const A = (label: string, x: number, y: number) => ({ label, location: [x, y, 0] as [number, number, number] });
+  const acetone: Mol = { atoms: [A("C", -0.866, 0.5), A("C", 0, 0), A("C", 0.866, 0.5), A("O", 0, -1)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }, { type: 2, atoms: [1, 3] }] };
+  near(measureValue(acetone, [1, 3]), 1.23, 0.02, "acetone C=O");
+  near(measureValue(acetone, [0, 1]), 1.52, 0.02, "acetone C–C");
+  near(measureValue(acetone, [0, 1, 2]), 120, 3, "acetone C–C–C");
+  const propane: Mol = { atoms: [A("C", 0, 0), A("C", 0.866, 0.5), A("C", 1.732, 0)], bonds: [{ type: 1, atoms: [0, 1] }, { type: 1, atoms: [1, 2] }] };
+  near(measureValue(propane, [0, 1, 2]), 109.5, 1, "propane's sp3 angle, not the drawn 120°");
+  console.log("measurement.check: flat structures read their 3D model ok");
 }

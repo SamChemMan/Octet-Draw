@@ -3,14 +3,14 @@
 // the cell pasted in, and grows the grid as far as `most` rows and columns; text with no tab pasted in lines of text
 // stays in that field. kinds: a column's fields, one line of text (the default), lines of text (one line in view, the
 // caret's: Shift+Return or Option+Return makes a new line, and Return does the dialog's action), or a switch. limit:
-// the most characters a column's field takes.
-import { pastedRows, spare } from "./charts";
+// the most characters a field takes, by its column and row.
+import { cut, pastedRows, spare } from "./charts";
 import { Switch } from "./Fields";
 
 export type CellKind = "text" | "lines" | "switch";
 type Props = {
   label: string; cells: string[][]; head: boolean; most: [number, number]; name: (r: number, c: number) => string; placeholder: (r: number, c: number) => string; onChange: (cells: string[][]) => void;
-  kinds?: CellKind[]; limit?: (c: number) => number; columns?: string; first?: [number, number];
+  kinds?: CellKind[]; limit?: (c: number, r: number) => number; columns?: string; first?: [number, number];
   // A pasted table that names the columns and rows: it goes in from the corner.
   headed?: (rows: string[][]) => boolean;
   // titles: each column's name, over it. disabled: a field that does not apply now.
@@ -39,7 +39,7 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
       onPaste={(e) => {
         const at = (e.target as HTMLElement).dataset;
         if (at.r === undefined) return;
-        const rows = pastedRows(e.clipboardData.getData("text/plain"), most[0], most[1], Math.max(...Array.from({ length: cols }, (_, c) => limit(c))), kind(Number(at.c)) === "lines");
+        const rows = pastedRows(e.clipboardData.getData("text/plain"), most[0], most[1], Math.max(...Array.from({ length: cols }, (_, c) => Math.max(limit(c, 0), limit(c, 1)))), kind(Number(at.c)) === "lines");
         if (!rows.length) return;
         e.preventDefault();
         // A whole table (a row of path names on top, a column of state names at the left) pasted at the top of the
@@ -51,7 +51,7 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
           if (r >= most[0] || c >= most[1] || (c >= cols && !head) || (headed && r === 0 && c === 0) || kind(c) === "switch") return;
           while (next.length <= r) next.push(Array(next[0].length).fill(""));
           if (c >= next[0].length) for (const line of next) while (line.length <= c) line.push("");
-          next[r][c] = text.slice(0, limit(c));
+          next[r][c] = cut(text, limit(c, r));
         }));
         change(next);
       }}>
@@ -64,7 +64,7 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
         return (
           <span key={`${r}:${c}`} className="unit-field text">
             {kind(c) === "lines"
-              ? <textarea {...common} value={text} rows={1} maxLength={limit(c)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)}
+              ? <textarea {...common} value={text} rows={1} maxLength={limit(c, r)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter" || e.metaKey || e.ctrlKey) return;
                   e.preventDefault();
@@ -72,12 +72,12 @@ export function Cells({ label, cells, head, most, name, placeholder, onChange, k
                   // Shift+Return or Option+Return: a new line where the caret is. Return: the dialog's action.
                   if (e.shiftKey || e.altKey) {
                     const [a, b] = [t.selectionStart, t.selectionEnd], value = t.value.slice(0, a) + "\n" + t.value.slice(b);
-                    if (value.length > limit(c)) return;
+                    if (value.length > limit(c, r)) return;
                     set(r, c, value);
                     requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = a + 1; });
                   } else t.closest(".dialog")?.querySelector<HTMLButtonElement>(".dialog-button.primary:not(:disabled)")?.click();
                 }} />
-              : <input {...common} value={text} maxLength={limit(c)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)} />}
+              : <input {...common} value={text} maxLength={limit(c, r)} spellCheck={false} placeholder={placeholder(r, c)} onChange={(e) => set(r, c, e.target.value)} />}
           </span>
         );
       }))}

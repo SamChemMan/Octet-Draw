@@ -58,7 +58,7 @@ const notesIn = (xml: string) => [...xml.matchAll(/<annotation\s+Keyword="([^"]*
   each(back, ".oct");
   assert.equal(noteCount(back), noteCount(noted));
   const json = JSON.parse(serialize(noted));
-  for (const bad of [{ notes: "x" }, { notes: [{ keyword: "Note", content: "a\tb" }] }, { notes: [{ keyword: "Note", content: "x".repeat(MAX_CONTENT + 1) }] }, { notes: [{ keyword: "k".repeat(201), content: "x" }] }, { notes: Array.from({ length: 1001 }, () => ({ keyword: "Note", content: "x" })) }]) {
+  for (const bad of [{ notes: "x" }, { notes: [{ keyword: "Note", content: "a\tb" }] }, { notes: [{ keyword: "Note", content: "x".repeat(MAX_CONTENT + 1) }] }, { notes: [{ keyword: "k".repeat(201), content: "x" }] }, { notes: Array.from({ length: 4001 }, () => ({ keyword: "Note", content: "x" })) }]) {
     const copy = structuredClone(json);
     Object.assign(copy.arrows[0], bad);
     assert.throws(() => parse(JSON.stringify(copy)), /This drawing is damaged\./, JSON.stringify(bad).slice(0, 60));
@@ -160,7 +160,8 @@ const xml = toCdxml(noted, DEFAULT_STYLE, { derived });
   const copy = part("const copyOut = ", "const onCut = ");
   assert.match(copy, /bare = withoutNotes\(part\)/);
   assert.ok(!/formatOf\(part,|pictureOf\(part\)|copyPicture\(part\)/.test(copy), "every other app's type is made from bare");
-  assert.match(copy, /octetJson = serialize\(\{ \.\.\.part, style \}\)/, "Octet's own type keeps them");
+  // (with the drawing's monomers its residue labels name, issue 27)
+  assert.match(copy, /octetJson = serialize\(\{ \.\.\.part, style(, \.\.\.\(carried\.length \? \{ monomers: carried \} : \{\}\))? \}\)/, "Octet's own type keeps them");
   assert.match(part("const officeUpdate = ", "const officeClose"), /bare = withoutNotes\(sent\)[\s\S]*copyPicture\(bare\)[\s\S]*formatOf\(bare, "cdxml"\)/, "Update sends none");
   // What the object window keeps for Word, PowerPoint, Excel or LibreOffice while the user draws: the first picture
   // (officePrime) and each change (officeKeep). On the Mac the object is that picture and its CDXML; on Windows the

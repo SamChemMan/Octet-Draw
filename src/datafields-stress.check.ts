@@ -154,7 +154,8 @@ test("S10 a hostile .oct", () => {
   assert.deepEqual(open({ a: 1 }).lost, { "data field": 1 });
   assert.deepEqual(open([{ name: "a", atoms: [99], value: "v" }, { name: "b", atoms: [0], caption: 5 }, { name: "x".repeat(10_000), atoms: [0], value: "v" }, { name: "c", atoms: [0, 0, 1], value: "w" }]).mol.data, [{ name: "c", atoms: [0, 1], value: "w" }]);
   const t = performance.now(), many = open(Array.from({ length: 100_000 }, (_, k) => ({ name: `f${k}`, atoms: [k % 3], value: "v" })));
-  assert.deepEqual([many.mol.data!.length, many.lost], [D.MAX_DATA, { "data field": 90_000 }]);
+  // All on one structure, which holds MAX_EACH (limits.ts withinEach): the rest are counted.
+  assert.deepEqual([many.mol.data!.length, many.lost], [D.MAX_EACH, { "data field": 100_000 - D.MAX_EACH }]);
   assert.ok(performance.now() - t < 1500);
 });
 
@@ -300,7 +301,7 @@ test("S23 bad arguments from an AI app", async () => {
     [arrow, [{ name: "x", value: "y" }], /takes no data|no data/],
     ["t999", [{ name: "x", value: "y" }], /no|There is/i],
     [s1, [{ name: "a<b", value: "y" }], /no < or >/], [s1, [{ name: "", value: "y" }], /1 to 200/], [s1, [{ name: "x".repeat(201), value: "y" }], /200/],
-    [s1, [{ name: "x", value: "v".repeat(10_001) }], /10,?000/], [s1, [{ name: "x", value: "v".repeat(2_001), show: true }], /too long to show/],
+    [s1, [{ name: "x", value: "v".repeat(D.MAX_VALUE + 1) }], /20,?000/], [s1, [{ name: "x", value: "v".repeat(2_001), show: true }], /too long to show/],
     [s1, [{ name: "absent", remove: true }], /no data field absent/], [s1, "not a list", /list|array|data/i],
   ] as [string, unknown, RegExp][]) {
     const r = await call("change", { operations: [{ op: "edit", ids: [id], data }] });

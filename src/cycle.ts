@@ -56,6 +56,7 @@ const THROUGH = 1.3;
 // How far inside the arc's middle its bow handle is, in bond lengths.
 const BOW_IN = 0.35;
 // The most side arrows a cycle has (as the readers allow), and the furthest an end goes (bond lengths).
+export const MAX_STEPS = 64;
 const MAX_BRANCHES = 64, FAR = 50;
 const full = (c: Cycle) => (c.branches?.length ?? 0) >= MAX_BRANCHES;
 
@@ -341,9 +342,10 @@ const tidyStep = (x: CycleStep): CycleStep | null => { const y = Object.fromEntr
 // it is round the circle, on whichever step is there now, and the steps after move on or back by one. lay: the cycles
 // laid out, so a place on a step split or joined keeps its place along the arc as drawn (its fractions are of the arc
 // between the ink, not from node to node).
+// A cycle has at most MAX_STEPS steps, as Octet's files hold (file.ts): no stop is added past it.
 export function resplice(m: Mol, id: number, op: { add: number; atoms: number[] } | { remove: number }, lay?: (m: Mol) => CycleLayout): Mol {
   const c = m.cycles?.find((x) => x.id === id);
-  if (!c) return m;
+  if (!c || ("add" in op && c.nodes.length >= MAX_STEPS)) return m;
   const old = stepsOf(m, c), angles = anglesOf(m, c), n = c.nodes.length, steps: (CycleStep | null)[] = [];
   // Where a place on old step s, g along it (node to node), is now: [step, fraction]. split: the steps it changes.
   let to: (s: number, g: number) => [number, number], node: (k: number) => number | undefined, cycle: Cycle, split: (s: number) => boolean;
@@ -498,8 +500,10 @@ export function dropOnCycle(m: Mol, frags: number[][], was?: Mol, opts: DropOpts
   const layout = (x: Mol = m) => (laid?.[0] === x ? laid[1] : (laid = [x, layoutCycles(x, 1, 1 / (opts.bond ?? 14.4), (atoms) => { const b = boxOf(x, atoms); return b && [b[0] - 0.2, -b[3] - 0.2, b[2] + 0.2, -b[1] + 0.2]; }, (id) => { const t = x.captions?.find((y) => y.id === id), b = t && opts.box?.(t); return b && [b[0], -b[3], b[2], -b[1]]; })])[1]);
   const relabel = (id: number, cycle?: CycleText) => { m = { ...m, captions: m.captions?.map((x) => (x.id !== id ? x : cycle ? { ...x, cycle } : (({ cycle: _, ...rest }) => rest)(x))) }; };
   // Onto the circle at angle a: in a break's place within 0.35 rad, else a node of its own.
+  // A full cycle (MAX_STEPS) takes nothing new: it stays where it was dropped.
   const join = (id: number, a: number, atoms: number[], text?: number) => {
     const c = cyc(id), spot = breakAt(m, c, a, 0.35), j = spot ?? (c.nodes.length ? stepAt(m, c, a) + 1 : 0);
+    if (spot === undefined && c.nodes.length >= MAX_STEPS) return;
     m = spot !== undefined ? { ...m, cycles: m.cycles!.map((x) => (x.id === id ? { ...x, nodes: x.nodes.map((n, k) => (k === spot ? atoms : n)), at: anglesOf(m, x).map((y, k) => (k === spot ? a : y)) } : x)) } : resplice(m, id, { add: a, atoms }, layout);
     if (text !== undefined) relabel(text, { cycle: id, step: j, side: "node" });
   };
@@ -835,7 +839,7 @@ export function readBranches(v: unknown, nodes: number, atom: (i: unknown) => nu
   if (!Array.isArray(v) || v.length > 64) return undefined;
   const out: CycleBranch[] = [];
   const end = (e: unknown): CycleEnd | undefined => {
-    if (!isObject(e) || (e.along !== undefined && !fin(e.along, -50, 50)) || (e.reach !== undefined && !fin(e.reach, -50, 50)) || (e.atoms !== undefined && !(Array.isArray(e.atoms) && e.atoms.length <= 512))) return undefined;
+    if (!isObject(e) || (e.along !== undefined && !fin(e.along, -50, 50)) || (e.reach !== undefined && !fin(e.reach, -50, 50)) || (e.atoms !== undefined && !(Array.isArray(e.atoms) && e.atoms.length <= 100_000))) return undefined;
     const atoms = (e.atoms as unknown[] | undefined)?.map(atom);
     if (atoms?.some((i) => i === undefined)) return undefined;
     return { ...(e.along !== undefined ? { along: e.along as number } : {}), ...(e.reach !== undefined ? { reach: e.reach as number } : {}), ...(atoms?.length ? { atoms: atoms as number[] } : {}) };

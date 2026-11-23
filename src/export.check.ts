@@ -107,7 +107,7 @@ assert.match(rust, /copy_to_clipboard\([^)]*dpi: Option<f32>/);
 assert.deepEqual(CARRY_CDXML, ["pdf", "png", "emf"]);
 assert.match(editor, /cdxml: ask\(on\.cdxml \|\| on\.pdf, "cdxml"\)/, "the clipboard's picture carries the CDXML on every system");
 // (Both make their request with exportRequest, as read with a format does: checked below.)
-assert.match(editor.slice(editor.indexOf("const exportRequest = "), editor.indexOf("\n  };\n", editor.indexOf("const exportRequest = "))), /cdxml: make\("cdxml", "cdxml", \.\.\.CARRY_CDXML\)/, "Export and Quick export put the CDXML in the pictures that carry it");
+assert.match(editor.slice(editor.indexOf("const exportRequest = "), editor.indexOf("\n  };\n", editor.indexOf("const exportRequest = "))), /cdxml: file\("cdxml"\) \?\? make\("cdxml", \.\.\.CARRY_CDXML\)/, "Export and Quick export put the CDXML in the pictures that carry it");
 // Octet's PNG dropped on a tile on Home is the tile's thumbnail, a picture: the app is told it went on a tile.
 assert.match(editor, /"take_opened", \{ insert, project: into && "project" in into \}/, "a picture dropped on any tile is a thumbnail");
 // Issue 20: a picture's frame fits its ink, as ChemDraw's does (within 0.2 pt): rounded outward to hundredths of a

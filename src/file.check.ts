@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { addArrow, addCaption, addRing, addShape, EMPTY, setBondSpec, setElement } from "./edit.ts";
 import { parse, serialize } from "./file.ts";
+import { leftOf } from "./datafields.ts";
 import { DEFAULT_STYLE, withScale } from "./docstyle.ts";
 import type { Mol } from "./render.ts";
 
@@ -223,7 +224,10 @@ for (const text of bad) assert.throws(() => parse(text), /Octet|damaged/);
   assert.throws(bad([{ keyword: "GUID" }]), /damaged/);
   assert.throws(bad([{ keyword: "a\u0001", content: "" }]), /damaged/);
   assert.throws(bad({ keyword: "x", content: "y" }), /damaged/);
-  assert.throws(bad(Array(1001).fill({ keyword: "k", content: "c" })), /damaged/);
+  // More than MAX_ANNOTATIONS on one object (a file from before the editor kept the limit): the first that fit are kept,
+  // the rest counted; four times as many is damaged.
+  assert.deepEqual(leftOf(parse(JSON.stringify({ format: "octet", version: 1, structure: { atoms: [], bonds: [] }, annotations: Array(1001).fill({ keyword: "k", content: "c" }) }))), { annotation: 1 });
+  assert.throws(bad(Array(4001).fill({ keyword: "k", content: "c" })), /damaged/);
 }
 
 // Decision 0007: each object's scale and the document's scale survive a save and reopen; a bad scale is refused.

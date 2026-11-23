@@ -47,7 +47,13 @@ export const noteOf = (m: Mol, t: Target, keyword = NOTE) => annotationsOf(m, t)
 // Whether a target is in the drawing.
 export const hasTarget = (m: Mol, t: Target) => t === "drawing" || !!m.groups?.some((g) => g.id === t) || items(m).some((x) => x.id === t);
 // Every annotation in the drawing: on the drawing, its groups and its objects.
-export const noteCount = (m: Mol) => (m.annotations?.length ?? 0) + (m.groups ?? []).reduce((n, g) => n + (g.annotations?.length ?? 0), 0) + items(m).reduce((n, x) => n + (x.notes?.length ?? 0), 0);
+// One pass with no lists made.
+export function noteCount(m: Mol): number {
+  let n = m.annotations?.length ?? 0;
+  for (const g of m.groups ?? []) n += g.annotations?.length ?? 0;
+  for (const list of [m.captions, m.arrows, m.shapes, m.cycles] as (Holder[] | undefined)[]) for (const x of list ?? []) n += x.notes?.length ?? 0;
+  return n;
+}
 
 // The drawing with each target's annotations replaced (an empty list takes them off). The same drawing when nothing
 // changes; otherwise only the lists changed are new.
@@ -124,12 +130,12 @@ export function allNotes(m: Mol): NoteRow[] {
   return rows;
 }
 
-// The drawing with at most MAX_NOTES annotations: the drawing's first, then its groups' and its objects' in their
-// order; the rest go. Paste and Option-drag can take a drawing over the limit, and a file Octet wrote must open again.
-// The same drawing when it is within the limit.
-export function capNotes(m: Mol): Mol {
-  if (noteCount(m) <= MAX_NOTES) return m;
-  let room = MAX_NOTES;
+// The drawing with at most MAX_NOTES annotations (or most): the drawing's first, then its groups' and its objects' in
+// their order; the rest go. A file from before the editor kept the limit must open, and save and open again. The same
+// drawing when it is within the limit.
+export function capNotes(m: Mol, most = MAX_NOTES): Mol {
+  if (noteCount(m) <= most) return m;
+  let room = most;
   const lists = new Map<Target, Annotation[]>(), take = (t: Target, l?: Annotation[]) => {
     if (!l?.length) return;
     if (l.length > room) lists.set(t, l.slice(0, room));

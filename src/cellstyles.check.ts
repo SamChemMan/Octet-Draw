@@ -25,8 +25,9 @@ assert.match(editor, /if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); retur
 // One line: every Return is the cell's, never a new line; a pasted line break is a space; screen readers hear one line.
 assert.match(box, /if \(e\.key === "Enter" && p\.singleLine\) e\.preventDefault\(\);\s*else if \(e\.key === "Enter" && \(e\.shiftKey \|\| e\.altKey \|\| p\.returnNewLine\)\)/);
 assert.match(box, /aria-multiline=\{!p\.singleLine\}/);
-// A tab or other control character pasted is a space too (a file whose cell holds one is refused as damaged).
-assert.ok(box.includes('text = p.singleLine ? lined.replace(/[\\u0000-\\u001f]/g, " ") : lined'));
+// A tab or other control character pasted is a space too (a file whose cell holds one is refused as damaged), before
+// the paste is cut to the room left (fit).
+assert.ok(box.includes('text = fit(p.singleLine ? lined.replace(/[\\u0000-\\u001f]/g, " ") : lined)'));
 assert.ok(box.includes('flat = !!p.singleLine && /[\\u0000-\\u001f]/.test(plainOf(got))'));
 // A box emptied of its text holds a bare line break: in one line it is no text, so a cleared cell is "", not " ".
 assert.ok(box.includes('got = p.singleLine && plainOf(all).endsWith("\\n") ? edited(all, plainOf(all).slice(0, -1)) : all'));

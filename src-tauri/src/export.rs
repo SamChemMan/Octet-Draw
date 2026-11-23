@@ -504,7 +504,7 @@ fn packbits(line: &[u8], out: &mut Vec<u8>) {
 // as a ChemDraw template file (src/ctp.ts) is a template document (CTP) or stationery (CTS), with ChemDraw's names: the
 // same CDX file. CML and ChemDraw's connection table (CT) are for File > More Formats (Settings > Pro), with ChemDraw's names.
 // NMReDATA is an SD file with NMR assignments (src/nmredata.ts); its default name ends .nmredata.sdf, as Mnova's does.
-pub const FORMATS: [(&str, &str, &[&str]); 32] = [
+pub const FORMATS: [(&str, &str, &[&str]); 33] = [
     ("oct", "Octet drawing", &["oct"]),
     ("pdf", "PDF", &["pdf"]),
     ("svg", "SVG", &["svg"]),
@@ -537,6 +537,8 @@ pub const FORMATS: [(&str, &str, &[&str]); 32] = [
     ("eln", "ELN Archive (ELN)", &["eln"]),
     ("cml", "Chemical Markup Language (CML)", &["cml"]),
     ("ct", "Connection Table (CT)", &["ct"]),
+    // Settings > Dictionary > Monomers > Export… (issue 27): the user's monomers as a HELM monomer library.
+    ("json", "HELM Monomer Library", &["json"]),
 ];
 
 // The formats made from the drawing's picture (its SVG). Each but SVG is binary: read gives it in base64.
@@ -558,6 +560,7 @@ pub struct Export {
     pub inchi: Option<String>,
     tex: Option<String>, // chemfig code (File > More Formats)
     csv: Option<String>, // Home's Experiments list
+    json: Option<String>, // the user's monomers as a HELM monomer library (issue 27)
     model: Option<String>, // a 3MF file's 3D model (src/model3mf.ts)
     eln: Option<Vec<(String, String)>>, // an ELN archive's files, each its path in the zip and its text (src/eln.ts)
     dpi: Option<f32>,
@@ -590,6 +593,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "ctp" | "cts" => e.ctp.is_some(),
         "cds" => e.cds.is_some(),
         "csv" => e.csv.is_some(),
+        "json" => e.json.is_some(),
         "3mf" => e.model.is_some(),
         "eln" => e.eln.is_some(),
         _ => e.mdl.is_some(),
@@ -661,6 +665,7 @@ pub fn file_of(format: &str, e: &Export) -> Result<Vec<u8>, String> {
         "smi" => format!("{}\n", e.smiles.as_deref().unwrap_or_default().trim()).into_bytes(),
         "tex" => format!("{}\n", e.tex.as_deref().unwrap_or_default().trim()).into_bytes(),
         "csv" => text(&e.csv),
+        "json" => text(&e.json),
         _ => text(&e.mdl),
     })
 }

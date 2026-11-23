@@ -7,16 +7,22 @@ import { peptideSmiles } from "./peptide.ts";
 import { nucleicText } from "./nucleic.ts";
 import { browser } from "../scripts/checkkit.ts";
 
-assert.deepEqual(sequenceParts("peptide: "), { kind: "peptide", codes: "", start: false, end: false });
-assert.deepEqual(sequenceParts("peptide: Ac-ACD-NH2"), { kind: "peptide", codes: "ACD", start: true, end: true });
-assert.deepEqual(sequenceParts("RNA: pACGUp"), { kind: "rna", codes: "ACGU", start: true, end: true });
-assert.deepEqual(sequenceParts("dna: 5'-pATGC-3'"), { kind: "dna", codes: "ATGC", start: true, end: false });
+assert.deepEqual(sequenceParts("peptide: "), { kind: "peptide", codes: "", start: "", end: "" });
+assert.deepEqual(sequenceParts("peptide: Ac-ACD-NH2"), { kind: "peptide", codes: "ACD", start: "Ac", end: "NH2" });
+// The other ends Octet has (issue 27), in either case, Z for Cbz; H- and -OH are the usual ones.
+assert.deepEqual(sequenceParts("peptide: boc-ACD-ome"), { kind: "peptide", codes: "ACD", start: "Boc", end: "OMe" });
+assert.deepEqual(sequenceParts("peptide: Z-A[Aib]D-NHEt"), { kind: "peptide", codes: "A[Aib]D", start: "Cbz", end: "NHEt" });
+assert.deepEqual(sequenceParts("peptide: H-ACD-OH"), { kind: "peptide", codes: "ACD", start: "", end: "" });
+assert.deepEqual(sequenceParts("peptide: Xyz-ACD-OEt"), { kind: "peptide", codes: "Xyz-ACD-OEt", start: "", end: "" });
+assert.equal(sequenceText({ kind: "peptide", codes: "ACD", start: "Fmoc", end: "OtBu" }).text, "peptide: Fmoc-ACD-OtBu");
+assert.deepEqual(sequenceParts("RNA: pACGUp"), { kind: "rna", codes: "ACGU", start: "p", end: "p" });
+assert.deepEqual(sequenceParts("dna: 5'-pATGC-3'"), { kind: "dna", codes: "ATGC", start: "p", end: "" });
 assert.equal(sequenceParts("aspirin"), undefined);
 
 // Every choice, before and after codes are typed, reads back the same and draws.
 for (const kind of ["peptide", "rna", "dna"] as const)
-  for (const start of [false, true])
-    for (const end of [false, true])
+  for (const start of ["", kind === "peptide" ? "Ac" : "p"])
+    for (const end of ["", kind === "peptide" ? "NH2" : "p"])
       for (const codes of ["", kind === "peptide" ? "ACDG" : kind === "rna" ? "ACGU" : "ATGC"]) {
         const { text, caret } = sequenceText({ kind, codes, start, end });
         assert.deepEqual(sequenceParts(text), { kind, codes, start, end }, text);
@@ -26,8 +32,8 @@ for (const kind of ["peptide", "rna", "dna"] as const)
         if (kind === "peptide") assert.ok(peptideSmiles(typed), typed);
         else { const n = nucleicText(typed); assert.ok(n && "smiles" in n, typed); }
       }
-assert.equal(peptideSmiles(sequenceText({ kind: "peptide", codes: "G", start: true, end: true }).text), "CC(=O)NCC(=O)N");
-const n = nucleicText(sequenceText({ kind: "rna", codes: "A", start: true, end: false }).text);
+assert.equal(peptideSmiles(sequenceText({ kind: "peptide", codes: "G", start: "Ac", end: "NH2" }).text), "CC(=O)NCC(=O)N");
+const n = nucleicText(sequenceText({ kind: "rna", codes: "A", start: "p", end: "" }).text);
 assert.ok(n && "smiles" in n && n.smiles.startsWith("OP(=O)(O)OC"), "a 5'-phosphate");
 
 // Residue labels: H–Ala–…–OH, or rA–P–rC. Each keeps its atoms, and the bonds say which atom each joins, so the
@@ -134,6 +140,6 @@ assert.equal(new Set(keys).size, keys.length, "each residue name is one compound
 // The editor shows the choices under the field while it holds a sequence.
 const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
 assert.match(editor, /className="name-options"/);
-assert.match(editor, /kind: k, start: false, end: false/, "another kind starts with the usual ends");
+assert.match(editor, /kind: k, start: "", end: ""/, "another kind starts with the usual ends");
 assert.match(editor, /onPointerDown=\{\(e\) => e\.preventDefault\(\)\}/, "the field keeps the focus");
 console.log("sequence: ok");
