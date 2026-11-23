@@ -32,14 +32,14 @@ export class DamagedFile extends Error {}
 export const refusal = (e: unknown) => (((e instanceof RangeError && /^It (has|takes) /.test(e.message)) || e instanceof DamagedFile) && reason(e)) || undefined;
 
 // A failure's notice: what Octet could not do, then why. A reason that says what Octet cannot do goes alone, and so
-// does a drawing too large to write (main.rs MAX_BYTES, oct.ts TOO_LARGE: Save, Save As, Export; objects.rs: Update),
-// with what to do. A drawing too large to open (recovery.rs, windows.rs) keeps the general words. The raw error goes
-// to the console.
-const TOO_LARGE = /^This drawing is larger than 64 MB\. Octet cannot (save it|update the document with it)\.$/;
+// does a drawing too large to write (main.rs MAX_BYTES, oct.ts TOO_LARGE: Save, Save As, Export; recovery.rs: the
+// recovery copy; objects.rs: Update), with what to do. A new drawing saves, but does not update an Office document. A
+// drawing too large to open (recovery.rs, windows.rs) keeps the general words. The raw error goes to the console.
+const TOO_LARGE = /^This drawing is larger than 64 MB\. Octet cannot (save it|keep a copy of it for recovery|update the document with it)\.$/;
 export function failure(what: string, e: unknown): string {
   console.error(e);
-  const why = reason(e);
-  if (TOO_LARGE.test(why)) return `${why} Delete part of it, or copy part of it to a new drawing and save that.`;
+  const why = reason(e), big = TOO_LARGE.exec(why);
+  if (big) return `${why} ${big[1] === "update the document with it" ? "Delete part of it, then update the document again." : "Delete part of it, or copy part of it to a new drawing and save that."}`;
   return !why ? what : why.startsWith("Octet cannot") ? why : `${what} ${why}`;
 }
 
