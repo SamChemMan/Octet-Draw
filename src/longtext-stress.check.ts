@@ -21,10 +21,10 @@ const { followCharts, followLeaders, followLevels } = await import("./pageplot.t
 const { settleMeasures } = await import("./measurement.ts");
 const { showWarnedHydrogens } = await import("./check.ts");
 const { onTop } = await import("./order.ts");
-const { FALLBACK, lostNotice, lostText, readCdx, readOct, replaceNote, writeCdx, writeOct } = await import("./oct.ts");
+const { FALLBACK, TOO_LARGE, cdxOf, lostNotice, lostText, readCdx, readOct, replaceNote, within, writeCdx, writeOct } = await import("./oct.ts");
 const { DEFAULT_STYLE, MAX_START, readPurposes } = await import("./docstyle.ts");
 const { MAX_TEXT, cutRuns, cutText, plainOf, typedIn } = await import("./richtext.ts");
-const { cutNotice } = await import("./notice.ts");
+const { cutNotice, failure } = await import("./notice.ts");
 const { appendCurvePoint, contractLabel, groupTooBig, keptLabel, MAX_CELL, MAX_CURVE, MAX_LABEL, setLabel, setTableCell, splitCurve } = await import("./edit.ts");
 const { MAX_STEPS, addStop } = await import("./cycle.ts");
 const { isDataRole, longNames, readChart, retyped, NEW_ENERGY } = await import("./charts.ts");
@@ -790,7 +790,7 @@ it("L28 a data field's value holds MAX_TEXT characters, as a text: not shown, an
   assert.deepEqual([cd.mol.data, cd.lost], [undefined, { "data field": 1 }]);
 });
 
-it("L29 a drawing larger than 64 MB loses no work: Save refuses it and says what to do, and the recovery copy Octet kept last stays", () => {
+it("L29 a drawing larger than 64 MB loses no work: Save, Save As, Save Copy As, a new drawing's first Save, Export and Update refuse it and say what to do, and the recovery copy Octet kept last stays", () => {
   const rs = src("../src-tauri/src/recovery.rs"), editor = src("./Editor.tsx");
   // recovery.rs write: a copy over MAX_BYTES is refused before anything is written, so the copy kept last stays.
   const write = rs.slice(rs.indexOf("fn write("), rs.indexOf("fn list("));
@@ -799,9 +799,42 @@ it("L29 a drawing larger than 64 MB loses no work: Save refuses it and says what
   // The editor clears its copy only when the drawing is clean (saved, or Don't Save): a refused write or Save leaves it.
   assert.equal(editor.match(/keep\("recovery_clear"\)/g)?.length, 2);
   assert.match(editor, /if \(!mainDirty\) \{ if \(keeper\.kept\) \{ keeper\.kept = false; keep\("recovery_clear"\)\.catch\(keepFailed\(\)\); \} return; \}/);
-  // Save and Save Copy As say what to do.
-  assert.match(editor, /const TOO_LARGE = "This drawing is larger than 64 MB\. Octet cannot save it\. Delete part of it, or copy part of it to a new drawing and save that\.";/);
-  assert.equal(editor.match(/setNotice\(saveFailed\(e\)\);/g)?.length, 2, "Save and Save Copy As");
+  // Every write of a drawing larger than 64 MB says Save's words and what to do (notice.ts failure). The CDX that a
+  // new drawing's first Save, Save As and Save Copy As make (writeCdx) said "This file is too large to open.", the
+  // readers' words (cdxml.ts TOO_BIG), with no word on what to do.
+  const DO = "Delete part of it, or copy part of it to a new drawing and save that.", SAVE = `This drawing is larger than 64 MB. Octet cannot save it. ${DO}`;
+  const big = withTexts('"'.repeat(11_200_000)), refused = (f: () => unknown) => { try { f(); } catch (e) { return e; } assert.fail("not refused"); };
+  const e = refused(() => writeCdx(big, style)), logged = console.error;
+  assert.equal((e as Error).message, TOO_LARGE);
+  console.error = () => {}; // (failure writes each error to the console)
+  try {
+    for (const what of ["Octet cannot save this drawing.", "Octet cannot export this drawing."]) {
+      assert.equal(failure(what, e), SAVE, what);
+      assert.equal(failure(what, new Error("This drawing is larger than 64 MB. Octet cannot save it.")), SAVE, `${what} (main.rs save_drawing)`);
+    }
+    assert.equal(failure("Octet cannot update Word.", new Error("This drawing is larger than 64 MB. Octet cannot update the document with it.")), `This drawing is larger than 64 MB. Octet cannot update the document with it. ${DO}`);
+    assert.equal(failure("Octet cannot open this file.", new Error("This file is larger than 64 MB. Octet cannot open it.")), "Octet cannot open this file. This file is larger than 64 MB. Octet cannot open it.", "a file to open is not a drawing to save");
+    // A drawing too large to open in a new window (windows.rs) or from Home (recovery.rs): no word on what to save.
+    assert.equal(failure("Octet cannot open a new window.", new Error("This drawing is larger than 64 MB. Octet cannot open it.")), "Octet cannot open a new window. This drawing is larger than 64 MB. Octet cannot open it.", "a drawing to open is not one to save");
+  } finally { console.error = logged; }
+  // within: a file's bytes past 64 MB, as UTF-8 for a text.
+  const MB64 = 64 * 2 ** 20;
+  for (const [file, ok] of [["x".repeat(MB64), true], ["x".repeat(MB64 + 1), false], ["€".repeat(Math.floor(MB64 / 3)), true], ["€".repeat(Math.floor(MB64 / 3) + 1), false], ["😀".repeat(MB64 / 4), true], ["😀".repeat(MB64 / 4) + "x", false], [new Uint8Array(MB64 + 1), false]] as const) {
+    assert.equal(ok ? within(file) === file : (refused(() => within(file)) as Error).message === TOO_LARGE, true, `${file.length}`);
+  }
+  assert.equal((refused(() => cdxOf("<CDXML>" + "x".repeat(MB64) + "</CDXML>")) as Error).message, TOO_LARGE);
+  // The editor's writes: Save and Save Copy As, Export of a .oct, CDXML or CDX (its file, or the CDX made again for
+  // its reason), Update, and the Save As of the drawing kept after an error (App.tsx).
+  assert.doesNotMatch(editor, /saveFailed|TOO_BIG/);
+  assert.equal(editor.match(/setNotice\(failure\("Octet cannot save this drawing\.", e\)\);/g)?.length, 2, "Save and Save Copy As");
+  assert.match(editor, /const cdx = as \|\| !file\.path \|\| \/\\\.cdx\$\/i\.test\(file\.path\) \? toBase64\(writeCdx\(/, "Save makes the CDX with writeCdx");
+  assert.match(editor, /: f === "cdx" \? cdxml && toBase64\(cdxOf\(cdxml\)\)/, "Export's and Copy's CDX");
+  assert.match(editor, /const s = formatOf\(mol, pf\), x = !s && pf === "cdx" && formatOf\(mol, "cdxml"\);\n\s+if \(x\) cdxOf\(x\);\n\s+return s && pf !== "cdx" \? within\(s\) : s;/, "Export");
+  assert.match(editor, /oct: file\("oct"\), svg: pic\?\.svg, cdxml: file\("cdxml"\) \?\? make\("cdxml", \.\.\.CARRY_CDXML\), cdx: file\("cdx"\),/, "Export's .oct, CDXML and CDX");
+  assert.match(editor, /setNotice\(failure\("Octet cannot export this drawing\.", e\)\);/);
+  assert.match(editor, /setNotice\(failure\(`Octet cannot update \$\{o\.host\}\.`, e\)\);/);
+  assert.match(src("./App.tsx"), /this\.setState\(\{ note: failure\("Octet cannot save this drawing\.", e\) \}\);/);
+  assert.match(src("../src-tauri/src/objects.rs"), /return Err\("This drawing is larger than 64 MB\. Octet cannot update the document with it\."\.into\(\)\);/);
 });
 
 it("L30 the JSON reader counts the notes of a group of one thing, which it leaves out, as the CDXML reader does", () => {
