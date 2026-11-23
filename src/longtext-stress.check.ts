@@ -861,7 +861,10 @@ it("L29 a drawing larger than 64 MB loses no work: Save, Save As, Save Copy As, 
       assert.equal(failure(what, e), SAVE, what);
       assert.equal(failure(what, new Error("This drawing is larger than 64 MB. Octet cannot save it.")), SAVE, `${what} (main.rs save_drawing)`);
     }
-    assert.equal(failure("Octet cannot update Word.", new Error("This drawing is larger than 64 MB. Octet cannot update the document with it.")), `This drawing is larger than 64 MB. Octet cannot update the document with it. ${DO}`);
+    // Update: a new drawing saved does not update the document, so the notice says to update it again.
+    assert.equal(failure("Octet cannot update Word.", new Error("This drawing is larger than 64 MB. Octet cannot update the document with it.")), "This drawing is larger than 64 MB. Octet cannot update the document with it. Delete part of it, then update the document again.");
+    // The recovery copy (recovery.rs): the copy kept last stays, and the notice says what to do.
+    assert.equal(failure("Octet cannot keep a copy of this drawing for recovery.", new Error("This drawing is larger than 64 MB. Octet cannot keep a copy of it for recovery.")), `This drawing is larger than 64 MB. Octet cannot keep a copy of it for recovery. ${DO}`);
     assert.equal(failure("Octet cannot open this file.", new Error("This file is larger than 64 MB. Octet cannot open it.")), "Octet cannot open this file. This file is larger than 64 MB. Octet cannot open it.", "a file to open is not a drawing to save");
     // A drawing too large to open in a new window (windows.rs) or from Home (recovery.rs): no word on what to save.
     assert.equal(failure("Octet cannot open a new window.", new Error("This drawing is larger than 64 MB. Octet cannot open it.")), "Octet cannot open a new window. This drawing is larger than 64 MB. Octet cannot open it.", "a drawing to open is not one to save");
@@ -884,6 +887,7 @@ it("L29 a drawing larger than 64 MB loses no work: Save, Save As, Save Copy As, 
   assert.match(editor, /setNotice\(failure\(`Octet cannot update \$\{o\.host\}\.`, e\)\);/);
   assert.match(src("./App.tsx"), /this\.setState\(\{ note: failure\("Octet cannot save this drawing\.", e\) \}\);/);
   assert.match(src("../src-tauri/src/objects.rs"), /return Err\("This drawing is larger than 64 MB\. Octet cannot update the document with it\."\.into\(\)\);/);
+  assert.match(src("../src-tauri/src/recovery.rs"), /return Err\("This drawing is larger than 64 MB\. Octet cannot keep a copy of it for recovery\."\.into\(\)\);/);
   // Save's own refusal (main.rs save_drawing) has the words the page's writers give.
   assert.ok(src("../src-tauri/src/main.rs").includes(`return Err("${TOO_LARGE}".into());`), "main.rs save_drawing");
 });
