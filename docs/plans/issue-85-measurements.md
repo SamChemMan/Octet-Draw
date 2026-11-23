@@ -193,6 +193,12 @@ Each job is done when its "done" line is true and its checks in the acceptance l
   (measure as drawn). So a flat drawing reads its flat values (120° angles, 0° ring dihedrals) until the user runs 3D
   Clean Up. The tool, the menu, the Actions panel, the palette and the MCP make the same measurement from the drawing as
   it is, with no clean-up, no glide and no 500-atom notice.
+  **Changed 23 November 2026 (Sam: acetone's C=O read 1.52 Å, "fix this").** Measuring still never changes the
+  drawing, but a structure drawn flat (one depth for all its atoms, up to 500 atoms, every end an atom of it) is measured
+  on the model 3D Clean Up would make (measurement.ts inSpace): acetone's C=O 1.24 Å, propane's C–C–C 109.5°, a flat
+  cyclohexane's dihedrals a chair's. The model is kept with the structure's bonds and elements, so a drag, a turn or a
+  label move builds it no more (measurespeed holds the frame and pointer-move budgets). A drag on the page leaves the
+  value as it is. Free ends, two structures, more than 500 atoms, and a structure with depth read as drawn.
 - **D3. The Å scale is 3D Clean Up's own unit.** With a plain 1.52 Å per median bond, a cleaned-up benzene would
   read 1.52 Å for each C–C bond. With the ratio, it reads 1.38 Å.
 - **D4. Label place.** Automatic: a distance's label beside the middle of its line, on the side with fewer
