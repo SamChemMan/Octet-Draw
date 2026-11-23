@@ -264,6 +264,13 @@ events and does what it returns: pass, press, erase, cancel, view, ring, unring,
   new tool. Both press through onPointerDown, so pen and finger reach them. At their merge, each new px tolerance
   multiplies by `reach.current`. fix/140 changes the Eraser's click; the eraser end uses the Eraser's own press, so it
   takes that fix as it is. fix/162 (box select) runs through the same move code.
+- **Merged with release-1.1.3's tip (added).** The Measure tool places its ends by clicks: a pen's or a finger's tap
+  places an end, on the atom `hitAt` finds with the reach, and a free end within 4 px times the reach of the last is
+  that end again. Its dotted line follows a pen hovering, and a finger's press and drag. The Pen's points and Edit
+  curve's anchors and handles take the reach. The toolbar's active mark steps by `--size-tool` and `--space-1`, so it
+  sits on Pen and Measure (the section between two lines) at 44 px too. The Arrow menu's size switch takes
+  `--size-touch` for `--size-control` with a coarse pointer. A finger's tap in a table's RichBox cell keeps the focus
+  there, as in the old cell. chrome-touch.mjs and touch.js check each.
 
 ## Siblings (consistency pillar)
 
@@ -426,6 +433,9 @@ Linux touch screen, if one is to hand: steps 4 to 7. Mac with a Wacom or Sidecar
 - When you use a pen in a window, a finger after it only moves and zooms the drawing there, so your hand can rest on
   the screen.
 - When you point with a pen or a finger, it reaches atoms, bonds, text and handles from further away than the mouse.
-- When you use a tablet with its keyboard off, the tools and the options in menus are larger.
+- When you measure with a pen or a finger, a tap places an end. The dotted line follows a pen as it hovers, and a
+  finger while you touch and drag.
+- When you use a tablet with its keyboard off, the tools, the options in menus and the Arrow menu's size switch are
+  larger.
 - When you double-click a resize handle on Windows, Scale… opens. On the rotation handle, Rotate… opens, and on a
   reaction arrow, the whole reaction is picked.
