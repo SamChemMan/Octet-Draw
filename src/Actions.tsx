@@ -15,7 +15,7 @@ import {
   Question, TagChevron, EyeClosed, BellSlash, ArrowsInLineVertical, Magnet, FunnelSimple, Clipboard, TestTube, Lightning, Drop, Scales, XSquare, Thermometer, ArrowsSplit, BracketsRound, TreeStructure, BracketsSquare, SquaresFour, Database, TextTSlash, ListPlus, MapPin, Pencil, PencilSimple, ChartDonut, SortDescending, TextColumns, Gauge, Ladder, Equalizer, GridNine, LineVertical, ListStar, ChartPieSlice, ChartPolar,
   AnchorSimple, Snowflake, MinusSquare,
   Storefront, FirstAidKit, Triangle, TriangleDashed, PlusSquare, ShuffleSimple,
-} from "@phosphor-icons/react";
+SquareSplitVertical, FileMinus, } from "@phosphor-icons/react";
 import { PanelControls } from "./PanelControls";
 // Attach data… and Select linked objects (datafields.ts).
 import { Paperclip, SelectionBackground } from "@phosphor-icons/react";
@@ -77,8 +77,9 @@ export type ChartLook = { whole: boolean } & ({ kind: "energy"; join: "line" | "
 // annotate: Annotate… applies (the drawing, or something selected that takes a note; annotate.ts).
 export type Context = ({ annotate?: true }) & (
   // risk: an experiment page with no risk assessment yet, so it can have one (riskassess.ts).
-  | { kind: "empty"; risk?: boolean }
-  | { kind: "drawing"; nameable: boolean; generic?: boolean; risk?: boolean }
+  // added: a lab book page's pages added with Add page (undefined on any other drawing).
+  | { kind: "empty"; risk?: boolean; added?: number }
+  | { kind: "drawing"; nameable: boolean; generic?: boolean; risk?: boolean; added?: number }
   // Different kinds of thing picked together: count things; atoms, when structures are among them.
   // A group selected whole counts as one object. name: a lone whole group's name ("¹H NMR spectrum", "Group").
   // risk: the lone group is the page's risk assessment.
@@ -371,7 +372,7 @@ const KIND_OF: Record<string, string> = {
   search_reaxys: "search", search_reaxys_exact: "search", search_pubchem: "search", search_pubchem_sub: "search", search_scifinder: "search", find_suppliers: "search", find_hazards: "search",
   "rotate.cw15": "turn", "rotate.ccw15": "turn", flip_h: "turn", flip_v: "turn", mirror_h: "turn", mirror_v: "turn", structure_perspective: "depth", flatten: "depth", clean_3d: "depth", redraw_stereo: "depth", invert_here: "depth", to_fischer: "depth", to_wedges: "depth", measure_distance: "depth", measure_angle: "depth", measure_dihedral: "depth", rotate_dialog: "turn", scale_dialog: "turn",
   pairs: "marks", number: "marks", "numbers.roman": "marks", atom_numbers: "marks", show_warnings: "marks", hide_warnings: "marks", explain_warning: "marks", "caption.add": "marks", "caption.names": "marks", colour_by_element: "marks", aromatic_display: "marks", hydrogen_display: "marks", contract_label: "marks",
-  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
+  "cycle.make": "arrange", "align.row": "arrange", "align.column": "arrange", "align.spread-row": "arrange", group: "group", ungroup: "group", group_integral: "group", chart_edit: "chart", "page.add": "file", "page.remove": "file", "chart.axis": "chart", "chart.key": "chart", "chart.zones": "chart", "chart.add.singlet": "chart", "chart.add.triplet": "chart",
   arrange_left: "arrange", arrange_centre: "arrange", arrange_right: "arrange", arrange_top: "arrange", arrange_middle: "arrange", arrange_bottom: "arrange",
   arrange_across: "arrange", arrange_down: "arrange", bring_front: "arrange", send_back: "arrange", centre_page: "arrange", join: "arrange",
   attach_data: "marks",
@@ -463,15 +464,18 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
   const names = (v: "shown" | "hidden") => it(<TagChevron size={18} />, v === "shown" ? "Hide property names" : "Show property names", "caption.names");
   // An experiment page's risk assessment, under the page (riskassess.ts).
   const addRisk = (context.kind === "empty" || context.kind === "drawing") && context.risk ? [small(it(<ShieldWarning size={18} />, "Add risk assessment", "risk.add"))] : [];
+  // A lab book page: Add page, and Remove page once one is added.
+  const pageItems = (context.kind === "empty" || context.kind === "drawing") && context.added !== undefined
+    ? [small(it(<SquareSplitVertical size={18} />, "Add page", "page.add")), ...(context.added ? [small(it(<FileMinus size={18} />, "Remove page", "page.remove"))] : [])] : [];
   switch (context.kind) {
     case "empty":
       items.push(toStructure, it(<ClipboardText size={18} />, "Paste a SMILES or MOL", "paste_hint"),
-        small(it(<FileArrowDown size={18} />, "Import a structure…", "import")), ...addRisk);
+        small(it(<FileArrowDown size={18} />, "Import a structure…", "import")), ...pageItems, ...addRisk);
       break;
     case "drawing":
       items.push(clean, ...(context.nameable ? [nameIt] : []), ...(context.generic ? expandIt : []), toStructure, ...flips, clean3, redraw,
         ...copies, ...searches, small(it(<FileArrowDown size={18} />, "Import a structure…", "import")),
-        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings(), ...addRisk);
+        small(it(<SelectionAll size={18} />, "Select all", "select_all")), small(it(<CornersOut size={18} />, "Fit to window", "zoom_fit")), inWindow, centre, ...warnings(), ...pageItems, ...addRisk);
       break;
     case "selection":
       if (context.risk) items.push(it(<ListChecks size={18} />, "Update substances", "risk.update"), it(<SealWarning size={18} />, "Find hazards", "risk.hazards"), it(<ShieldSlash size={18} />, "Remove risk assessment", "risk.remove"));

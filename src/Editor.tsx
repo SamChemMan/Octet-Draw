@@ -1680,12 +1680,15 @@ export default function Editor() {
   }
   // Each page a part of the drawing covers, as a standalone SVG of the whole page at true size (Print, and the PDF of an
   // experiment page), and how many pages across. Undefined, with a notice, past MAX_PRINT_PAGES.
+  // The ink's box, grown over a lab book page's pages under the first, so a page added and left empty prints too.
+  const withPages = (ink: [number, number, number, number], pw: number, ph: number): [number, number, number, number] =>
+    morePages ? [Math.min(ink[0], -pw / 2 + 1), Math.min(ink[1], -ph / 2 + 1), Math.max(ink[2], pw / 2 - 1), Math.max(ink[3], (morePages + 0.5) * ph - 1)] : ink;
   function pagePictures(part: Mol): { texts: string[]; cols: number } | undefined {
     const canvas = svg.current, [, w, h] = pages[0], pw = w * mm * L, ph = h * mm * L;
     if (!canvas) return undefined;
     flushSync(() => setExporting(part));
     try {
-      const { count, cols, pages: sheets } = pagesOver(canvasInk(canvas) ?? [0, 0, 0, 0], pw, ph);
+      const { count, cols, pages: sheets } = pagesOver(withPages(canvasInk(canvas) ?? [0, 0, 0, 0], pw, ph), pw, ph);
       if (count > MAX_PRINT_PAGES) return void setNotice(`The drawing covers ${count} pages. Octet prints ${MAX_PRINT_PAGES} pages at most. Move the drawing nearer to the page, or make it smaller.`);
       return { texts: sheets.map(([i, j]) => standaloneSvg(canvas, [(i - 0.5) * pw, (j - 0.5) * ph, (i + 0.5) * pw, (j + 0.5) * ph], 1 / pt)), cols };
     } finally { flushSync(() => setExporting(undefined)); }
@@ -1717,7 +1720,7 @@ export default function Editor() {
   // made when the dialog shows it. Then the Save dialog for that format.
   function openExport() {
     const sel = selectedPart(), [, w, h] = pages[0], sheets: NonNullable<typeof exportView>["sheets"] = {};
-    const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { sheets[k] = pagesOver(ink ?? [0, 0, 0, 0], w * mm * L, h * mm * L); };
+    const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { const pw = w * mm * L, ph = h * mm * L, box = ink ?? [0, 0, 0, 0]; sheets[k] = pagesOver(k === "all" ? withPages(box, pw, ph) : box, pw, ph); };
     setExportView({ all: pictureOf(doc, undefined, over("all")), selection: sel && pictureOf(sel, undefined, over("selection")), parts: { all: doc, selection: sel }, sheets });
   }
   const filePrefs = settings.files;
@@ -3042,6 +3045,21 @@ export default function Editor() {
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     experiment_details: () => { if (expPage) setDialog({ kind: "details" }); },
     "risk.add": () => addRiskAssessment(),
+    // A lab book page: a page added under the last one, or the last one added taken away when nothing is on it.
+    "page.add": () => {
+      if (!expPage) return;
+      if (morePages >= 63) return setNotice("A lab book page has 64 pages at most.", "info");
+      set({ ...doc, style: { ...style, pages: (style.pages ?? 0) + 1 } }, true);
+      say(`Page ${morePages + 2} added`);
+    },
+    "page.remove": () => {
+      if (!expPage || !style.pages) return setNotice("Only a page you added can be removed.", "info");
+      const ph = pages[0][2] * mm * L, ink = svg.current && canvasInk(svg.current);
+      if (ink && ink[3] > (morePages - 0.5) * ph) return setNotice(`Page ${morePages + 1} has something on it. Move or delete it first.`, "info");
+      const { pages: n, ...rest } = style;
+      set({ ...doc, style: n! > 1 ? { ...rest, pages: n! - 1 } : rest }, true);
+      say(`Page ${morePages + 1} removed`);
+    },
     "risk.update": () => updateRiskAssessment(),
     "risk.hazards": () => void riskOnline(true),
     "risk.remove": () => { const g = riskGroup(doc); if (g) set(deleteGraphics(doc, new Set(g.items))); },
@@ -4015,6 +4033,9 @@ export default function Editor() {
   // Its risk assessment (riskassess.ts) has places to type too, and boxes a click ticks, with the same tools. A place
   // takes the click over the lines and boxes Octet draws for the risk assessment.
   const riskLay = useMemo(() => (expPage ? riskLayout(doc, sheetOf(style)) : undefined), [expPage, doc.captions, doc.groups, style]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A lab book page's pages under the first: the risk assessment's (to its foot), then those added with Add page.
+  const riskPages = riskLay ? Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2])) : 0;
+  const morePages = expPage ? Math.min(63, riskPages + (style.pages ?? 0)) : 0;
   const riskItems = useMemo(() => new Set(riskGroup(doc)?.items), [doc.groups]); // eslint-disable-line react-hooks/exhaustive-deps
   const riskTickAt = (p: P) => riskLay?.ticks.find((x) => inSpan(x.box, p));
   // The part of it a press picked (pressSelect): Delete with just that part picked removes it, and it stays removed.
@@ -7912,8 +7933,8 @@ export default function Editor() {
     if (pickedGrid && pickedCol) return { kind: "grid", ...cellStyles, product: pickedCol.product, limiting: pickedGrid.limiting === pickedCol.key, hidden: pickedGrid.hiding, rows: !!pickedGrid.texts, empty: emptyRows(pickedGrid).length > 0, role: pickedCol.role, ...gridSteps(pickedGrid.arrow), free: !!pickedGrid.free, own: !!pickedGrid.own?.some((o) => o.id === gridPick!.row),
       ...(!pickedCol.product && (gridPick!.row === "mass" || gridPick!.row === "volume") && pickedGrid.taken?.[pickedCol.key] !== gridPick!.row && gridText(pickedGrid, pickedCol, GRID_ROWS.find((r) => r.id === gridPick!.row)!).text ? { mark: true } : {}),
       ...(pickedGrid.taken?.[pickedCol.key] ? { marked: true } : {}) };
-    const risk = expPage && !riskGroup(doc);
-    if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()), risk } : { kind: "empty", risk };
+    const risk = expPage && !riskGroup(doc), added = expPage ? style.pages ?? 0 : undefined;
+    if (!selection.size) return doc.atoms.length || doc.captions?.length || doc.arrows?.length || doc.shapes?.length ? { kind: "drawing", nameable, generic: genericSites(doc, doc.atoms.keys()), risk, added } : { kind: "empty", risk, added };
     // Atoms that are only in a drag (an Option-drag's copies, before they are kept) are not in the drawing yet.
     const ids = [...selection].filter((i) => i < doc.atoms.length);
     if (!ids.length) return { kind: "drawing", nameable };
@@ -11854,7 +11875,7 @@ export default function Editor() {
           <g className="pages" aria-hidden ref={pagesEl}>
             {/* An experiment page's risk assessment starts the page under it (riskassess.ts): that page and any after it to the risk assessment's foot, the same size. */}
             {style.edges && [...pages.map(([name, w, h]): [string, string, number, number, number] => [name, name, w, h, 0]),
-              ...(riskLay ? Array.from({ length: Math.min(63, Math.max(0, Math.ceil((-riskLay.bottom / mm - pages[0][2] / 2) / pages[0][2]))) }, (_, j): [string, string, number, number, number] => [`risk${j}`, `Page ${j + 2}`, pages[0][1], pages[0][2], (j + 1) * pages[0][2] * mm * L]) : [])].map(([key, name, w, h, dy]) => {
+              ...(morePages ? Array.from({ length: morePages }, (_, j): [string, string, number, number, number] => [`risk${j}`, `Page ${j + 2}`, pages[0][1], pages[0][2], (j + 1) * pages[0][2] * mm * L]) : [])].map(([key, name, w, h, dy]) => {
               const [x, y, t] = [(w / 2) * mm * L, (h / 2) * mm * L, 10 / view.zoom];
               return (
                 <g key={key} className={!dy && pageHover === name ? "page hovered" : "page"}>

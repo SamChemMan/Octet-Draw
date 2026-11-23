@@ -102,6 +102,7 @@ export const RELEASES: Release[] = [
         "Data fields can be attached to structures, shown on the page, and kept through SDF and ChemDraw files. (#68)",
         "Notes can go on the drawing, or on a text, arrow, shape, cycle or group, in a Notes panel. ChemDraw annotations open there too. (#101, #102)",
         "A text box now holds up to 20,000 characters, so a whole procedure with the characterisation data fits.",
+        "Lab book pages can now have more pages: Add page and Remove page in the Actions panel or right-click. An added page prints and exports even when empty.",
       ] },
       { title: "Files and formats", items: [
         "Export an ELN archive, and RDF and SDF files with your reagent table data. (#117)",

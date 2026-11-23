@@ -70,6 +70,7 @@ export type DocStyle = {
   // The named colours saved with the document (ChemDraw keeps a palette in each document): the user's own colours
   // when it was saved. Another computer shows them in the drawing's colour row.
   palette?: { name: string; hex: string }[];
+  pages?: number; // a lab book page's pages added under it (Add page), 1 to 62; the risk assessment's own pages come first
   chainAngle: number; // ChemDraw's Chain Angle: the angle between the bonds of a chain drawn with the Chain tool (°)
   // The style's size against its preset (1 is 100%): bond, line, bold, margin, hash and the two text sizes hold the
   // preset's values times it (decision 0007). Bond spacing is a percent, so it does not change.
@@ -216,6 +217,7 @@ export function readStyle(v: unknown): DocStyle {
     scale: num("scale", 0.1, 10),
     ...(typeof s.purpose === "string" && /^[a-z0-9-]{1,40}$/.test(s.purpose) ? { purpose: s.purpose } : {}),
     ...(s.sequences === "atoms" || s.sequences === "labels" ? { sequences: s.sequences } : {}),
+    ...(Number.isInteger(s.pages) && (s.pages as number) >= 1 && (s.pages as number) <= 62 ? { pages: s.pages as number } : {}),
     ...(readGap(s.arrowGap) !== undefined && readGap(s.arrowGap) !== GAP_ARROW_PT ? { arrowGap: readGap(s.arrowGap) } : {}),
   };
   const palette = (Array.isArray(s.palette) ? s.palette : []).flatMap((c: unknown) => {

@@ -245,9 +245,9 @@ assert.match(editor, /if \(picture\) return pastePicture\(picture\);\s+const say
   assert.ok(dialog.includes('{sheet.count === 1 ? "1 page" : `${sheet.count.toLocaleString()} pages`} · {paperName}'));
   assert.ok(dialog.includes("{isPicture && !sheet && ("), "no margin on document pages");
   // The Editor: each part's pages are counted from the ink its picture is cut to, and Export sends the pages.
-  assert.ok(editor.includes('const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { sheets[k] = pagesOver(ink ?? [0, 0, 0, 0], w * mm * L, h * mm * L); };'));
+  assert.ok(editor.includes('const over = (k: "all" | "selection") => (ink?: [number, number, number, number]) => { const pw = w * mm * L, ph = h * mm * L, box = ink ?? [0, 0, 0, 0]; sheets[k] = pagesOver(k === "all" ? withPages(box, pw, ph) : box, pw, ph); };'));
   assert.ok(editor.includes('const paged = f.format === "pdf" && ((part === "all" && expPage) || f.pdfPages === "document"), sheets = paged ? pagePictures(mol) : undefined;'));
-  assert.match(editor, /const \{ count, cols, pages: sheets \} = pagesOver\(canvasInk\(canvas\) \?\? \[0, 0, 0, 0\], pw, ph\);/, "the same count as Print's");
+  assert.match(editor, /const \{ count, cols, pages: sheets \} = pagesOver\(withPages\(canvasInk\(canvas\) \?\? \[0, 0, 0, 0\], pw, ph\), pw, ph\);/, "the same count as Print's");
   const quick = editor.slice(editor.indexOf("async function quickExport("), editor.indexOf("\n  }\n", editor.indexOf("async function quickExport(")));
   assert.ok(quick && !quick.includes("pdfPages") && !/function exportRequest|const exportRequest[^\n]*pdfPages/.test(editor), "Quick export stays one page");
   assert.ok(!/copyToClipboard\([^\n]*pdfPages/.test(editor), "the clipboard PDF stays one page");

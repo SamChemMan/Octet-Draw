@@ -405,3 +405,14 @@ assert.equal(experimentPage(undefined, undefined, withDetails(undefined, details
   assert.match(editor, /if \(command === "delete" && riskDelete\(\)\) return;/);
   assert.match(editor, /"risk\.remove": \(\) => \{ const g = riskGroup\(doc\); if \(g\) set\(deleteGraphics\(doc, new Set\(g\.items\)\)\); \},/);
 }
+
+// Add page and Remove page on a lab book page (Sam, 23 November 2026): the count of pages added is the style's pages,
+// 1 to 62, read from a file only in that range; the Actions panel offers them on a lab book page only.
+{
+  const { readStyle, DEFAULT_STYLE } = await import("./docstyle.ts");
+  assert.equal(readStyle({ ...DEFAULT_STYLE, pages: 3 }).pages, 3);
+  for (const bad of [0, 63, 1.5, "2", -1]) assert.equal(readStyle({ ...DEFAULT_STYLE, pages: bad }).pages, undefined, String(bad));
+  const actions = readFileSync(new URL("Actions.tsx", import.meta.url), "utf8");
+  assert.match(actions, /context\.added !== undefined\s*\? \[small\(it\(<SquareSplitVertical size=\{18\} \/>, "Add page", "page\.add"\)\), \.\.\.\(context\.added \? \[small\(it\(<FileMinus size=\{18\} \/>, "Remove page", "page\.remove"\)\)\] : \[\]\)\] : \[\];/);
+  assert.equal((actions.match(/\.\.\.pageItems, \.\.\.addRisk\)/g) ?? []).length, 2, "with nothing selected, on an empty page and on a drawing");
+}
