@@ -13,7 +13,7 @@
 // set's button, or a set's menu) tears a set off into a floating palette (FloatingTemplates, below). The library and
 // each palette have a template size (SizeChoice), and a set's menu saves it as a ChemDraw template file.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLineDownRight, ArrowLineUpLeft, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
+import { ArrowLineDownRight, ArrowLineUpLeft, CaretUp, ArrowSquareOut, BookmarkSimple, Copy, FileArrowUp, Folders, FolderSimple, FolderSimplePlus, FolderSimpleUser, MagnifyingGlass, NotePencil, PencilSimple, Plus, PushPin, Trash, X } from "@phosphor-icons/react";
 import { ContextMenu, menuAt, menuKey, type MenuItem } from "./Menu";
 import { commonKey } from "./common";
 import { exactFirst } from "./library";
@@ -155,6 +155,8 @@ export function StructureThumb({ id, mol, px }: { id: string; mol: Mol; px?: num
 // The template in hand, drawn large under the library's templates, to choose the atom or bond it attaches by
 // (addTemplate): a click on one chooses it and rings it, a click on it again takes it off. Tab goes to the chosen one
 // (else the first atom), the arrow keys go through the atoms and then the bonds, and Return or Space chooses.
+// Shut at first (a new user has no need of it); open or shut stays so for the session, from template to template.
+let attachOpen = false;
 const sameAnchor = (a: TemplateAnchor | undefined, b: TemplateAnchor) => !!a && ("atom" in a ? "atom" in b && a.atom === b.atom : "bond" in b && a.bond === b.bond);
 export function AttachPicker({ name: title, mol, anchor, onAnchor }: { name: string; mol: Mol; anchor?: TemplateAnchor; onAnchor: (a: TemplateAnchor | undefined) => void }) {
   const drawn = useMemo(() => drawThumb(mol, STYLE), [mol]), L = STYLE.bond;
@@ -162,6 +164,7 @@ export function AttachPicker({ name: title, mol, anchor, onAnchor }: { name: str
   const chosen = validAnchor(mol, anchor);
   const options = useMemo<TemplateAnchor[]>(() => [...mol.atoms.flatMap((a, i) => (a.hidden ? [] : [{ atom: i }])), ...mol.bonds.map((_, k) => ({ bond: k }))], [mol]);
   const [focus, setFocus] = useState<number>();
+  const [open, setOpen] = useState(attachOpen);
   const hits = useRef<SVGGElement>(null);
   const at = Math.max(0, options.findIndex((o) => sameAnchor(chosen, o)));
   const name = (o: TemplateAnchor) => {
@@ -182,8 +185,12 @@ export function AttachPicker({ name: title, mol, anchor, onAnchor }: { name: str
     }
   };
   return (
-    <div className="library-attach">
-      <span className="library-attach-name" aria-hidden>Attach by</span>
+    <div className="library-attach" data-open={open || undefined}>
+      <button type="button" className="library-attach-head" aria-expanded={open} onClick={() => setOpen((attachOpen = !open))}>
+        <span>Attach point{chosen ? `: ${name(chosen)}` : ""}</span>
+        <CaretUp size={12} aria-hidden />
+      </button>
+      <div className="library-attach-body" inert={!open || undefined}>
       <svg viewBox={drawn.view} role="radiogroup" aria-label={`Attach ${title} by`}>
         <g ref={hits}>
           {options.map((o, k) => {
@@ -201,6 +208,7 @@ export function AttachPicker({ name: title, mol, anchor, onAnchor }: { name: str
           {drawn.labels.map((l, i) => <text key={i} x={l.x} y={l.y} transform={labelTurn(l)} fill="currentColor" style={{ font: `${l.size}px ${fontStack("Arial")}` }}>{l.text}</text>)}
         </g>
       </svg>
+      </div>
     </div>
   );
 }
