@@ -754,6 +754,7 @@ check("O22.headless", "The Mac: a LibreOffice picture sent to an Octet with no w
 
 let windowless = false, ran: string[] = [], libreOfficeFails: string | undefined;
 const base: Partial<Host> = {
+  names: async () => {}, stereoNames: () => ({}), anchor: () => undefined, nmredata: async () => false, online: async () => "Search runs in the Octet app.", found: () => ({}),
   libreoffice: async () => { ran.push("add_to_libreoffice"); return libreOfficeFails; },
   doc: () => EMPTY, style: () => DEFAULT_STYLE, dialog: (id) => id === "add_to_libreoffice", windowless: () => windowless, experiment: () => false,
   command: (id) => { ran.push(id); return true; }, act: (id) => { ran.push(id); return true; }, settle: async () => {}, asking: () => false, dismiss: () => {},

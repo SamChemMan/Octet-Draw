@@ -324,7 +324,7 @@ it("L8 the editor uses the cuts: the caption box, the label box, a cell, a detai
   assert.match(editor, /!d\.group\.every\(\(i\) => doc\.atoms\[i\]\) \|\| groupTooBig\(doc, new Set\(d\.group\)\)\) return;\n\s+setDialog\(undefined\);\n\s+setSettings\(\(st\) => \(\{ \.\.\.st, nicknames: withNickname/);
   assert.equal(editor.match(/>= MAX_CURVE\) return setNotice\(`A curve holds up to \$\{MAX_CURVE\.toLocaleString\("en-GB"\)\} points\.`, "info"\)/g)?.length, 2, "Pen and Edit Curve");
   assert.match(editor, /c\.nodes\.length >= MAX_STEPS\) return setNotice\(`A cycle holds up to \$\{MAX_STEPS\} steps\.`, "info"\)/);
-  assert.match(editor, /const over = opened \? undefined : overLimit\(risked, doc\);\n\s+refused\.current = !!over;\n\s+if \(over\) \{ setNotice\(over, "info"\); return doc; \}/);
+  assert.match(editor, /const over = opened \? undefined : overLimit\(risked, doc\);\n\s+refused\.current = over;\n\s+if \(over\) \{ setNotice\(over, "info"\); return doc; \}/);
   assert.match(editor, /all\.length <= MAX_START \? all : undefined;\n\s+if \(all && !start\) setNotice\(/);
   // A file opened from its CDXML because its own copy failed says so, keeps its style, and Save asks first.
   assert.match(editor, /const other = read\.foreign && !read\.fallback;/);

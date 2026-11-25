@@ -60,6 +60,7 @@ const host: Host = {
   picture: async () => "iVBOR", restyle: (s) => { m = { ...m, style: s }; }, experiment: () => experiment,
   said: (t) => said.push(t), working: (text, stop, at) => { if (!at) notice = text ? { text, stop } : undefined; far.push([notice?.text, !!notice?.stop, at]); }, selection: () => picked, select: (atoms, items) => { picked = { atoms, items }; },
   file: (t) => host.structure(t), export: () => true, office: () => false, dialog: (id) => ["print", "rotate_dialog", "add_to_libreoffice"].includes(id), windowless: () => windowless,
+  names: async () => {}, stereoNames: () => ({}), anchor: () => undefined, nmredata: async () => false, online: async () => "Search runs in the Octet app.", found: () => ({}),
   libreoffice: async () => { commands.push("add_to_libreoffice"); return libreOfficeFails; },
   asking: () => asking, dismiss: () => { asking = false; dismissed++; },
   opens: async (t) => (t.startsWith("<bad") ? { failed: "Octet cannot open this file. This ChemDraw file is damaged." } : t.startsWith("<lost") ? { lost: "2 bogus" } : {}),
@@ -1119,10 +1120,12 @@ assert.equal(text(out), "C1C=CC=CC=1.O", "benzene and water, as Octet writes SMI
 out = await call("read", { format: "pdf", dpi: 600, transparent: true, width_mm: 89 });
 assert.deepEqual((out as any).structuredContent, { format: "pdf", text: JSON.stringify({ dpi: 600, transparent: true, width_mm: 89 }) });
 assert.deepEqual(((await call("read", { format: "PDF" })) as any).structuredContent.text, "{}");
+// A PDF's pages: one, or all the pages it covers, as Export's Pages sets them (else the user's choice).
+assert.deepEqual(JSON.parse(((await call("read", { format: "pdf", pages: "all" })) as any).structuredContent.text), { pages: "all" });
 assert.match(text(await call("read", { format: "png", dpi: 9999 })), /dpi/);
 // BMP (File > More Formats > Export BMP) is a picture: the window makes it as Export does.
 assert.doesNotMatch(text(await call("read", { format: "bmp" })), /not one of/);
-assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /if \(!PICTURES\.includes\(format as ExportFormat\) && format !== "bmp"\) return formatOf\(/);
+assert.match(readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8"), /if \(!PICTURES\.includes\(format as ExportFormat\) && format !== "bmp"\) return own\(\(\) => formatOf\(/);
 assert.match(text(await call("read", { format: "tiff" })), /^Octet cannot write this drawing as TIF\.$/);
 // A picture of an empty drawing: Export's own words.
 {
@@ -1975,8 +1978,9 @@ for (const uri of ["octet://drawing/draw-2", "octet://drawing/draw-1/mol", "file
   // Help gives a schema the same way, and none of what is only Octet's.
   assert.ok(!/"(maxLength|maxItems|minItems|minimum|maximum|numeral|also|default|unlisted)"/.test(JSON.stringify((await call("advanced", { tool: "help", args: { of: "edit" } })).structuredContent.arguments)));
   fresh();
-  const long = await call("change", { operations: [{ op: "text", text: "x".repeat(2001) }] });
-  assert.ok(long.isError && /2000/.test(text(long)) && !m.captions?.length, text(long));
+  // A text holds 20,000 characters (richtext.ts MAX_TEXT, long text): one more is refused.
+  const long = await call("change", { operations: [{ op: "text", text: "x".repeat(20_001) }] });
+  assert.ok(long.isError && /20,?000/.test(text(long)) && !m.captions?.length, text(long));
 }
 
 // R5: figure shows the figure as it builds (half the rows, then the rest), with progress, and ends laid out.

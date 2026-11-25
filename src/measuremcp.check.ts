@@ -86,7 +86,7 @@ assert.ok(JSON.stringify(summary).includes('"measure":"dihedral"'), "the summary
 
 // run_command measure, with ids in order: a distance and an angle. The same one again is the one there (S35).
 r = await call("advanced", { tool: "run_command", args: { command: "measure", ids: [`${s}.1`, `${s}.4`] } });
-assert.match(text(r), /Added the distance t\d+: \d\.\d\d Å\./);
+assert.match(text(r), /Added the length \(distance\) t\d+: \d\.\d\d Å\./);
 assert.doesNotMatch(text(r), /cleaned up/, "no clean-up");
 r = await call("advanced", { tool: "run_command", args: { command: "measure_angle", ids: [`${s}.1`, `${s}.3`, `${s}.2`] } });
 assert.match(text(r), /Added the angle t\d+: 1\d\d\.\d°\./);
@@ -117,9 +117,9 @@ for (const [args, says] of [
   assert.equal(m, before, "nothing changes");
 }
 for (const [args, says] of [
-  [{ command: "measure" }, /takes the atoms' ids/],
-  [{ command: "measure_distance", ids: [`${s}.1`, `${s}.2`, `${s}.3`] }, /takes 2 atom ids/],
-  [{ command: "measure_dihedral", ids: [`${s}.1`, s] }, /takes 4 atom ids/],
+  [{ command: "measure" }, /takes the ends' ids/],
+  [{ command: "measure_distance", ids: [`${s}.1`, `${s}.2`, `${s}.3`] }, /takes 2 ends/],
+  [{ command: "measure_dihedral", ids: [`${s}.1`, s] }, /takes 4 ends/],
 ] as [unknown, RegExp][]) {
   const out = await call("advanced", { tool: "run_command", args });
   assert.ok(out.isError, JSON.stringify(args));

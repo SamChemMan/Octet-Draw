@@ -47,7 +47,7 @@ const mcp = read("mcp.ts");
 assert.match(mcp, /!grid\.own\?\.some\(\(o\) => o\.id === row\) \|\| own\.some\(\(o\) => o\.id === row\)/);
 // Cells an AI app gives keep their styles only while the rows stay as many (a row taken out would move styles to
 // the rows under it).
-assert.match(mcp, /keep = !t\.cells \|\| cells\.length === was\?\.cells\.length;\s*return \{ \.\.\.rest, \.\.\.\(runs && keep \? \{ runs \} : \{\}\),/);
+assert.match(mcp, /keep = !t\.cells \|\| cells\.length === was\?\.cells\.length;\s*const runs = given \? [^\n]*: had && keep \? had : undefined;\s*return \{ \.\.\.rest, \.\.\.\(runs \? \{ runs \} : \{\}\),/);
 // Up or Shift-Return in the top row stays in the cell with its caret where it was (no new box, nothing selected).
 assert.match(editor, /if \(r === w\.r && c === w\.c\) \{ if \(value !== plainOf\(w\.runs\)\) setCell\(\{ \.\.\.cellOf\(cur, r, c, w\.version \+ 1\), caret: \[value\.length, value\.length\] \}\); \}\s*else if \(r >= 0\) setCell/);
 // An underlined table's empty cell shows the underline while typed in.

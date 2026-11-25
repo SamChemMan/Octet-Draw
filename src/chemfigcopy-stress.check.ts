@@ -182,7 +182,7 @@ await kase("ST10", "S11 zoom and dark mode cannot change the code: the writer ta
   const src = readFileSync(new URL("chemfig.ts", import.meta.url), "utf8");
   assert.ok(!/matchMedia|prefers-color-scheme|zoom|darkPaper|systemDark/.test(src.replace(/^\s*\/\/.*$/gm, "")), "the writer reads no theme or zoom");
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\), labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
+  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\) \|\| !!partSel\.current, labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
 });
 
 await kase("ST11", "S12 colours on labels, bonds and marks; black writes nothing; Colour by Element as the page has it", () => {

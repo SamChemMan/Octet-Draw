@@ -395,7 +395,7 @@ pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // Release 1.1.3 ships with the AI features off and 1.2 turns them on (src/features.ts AI). Off: no Image to Structure
 // in the File menu, and Octet does not answer AI apps (the relay, --mcp, and Octet with no window, --headless --mcp).
 // --convert stays.
-pub const AI: bool = false;
+pub const AI: bool = true;
 // Octet saves .oct, a CDXML file with Octet's drawing inside (decision 0004), or .cdxml, which is the same file, or
 // .cdx, ChemDraw's binary file with Octet's drawing inside (decision 0009). It opens all three, and the older .octet
 // files.

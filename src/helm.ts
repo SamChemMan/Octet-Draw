@@ -280,7 +280,8 @@ export function seqBuilt(ask: SeqAsk): Mol | { problem: string } | undefined {
   return "problem" in built ? built : built.mol;
 }
 // Whether text is a sequence for the field: Octet's words or HELM.
-export const isSeqText = (text: string) => /^\s*(peptide|rna|dna)\s*:/i.test(text) || /^\s*(PEPTIDE|RNA|CHEM|BLOB)\d{1,9}\{/.test(text);
+import { isSeqText } from "./seqtext.ts";
+export { isSeqText };
 // Why a sequence is too large to draw: in full, its atoms (counted from its monomers, about 120 residues), or as
 // residue labels, its residues.
 export function seqProblem(seq: Seq, labels: boolean, own: Own = []): string | undefined {

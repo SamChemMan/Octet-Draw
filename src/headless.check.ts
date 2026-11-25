@@ -844,7 +844,7 @@ try {
 {
   const { scaleSizes } = await import("./edit.ts");
   const editor = readFileSync(new URL("./Editor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /set: \(m\) => \(now\.current = \(mcpWait\.current = \{ mol: set\(m\) \}\)\.mol!\)/, "the window's set is its doc at once");
+  assert.match(editor, /set: \(m\) => \{ const made = set\(m\); if \(refused\.current\) throw new RangeError\(refused\.current\); return \(now\.current = \(mcpWait\.current = \{ mol: made \}\)\.mol!\); \}/, "the window's set is its doc at once");
   assert.match(editor, /restyle: \(next\) => \{ now\.current = \(mcpWait\.current = \{ mol: set\(\{ \.\.\.scaleSizes\(now\.current,/, "restyle builds on the drawing set");
   const real = drawing("paper").host;
   let now = real.doc(), drawn = real.style();

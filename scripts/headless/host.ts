@@ -17,7 +17,7 @@ import { centreText, dropOnCycle, followArcs, isSide, layoutCycles, spreadCycle,
 import { dictionaryCas, loadDictionary, nameList } from "../../src/dictionary.ts";
 import { DEFAULT_STYLE, fontStack, frameStyle, pageSize, purposeOf, readStyle, styleFor, type DocStyle } from "../../src/docstyle.ts";
 import { DRUGS } from "../../src/drugs.ts";
-import { carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
+import { addCaption, carryDepth, deleteGraphics, EMPTY, fitSizes, fragments, inRow, moveAtoms, pickAtoms, placeCentres, sandwich, scaleSizes, subset, updateCaption, wholeGroups, withCaptionAtoms } from "../../src/edit.ts";
 import { calculated, liveValues, nameValues, placeValues, propertyValues, withCas } from "../../src/proprows.ts";
 import { experimentPage, newExperiment, newGrids, syncDetails, type Sheet } from "../../src/experiment.ts";
 import { followCharts, followLeaders, followLevels } from "../../src/pageplot.ts";
@@ -28,6 +28,9 @@ import { formulaRuns, labelSmiles } from "../../src/labels.ts";
 import { resetIds, type FileFormat, type FileOptions, type From, type Host } from "../../src/mcp.ts";
 import { iupacName } from "../../src/namer.ts";
 import { refusal } from "../../src/notice.ts";
+import { overLimit } from "../../src/limits.ts";
+import { followArrows } from "../../src/arrowlink.ts";
+import { settleMeasures } from "../../src/measurement.ts";
 import { attachOpsin, knownName, looksLikeSmiles, nameToAtoms, nameToSmiles, setPseudoReader } from "../../src/names.ts";import { checkedName, namerName, setCageCheck, setComplexNamer, setNamer } from "../../src/naming.ts";import { pseudoReader } from "../../src/pseudo.ts";
 import { onTop } from "../../src/order.ts";
 import { cleanUpReactions, findReaction, gapFor, withStructure, type Layout, type Reaction } from "../../src/reaction.ts";
@@ -139,13 +142,18 @@ export function drawing(purpose = "paper", title = "Untitled") {
     // As the editor's set: a page spectrum's leader follows its label, text typed over a chart's caption is its data,
     // and a Jablonski diagram's transitions follow a level moved (a level or transition moved is its data).
     const env = { captionSize: s.captionSize, bond: s.bond, line: s.line };
-    mol = followLevels(doc, followCharts(doc, followLeaders(doc, mol), env), env);
-    const fitted = placeCentres(carryDepth(doc, showWarnedHydrogens(mol)));
+    // A curved arrow's end tied to an atom, bond or lone pair goes where the edit moved it (arrowlink.ts), and
+    // measurements follow their atoms (measurement.ts), as in the editor's set.
+    mol = followLevels(doc, followCharts(doc, followLeaders(doc, followArrows(doc, mol)), env), env);
+    const fitted = settleMeasures(doc, placeCentres(carryDepth(doc, showWarnedHydrogens(mol))));
     const cycled = fitted.cycles?.length ? dropOnCycle(fitted, fragments(fitted), doc, { box: dropBox, bond: s.bond }) : fitted;
     const ordered = onTop(doc, wholeGroups(cycled), fragments);
     // On an experiment page, as the editor's set: details typed on the page go in its record (syncDetails), its risk
     // assessment takes in what was typed in it (syncRisk), and its substances follow the reagent tables (the editor
     // does that a moment after the edit, in the same undo step).
+    // An edit past a limit is not made (the editor's set, limits.ts): the reason is thrown, for the call's error.
+    const over = overLimit(ordered, doc);
+    if (over) throw new RangeError(over);
     const page = expPage() && mol.style === doc.style, before = doc;
     doc = page ? syncRisk(before, syncDetails(before, newGrids(before, ordered), sheet()), sheet()) : ordered;
     if (page && riskGroup(doc)) {
@@ -249,7 +257,7 @@ export function drawing(purpose = "paper", title = "Untitled") {
     try {
       if (format === "cdxml") return cdxml();
       if (format === "cdx") return toBase64(xmlToCdx(parseXml(cdxml())));
-      if (format === "chemfig") { const d = drawn(m); return chemfig(m, d.frame, d.measure, { compact: o?.compact }).code || undefined; }
+      if (format === "chemfig") { const d = drawn(m), r = chemfig(m, d.frame, d.measure, { compact: o?.compact }); if (r.code && r.notice) o?.note?.(r.notice); return r.code || undefined; }
       const chem = withCaptionAtoms(m, style().interpret).mol;
       if (!chem.atoms.length) return undefined;
       // NMReDATA as Export writes it, with the panel's default frequency and solvent (no shift tables here, so no prediction).
@@ -342,6 +350,20 @@ export function drawing(purpose = "paper", title = "Untitled") {
     cleanReactions: (ids) => cleanReactions((r) => r.arrows.some((id) => ids.has(id))),
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) set(spread(doc, c)); },
     command: (id) => COMMANDS[id]?.() ?? false,
+    // No network here: PubChem is never asked, and nothing has been found.
+    online: async () => "Search runs in the Octet app.", found: () => ({}),
+    nmredata: async () => false, // (no spectra here: an NMReDATA file adds its structures alone)
+    stereoNames: () => ({}), // Settings' D/L and steroid names are off by default
+    anchor: () => undefined, // no user's choices here: a template attaches by its own first atom or bond
+    // Structure to Name: each structure Octet can name gets its name under it, once (as the editor's nameStructures).
+    names: async () => {
+      let m = doc;
+      for (const g of fragments(doc)) {
+        const name = host.name(pickAtoms(doc, g));
+        if (name && !m.captions?.some((c) => c.text === name && c.under?.some((i) => g.includes(i)))) m = addCaption(m, { text: name, x: 0, y: 0, under: g })[0];
+      }
+      if (m !== doc) set(m);
+    },
     act: (id) => COMMANDS[id]?.() ?? ringFill(id), // the Actions panel's actions need the editor: a menu command or Ring fill here, else nothing
     map: (reactants, products) => mapReaction(reactants, products),
     newWindow: () => false,

@@ -412,7 +412,7 @@ assert.match(editor, /copy_nmredata: \(\) => void copyNmredata\(\),/);
 assert.match(editor, /copy_nmredata: \["Copy as NMReDATA", "", /);
 assert.match(src("export.ts"), /\["nmredata", "NMReDATA"\]/);
 assert.match(exp, /\("nmredata", "NMReDATA", &\["sdf", "sd"\]\),/);
-assert.match(src("mcp.ts"), /"chemfig", "nmredata", "pdf"/);
+assert.match(src("mcp.ts"), /"chemfig", "nmredata", "eln", "pdf"/);
 // Every way in: File > Import, Open (readFile), a drop, both pastes.
 assert.match(editor, /if \(!ct && isNmredata\(picked\[1\]\)\) return void \(await insertNmredata\(picked\[1\], fileName\(picked\[0\]\)\)\);/);
 assert.match(editor, /if \(isNmredata\(text\)\) \{\n\s+let r: ReturnType<typeof nmredataDrawing>;/);

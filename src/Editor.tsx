@@ -163,7 +163,7 @@ import { followArrows, MARK_KEY, markIn, tieable, tieAt, withTies } from "./arro
 import { cellText as gridText, emptyRows, GRID_ROWS, gridStep, gridTsv, gridViews as gridViewsOf, keptGrid, keepPlace, movedAt, staticTable, rowOf as gridRowOf, setRole, shiftView, shownCell, stepGrids, TABLE, tableOf } from "./gridview";
 import { logError } from "./crashlog";
 import { readGap, sideReach, slotFor, takesConditions, type Slot as ArrowSlot } from "./conditions";
-import { handle as handleMcp, type Host as McpHost } from "./mcp";
+import { handle as handleMcp, type Found as McpFound, type Host as McpHost } from "./mcp";
 import { LINGER } from "./magic";
 import { McpMagic, PictureDemo, type Magic } from "./McpMagic";
 import { AiCard } from "./AiCard";
@@ -1283,7 +1283,7 @@ export default function Editor() {
     try { const r = seqBuilt({ build: text, labels: (m.style?.sequences ?? (settings.sequenceLabels ? "labels" : "atoms")) === "labels", own: ownMonomers }); return r && !("problem" in r) ? r : undefined; } catch { return undefined; }
   };
   // Whether set refused the last edit it was given (overLimit): what an edit adds is then not selected.
-  const refused = useRef(false);
+  const refused = useRef<string | undefined>(undefined); // why the last set was not made (a limit), else none
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current, drop: boolean | "placed" = true, opened = false) => {
     // A page spectrum's label moved takes its leader with it (followLeaders), a number or a name typed over a chart's
     // is the chart's data (followCharts), and a Jablonski diagram's level or transition moved is its data, so its
@@ -1307,7 +1307,7 @@ export default function Editor() {
     // made, so every drawing saves and opens again whole (docs/plans/long-text.md, limits.ts). Each limit on its own: a
     // drawing opened past one (another program's) takes any edit that does not make that count larger.
     const over = opened ? undefined : overLimit(risked, doc);
-    refused.current = !!over;
+    refused.current = over;
     if (over) { setNotice(over, "info"); return doc; }
     lastSet.current = risked;
     dispatch({ type: "set", mol: risked, merge });
@@ -1874,7 +1874,7 @@ export default function Editor() {
   // The drawing or the selection comes with its reactions as schemes and its R/S and E/Z labels where Show
   // Stereochemistry shows them; another part (an AI app's ids) with neither.
   const chemfigOf = (mol: Mol, compact = settings.chemfigCompact) => {
-    const own = mol === doc || mol === selectedPart(), labels = own && loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined;
+    const own = mol === doc || mol === selectedPart() || !!partSel.current, labels = own && loaded && mol.atoms.some((a) => a.cip) ? stereoLabels(mol) : undefined;
     return chemfig(mol, frame, measure, { compact, schemes: own ? schemesIn(mol) : undefined, stereo: labels && { ...labels, parens: settings.stereoParens } });
   };
   // File > More Formats > Export LaTeX (chemfig)…: the selection, or the whole drawing, as chemfig code in a .tex file.
@@ -4810,7 +4810,10 @@ export default function Editor() {
   // reaction SMILES: each step's reactant, product and agent structures, by the part's atoms. A step needs a reactant
   // and a product structure, and all of it in the part.
   // whole: the part is the drawing (with its chemical captions as atoms after the drawing's own: withCaptionAtoms).
-  const partAtoms = (part: Mol, whole = part === doc) => (whole ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k])));
+  // The atoms a part of the drawing is made of, in the drawing: the selection's, or those an AI app's read named
+  // (partSel, while its file is written).
+  const partAtoms = (part: Mol, whole = part === doc) => (whole ? undefined : new Map([...(partSel.current ?? selection)].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k])));
+  const partSel = useRef<Set<number>>(undefined);
   const stepsIn = (part: Mol, whole = part === doc): RxnStep[] => {
     const at = partAtoms(part, whole);
     return reactions().flatMap(({ steps }) => steps).map((s) => ({ reactants: structureAtoms(s.reactants), products: structureAtoms(s.products), agents: structureAtoms([...s.above, ...s.below]) }))
@@ -4822,7 +4825,7 @@ export default function Editor() {
   // its text, plus signs and arrows. A reaction comes only when its row is all in the part; a condition that is not in
   // the part is left out. From konokonekonoko's pull request 127.
   const schemesIn = (part: Mol): Scheme[] => {
-    const at = part === doc ? undefined : new Map([...selection].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
+    const at = part === doc ? undefined : new Map([...(partSel.current ?? selection)].filter((i) => i < doc.atoms.length).sort((p, q) => p - q).map((i, k) => [i, k]));
     const ids = new Set([...(part.captions ?? []).map((c) => c.id), ...(part.arrows ?? []).map((a) => a.id), ...(part.shapes ?? []).map((x) => x.id)]);
     const item = (p: Step): SchemeItem | undefined => {
       if (p.kind === "text") return ids.has(p.id) ? { caption: p.id } : undefined;
@@ -9081,6 +9084,15 @@ export default function Editor() {
   const found = useMemo(() => (exporting || !settings.warnings ? [] : onCaptions(problems(chem.mol, stereoOf(doc)), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type))), [doc, chem, exporting, settings.warnings, settings.warningTypes, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   // Every problem, those on objects with their warnings hidden too (for Check Structure), of the kinds switched on.
   const allProblems = () => onCaptions(problems(chem.mol, stereoOf(doc), true), doc.atoms.length, chem.captions).filter((p) => warnOn(p.type));
+  // What Find hazards and Find suppliers have found for a key, as an AI app reads it (mcp.ts Found): null where PubChem
+  // has none, nothing where it was not asked.
+  const mcpFound = (key: string) => {
+    const g = ghsFound.current.get(key), sp = suppliersFound.current.get(key);
+    return {
+      ...(ghsFound.current.has(key) ? { hazards: g ? { pictograms: g.pictograms, ...(g.signal ? { signal: g.signal } : {}), codes: g.hazards.map((h) => /^H\d{3}[A-Za-z]*/.exec(h)?.[0] ?? h).slice(0, 40) } : null } : {}),
+      ...(suppliersFound.current.has(key) ? { suppliers: sp ? sp.suppliers.map((x) => ({ name: x.name, url: x.url })) : null } : {}),
+    };
+  };
   // AI apps (mcp.ts, decision 0021): what their tools do in this drawing, made again each time it draws. drawn: the
   // drawing this one shows, so a tool can wait until what it set is drawn and measured (settle).
   mcpHost.current = {
@@ -9097,7 +9109,8 @@ export default function Editor() {
     begin: (step) => { joinNext.current = step; mcpCalling.current = true; if (home) setHome(false); },
     end: (made) => { joinNext.current = undefined; mcpCalling.current = false; if (made) panTo([made[0] * L, -made[3] * L, made[2] * L, -made[1] * L]); },
     // The drawing set is the drawing from now on (doc), before React draws it: a tool reads it back at once.
-    set: (m) => (now.current = (mcpWait.current = { mol: set(m) }).mol!),
+    // An edit past a limit is not made: the call gets the reason as its error, and mcp.ts keeps the drawing as it was.
+    set: (m) => { const made = set(m); if (refused.current) throw new RangeError(refused.current); return (now.current = (mcpWait.current = { mol: made }).mol!); },
     // A message to itself is a task the browser runs at once, where a timer in a window behind others can wait a second.
     settle: async () => {
       // A call's changes do not glide (glideTo), so a settle waits only for the drawing to be drawn.
@@ -9111,6 +9124,27 @@ export default function Editor() {
     cleanReactions: (ids) => { const laid = cleanReactions(doc, (r) => r.arrows.some((id) => ids.has(id))); if (laid.count) { mcpWait.current = { after: mcpRenders.current }; glideTo(laid.mol); } return laid.count; },
     tidyCycle: (id) => { const c = doc.cycles?.find((x) => x.id === id); if (c) { mcpWait.current = { after: mcpRenders.current }; glideTo(spread(doc, c)); } },
     libreoffice: () => addToLibreOffice(),
+    names: () => nameStructures(),
+    anchor: (kind) => anchorFor(kind),
+    stereoNames: () => ({ dl: settings.dlNames, steroid: settings.steroidNames }),
+    nmredata: async (text) => { if (!isNmredata(text)) return false; await insertNmredata(text, "the file"); return true; },
+    // PubChem's hazards or suppliers for each structure, asked as Find hazards and Find suppliers ask (once a session
+    // each, kept while the window is open), awaited, with no window of their own.
+    online: async (kind, parts) => {
+      if (!TAURI) return "Search runs in the Octet app.";
+      if (!settings.onlineSearch) return `${offNotice(kind)} Ask the user to turn it on.`;
+      const out: (McpFound | null | string)[] = [];
+      for (const part of parts) {
+        const key = (() => { try { return toInchiKey(part) || undefined; } catch { return undefined; } })();
+        if (!key) { out.push(NO_KEY); continue; }
+        const why = kind === "hazards" ? await askHazards(key) : supplierKept.has(key) ? undefined : await askSuppliers(key);
+        const f = mcpFound(key);
+        out.push(why ? failedNotice(why) : kind === "hazards" ? (f.hazards === null ? null : f) : f.suppliers === null ? null : f);
+      }
+      return out;
+    },
+    // (A read works out no key while nothing has been found: it costs a read nothing.)
+    found: (part) => { if (!ghsFound.current.size && !suppliersFound.current.size) return {}; try { const key = toInchiKey(part); return key ? mcpFound(key) : {}; } catch { return {}; } },
     command: (id) => { const run = commands.current[id], was = turnNext.current; if (!run || modal()) return false; mcpWait.current = { after: mcpRenders.current }; run(); if (turnNext.current && turnNext.current !== was) turnNext.current.call = true; return true; },
     // Any menu command or Actions panel action by its id, on the selection (run_command): mcp.ts checks the id
     // against its catalogue first.
@@ -9125,12 +9159,18 @@ export default function Editor() {
     // with its settings and the options given (in base64; an SVG as text). Nothing is saved.
     fileText: async (format, part, o = {}) => {
       const mol = part ?? now.current;
-      if (format === "chemfig") return chemfigOf(mol, o.compact).code || undefined;
+      // A part named by ids is its atoms in the drawing, as a selection is, for its reactions, tables and schemes.
+      const own = <T,>(f: () => T): T => { partSel.current = part && o.atoms ? new Set(o.atoms) : undefined; try { return f(); } finally { partSel.current = undefined; } };
+      if (format === "chemfig") { const r = own(() => chemfigOf(mol, o.compact)); if (r.code && r.notice) o.note?.(r.notice); return r.code || undefined; }
       if (format === "nmredata") return (await nmredataPart(mol))?.text;
-      if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return formatOf(mol, format as PartFormat);
+      // File > More Formats > Export ELN Archive's zip, in base64.
+      if (format === "eln") { const files = own(() => ({ oct: formatOf(mol, "oct"), cdxml: formatOf(mol, "cdxml"), rdf: formatOf(mol, "rdf"), sdf: formatOf(mol, "sdf") })); return mol.atoms.length || mol.captions?.length || mol.arrows?.length ? invoke<string>("export_bytes", { export: { format: "eln", eln: elnArchive(name, now.current, files) } }) : undefined; }
+      if (!PICTURES.includes(format as ExportFormat) && format !== "bmp") return own(() => formatOf(mol, format as PartFormat));
       const svg = pictureOf(mol), f = { ...filePrefs, format: format as ExportFormat, ...(o.dpi ? { dpi: o.dpi } : {}), ...(o.transparent !== undefined ? { background: o.transparent ? "transparent" as const : "white" as const } : {}), width: o.width_mm };
-      // An experiment page's PDF is its pages, as Export gives them: the experiment, then its risk assessment.
-      const sheets = format === "pdf" && !part && expPage ? pagePictures(mol) : undefined;
+      // A PDF of all its pages, as Export's Pages gives them (the user's choice unless pages says): an experiment page's
+      // are the experiment, then its risk assessment.
+      const paged = format === "pdf" && (o.pages ? o.pages === "all" : (!part && expPage) || filePrefs.pdfPages === "document"), sheets = paged ? pagePictures(mol) : undefined;
+      if (paged && !sheets) { o.note?.(`The drawing covers more than ${MAX_PRINT_PAGES} pages: give pages one, or move the drawing nearer to the page.`); return undefined; }
       const file = svg && (await invoke<string>("export_bytes", { export: { ...exportRequest(mol, sheets ? undefined : svg, f), pages: sheets?.texts } }));
       return file && format === "svg" ? new TextDecoder().decode(fromBase64(file)) : file;
     },

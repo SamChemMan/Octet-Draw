@@ -788,12 +788,12 @@ browser();
 {
   const editor = readFileSync(new URL("Editor.tsx", import.meta.url), "utf8"), rust = readFileSync(new URL("../src-tauri/src/export.rs", import.meta.url), "utf8");
   assert.match(editor, /\["more_chemfig", "Export LaTeX \(chemfig\)…", <BracketsCurly size=\{18\} \/>, \(\) => checkFirst\(\(\) => void exportChemfig\(\)\)\],\n\s+\["more_chemfig_copy", "Copy as LaTeX \(chemfig\)", <CodeBlock size=\{18\} \/>, \(\) => copyChemfig\(\)\],/);
-  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\), labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
+  assert.match(editor, /const chemfigOf = \(mol: Mol, compact = settings\.chemfigCompact\) => \{\n\s+const own = mol === doc \|\| mol === selectedPart\(\) \|\| !!partSel\.current, labels = own && loaded && mol\.atoms\.some\(\(a\) => a\.cip\) \? stereoLabels\(mol\) : undefined;\n\s+return chemfig\(mol, frame, measure, \{ compact, schemes: own \? schemesIn\(mol\) : undefined, stereo: labels && \{ \.\.\.labels, parens: settings\.stereoParens \} \}\);/);
   assert.equal((editor.match(/chemfig\(mol, frame, measure/g) ?? []).length, 1, "one writer path in the app");
   // The drawing or the selection gives its reactions as schemes; E and Z go where the page puts them.
   assert.match(editor, /const schemesIn = \(part: Mol\): Scheme\[\] => \{[^]*?return reactions\(\)\.flatMap\(/);
   assert.match(editor, /stereoSpot\(shown\.bonds, b, /);
-  assert.match(editor, /if \(format === "chemfig"\) return chemfigOf\(mol, o\.compact\)\.code \|\| undefined;/);
+  assert.match(editor, /if \(format === "chemfig"\) \{ const r = own\(\(\) => chemfigOf\(mol, o\.compact\)\); if \(r\.code && r\.notice\) o\.note\?\.\(r\.notice\); return r\.code \|\| undefined; \}/);
   assert.match(rust, /\("tex", "LaTeX \(chemfig\)", &\["tex"\]\)/);
   assert.match(editor, /const \{ code, notice \} = chemfigOf\(selectedPart\(\) \?\? doc\);[\s\S]{0,200}exportAs\(\(\) => \(\{ format: "tex", tex: code \}\)/);
   assert.match(editor, /async function exportAs\([^]*?const path = await exportFile\(\{ name, \.\.\.r \}\);\n\s+if \(path\) saved\(path, text\?\.\(path\)\);/);
@@ -803,7 +803,7 @@ browser();
   assert.match(settings, /chemfigCompact: saved\.chemfigCompact === true,/);
   assert.match(window, /\.\.\.\(p\.moreFormats \? \[d\("pro", "File menu", "Compact chemfig code", "[^"]*", <Switch on=\{p\.chemfigCompact\} label="Compact chemfig code" onChange=\{p\.onChemfigCompact\} \/>\)\] : \[\]\)/);
   const host = readFileSync(new URL("../scripts/headless/host.ts", import.meta.url), "utf8");
-  assert.match(host, /if \(format === "chemfig"\) \{ const d = drawn\(m\); return chemfig\(m, d\.frame, d\.measure, \{ compact: o\?\.compact \}\)\.code \|\| undefined; \}/);
+  assert.match(host, /if \(format === "chemfig"\) \{ const d = drawn\(m\), r = chemfig\(m, d\.frame, d\.measure, \{ compact: o\?\.compact \}\); if \(r\.code && r\.notice\) o\?\.note\?\.\(r\.notice\); return r\.code \|\| undefined; \}/);
 }
 
 // ---- A LaTeX file of everything above; compiled where pdflatex is ----

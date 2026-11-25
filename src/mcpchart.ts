@@ -95,6 +95,8 @@ export function placeChart(m: Mol, c: Chart, env: PlotEnv, at: P): { mol: Mol; g
   const [mol, items] = placePlot(m, { ...c, origin: [at[0] - box[0], at[1] - box[3]] }, env, fig);
   return { mol, group: mol.groups?.find((g) => g.plot && g.items.includes(items[0]))?.id ?? -1, items };
 }
+// The chart a part is in (its id, t5 or a7), as its group.
+export const chartOf = (m: Mol, id: string): Group | undefined => { const n = Number(/^[tab](\d+)$/.exec(id)?.[1]); return Number.isInteger(n) ? m.groups?.find((g) => g.plot && isChart(g.plot) && g.items.includes(n)) : undefined; };
 // A part of a chart by its role, as an id.
 function partsOf(m: Mol, g: Group) {
   const ids = new Set(g.items), by = new Map<string, string>();
