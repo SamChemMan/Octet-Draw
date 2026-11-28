@@ -23,7 +23,8 @@ function time(f: () => unknown, batches = 5): number {
     const used = process.cpuUsage(), t0 = performance.now();
     do { f(); n++; } while (performance.now() - t0 < 10);
     const took = performance.now() - t0, cpu = process.cpuUsage(used);
-    best = Math.min(best, Math.min(took, (cpu.user + cpu.system) / 1000) / n);
+    const cpuMs = (cpu.user + cpu.system) / 1000;
+    best = Math.min(best, (cpuMs > 0 ? Math.min(took, cpuMs) : took) / n);
   }
   return best;
 }
